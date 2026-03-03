@@ -1,0 +1,118 @@
+digraph architecture {
+  rankdir=TB
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=box style="filled,rounded" fontname="monospace" fontsize=10 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  // External data source
+  subgraph cluster_claude {
+    label="~/.claude/"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    jsonl [label="*.jsonl\nsession files\n(3GB+)" fillcolor="#2a2a4a"]
+    sessions_idx [label="sessions-index.json\nper project" fillcolor="#2a2a4a"]
+    history [label="history.jsonl" fillcolor="#2a2a4a"]
+  }
+
+  // Ingestion layer
+  subgraph cluster_ingest {
+    label="Ingestion"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    ingest_api [label="/api/ingest\nPOST trigger" fillcolor="#1a3a2a"]
+    ingest_fn [label="ingestAll()\nbyte-offset tracking\nbatch INSERT" fillcolor="#1a3a2a"]
+    threshold_check [label="checkThresholds()\nalert generation" fillcolor="#3a1a1a"]
+  }
+
+  // Storage
+  subgraph cluster_db {
+    label="SQLite (WAL mode)\n~/.claude/sexy_logger.db"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    db [label="better-sqlite3\nprojects | sessions | messages\ncontent_blocks | usage_minutes\nalerts | alert_thresholds\ningest_offsets" fillcolor="#2a2a4a" shape=cylinder]
+  }
+
+  // API layer
+  subgraph cluster_api {
+    label="Next.js API Routes"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    api_projects [label="/api/projects\nlist + metadata + activity" fillcolor="#1a2a3a"]
+    api_sessions [label="/api/sessions/[id]\nfull session replay" fillcolor="#1a2a3a"]
+    api_thinking [label="/api/thinking\ncross-project search" fillcolor="#1a2a3a"]
+    api_logs [label="/api/logs\nraw JSONL browse" fillcolor="#1a2a3a"]
+    api_tokens [label="/api/tokens\nmodel token stats" fillcolor="#1a2a3a"]
+    api_usage [label="/api/usage\ntimeline + breakdown" fillcolor="#1a2a3a"]
+    api_alerts [label="/api/alerts\nthreshold breaches" fillcolor="#1a2a3a"]
+    api_stats [label="/api/stats\naggregated metrics" fillcolor="#1a2a3a"]
+    api_live [label="/api/live\nSSE stream" fillcolor="#3a2a1a"]
+  }
+
+  // Frontend
+  subgraph cluster_ui {
+    label="React Pages (App Router)"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    pg_dash [label="/ Dashboard" fillcolor="#2a1a3a"]
+    pg_projects [label="/projects\ngrid + drill-down" fillcolor="#2a1a3a"]
+    pg_session [label="/projects/[p]/[s]\nmessage viewer" fillcolor="#2a1a3a"]
+    pg_thinking [label="/thinking\nstream browser" fillcolor="#2a1a3a"]
+    pg_logs [label="/logs\nraw log viewer" fillcolor="#2a1a3a"]
+    pg_tokens [label="/tokens\nmodel breakdown" fillcolor="#2a1a3a"]
+    pg_usage [label="/usage\nmonitor + alerts" fillcolor="#2a1a3a"]
+    pg_live [label="/live\nreal-time tail" fillcolor="#2a1a3a"]
+  }
+
+  // Shared component
+  page_context [label="PageContext\nreverse RAG\n(uncloseai.js)" fillcolor="#3a3a1a" shape=component]
+
+  // Data flows
+  jsonl -> ingest_fn [label="stream\nreadline"]
+  sessions_idx -> ingest_fn [label="session\nmeta"]
+  ingest_api -> ingest_fn
+  ingest_fn -> db [label="INSERT OR IGNORE\nbatch txn"]
+  ingest_fn -> threshold_check
+  threshold_check -> db [label="alert\nINSERT"]
+
+  // Direct JSONL reads (no DB)
+  jsonl -> api_thinking [label="direct\nJSONL scan" style=dashed]
+  jsonl -> api_logs [label="direct\nJSONL scan" style=dashed]
+  jsonl -> api_live [label="fs.watch +\ntail bytes" style=dashed]
+  jsonl -> api_sessions [label="streamJsonl()" style=dashed]
+  sessions_idx -> api_projects [label="session\nindex" style=dashed]
+
+  // DB reads
+  db -> api_usage [label="usage_minutes\nalerts"]
+  db -> api_alerts [label="alerts\nthresholds"]
+  db -> api_tokens [label="messages\ntoken sums"]
+  db -> api_stats [label="aggregates"]
+  db -> api_projects [label="project\nactivity" style=dotted]
+
+  // Page -> API
+  pg_dash -> api_stats
+  pg_projects -> api_projects
+  pg_session -> api_sessions
+  pg_thinking -> api_thinking
+  pg_logs -> api_logs
+  pg_tokens -> api_tokens
+  pg_usage -> api_usage
+  pg_usage -> api_alerts
+  pg_live -> api_live
+
+  // PageContext on every page
+  pg_dash -> page_context [style=dotted color="#666633"]
+  pg_projects -> page_context [style=dotted color="#666633"]
+  pg_thinking -> page_context [style=dotted color="#666633"]
+  pg_usage -> page_context [style=dotted color="#666633"]
+}

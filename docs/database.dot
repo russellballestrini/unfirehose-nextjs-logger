@@ -1,0 +1,125 @@
+digraph database {
+  rankdir=TB
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=record style=filled fontname="monospace" fontsize=9 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  projects [fillcolor="#1a3a2a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>projects</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">name</TD><TD ALIGN="LEFT">TEXT UNIQUE</TD></TR>
+    <TR><TD ALIGN="LEFT">display_name</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">path</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">first_seen</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    </TABLE>
+  >]
+
+  sessions [fillcolor="#1a2a3a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>sessions</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">session_uuid</TD><TD ALIGN="LEFT">TEXT UNIQUE</TD></TR>
+    <TR><TD ALIGN="LEFT">project_id</TD><TD ALIGN="LEFT">FK projects</TD></TR>
+    <TR><TD ALIGN="LEFT">git_branch</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">first_prompt</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">cli_version</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">created_at</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">updated_at</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">is_sidechain</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  messages [fillcolor="#2a2a4a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>messages</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">session_id</TD><TD ALIGN="LEFT">FK sessions</TD></TR>
+    <TR><TD ALIGN="LEFT">message_uuid</TD><TD ALIGN="LEFT">TEXT (UNIQUE WHERE NOT NULL)</TD></TR>
+    <TR><TD ALIGN="LEFT">parent_uuid</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">type</TD><TD ALIGN="LEFT">user / assistant / system</TD></TR>
+    <TR><TD ALIGN="LEFT">subtype</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">timestamp</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">model</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">input_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">output_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">cache_read_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">cache_creation_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">duration_ms</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">is_sidechain</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  content_blocks [fillcolor="#3a2a1a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>content_blocks</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">message_id</TD><TD ALIGN="LEFT">FK messages</TD></TR>
+    <TR><TD ALIGN="LEFT">position</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">block_type</TD><TD ALIGN="LEFT">text / thinking / tool_use / tool_result</TD></TR>
+    <TR><TD ALIGN="LEFT">text_content</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">tool_name</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">tool_input</TD><TD ALIGN="LEFT">TEXT (JSON)</TD></TR>
+    <TR><TD ALIGN="LEFT">tool_use_id</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">is_error</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  usage_minutes [fillcolor="#3a1a2a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>usage_minutes</B></TD></TR>
+    <TR><TD ALIGN="LEFT">minute</TD><TD ALIGN="LEFT">TEXT PK</TD></TR>
+    <TR><TD ALIGN="LEFT">project_id</TD><TD ALIGN="LEFT">FK projects PK</TD></TR>
+    <TR><TD ALIGN="LEFT">input_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">output_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">cache_read_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">cache_creation_tokens</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">message_count</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  alerts [fillcolor="#3a1a1a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>alerts</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">triggered_at</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">alert_type</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">window_minutes</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">metric</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">threshold_value</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">actual_value</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">project_name</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">acknowledged</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  alert_thresholds [fillcolor="#2a1a3a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>alert_thresholds</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">window_minutes</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">metric</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">threshold_value</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">enabled</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  ingest_offsets [fillcolor="#1a1a3a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>ingest_offsets</B></TD></TR>
+    <TR><TD ALIGN="LEFT">file_path</TD><TD ALIGN="LEFT">TEXT PK</TD></TR>
+    <TR><TD ALIGN="LEFT">byte_offset</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">last_ingested</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    </TABLE>
+  >]
+
+  // Relationships
+  projects -> sessions [label="1:N" headlabel="" taillabel=""]
+  sessions -> messages [label="1:N"]
+  messages -> content_blocks [label="1:N"]
+  projects -> usage_minutes [label="1:N"]
+
+  // Threshold -> Alert (conceptual)
+  alert_thresholds -> alerts [label="triggers" style=dashed]
+}

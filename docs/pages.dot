@@ -1,0 +1,86 @@
+digraph pages {
+  rankdir=TB
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=box style="filled,rounded" fontname="monospace" fontsize=9 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  // Layout
+  sidebar [label="Sidebar\nnavigation\n8 routes" fillcolor="#2a2a4a" shape=component]
+
+  // Pages
+  subgraph cluster_pages {
+    label="Pages"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    dash [label="/\nDashboard\naggregated stats\nchart overview" fillcolor="#2a1a3a"]
+    live [label="/live\nLive Tail\nSSE real-time\nhot sessions" fillcolor="#3a2a1a"]
+    projects [label="/projects\nProject Grid\n47 projects\ncost + activity" fillcolor="#1a3a2a"]
+    project_detail [label="/projects/[p]\nSession List\nper project" fillcolor="#1a3a2a"]
+    session [label="/projects/[p]/[s]\nSession Viewer\nfull message replay" fillcolor="#1a3a2a"]
+    thinking [label="/thinking\nThinking Stream\n1k/10k per page\ncross-project" fillcolor="#2a1a3a"]
+    logs [label="/logs\nAll Logs\nraw JSONL" fillcolor="#1a2a3a"]
+    tokens [label="/tokens\nToken Stats\nmodel breakdown" fillcolor="#1a2a3a"]
+    usage [label="/usage\nUsage Monitor\ntimeline + alerts\nper-project cost" fillcolor="#3a1a2a"]
+    alert [label="/usage/alert/[id]\nAlert Drill-down\ntimeline + prompts\nthinking blocks" fillcolor="#3a1a1a"]
+    styleguide [label="/styleguide\nComponent Ref\ncolor tokens" fillcolor="#1a1a3a"]
+  }
+
+  // API dependencies
+  subgraph cluster_apis {
+    label="API Routes"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    a_stats [label="/api/stats" fillcolor="#1a2a3a"]
+    a_live [label="/api/live (SSE)" fillcolor="#3a2a1a"]
+    a_projects [label="/api/projects" fillcolor="#1a2a3a"]
+    a_proj_meta [label="/api/projects/metadata" fillcolor="#1a2a3a"]
+    a_proj_act [label="/api/projects/activity" fillcolor="#1a2a3a"]
+    a_sessions [label="/api/projects/[p]/sessions" fillcolor="#1a2a3a"]
+    a_session [label="/api/sessions/[id]" fillcolor="#1a2a3a"]
+    a_thinking [label="/api/thinking" fillcolor="#1a2a3a"]
+    a_logs [label="/api/logs" fillcolor="#1a2a3a"]
+    a_tokens [label="/api/tokens" fillcolor="#1a2a3a"]
+    a_usage [label="/api/usage" fillcolor="#1a2a3a"]
+    a_alerts [label="/api/alerts" fillcolor="#1a2a3a"]
+    a_alert [label="/api/alerts/[id]" fillcolor="#1a2a3a"]
+    a_ingest [label="/api/ingest (POST)" fillcolor="#1a3a2a"]
+  }
+
+  // Sidebar -> pages
+  sidebar -> dash
+  sidebar -> live
+  sidebar -> projects
+  sidebar -> thinking
+  sidebar -> logs
+  sidebar -> tokens
+  sidebar -> usage
+  sidebar -> styleguide
+
+  // Page navigation
+  projects -> project_detail [label="click\nproject"]
+  project_detail -> session [label="click\nsession"]
+  usage -> alert [label="click\nalert"]
+
+  // Page -> API
+  dash -> a_stats
+  live -> a_live
+  projects -> a_projects
+  projects -> a_proj_act
+  project_detail -> a_sessions
+  session -> a_session
+  thinking -> a_thinking
+  logs -> a_logs
+  tokens -> a_tokens
+  usage -> a_usage
+  usage -> a_alerts
+  alert -> a_alert
+
+  // Detail panel APIs
+  projects -> a_proj_meta [style=dashed label="expand\ncard"]
+  projects -> a_proj_act [style=dashed label="recent\nprompts"]
+}

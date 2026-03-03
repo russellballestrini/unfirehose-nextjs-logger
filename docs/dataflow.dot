@@ -1,0 +1,95 @@
+digraph dataflow {
+  rankdir=LR
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=box style="filled,rounded" fontname="monospace" fontsize=9 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  // Sources
+  subgraph cluster_source {
+    label="Data Sources"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    claude_code [label="Claude Code CLI\nagent sessions" fillcolor="#3a3a1a" shape=hexagon]
+  }
+
+  // Raw files
+  subgraph cluster_files {
+    label="~/.claude/projects/"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    jsonl_files [label="*.jsonl\nper session\nappend-only" fillcolor="#2a2a4a"]
+    index_files [label="sessions-index.json\nper project\nClaude manages" fillcolor="#2a2a4a"]
+  }
+
+  // Two read paths
+  subgraph cluster_direct {
+    label="Direct Read Path\n(real-time, no DB)"
+    style=dashed
+    color="#336633"
+    fontcolor="#669966"
+
+    stream_jsonl [label="streamJsonl()\nasync generator\ntype filter" fillcolor="#1a3a2a"]
+    fs_watch [label="fs.watch()\n+ 2s poll fallback" fillcolor="#1a3a2a"]
+    byte_tail [label="readNewLines()\nfromByte offset" fillcolor="#1a3a2a"]
+  }
+
+  subgraph cluster_ingest_path {
+    label="Ingestion Path\n(batch, normalized)"
+    style=dashed
+    color="#333366"
+    fontcolor="#666699"
+
+    ingest [label="ingestAll()\nbyte offset tracking\n500-line batch txn" fillcolor="#1a2a3a"]
+    normalize [label="normalize\nmessages → blocks\nusage → minutes" fillcolor="#1a2a3a"]
+    dedup [label="INSERT OR IGNORE\nuuid dedup index" fillcolor="#1a2a3a"]
+  }
+
+  // Storage
+  sqlite [label="SQLite\nWAL mode\n~253MB" fillcolor="#2a2a4a" shape=cylinder]
+
+  // Outputs
+  subgraph cluster_output {
+    label="Consumer Paths"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    sse [label="SSE\n/api/live\nreal-time events" fillcolor="#3a2a1a"]
+    rest [label="REST JSON\n/api/*\nSWR cached" fillcolor="#1a2a3a"]
+    thinking_scan [label="Thinking Scan\ncross-project\nJSONL direct" fillcolor="#2a1a3a"]
+  }
+
+  // Browser
+  browser [label="React SPA\nuseSWR\nEventSource" fillcolor="#2a1a3a" shape=component]
+
+  // Flow
+  claude_code -> jsonl_files [label="append\nper turn"]
+  claude_code -> index_files [label="update\nmetadata"]
+
+  // Direct path
+  jsonl_files -> stream_jsonl [label="async\niterate"]
+  jsonl_files -> fs_watch [label="watch\nchanges"]
+  jsonl_files -> byte_tail [label="tail\nnew bytes"]
+  stream_jsonl -> thinking_scan
+  stream_jsonl -> rest [label="session\nreplay"]
+  fs_watch -> byte_tail [label="trigger"]
+  byte_tail -> sse [label="new\nentries"]
+
+  // Ingest path
+  jsonl_files -> ingest [label="createReadStream\nfrom offset"]
+  index_files -> ingest [label="session\nmeta"]
+  ingest -> normalize -> dedup -> sqlite
+
+  // DB to API
+  sqlite -> rest [label="prepared\nstatements"]
+
+  // To browser
+  sse -> browser [label="EventSource"]
+  rest -> browser [label="fetch/SWR"]
+  thinking_scan -> browser [label="fetch/SWR"]
+}
