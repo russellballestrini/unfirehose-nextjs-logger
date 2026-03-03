@@ -7,27 +7,79 @@ import { PageContext } from '@/components/PageContext';
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const PLANS = [
-  { value: '', label: 'Select your plan...' },
-  { value: 'free', label: 'Free', desc: 'Light usage, conservative alerts' },
-  { value: 'starter', label: 'Starter ($14/mo)', desc: 'Individual usage, balanced alerts' },
-  { value: 'pro', label: 'Pro ($69/mo)', desc: 'Power user, relaxed alerts' },
-  { value: 'max', label: 'Max ($149/mo)', desc: 'Heavy multi-agent, high thresholds' },
-  { value: 'ultra', label: 'Ultra ($420/mo)', desc: 'Maximum capacity, highest thresholds' },
+  {
+    value: '',
+    label: 'Select a plan...',
+    features: [],
+  },
+  {
+    value: 'free',
+    label: 'Free',
+    features: ['Local dashboard', 'Session viewer', '7-day scrobble history'],
+  },
+  {
+    value: 'starter',
+    label: 'Starter — $14/mo',
+    features: [
+      'Public coding profile',
+      'Scrobble feed (unlimited history)',
+      'Follow other developers',
+      'Status posts & microblog',
+      '1 custom hose (feed)',
+    ],
+  },
+  {
+    value: 'pro',
+    label: 'Pro — $69/mo',
+    features: [
+      'Everything in Starter',
+      'Unlimited hoses (publish & subscribe)',
+      'Thinking stream (share reasoning)',
+      'Blog / long-form posts',
+      'Project showcases with repo links',
+      'Social analytics',
+      'API access',
+    ],
+  },
+  {
+    value: 'max',
+    label: 'Max — $149/mo',
+    features: [
+      'Everything in Pro',
+      'Team feeds & org profiles',
+      'Priority firehose ingestion',
+      'Custom feed algorithms',
+      'Webhook integrations',
+      'Advanced search across network',
+    ],
+  },
+  {
+    value: 'ultra',
+    label: 'Ultra — $420/mo',
+    features: [
+      'Everything in Max',
+      'White-label embeds',
+      'Unlimited team members',
+      'Dedicated firehose capacity',
+      'Custom hose marketplace',
+      'SLA & priority support',
+    ],
+  },
 ];
 
 const SETTINGS_KEYS = {
-  plan: 'anthropic_plan',
+  plan: 'unfirehose_plan',
+  displayName: 'unfirehose_display_name',
+  handle: 'unfirehose_handle',
+  bio: 'unfirehose_bio',
   firehoseKey: 'unfirehose_api_key',
   firehoseEndpoint: 'unfirehose_endpoint',
   firehoseEnabled: 'unfirehose_enabled',
+  scrobbleEnabled: 'unfirehose_scrobble',
 };
 
 export default function SettingsPage() {
   const { data: settings, mutate } = useSWR('/api/settings', fetcher);
-  const { data: thresholds, mutate: mutateThresholds } = useSWR(
-    '/api/alerts?filter=thresholds',
-    fetcher
-  );
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -45,128 +97,174 @@ export default function SettingsPage() {
         body: JSON.stringify({ action: 'set', key, value }),
       });
       mutate();
-      if (key === SETTINGS_KEYS.plan) mutateThresholds();
       setSaving(false);
-      showToast(`Saved ${key}`);
+      showToast('Saved');
     },
-    [mutate, mutateThresholds]
+    [mutate]
   );
 
   const currentPlan = settings?.[SETTINGS_KEYS.plan] ?? '';
+  const displayName = settings?.[SETTINGS_KEYS.displayName] ?? '';
+  const handle = settings?.[SETTINGS_KEYS.handle] ?? '';
+  const bio = settings?.[SETTINGS_KEYS.bio] ?? '';
   const firehoseKey = settings?.[SETTINGS_KEYS.firehoseKey] ?? '';
   const firehoseEndpoint =
     settings?.[SETTINGS_KEYS.firehoseEndpoint] ?? 'https://api.unfirehose.com';
   const firehoseEnabled = settings?.[SETTINGS_KEYS.firehoseEnabled] === 'true';
+  const scrobbleEnabled = settings?.[SETTINGS_KEYS.scrobbleEnabled] === 'true';
 
-  // Detect plan from historical DB data
   const { data: activity } = useSWR('/api/projects/activity?days=30', fetcher);
-  const estimatedMonthlyCost = activity
-    ? activity.reduce((sum: number, p: { cost_estimate?: number }) => sum + (p.cost_estimate ?? 0), 0)
-    : null;
+  const projectCount = activity?.length ?? 0;
+  const totalPrompts = activity
+    ? activity.reduce((s: number, p: { user_messages?: number }) => s + (p.user_messages ?? 0), 0)
+    : 0;
 
-  const suggestedPlan = estimatedMonthlyCost
-    ? estimatedMonthlyCost > 8000
-      ? 'ultra'
-      : estimatedMonthlyCost > 3000
-        ? 'max'
-        : estimatedMonthlyCost > 1000
-          ? 'pro'
-          : estimatedMonthlyCost > 200
-            ? 'starter'
-            : 'free'
-    : null;
+  const selectedPlanData = PLANS.find((p) => p.value === currentPlan);
 
   return (
     <div className="space-y-6 max-w-2xl">
       <PageContext
         pageType="settings"
-        summary={`Settings page. Plan: ${currentPlan || 'not set'}. Firehose: ${firehoseEnabled ? 'enabled' : 'disabled'}.`}
+        summary={`Settings. Plan: ${currentPlan || 'not set'}. Handle: ${handle || 'not set'}. Scrobble: ${scrobbleEnabled ? 'on' : 'off'}.`}
         metrics={{
           plan: currentPlan || 'unset',
-          firehose_enabled: firehoseEnabled,
-          estimated_monthly_cost: estimatedMonthlyCost,
+          scrobble: scrobbleEnabled,
+          projects: projectCount,
+          total_prompts: totalPrompts,
         }}
       />
 
       <h2 className="text-lg font-bold">Settings</h2>
 
-      {/* Toast */}
       {toast && (
         <div className="fixed top-4 right-4 bg-[var(--color-accent)] text-black px-4 py-2 rounded text-sm font-bold z-50">
           {toast}
         </div>
       )}
 
-      {/* Anthropic Plan */}
+      {/* Profile */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <h3 className="text-sm font-bold text-[var(--color-muted)]">Anthropic Plan</h3>
+        <h3 className="text-sm font-bold text-[var(--color-muted)]">Profile</h3>
 
-        {/* Auto-detection hint */}
-        {suggestedPlan && !currentPlan && (
-          <div className="bg-[var(--color-background)] border border-[var(--color-accent)] rounded p-3 text-sm">
-            <span className="text-[var(--color-accent)] font-bold">Auto-detected: </span>
-            Based on 30-day usage (~${estimatedMonthlyCost?.toLocaleString()} equivalent API cost),
-            we suggest{' '}
-            <button
-              onClick={() => saveSetting(SETTINGS_KEYS.plan, suggestedPlan)}
-              className="text-[var(--color-accent)] underline font-bold"
-            >
-              {PLANS.find((p) => p.value === suggestedPlan)?.label}
-            </button>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-[var(--color-muted)] block mb-1">Display Name</label>
+            <input
+              type="text"
+              defaultValue={displayName}
+              placeholder="fox"
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-sm"
+              onBlur={(e) => {
+                if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
+              }}
+            />
           </div>
-        )}
-
-        <div className="space-y-2">
-          <label className="text-sm text-[var(--color-muted)]">
-            Select your Anthropic subscription plan. This auto-adjusts alert thresholds.
-          </label>
-          <select
-            value={currentPlan}
-            onChange={(e) => {
-              if (e.target.value) saveSetting(SETTINGS_KEYS.plan, e.target.value);
-            }}
-            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-sm"
-          >
-            {PLANS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-                {p.desc ? ` — ${p.desc}` : ''}
-              </option>
-            ))}
-          </select>
+          <div>
+            <label className="text-xs text-[var(--color-muted)] block mb-1">Handle</label>
+            <div className="flex items-center">
+              <span className="text-[var(--color-muted)] text-sm mr-1">@</span>
+              <input
+                type="text"
+                defaultValue={handle}
+                placeholder="fox"
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-sm font-mono"
+                onBlur={(e) => {
+                  if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
+                }}
+              />
+            </div>
+          </div>
         </div>
 
-        {currentPlan && (
-          <div className="text-xs text-[var(--color-muted)]">
-            Current: <span className="text-[var(--color-foreground)] font-bold">{PLANS.find((p) => p.value === currentPlan)?.label}</span>
-            {estimatedMonthlyCost !== null && (
-              <span> — 30d equivalent API cost: <span className="text-[var(--color-accent)]">${estimatedMonthlyCost.toLocaleString()}</span></span>
-            )}
-          </div>
-        )}
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Bio</label>
+          <textarea
+            defaultValue={bio}
+            placeholder="building things with machines"
+            rows={2}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-sm resize-none"
+            onBlur={(e) => {
+              if (e.target.value !== bio) saveSetting(SETTINGS_KEYS.bio, e.target.value);
+            }}
+          />
+        </div>
 
-        {/* Current thresholds preview */}
-        {thresholds && (
-          <div className="space-y-1">
-            <div className="text-xs font-bold text-[var(--color-muted)]">Active thresholds:</div>
-            <div className="grid grid-cols-2 gap-1 text-xs">
-              {thresholds.map((t: { id: number; window_minutes: number; metric: string; threshold_value: number; enabled: number }) => (
-                <div
-                  key={t.id}
-                  className={`px-2 py-1 rounded ${t.enabled ? 'text-[var(--color-foreground)]' : 'text-[var(--color-muted)] line-through'}`}
-                >
-                  {t.window_minutes}min {t.metric.replace('_tokens', '')}: {(t.threshold_value / 1000).toFixed(0)}K
-                </div>
-              ))}
-            </div>
+        {projectCount > 0 && (
+          <div className="text-xs text-[var(--color-muted)]">
+            {projectCount} projects — {totalPrompts.toLocaleString()} prompts (30d)
           </div>
         )}
       </div>
 
-      {/* Unfirehose Integration */}
+      {/* Plan */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+        <h3 className="text-sm font-bold text-[var(--color-muted)]">Plan</h3>
+
+        <div className="grid grid-cols-1 gap-2">
+          {PLANS.filter((p) => p.value).map((plan) => (
+            <div
+              key={plan.value}
+              onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
+              className={`rounded border p-3 cursor-pointer transition-colors ${
+                currentPlan === plan.value
+                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                  : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-sm font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
+                  {plan.label}
+                </span>
+                {currentPlan === plan.value && (
+                  <span className="text-xs text-[var(--color-accent)] font-bold">current</span>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                {plan.features.map((f, i) => (
+                  <span key={i} className="text-xs text-[var(--color-muted)]">{f}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Scrobble */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-[var(--color-muted)]">Unfirehose Integration</h3>
+          <div>
+            <h3 className="text-sm font-bold text-[var(--color-muted)]">Scrobble</h3>
+            <p className="text-xs text-[var(--color-muted)] mt-1">
+              Broadcast your coding activity to your unfirehose timeline. Like last.fm but for building software.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm shrink-0">
+            <input
+              type="checkbox"
+              checked={scrobbleEnabled}
+              className="accent-[var(--color-accent)]"
+              onChange={(e) =>
+                saveSetting(SETTINGS_KEYS.scrobbleEnabled, String(e.target.checked))
+              }
+            />
+            <span className={scrobbleEnabled ? 'text-[var(--color-accent)] font-bold' : 'text-[var(--color-muted)]'}>
+              {scrobbleEnabled ? 'Live' : 'Off'}
+            </span>
+          </label>
+        </div>
+
+        {scrobbleEnabled && (
+          <div className="text-xs text-[var(--color-muted)] space-y-1">
+            <div>Scrobbling: project names, session starts, tool usage, model info</div>
+            <div>Not scrobbling: prompt content, thinking blocks, file contents</div>
+          </div>
+        )}
+      </div>
+
+      {/* Connection */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-[var(--color-muted)]">Connection</h3>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -177,18 +275,14 @@ export default function SettingsPage() {
               }
             />
             <span className={firehoseEnabled ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
-              {firehoseEnabled ? 'Connected' : 'Disabled'}
+              {firehoseEnabled ? 'Connected' : 'Disconnected'}
             </span>
           </label>
         </div>
 
-        <p className="text-xs text-[var(--color-muted)]">
-          Connect to unfirehose.com to send usage data and consume social/data feeds.
-        </p>
-
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-[var(--color-muted)] block mb-1">API Endpoint</label>
+            <label className="text-xs text-[var(--color-muted)] block mb-1">Endpoint</label>
             <input
               type="url"
               defaultValue={firehoseEndpoint}
@@ -220,33 +314,33 @@ export default function SettingsPage() {
 
         {firehoseEnabled && firehoseKey && (
           <div className="space-y-2">
-            <div className="text-xs font-bold text-[var(--color-muted)]">Hoses (feeds)</div>
+            <div className="text-xs font-bold text-[var(--color-muted)]">Hoses</div>
             <div className="grid grid-cols-2 gap-2">
               <HoseToggle
-                label="Usage Events"
-                desc="Token usage, costs, alerts"
-                settingKey="unfirehose_hose_usage"
+                label="Scrobble Out"
+                desc="Your coding activity → feed"
+                settingKey="unfirehose_hose_scrobble"
                 settings={settings}
                 onSave={saveSetting}
               />
               <HoseToggle
-                label="Session Activity"
-                desc="New sessions, prompts"
-                settingKey="unfirehose_hose_sessions"
+                label="Social Timeline"
+                desc="Posts, status, blogs from network"
+                settingKey="unfirehose_hose_social"
+                settings={settings}
+                onSave={saveSetting}
+              />
+              <HoseToggle
+                label="Project Showcases"
+                desc="Ship announcements, repo links"
+                settingKey="unfirehose_hose_projects"
                 settings={settings}
                 onSave={saveSetting}
               />
               <HoseToggle
                 label="Thinking Stream"
-                desc="Thinking block excerpts"
+                desc="Share reasoning with followers"
                 settingKey="unfirehose_hose_thinking"
-                settings={settings}
-                onSave={saveSetting}
-              />
-              <HoseToggle
-                label="Social Feed"
-                desc="Consume community data"
-                settingKey="unfirehose_hose_social"
                 settings={settings}
                 onSave={saveSetting}
               />
@@ -257,10 +351,10 @@ export default function SettingsPage() {
 
       {/* Data & Storage */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-        <h3 className="text-sm font-bold text-[var(--color-muted)]">Data & Storage</h3>
+        <h3 className="text-sm font-bold text-[var(--color-muted)]">Local Data</h3>
         <div className="text-xs text-[var(--color-muted)] space-y-1">
-          <div>SQLite: <span className="text-[var(--color-foreground)] font-mono">~/.claude/sexy_logger.db</span></div>
-          <div>Session data: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
+          <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/sexy_logger.db</span></div>
+          <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
         </div>
       </div>
 

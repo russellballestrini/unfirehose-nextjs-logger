@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getAllSettings,
-  getSetting,
   setSetting,
   deleteSetting,
-  applyPlanThresholds,
 } from '@/lib/db/ingest';
 
 export async function GET() {
@@ -18,23 +16,12 @@ export async function POST(req: NextRequest) {
 
   if (action === 'set' && key && value !== undefined) {
     setSetting(key, String(value));
-
-    // Auto-apply thresholds when plan changes
-    if (key === 'anthropic_plan') {
-      applyPlanThresholds(value);
-    }
-
     return NextResponse.json({ ok: true, key, value });
   }
 
   if (action === 'delete' && key) {
     deleteSetting(key);
     return NextResponse.json({ ok: true, deleted: key });
-  }
-
-  if (action === 'apply_plan' && body.plan) {
-    applyPlanThresholds(body.plan);
-    return NextResponse.json({ ok: true, plan: body.plan });
   }
 
   // Bulk set
