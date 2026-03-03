@@ -1,26 +1,128 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: #09090b;
+  --color-foreground: #fafafa;
+  --color-surface: #18181b;
+  --color-surface-hover: #27272a;
+  --color-border: #3f3f46;
+  --color-muted: #a1a1aa;
+  --color-accent: #10b981;
+  --color-thinking: #a78bfa;
+  --color-user: #60a5fa;
+  --color-assistant: #34d399;
+  --color-tool: #fbbf24;
+  --color-error: #f87171;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-mono), monospace;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Recharts overrides — force light text on dark backgrounds */
+.recharts-tooltip-wrapper {
+  z-index: 100 !important;
+}
+.recharts-default-tooltip {
+  background: #18181b !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 6px !important;
+  padding: 8px 12px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+}
+.recharts-tooltip-label {
+  color: #fafafa !important;
+  font-weight: bold !important;
+  font-size: 12px !important;
+  margin-bottom: 4px !important;
+}
+.recharts-tooltip-item {
+  color: #e4e4e7 !important;
+  font-size: 12px !important;
+  padding: 1px 0 !important;
+}
+.recharts-tooltip-item-name {
+  color: #a1a1aa !important;
+}
+.recharts-tooltip-item-value {
+  color: #fafafa !important;
+  font-weight: 600 !important;
+}
+.recharts-legend-item-text {
+  color: #d4d4d8 !important;
+  font-size: 11px !important;
+}
+.recharts-cartesian-axis-tick-value {
+  fill: #71717a !important;
+  font-size: 10px !important;
+}
+.recharts-label {
+  fill: #a1a1aa !important;
+}
+
+/* recharts pie label text */
+.recharts-pie-label-text {
+  fill: #d4d4d8 !important;
+  font-size: 11px !important;
+}
+
+/* General hover states */
+a:hover {
+  transition: color 0.15s ease;
+}
+
+/* Table hover rows */
+tr:hover td {
+  transition: background 0.1s ease;
+}
+
+/* Selection */
+::selection {
+  background: #10b98140;
+  color: #fafafa;
+}
+
+/* Focus ring for inputs */
+input:focus,
+select:focus {
+  outline: 1px solid #10b981;
+  outline-offset: -1px;
+}
+
+/* Select dropdown styling */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a1a1aa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+select option {
+  background: #18181b;
+  color: #fafafa;
+}
+
+/* Checkbox accent */
+input[type="checkbox"] {
+  cursor: pointer;
 }
