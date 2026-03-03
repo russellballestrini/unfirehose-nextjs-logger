@@ -225,6 +225,13 @@ export default function ProjectsPage() {
     (activity ?? []).map((a) => [a.name, a])
   );
 
+  // Sort by most recent activity: prefer DB last_activity, fall back to session index
+  const sortedProjects = [...projects].sort((a, b) => {
+    const aTime = activityMap.get(a.name)?.last_activity || a.latestActivity || '';
+    const bTime = activityMap.get(b.name)?.last_activity || b.latestActivity || '';
+    return bTime.localeCompare(aTime);
+  });
+
   const totalSessions = projects.reduce((s, p) => s + p.sessionCount, 0);
   const totalMessages = projects.reduce((s, p) => s + p.totalMessages, 0);
 
@@ -249,7 +256,7 @@ export default function ProjectsPage() {
           total_messages: totalMessages,
           projects_with_memory: projects.filter((p) => p.hasMemory).length,
         }}
-        details={projects.map((p) => `${p.displayName}: ${p.sessionCount} sessions, ${p.totalMessages} messages${p.hasMemory ? ' [has memory]' : ''}`).join('\n')}
+        details={sortedProjects.map((p) => `${p.displayName}: ${p.sessionCount} sessions, ${p.totalMessages} messages${p.hasMemory ? ' [has memory]' : ''}`).join('\n')}
       />
       <h2 className="text-lg font-bold">
         Projects{' '}
@@ -258,7 +265,7 @@ export default function ProjectsPage() {
         </span>
       </h2>
       <ProjectGrid
-        projects={projects}
+        projects={sortedProjects}
         activityMap={activityMap}
         totals={totals}
         expandedProject={expandedProject}

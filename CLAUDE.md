@@ -15,6 +15,7 @@ Full shard: `~/git/unsandbox.com/blackops/BLACKOPS.md`
 - DRY in context — single source of truth, no sprawl.
 - Never say "AI" — always say "machine learning."
 - Prefer "defect" over "bug."
+- Commit and push when ready — rapid prototyping mode. No need to ask before committing.
 
 ## Orientation
 
