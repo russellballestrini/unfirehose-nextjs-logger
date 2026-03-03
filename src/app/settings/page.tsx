@@ -11,7 +11,7 @@ const PLANS = [
   { value: 'free', label: 'Free', desc: 'Light usage, conservative alerts' },
   { value: 'starter', label: 'Starter ($14/mo)', desc: 'Individual usage, balanced alerts' },
   { value: 'pro', label: 'Pro ($69/mo)', desc: 'Power user, relaxed alerts' },
-  { value: 'max', label: 'Max ($200/mo)', desc: 'Heavy multi-agent, high thresholds' },
+  { value: 'max', label: 'Max ($149/mo)', desc: 'Heavy multi-agent, high thresholds' },
   { value: 'ultra', label: 'Ultra ($420/mo)', desc: 'Maximum capacity, highest thresholds' },
 ];
 
