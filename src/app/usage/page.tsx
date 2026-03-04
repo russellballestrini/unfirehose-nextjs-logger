@@ -75,11 +75,9 @@ export default function UsageMonitorPage() {
     setIngesting(false);
   }, [mutateTimeline, mutateProjects, mutateAlerts]);
 
-  // Auto-ingest on mount + every 30s
+  // Auto-ingest on mount (file watcher handles ongoing ingestion server-side)
   useEffect(() => {
     runIngest();
-    const interval = setInterval(runIngest, 30000);
-    return () => clearInterval(interval);
   }, [runIngest]);
 
   const acknowledgeAll = async () => {

@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { ingestAll, getDbStats } from '@/lib/db/ingest';
+import { startWatcher } from '@/lib/db/watcher';
+
+// Start file watcher on first import (server-side singleton)
+startWatcher();
 
 export async function POST() {
   try {
