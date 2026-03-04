@@ -83,8 +83,6 @@ export default function ThinkingPage() {
 }
 
 function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
-  const [expanded, setExpanded] = useState(false);
-
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -115,16 +113,11 @@ function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
       )}
 
       <div className="border-l-2 border-[var(--color-thinking)] pl-3">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-base text-[var(--color-thinking)] hover:underline cursor-pointer mb-1"
-        >
-          {expanded ? 'collapse' : 'expand'} ({excerpt.thinking.length.toLocaleString()} chars)
-        </button>
+        <span className="text-base text-[var(--color-thinking)] mb-1">
+          {excerpt.thinking.length.toLocaleString()} chars
+        </span>
         <div className="text-base text-[var(--color-muted)] whitespace-pre-wrap font-mono max-h-96 overflow-auto">
-          {expanded
-            ? excerpt.thinking
-            : excerpt.thinking}
+          {excerpt.thinking}
         </div>
       </div>
     </div>
