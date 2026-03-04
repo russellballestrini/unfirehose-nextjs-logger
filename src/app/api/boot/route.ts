@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { stat } from 'fs/promises';
+import path from 'path';
 
 const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -34,15 +35,15 @@ export async function POST(request: NextRequest) {
   }
   const claudeCmd = parts.join(' ');
 
-  // Build tmux session name
+  // Build tmux session name from actual directory basename
   const now = new Date();
   const ts = [
     String(now.getHours()).padStart(2, '0'),
     String(now.getMinutes()).padStart(2, '0'),
     String(now.getSeconds()).padStart(2, '0'),
   ].join('');
-  const short = (projectName || 'claude').replace(/^-+/, '').split('-').slice(-2).join('-') || 'claude';
-  const tmuxName = `claude-${short}-${ts}`;
+  const repoName = path.basename(projectPath).replace(/[^a-zA-Z0-9_-]/g, '-') || 'claude';
+  const tmuxName = `${repoName}-${ts}`;
 
   // Spawn tmux session
   return new Promise<NextResponse>((resolve) => {

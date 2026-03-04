@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { formatTimestamp } from '@/lib/format';
 import { decodeProjectName } from '@/lib/claude-paths-client';
 import { PageContext } from '@/components/PageContext';
+import { SessionPopover } from '@/components/SessionPopover';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -19,6 +20,7 @@ interface LiveSession {
   project: string;
   projectName: string;
   sessionId: string;
+  originalPath?: string;
 }
 
 const SESSION_COLORS = [
@@ -227,19 +229,26 @@ export default function LivePage() {
         {sessions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {sessions.map((s) => (
-              <span
+              <SessionPopover
                 key={s.sessionId}
-                className="text-base px-2 py-0.5 rounded-full border"
-                style={{
-                  borderColor: getColorForSession(s.sessionId),
-                  color: getColorForSession(s.sessionId),
-                }}
-              >
-                {s.projectName}
-                <span className="opacity-50 ml-1">
-                  {s.sessionId.slice(0, 6)}
-                </span>
-              </span>
+                sessionId={s.sessionId}
+                project={s.project}
+                projectPath={s.originalPath}
+                label={
+                  <span
+                    className="text-base px-2 py-0.5 rounded-full border inline-block"
+                    style={{
+                      borderColor: getColorForSession(s.sessionId),
+                      color: getColorForSession(s.sessionId),
+                    }}
+                  >
+                    {s.projectName}
+                    <span className="opacity-50 ml-1">
+                      {s.sessionId.slice(0, 6)}
+                    </span>
+                  </span>
+                }
+              />
             ))}
           </div>
         )}

@@ -1,10 +1,14 @@
 'use client';
 
 import { use, useEffect, useState, useRef, useCallback } from 'react';
+import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionEntry } from '@/lib/types';
 import { MessageBlock } from '@/components/viewer/MessageBlock';
 import { PageContext } from '@/components/PageContext';
+import { SessionPopover } from '@/components/SessionPopover';
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function SessionViewerPage({
   params,
@@ -18,6 +22,10 @@ export default function SessionViewerPage({
   const [showTools, setShowTools] = useState(true);
   const [autoScroll, setAutoScroll] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { data: projectData } = useSWR<{ originalPath: string }>(
+    `/api/projects/${project}/sessions`,
+    fetcher
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -111,9 +119,17 @@ export default function SessionViewerPage({
         >
           &larr; Sessions
         </Link>
-        <h2 className="text-base font-bold mt-1 break-all">
-          Session: {sessionId}
-        </h2>
+        <div className="flex items-center gap-3 mt-1">
+          <h2 className="text-base font-bold break-all">
+            Session: {sessionId}
+          </h2>
+          <SessionPopover
+            sessionId={sessionId}
+            project={project}
+            projectPath={projectData?.originalPath}
+            label="actions"
+          />
+        </div>
         <div className="flex items-center gap-4 mt-2">
           <span className="text-base text-[var(--color-muted)]">
             {filteredEntries.length} entries

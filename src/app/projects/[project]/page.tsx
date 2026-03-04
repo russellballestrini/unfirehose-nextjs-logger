@@ -6,6 +6,7 @@ import Link from 'next/link';
 import type { SessionIndexEntry } from '@/lib/types';
 import { formatRelativeTime } from '@/lib/format';
 import { PageContext } from '@/components/PageContext';
+import { SessionPopover } from '@/components/SessionPopover';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -164,15 +165,14 @@ export default function ProjectSessionsPage({
                     : '-'}
                 </td>
                 <td className="py-2">
-                  {data.originalPath && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); bootSession(session.sessionId); }}
-                      disabled={booting}
-                      className="text-base text-[var(--color-accent)] hover:underline disabled:opacity-50"
-                    >
-                      Resume
-                    </button>
-                  )}
+                  <SessionPopover
+                    sessionId={session.sessionId}
+                    project={project}
+                    projectPath={data.originalPath}
+                    firstPrompt={session.firstPrompt ?? undefined}
+                    messageCount={session.messageCount ?? undefined}
+                    gitBranch={session.gitBranch ?? undefined}
+                  />
                 </td>
               </tr>
             ))}

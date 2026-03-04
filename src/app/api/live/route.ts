@@ -11,6 +11,7 @@ interface TrackedFile {
   project: string;
   sessionId: string;
   size: number;
+  originalPath?: string;
 }
 
 async function findHotSessions(): Promise<TrackedFile[]> {
@@ -44,6 +45,7 @@ async function findHotSessions(): Promise<TrackedFile[]> {
             project: dir,
             sessionId: entry.sessionId,
             size: fstat.size,
+            originalPath: index.originalPath,
           });
         }
       }
@@ -134,6 +136,7 @@ export async function GET() {
             project: f.project,
             projectName: decodeProjectName(f.project),
             sessionId: f.sessionId,
+            originalPath: f.originalPath,
           })),
         });
 

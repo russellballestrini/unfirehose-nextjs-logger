@@ -7,6 +7,7 @@ import type { ThinkingExcerpt } from '@/lib/types';
 import { formatTimestamp } from '@/lib/format';
 import { decodeProjectName } from '@/lib/claude-paths-client';
 import { PageContext } from '@/components/PageContext';
+import { SessionPopover } from '@/components/SessionPopover';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -88,11 +89,15 @@ function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <Link
-          href={`/projects/${encodeURIComponent(excerpt.project)}/${excerpt.sessionId}`}
+          href={`/projects/${encodeURIComponent(excerpt.project)}`}
           className="text-base text-[var(--color-accent)] hover:underline"
         >
           {decodeProjectName(excerpt.project)}
         </Link>
+        <SessionPopover
+          sessionId={excerpt.sessionId}
+          project={excerpt.project}
+        />
         {excerpt.model && (
           <span className="text-base px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
             {excerpt.model.replace('claude-', '').replace(/-\d{8}$/, '')}
