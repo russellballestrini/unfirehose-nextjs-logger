@@ -169,19 +169,19 @@ export default function LivePage() {
               connected ? 'bg-[var(--color-accent)] animate-pulse' : 'bg-[var(--color-error)]'
             }`}
           />
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             {connected ? 'streaming' : 'reconnecting...'}
           </span>
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             {sessions.length} hot sessions
           </span>
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             {activeSessionIds.size} active
           </span>
         </div>
 
         <div className="flex items-center gap-4 mt-2">
-          <label className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] cursor-pointer">
+          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={showThinking}
@@ -190,7 +190,7 @@ export default function LivePage() {
             />
             Show thinking
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] cursor-pointer">
+          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={autoScroll}
@@ -201,7 +201,7 @@ export default function LivePage() {
           </label>
           <button
             onClick={() => setEntries([])}
-            className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+            className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
           >
             Clear
           </button>
@@ -213,7 +213,7 @@ export default function LivePage() {
             {sessions.map((s) => (
               <span
                 key={s.sessionId}
-                className="text-xs px-2 py-0.5 rounded-full border"
+                className="text-base px-2 py-0.5 rounded-full border"
                 style={{
                   borderColor: getColorForSession(s.sessionId),
                   color: getColorForSession(s.sessionId),
@@ -232,10 +232,10 @@ export default function LivePage() {
       {/* Live stream */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto space-y-0.5 font-mono text-xs"
+        className="flex-1 overflow-auto space-y-0.5 font-mono text-base"
       >
         {entries.length === 0 && connected && (
-          <div className="text-[var(--color-muted)] text-sm py-8 text-center">
+          <div className="text-[var(--color-muted)] text-base py-8 text-center">
             Watching for activity across all sessions...
           </div>
         )}
@@ -284,7 +284,7 @@ export default function LivePage() {
 
               {/* Type badge */}
               <span
-                className="shrink-0 text-[10px] font-bold px-1 rounded mt-0.5"
+                className="shrink-0 text-base font-bold px-1 rounded mt-0.5"
                 style={{ color: typeBg }}
               >
                 {typeTag}

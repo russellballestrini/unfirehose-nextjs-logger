@@ -29,7 +29,7 @@ function Spinner() {
         <div className="absolute inset-2 border-2 border-transparent border-t-[var(--color-thinking)] rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.6s' }} />
         <div className="absolute inset-4 border-2 border-transparent border-t-[var(--color-user)] rounded-full animate-spin" style={{ animationDuration: '0.4s' }} />
       </div>
-      <div className="text-sm text-[var(--color-muted)] animate-pulse">
+      <div className="text-base text-[var(--color-muted)] animate-pulse">
         Assembling forensic report...
       </div>
     </div>
@@ -55,9 +55,9 @@ function ProgressBar({ value, max, color }: { value: number; max: number; color?
 function StatCard({ label, value, sub, warn }: { label: string; value: string; sub?: string; warn?: boolean }) {
   return (
     <div className={`bg-[var(--color-background)] rounded border p-3 ${warn ? 'border-[var(--color-error)]' : 'border-[var(--color-border)]'}`}>
-      <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-wide">{label}</div>
+      <div className="text-base text-[var(--color-muted)] uppercase tracking-wide">{label}</div>
       <div className={`text-xl font-bold mt-0.5 ${warn ? 'text-[var(--color-error)]' : ''}`}>{value}</div>
-      {sub && <div className="text-[10px] text-[var(--color-muted)] mt-0.5">{sub}</div>}
+      {sub && <div className="text-base text-[var(--color-muted)] mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -73,15 +73,15 @@ function ThinkingBlock({ block, forceExpand }: { block: any; forceExpand: boolea
 
   return (
     <div className="border-l-3 border-[var(--color-thinking)] bg-[var(--color-surface)] rounded-r p-4 space-y-2">
-      <div className="flex items-center flex-wrap gap-2 text-xs">
+      <div className="flex items-center flex-wrap gap-2 text-base">
         <span className="text-[var(--color-muted)]">{formatTimestamp(block.timestamp)}</span>
         <span className="text-[var(--color-thinking)] font-bold">{block.display_name}</span>
         {block.model && (
-          <span className="bg-[var(--color-surface-hover)] px-1.5 py-0.5 rounded text-[10px] text-[var(--color-foreground)]">
+          <span className="bg-[var(--color-surface-hover)] px-1.5 py-0.5 rounded text-base text-[var(--color-foreground)]">
             {block.model}
           </span>
         )}
-        <span className="bg-[var(--color-surface-hover)] px-1.5 py-0.5 rounded text-[10px] text-[var(--color-muted)]">
+        <span className="bg-[var(--color-surface-hover)] px-1.5 py-0.5 rounded text-base text-[var(--color-muted)]">
           {block.char_count.toLocaleString()} chars
         </span>
         {block.preceding_prompt && (
@@ -98,7 +98,7 @@ function ThinkingBlock({ block, forceExpand }: { block: any; forceExpand: boolea
           </button>
         )}
       </div>
-      <pre className="text-xs font-mono whitespace-pre-wrap text-[var(--color-foreground)] leading-relaxed max-h-[80vh] overflow-auto">
+      <pre className="text-base font-mono whitespace-pre-wrap text-[var(--color-foreground)] leading-relaxed max-h-[80vh] overflow-auto">
         {isExpanded ? content : preview}
         {!isExpanded && needsTruncation && (
           <span className="text-[var(--color-muted)]">
@@ -118,16 +118,16 @@ function RepoContext({ projectName }: { projectName: string }) {
     fetcher
   );
 
-  if (!meta) return <div className="text-xs text-[var(--color-muted)] animate-pulse">loading git data...</div>;
+  if (!meta) return <div className="text-base text-[var(--color-muted)] animate-pulse">loading git data...</div>;
   if (!meta.branch && meta.remotes.length === 0 && meta.recentCommits.length === 0) {
-    return <div className="text-xs text-[var(--color-muted)] italic">no git repository</div>;
+    return <div className="text-base text-[var(--color-muted)] italic">no git repository</div>;
   }
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         {meta.branch && (
-          <span className="inline-block text-xs bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-0.5 rounded font-mono">
+          <span className="inline-block text-base bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-0.5 rounded font-mono">
             {meta.branch}
           </span>
         )}
@@ -140,16 +140,16 @@ function RepoContext({ projectName }: { projectName: string }) {
               ? `https://gitlab.com/${glMatch[1]}`
               : null;
           return linkUrl ? (
-            <a key={`${r.name}-${r.url}`} href={linkUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--color-accent)] hover:underline">
+            <a key={`${r.name}-${r.url}`} href={linkUrl} target="_blank" rel="noopener noreferrer" className="text-base text-[var(--color-accent)] hover:underline">
               {r.name}: {ghMatch?.[1] ?? glMatch?.[1]}
             </a>
           ) : (
-            <span key={`${r.name}-${r.url}`} className="text-xs font-mono text-[var(--color-muted)]">{r.name}: {r.url}</span>
+            <span key={`${r.name}-${r.url}`} className="text-base font-mono text-[var(--color-muted)]">{r.name}: {r.url}</span>
           );
         })}
       </div>
       {meta.recentCommits.length > 0 && (
-        <div className="text-xs space-y-1 font-mono">
+        <div className="text-base space-y-1 font-mono">
           {meta.recentCommits.slice(0, 8).map((c) => (
             <div key={c.hash} className="flex gap-2">
               <span className="text-[var(--color-accent)] shrink-0">{c.hash}</span>
@@ -162,7 +162,7 @@ function RepoContext({ projectName }: { projectName: string }) {
         </div>
       )}
       {meta.claudeMdExists && meta.claudeMd && (
-        <details className="text-xs">
+        <details className="text-base">
           <summary className="text-[var(--color-muted)] cursor-pointer hover:text-[var(--color-foreground)]">CLAUDE.md preview</summary>
           <pre className="mt-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded p-2 whitespace-pre-wrap max-h-32 overflow-auto">
             {meta.claudeMd}
@@ -283,25 +283,25 @@ export default function AlertDetailPage() {
 
       {/* Navigation */}
       <div className="flex items-center gap-3">
-        <Link href="/usage" className="text-xs text-[var(--color-accent)] hover:underline">
+        <Link href="/usage" className="text-base text-[var(--color-accent)] hover:underline">
           &larr; Usage Monitor
         </Link>
-        <span className="text-xs text-[var(--color-border)]">/</span>
-        <span className="text-xs text-[var(--color-muted)]">Alert #{alert.id}</span>
+        <span className="text-base text-[var(--color-border)]">/</span>
+        <span className="text-base text-[var(--color-muted)]">Alert #{alert.id}</span>
       </div>
 
       {/* ===== HEADER ===== */}
       <div className={`rounded p-5 space-y-3 border ${alert.acknowledged ? 'bg-[var(--color-surface)] border-[var(--color-border)]' : 'bg-red-950/30 border-[var(--color-error)]'}`}>
         <div className="flex items-center justify-between">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.2em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.2em] font-bold">
             Alert Investigation Report
           </div>
           {alert.acknowledged ? (
-            <span className="text-[10px] text-[var(--color-accent)] bg-[var(--color-surface-hover)] px-2 py-0.5 rounded uppercase">Acknowledged</span>
+            <span className="text-base text-[var(--color-accent)] bg-[var(--color-surface-hover)] px-2 py-0.5 rounded uppercase">Acknowledged</span>
           ) : (
             <button
               onClick={acknowledge}
-              className="text-xs px-3 py-1 bg-[var(--color-error)] text-white rounded font-bold hover:opacity-90 transition-opacity"
+              className="text-base px-3 py-1 bg-[var(--color-error)] text-white rounded font-bold hover:opacity-90 transition-opacity"
             >
               Acknowledge
             </button>
@@ -309,10 +309,10 @@ export default function AlertDetailPage() {
         </div>
         <div className="text-lg font-bold">
           #{alert.id}{' '}
-          <span className="text-[var(--color-muted)] font-normal text-sm">{formatTimestamp(alert.triggered_at)}</span>
+          <span className="text-[var(--color-muted)] font-normal text-base">{formatTimestamp(alert.triggered_at)}</span>
         </div>
-        <div className="flex items-center gap-4 text-sm flex-wrap">
-          <span className="bg-[var(--color-error)] text-white px-2 py-0.5 rounded text-xs font-bold uppercase">
+        <div className="flex items-center gap-4 text-base flex-wrap">
+          <span className="bg-[var(--color-error)] text-white px-2 py-0.5 rounded text-base font-bold uppercase">
             {alert.metric.replace(/_/g, ' ')}
           </span>
           <span>
@@ -324,7 +324,7 @@ export default function AlertDetailPage() {
             <span className="font-bold text-[var(--color-error)]">{formatTokens(alert.actual_value)}</span>
           </span>
           <span className="text-[var(--color-error)] font-bold text-lg">{ratio}x</span>
-          <span className="bg-[var(--color-surface-hover)] text-[var(--color-muted)] px-2 py-0.5 rounded text-xs">
+          <span className="bg-[var(--color-surface-hover)] text-[var(--color-muted)] px-2 py-0.5 rounded text-base">
             {win.duration_minutes}min window
           </span>
         </div>
@@ -332,7 +332,7 @@ export default function AlertDetailPage() {
 
       {/* ===== A. EXECUTIVE SUMMARY ===== */}
       <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-4">
-        <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+        <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
           A &mdash; Executive Summary
         </div>
 
@@ -355,7 +355,7 @@ export default function AlertDetailPage() {
         </div>
 
         {/* Narrative */}
-        <div className="text-sm leading-relaxed text-[var(--color-foreground)] border-l-2 border-[var(--color-accent)] pl-4 italic">
+        <div className="text-base leading-relaxed text-[var(--color-foreground)] border-l-2 border-[var(--color-accent)] pl-4 italic">
           {narrative}
         </div>
       </div>
@@ -363,19 +363,19 @@ export default function AlertDetailPage() {
       {/* ===== TIMELINE CHART ===== */}
       {timeline && timeline.length > 1 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-3">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             Token Burn &mdash; Minute by Minute
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={timeline}>
               <XAxis
                 dataKey="minute"
-                tick={{ fill: '#71717a', fontSize: 10 }}
+                tick={{ fill: '#71717a', fontSize: 16 }}
                 tickFormatter={(m: string) => m.slice(11, 16)}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickFormatter={(v: number) => formatTokens(v)} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
               <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 12 }}
+                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 16 }}
                 formatter={(v) => formatTokens(Number(v ?? 0))}
               />
               <Area type="monotone" dataKey="input_tokens" name="Input" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.15} stackId="1" />
@@ -389,14 +389,14 @@ export default function AlertDetailPage() {
       {/* ===== B. COST BY PROJECT ===== */}
       {projectBreakdown.length > 0 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-4">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             B &mdash; Cost by Project
           </div>
 
           <div className="flex gap-6 items-start">
             {/* Table */}
             <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-base">
                 <thead>
                   <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-border)]">
                     <th className="pb-2">Project</th>
@@ -447,7 +447,7 @@ export default function AlertDetailPage() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 11 }}
+                      contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 16 }}
                       formatter={(v) => formatCost(Number(v ?? 0))}
                     />
                   </PieChart>
@@ -461,13 +461,13 @@ export default function AlertDetailPage() {
       {/* ===== C. COST BY MODEL ===== */}
       {modelBreakdown.length > 0 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-4">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             C &mdash; Cost by Model
           </div>
 
           <div className="flex gap-6 items-start">
             <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-base">
                 <thead>
                   <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-border)]">
                     <th className="pb-2">Model</th>
@@ -517,7 +517,7 @@ export default function AlertDetailPage() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 11 }}
+                      contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 16 }}
                       formatter={(v) => formatCost(Number(v ?? 0))}
                     />
                   </PieChart>
@@ -531,15 +531,15 @@ export default function AlertDetailPage() {
       {/* ===== D. ACTIVE SESSIONS ===== */}
       {activeSessions.length > 0 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-3">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             D &mdash; Active Sessions ({activeSessions.length})
           </div>
           <div className="space-y-1">
             {activeSessions.map((s: any) => (
-              <div key={s.session_uuid} className="flex items-center gap-3 text-xs py-2 px-2 rounded hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-0">
+              <div key={s.session_uuid} className="flex items-center gap-3 text-base py-2 px-2 rounded hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-0">
                 <span className="font-bold w-36 truncate shrink-0">{s.display_name}</span>
                 {s.git_branch && (
-                  <span className="bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-1.5 py-0.5 rounded font-mono text-[10px] shrink-0">
+                  <span className="bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-1.5 py-0.5 rounded font-mono text-base shrink-0">
                     {s.git_branch}
                   </span>
                 )}
@@ -563,14 +563,14 @@ export default function AlertDetailPage() {
       {/* ===== E. REPOSITORY CONTEXT ===== */}
       {uniqueProjects.length > 0 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-4">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             E &mdash; Repository Context
           </div>
           {uniqueProjects.map((proj: string) => {
             const displayName = activeSessions.find((s: any) => s.project_name === proj)?.display_name ?? proj;
             return (
               <div key={proj} className="border-l-2 border-[var(--color-accent)] pl-4 space-y-2">
-                <div className="text-sm font-bold">{displayName}</div>
+                <div className="text-base font-bold">{displayName}</div>
                 <RepoContext projectName={proj} />
               </div>
             );
@@ -581,17 +581,17 @@ export default function AlertDetailPage() {
       {/* ===== F. WHAT THE HUMAN ASKED ===== */}
       {userPrompts && userPrompts.length > 0 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-5 space-y-3">
-          <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+          <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             F &mdash; What the Human Asked ({userPrompts.length} prompts)
           </div>
           <div className="space-y-2">
             {userPrompts.map((p: any, i: number) => (
               <div key={i} className="border-l-2 border-[var(--color-user)] pl-3 py-1">
-                <div className="flex items-center gap-2 text-[10px] text-[var(--color-muted)]">
+                <div className="flex items-center gap-2 text-base text-[var(--color-muted)]">
                   <span>{formatTimestamp(p.timestamp)}</span>
                   <span className="text-[var(--color-user)] font-bold">{p.display_name}</span>
                 </div>
-                <div className="text-xs text-[var(--color-foreground)] mt-0.5">
+                <div className="text-base text-[var(--color-foreground)] mt-0.5">
                   {p.prompt.length > 300 ? p.prompt.slice(0, 300) + '\u2026' : p.prompt}
                 </div>
               </div>
@@ -604,7 +604,7 @@ export default function AlertDetailPage() {
       {thinkingBlocks.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
+            <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
               G &mdash; Thinking Streams
               <span className="normal-case tracking-normal font-normal ml-2">
                 {thinkingBlocks.length} blocks, {stats.thinking_chars.toLocaleString()} chars
@@ -612,12 +612,12 @@ export default function AlertDetailPage() {
             </div>
             <button
               onClick={() => setExpandAll(!expandAll)}
-              className="text-xs text-[var(--color-accent)] hover:underline"
+              className="text-base text-[var(--color-accent)] hover:underline"
             >
               {expandAll ? 'Collapse All' : 'Expand All'}
             </button>
           </div>
-          <div className="text-xs text-[var(--color-muted)] italic">
+          <div className="text-base text-[var(--color-muted)] italic">
             Latest first. Full reasoning chains &mdash; nothing truncated.
           </div>
           <div className="space-y-2">

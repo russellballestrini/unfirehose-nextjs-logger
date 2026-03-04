@@ -105,17 +105,17 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-4">
         {/* Activity chart */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
             Daily Activity (last 30 days)
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={recentActivity}>
               <XAxis
                 dataKey="date"
-                tick={{ fill: '#71717a', fontSize: 10 }}
+                tick={{ fill: '#71717a', fontSize: 16 }}
                 tickFormatter={(d: string) => d.slice(5)}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 10 }} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
               <Tooltip />
               <Bar dataKey="messageCount" fill="#10b981" radius={[2, 2, 0, 0]} />
             </BarChart>
@@ -124,17 +124,17 @@ export default function DashboardPage() {
 
         {/* Hour distribution */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
             Hour Distribution (UTC)
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={hourData}>
               <XAxis
                 dataKey="hour"
-                tick={{ fill: '#71717a', fontSize: 10 }}
+                tick={{ fill: '#71717a', fontSize: 16 }}
                 interval={3}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 10 }} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
               <Tooltip />
               <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} />
             </BarChart>
@@ -144,7 +144,7 @@ export default function DashboardPage() {
 
       {/* Model usage */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Model Usage
         </h3>
         <div className="flex items-start gap-8">
@@ -173,14 +173,14 @@ export default function DashboardPage() {
                   border: '1px solid #3f3f46',
                   borderRadius: 4,
                   color: '#fafafa',
-                  fontSize: 12,
+                  fontSize: 16,
                 }}
                 formatter={(value) => formatTokens(Number(value ?? 0))}
               />
             </PieChart>
           </ResponsiveContainer>
           <div className="flex-1">
-            <table className="w-full text-sm">
+            <table className="w-full text-base">
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
@@ -218,9 +218,9 @@ export default function DashboardPage() {
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-      <div className="text-xs text-[var(--color-muted)] mb-1">{label}</div>
+      <div className="text-base text-[var(--color-muted)] mb-1">{label}</div>
       <div className="text-2xl font-bold">{value}</div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-1">{sub}</div>}
+      {sub && <div className="text-base text-[var(--color-muted)] mt-1">{sub}</div>}
     </div>
   );
 }

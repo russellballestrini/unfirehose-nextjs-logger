@@ -122,12 +122,12 @@ export default function UsageMonitorPage() {
       {alerts && alerts.length > 0 && (
         <div className="bg-red-950 border border-[var(--color-error)] rounded p-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-bold text-[var(--color-error)]">
+            <h3 className="text-base font-bold text-[var(--color-error)]">
               USAGE ALERTS ({alerts.length})
             </h3>
             <button
               onClick={acknowledgeAll}
-              className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+              className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
             >
               Acknowledge all
             </button>
@@ -136,7 +136,7 @@ export default function UsageMonitorPage() {
             <Link
               key={alert.id}
               href={`/usage/alert/${alert.id}`}
-              className="text-sm py-1 border-t border-red-900 block hover:bg-red-900/50 rounded px-1"
+              className="text-base py-1 border-t border-red-900 block hover:bg-red-900/50 rounded px-1"
             >
               <span className="text-[var(--color-error)] font-bold">
                 {alert.metric}
@@ -149,7 +149,7 @@ export default function UsageMonitorPage() {
               <span className="text-[var(--color-error)] font-bold">
                 {formatTokens(alert.actual_value)}
               </span>{' '}
-              <span className="text-xs text-[var(--color-muted)]">
+              <span className="text-base text-[var(--color-muted)]">
                 ({alert.triggered_at})
               </span>
             </Link>
@@ -164,7 +164,7 @@ export default function UsageMonitorPage() {
           <select
             value={window}
             onChange={(e) => setWindow(Number(e.target.value))}
-            className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm"
+            className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
           >
             <option value={15}>15 min</option>
             <option value={60}>1 hour</option>
@@ -174,7 +174,7 @@ export default function UsageMonitorPage() {
           <button
             onClick={runIngest}
             disabled={ingesting}
-            className="bg-[var(--color-accent)] text-black px-3 py-1.5 rounded text-sm font-bold disabled:opacity-50"
+            className="bg-[var(--color-accent)] text-black px-3 py-1.5 rounded text-base font-bold disabled:opacity-50"
           >
             {ingesting ? 'Ingesting...' : 'Ingest Now'}
           </button>
@@ -195,7 +195,7 @@ export default function UsageMonitorPage() {
 
       {/* Token usage timeline */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Token Usage Timeline
         </h3>
         {timeline && timeline.length > 0 ? (
@@ -203,10 +203,10 @@ export default function UsageMonitorPage() {
             <AreaChart data={timeline}>
               <XAxis
                 dataKey="minute"
-                tick={{ fill: '#71717a', fontSize: 10 }}
+                tick={{ fill: '#71717a', fontSize: 16 }}
                 tickFormatter={(m: string) => m.slice(11, 16)}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickFormatter={(v: number) => formatTokens(v)} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
               <Tooltip
                 formatter={(v) => formatTokens(Number(v ?? 0))}
               />
@@ -240,7 +240,7 @@ export default function UsageMonitorPage() {
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="text-[var(--color-muted)] text-sm py-8 text-center">
+          <div className="text-[var(--color-muted)] text-base py-8 text-center">
             No usage data in window. Hit &quot;Ingest Now&quot; to populate.
           </div>
         )}
@@ -248,18 +248,18 @@ export default function UsageMonitorPage() {
 
       {/* Usage by project */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Usage by Project ({window}min)
         </h3>
         {byProject && byProject.length > 0 ? (
           <>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={byProject} layout="vertical">
-                <XAxis type="number" tick={{ fill: '#71717a', fontSize: 10 }} tickFormatter={(v: number) => formatTokens(v)} />
+                <XAxis type="number" tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
                 <YAxis
                   type="category"
                   dataKey="display_name"
-                  tick={{ fill: '#71717a', fontSize: 10 }}
+                  tick={{ fill: '#71717a', fontSize: 16 }}
                   width={120}
                 />
                 <Tooltip
@@ -268,7 +268,7 @@ export default function UsageMonitorPage() {
                     border: '1px solid #3f3f46',
                     borderRadius: 4,
                     color: '#fafafa',
-                    fontSize: 12,
+                    fontSize: 16,
                   }}
                   formatter={(v) => formatTokens(Number(v ?? 0))}
                 />
@@ -278,7 +278,7 @@ export default function UsageMonitorPage() {
             </ResponsiveContainer>
           </>
         ) : (
-          <div className="text-[var(--color-muted)] text-sm py-4 text-center">
+          <div className="text-[var(--color-muted)] text-base py-4 text-center">
             No per-project usage data in window.
           </div>
         )}
@@ -287,14 +287,14 @@ export default function UsageMonitorPage() {
       {/* Agent Standup — 30-day project activity */}
       {projectActivity && projectActivity.length > 0 && (
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
             Agent Standup (30 days)
           </h3>
           <div className="space-y-1">
             {projectActivity.map((p: any) => (
               <div key={p.name}>
                 <div
-                  className={`flex items-center gap-3 text-sm py-2 px-2 rounded cursor-pointer hover:bg-[var(--color-surface-hover)] ${
+                  className={`flex items-center gap-3 text-base py-2 px-2 rounded cursor-pointer hover:bg-[var(--color-surface-hover)] ${
                     expandedProject === p.name ? 'bg-[var(--color-surface-hover)]' : ''
                   }`}
                   onClick={() => setExpandedProject(expandedProject === p.name ? null : p.name)}
@@ -312,7 +312,7 @@ export default function UsageMonitorPage() {
                   <span className="font-bold w-40 truncate">{p.display_name}</span>
 
                   {/* Metrics bar */}
-                  <div className="flex gap-4 flex-1 text-xs text-[var(--color-muted)]">
+                  <div className="flex gap-4 flex-1 text-base text-[var(--color-muted)]">
                     <span>{p.user_messages.toLocaleString()} prompts</span>
                     <span>{p.session_count} sessions</span>
                     <span>{p.active_days}d active</span>
@@ -321,7 +321,7 @@ export default function UsageMonitorPage() {
                   </div>
 
                   {/* Last activity */}
-                  <span className="text-xs text-[var(--color-muted)] w-28 text-right shrink-0">
+                  <span className="text-base text-[var(--color-muted)] w-28 text-right shrink-0">
                     {p.last_activity ? formatRelativeTime(p.last_activity) : '-'}
                   </span>
                 </div>
@@ -331,9 +331,9 @@ export default function UsageMonitorPage() {
                   <div className="ml-7 pl-4 border-l-2 border-[var(--color-border)] py-2 space-y-1.5">
                     {projectDetail.recentPrompts && projectDetail.recentPrompts.length > 0 ? (
                       <>
-                        <div className="text-xs font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
+                        <div className="text-base font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
                         {projectDetail.recentPrompts.map((rp: any, i: number) => (
-                          <div key={i} className="text-xs flex gap-2">
+                          <div key={i} className="text-base flex gap-2">
                             <span className="text-[var(--color-muted)] w-32 shrink-0">
                               {rp.timestamp ? formatRelativeTime(rp.timestamp) : ''}
                             </span>
@@ -344,7 +344,7 @@ export default function UsageMonitorPage() {
                         ))}
                       </>
                     ) : (
-                      <div className="text-xs text-[var(--color-muted)]">No recent prompts found.</div>
+                      <div className="text-base text-[var(--color-muted)]">No recent prompts found.</div>
                     )}
                   </div>
                 )}
@@ -356,11 +356,11 @@ export default function UsageMonitorPage() {
 
       {/* Alert thresholds config */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Alert Thresholds
         </h3>
         {thresholds && (
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead>
               <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-border)]">
                 <th className="pb-2">Window</th>
@@ -381,7 +381,7 @@ export default function UsageMonitorPage() {
                     <input
                       type="number"
                       defaultValue={t.threshold_value}
-                      className="bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-0.5 text-right w-28 text-sm"
+                      className="bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-0.5 text-right w-28 text-base"
                       onBlur={async (e) => {
                         const val = Number(e.target.value);
                         if (val > 0) {
@@ -430,7 +430,7 @@ export default function UsageMonitorPage() {
       {/* Recent alerts log */}
       {allAlerts && allAlerts.length > 0 && (
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
             Alert History
           </h3>
           <div className="space-y-1 max-h-64 overflow-auto">
@@ -438,7 +438,7 @@ export default function UsageMonitorPage() {
               <Link
                 key={a.id}
                 href={`/usage/alert/${a.id}`}
-                className={`text-xs py-1 flex gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 cursor-pointer ${
+                className={`text-base py-1 flex gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 cursor-pointer ${
                   a.acknowledged
                     ? 'text-[var(--color-muted)]'
                     : 'text-[var(--color-error)]'
@@ -461,7 +461,7 @@ export default function UsageMonitorPage() {
 
       {/* Last ingest result */}
       {lastIngest && (
-        <div className="text-xs text-[var(--color-muted)] bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3">
+        <div className="text-base text-[var(--color-muted)] bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3">
           Last ingest: {lastIngest.ingested?.messagesAdded} msgs,{' '}
           {lastIngest.ingested?.blocksAdded} blocks,{' '}
           {lastIngest.ingested?.filesScanned} files scanned,{' '}
@@ -505,7 +505,7 @@ function RateCard({
           : 'bg-[var(--color-surface)] border-[var(--color-border)]'
       }`}
     >
-      <div className="text-xs text-[var(--color-muted)] mb-1">{label}</div>
+      <div className="text-base text-[var(--color-muted)] mb-1">{label}</div>
       <div
         className={`text-2xl font-bold ${
           warn ? 'text-[var(--color-error)]' : ''
@@ -513,7 +513,7 @@ function RateCard({
       >
         {value}
       </div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-1">{sub}</div>}
+      {sub && <div className="text-base text-[var(--color-muted)] mt-1">{sub}</div>}
     </div>
   );
 }

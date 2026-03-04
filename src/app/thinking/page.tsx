@@ -42,12 +42,12 @@ export default function ThinkingPage() {
           placeholder="Search thinking content..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm flex-1 focus:outline-none focus:border-[var(--color-thinking)]"
+          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base flex-1 focus:outline-none focus:border-[var(--color-thinking)]"
         />
         <select
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
-          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm"
+          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
         >
           <option value={1000}>1,000</option>
           <option value={10000}>10,000</option>
@@ -55,19 +55,19 @@ export default function ThinkingPage() {
       </div>
 
       {error && (
-        <div className="text-[var(--color-error)] text-sm">
+        <div className="text-[var(--color-error)] text-base">
           Failed to load: {String(error)}
         </div>
       )}
 
       {isLoading && (
-        <div className="text-[var(--color-muted)] text-sm">
+        <div className="text-[var(--color-muted)] text-base">
           Scanning sessions for thinking blocks...
         </div>
       )}
 
       {data && (
-        <div className="text-xs text-[var(--color-muted)]">
+        <div className="text-base text-[var(--color-muted)]">
           {data.length} thinking blocks found
         </div>
       )}
@@ -89,22 +89,22 @@ function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <Link
           href={`/projects/${encodeURIComponent(excerpt.project)}/${excerpt.sessionId}`}
-          className="text-xs text-[var(--color-accent)] hover:underline"
+          className="text-base text-[var(--color-accent)] hover:underline"
         >
           {decodeProjectName(excerpt.project)}
         </Link>
         {excerpt.model && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
+          <span className="text-base px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
             {excerpt.model.replace('claude-', '').replace(/-\d{8}$/, '')}
           </span>
         )}
-        <span className="text-xs text-[var(--color-muted)]">
+        <span className="text-base text-[var(--color-muted)]">
           {formatTimestamp(excerpt.timestamp)}
         </span>
       </div>
 
       {excerpt.precedingPrompt && (
-        <div className="text-xs text-[var(--color-user)] mb-2 italic">
+        <div className="text-base text-[var(--color-user)] mb-2 italic">
           &quot;{truncate(excerpt.precedingPrompt, 120)}&quot;
         </div>
       )}
@@ -112,11 +112,11 @@ function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
       <div className="border-l-2 border-[var(--color-thinking)] pl-3">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-xs text-[var(--color-thinking)] hover:underline cursor-pointer mb-1"
+          className="text-base text-[var(--color-thinking)] hover:underline cursor-pointer mb-1"
         >
           {expanded ? 'collapse' : 'expand'} ({excerpt.thinking.length.toLocaleString()} chars)
         </button>
-        <div className="text-xs text-[var(--color-muted)] whitespace-pre-wrap font-mono max-h-96 overflow-auto">
+        <div className="text-base text-[var(--color-muted)] whitespace-pre-wrap font-mono max-h-96 overflow-auto">
           {expanded
             ? excerpt.thinking
             : truncate(excerpt.thinking, 300)}

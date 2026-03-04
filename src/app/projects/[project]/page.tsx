@@ -49,24 +49,24 @@ export default function ProjectSessionsPage({
       <div>
         <Link
           href="/projects"
-          className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+          className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
         >
           &larr; Projects
         </Link>
         <h2 className="text-lg font-bold mt-1">{decodedProject}</h2>
         {data.originalPath && (
-          <p className="text-xs text-[var(--color-muted)]">
+          <p className="text-base text-[var(--color-muted)]">
             {data.originalPath}
           </p>
         )}
       </div>
 
-      <div className="text-sm text-[var(--color-muted)]">
+      <div className="text-base text-[var(--color-muted)]">
         {data.sessions.length} sessions
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-base">
           <thead>
             <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-border)]">
               <th className="pb-2 pr-4">First Prompt</th>
@@ -89,7 +89,7 @@ export default function ProjectSessionsPage({
                     {truncate(session.firstPrompt ?? session.sessionId, 80)}
                   </Link>
                   {session.isSidechain && (
-                    <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
+                    <span className="ml-2 text-base px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
                       sidechain
                     </span>
                   )}

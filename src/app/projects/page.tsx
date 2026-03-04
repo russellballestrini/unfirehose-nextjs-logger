@@ -29,7 +29,7 @@ interface ProjectActivity {
 function ProgressBar({ value, max, label, detail }: { value: number; max: number; label: string; detail: string }) {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
-    <div className="flex items-center gap-3 text-xs">
+    <div className="flex items-center gap-3 text-base">
       <span className="w-14 text-[var(--color-muted)] shrink-0">{label}</span>
       <div className="flex-1 h-3 bg-[var(--color-surface-hover)] rounded overflow-hidden">
         <div
@@ -73,13 +73,13 @@ function DetailPanel({
         <div>
           <h3 className="text-base font-bold">{project.displayName}</h3>
           {meta?.repoPath && (
-            <div className="text-xs text-[var(--color-muted)] mt-0.5 font-mono">{meta.repoPath}</div>
+            <div className="text-base text-[var(--color-muted)] mt-0.5 font-mono">{meta.repoPath}</div>
           )}
         </div>
         <div className="flex items-center gap-3">
           <Link
             href={`/projects/${encodeURIComponent(project.name)}`}
-            className="text-xs text-[var(--color-accent)] hover:underline"
+            className="text-base text-[var(--color-accent)] hover:underline"
           >
             View sessions &rarr;
           </Link>
@@ -95,7 +95,7 @@ function DetailPanel({
       {/* B. Usage Progress Bars */}
       {a && (
         <div className="space-y-2">
-          <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">Usage (30d share)</div>
+          <div className="text-base font-bold text-[var(--color-muted)] uppercase tracking-wide">Usage (30d share)</div>
           <ProgressBar
             label="Input"
             value={a.total_input}
@@ -120,14 +120,14 @@ function DetailPanel({
       {/* C. Git Info */}
       {meta && (meta.branch || meta.remotes.length > 0 || meta.recentCommits.length > 0) && (
         <div className="space-y-2">
-          <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">Git</div>
+          <div className="text-base font-bold text-[var(--color-muted)] uppercase tracking-wide">Git</div>
           {meta.branch && (
-            <span className="inline-block text-xs bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-0.5 rounded font-mono">
+            <span className="inline-block text-base bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-0.5 rounded font-mono">
               {meta.branch}
             </span>
           )}
           {meta.remotes.filter((r) => r.type === 'fetch').length > 0 && (
-            <div className="text-xs text-[var(--color-muted)] space-y-0.5">
+            <div className="text-base text-[var(--color-muted)] space-y-0.5">
               {meta.remotes.filter((r) => r.type === 'fetch').map((r) => {
                 const ghMatch = r.url.match(/github\.com[:/](.+?)(?:\.git)?$/);
                 const glMatch = r.url.match(/gitlab\.com[:/](.+?)(?:\.git)?$/);
@@ -152,7 +152,7 @@ function DetailPanel({
             </div>
           )}
           {meta.recentCommits.length > 0 && (
-            <div className="text-xs space-y-1 font-mono">
+            <div className="text-base space-y-1 font-mono">
               {meta.recentCommits.slice(0, 5).map((c) => (
                 <div key={c.hash} className="flex gap-2">
                   <span className="text-[var(--color-accent)] shrink-0">{c.hash}</span>
@@ -169,22 +169,22 @@ function DetailPanel({
 
       {/* D. CLAUDE.md */}
       <div className="space-y-1">
-        <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">CLAUDE.md</div>
+        <div className="text-base font-bold text-[var(--color-muted)] uppercase tracking-wide">CLAUDE.md</div>
         {meta?.claudeMdExists ? (
-          <pre className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded p-3 whitespace-pre-wrap max-h-40 overflow-auto">
+          <pre className="text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded p-3 whitespace-pre-wrap max-h-40 overflow-auto">
             {meta.claudeMd}
             {meta.claudeMd && meta.claudeMd.length >= 500 && <span className="text-[var(--color-muted)]">&hellip;</span>}
           </pre>
         ) : (
-          <div className="text-xs text-[var(--color-muted)] italic">No CLAUDE.md</div>
+          <div className="text-base text-[var(--color-muted)] italic">No CLAUDE.md</div>
         )}
       </div>
 
       {/* E. Recent Prompts */}
       {activityDetail?.recentPrompts && activityDetail.recentPrompts.length > 0 && (
         <div className="space-y-1">
-          <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">Recent Prompts</div>
-          <div className="space-y-1 text-xs">
+          <div className="text-base font-bold text-[var(--color-muted)] uppercase tracking-wide">Recent Prompts</div>
+          <div className="space-y-1 text-base">
             {activityDetail.recentPrompts.map((p, i) => (
               <div key={i} className="flex gap-2">
                 <span className="text-[var(--color-muted)] shrink-0">{formatRelativeTime(p.timestamp)}</span>
@@ -358,7 +358,7 @@ function ProjectCard({
       }`}
     >
       <div className="flex items-start justify-between">
-        <div className="font-bold text-sm truncate flex-1">
+        <div className="font-bold text-base truncate flex-1">
           {project.displayName}
         </div>
         {project.hasMemory && (
@@ -369,11 +369,11 @@ function ProjectCard({
         )}
       </div>
       {project.path && (
-        <div className="text-xs text-[var(--color-muted)] mt-1 truncate">
+        <div className="text-base text-[var(--color-muted)] mt-1 truncate">
           {project.path}
         </div>
       )}
-      <div className="flex gap-4 mt-3 text-xs text-[var(--color-muted)]">
+      <div className="flex gap-4 mt-3 text-base text-[var(--color-muted)]">
         <span>{project.sessionCount} sessions</span>
         <span>{formatTokens(project.totalMessages)} msgs</span>
         {project.latestActivity && (
@@ -381,7 +381,7 @@ function ProjectCard({
         )}
       </div>
       {activity && (
-        <div className="mt-2 text-xs text-[var(--color-accent)]">
+        <div className="mt-2 text-base text-[var(--color-accent)]">
           ${activity.cost_estimate.toFixed(0)} / 30d
         </div>
       )}

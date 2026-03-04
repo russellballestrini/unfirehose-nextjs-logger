@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/logs', label: 'All Logs', icon: '#' },
   { href: '/tokens', label: 'Tokens', icon: '$' },
   { href: '/usage', label: 'Usage Monitor', icon: '!' },
+  { href: '/blog', label: 'Blog', icon: '@' },
   { href: '/styleguide', label: 'Styleguide', icon: '&' },
   { href: '/settings', label: 'Settings', icon: '%' },
 ];
@@ -22,10 +23,10 @@ export function Sidebar() {
     <aside className="w-56 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col">
       <div className="p-4 border-b border-[var(--color-border)]">
         <Link href="/" className="block">
-          <h1 className="text-sm font-bold text-[var(--color-accent)]">
+          <h1 className="text-base font-bold text-[var(--color-accent)]">
             claude_sexy_logger
           </h1>
-          <p className="text-xs text-[var(--color-muted)] mt-1">session viewer</p>
+          <p className="text-base text-[var(--color-muted)] mt-1">session viewer</p>
         </Link>
       </div>
       <nav className="flex-1 p-2">
@@ -38,7 +39,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded text-sm transition-colors ${
+              className={`flex items-center gap-3 px-3 py-2 rounded text-base transition-colors ${
                 isActive
                   ? 'bg-[var(--color-surface-hover)] text-[var(--color-foreground)]'
                   : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
@@ -52,7 +53,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="p-4 border-t border-[var(--color-border)] text-xs text-[var(--color-muted)]">
+      <div className="p-4 border-t border-[var(--color-border)] text-base text-[var(--color-muted)]">
         blackops // local
       </div>
     </aside>

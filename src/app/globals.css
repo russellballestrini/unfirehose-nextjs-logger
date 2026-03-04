@@ -53,12 +53,12 @@ body {
 .recharts-tooltip-label {
   color: #fafafa !important;
   font-weight: bold !important;
-  font-size: 12px !important;
+  font-size: 16px !important;
   margin-bottom: 4px !important;
 }
 .recharts-tooltip-item {
   color: #e4e4e7 !important;
-  font-size: 12px !important;
+  font-size: 16px !important;
   padding: 1px 0 !important;
 }
 .recharts-tooltip-item-name {
@@ -70,11 +70,11 @@ body {
 }
 .recharts-legend-item-text {
   color: #d4d4d8 !important;
-  font-size: 11px !important;
+  font-size: 16px !important;
 }
 .recharts-cartesian-axis-tick-value {
   fill: #71717a !important;
-  font-size: 10px !important;
+  font-size: 16px !important;
 }
 .recharts-label {
   fill: #a1a1aa !important;
@@ -83,7 +83,7 @@ body {
 /* recharts pie label text */
 .recharts-pie-label-text {
   fill: #d4d4d8 !important;
-  font-size: 11px !important;
+  font-size: 16px !important;
 }
 
 /* General hover states */

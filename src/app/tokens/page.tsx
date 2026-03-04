@@ -179,7 +179,7 @@ export default function TokensPage() {
       <div className="grid grid-cols-3 gap-4">
         {/* Token type breakdown */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Token Types
           </h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -204,7 +204,7 @@ export default function TokensPage() {
               />
               <Legend
                 iconSize={8}
-                wrapperStyle={{ fontSize: 11 }}
+                wrapperStyle={{ fontSize: 16 }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -212,7 +212,7 @@ export default function TokensPage() {
 
         {/* Model token breakdown donut */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tokens by Model
           </h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -237,7 +237,7 @@ export default function TokensPage() {
               />
               <Legend
                 iconSize={8}
-                wrapperStyle={{ fontSize: 11 }}
+                wrapperStyle={{ fontSize: 16 }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -245,7 +245,7 @@ export default function TokensPage() {
 
         {/* Cost by model donut */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Equivalent Cost by Model
           </h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -270,7 +270,7 @@ export default function TokensPage() {
               />
               <Legend
                 iconSize={8}
-                wrapperStyle={{ fontSize: 11 }}
+                wrapperStyle={{ fontSize: 16 }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -279,10 +279,10 @@ export default function TokensPage() {
 
       {/* Model breakdown table */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Per-Model Breakdown
         </h3>
-        <table className="w-full text-sm">
+        <table className="w-full text-base">
           <thead>
             <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
               <th className="pb-2">Model</th>
@@ -348,7 +348,7 @@ export default function TokensPage() {
       <div className="grid grid-cols-2 gap-4">
         {/* Tool calls pie */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls ({totalToolCalls.toLocaleString()} total)
           </h3>
           <ResponsiveContainer width="100%" height={280}>
@@ -373,7 +373,7 @@ export default function TokensPage() {
               />
               <Legend
                 iconSize={8}
-                wrapperStyle={{ fontSize: 10 }}
+                wrapperStyle={{ fontSize: 16 }}
                 layout="vertical"
                 align="right"
                 verticalAlign="middle"
@@ -384,7 +384,7 @@ export default function TokensPage() {
 
         {/* Tool calls horizontal bar */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls by Type
           </h3>
           <ResponsiveContainer width="100%" height={280}>
@@ -395,13 +395,13 @@ export default function TokensPage() {
             >
               <XAxis
                 type="number"
-                tick={{ fill: '#71717a', fontSize: 10 }}
+                tick={{ fill: '#71717a', fontSize: 16 }}
                 tickFormatter={(v: number) => v.toLocaleString()}
               />
               <YAxis
                 type="category"
                 dataKey="tool_name"
-                tick={{ fill: '#a1a1aa', fontSize: 10 }}
+                tick={{ fill: '#a1a1aa', fontSize: 16 }}
                 width={100}
               />
               <Tooltip
@@ -418,7 +418,7 @@ export default function TokensPage() {
       <div className="grid grid-cols-2 gap-4">
         {/* Tools by model */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls by Model
           </h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -445,14 +445,14 @@ export default function TokensPage() {
 
                 formatter={(v) => Number(v ?? 0).toLocaleString()}
               />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
         {/* Content block types */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Content Block Types
           </h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -479,7 +479,7 @@ export default function TokensPage() {
 
                 formatter={(v) => Number(v ?? 0).toLocaleString()}
               />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -487,17 +487,17 @@ export default function TokensPage() {
 
       {/* Daily activity line chart */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Daily Messages & Tool Calls (last 30 days)
         </h3>
         <ResponsiveContainer width="100%" height={250}>
           <LineChart data={(dailyActivity ?? []).slice(-30)}>
             <XAxis
               dataKey="date"
-              tick={{ fill: '#71717a', fontSize: 10 }}
+              tick={{ fill: '#71717a', fontSize: 16 }}
               tickFormatter={(d: string) => d.slice(5)}
             />
-            <YAxis tick={{ fill: '#71717a', fontSize: 10 }} />
+            <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
             <Tooltip />
             <Legend />
             <Line
@@ -536,11 +536,11 @@ function StatCard({
 }) {
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-      <div className="text-xs text-[var(--color-muted)] mb-1">{label}</div>
+      <div className="text-base text-[var(--color-muted)] mb-1">{label}</div>
       <div className="text-2xl font-bold" style={color ? { color } : undefined}>
         {value}
       </div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-1">{sub}</div>}
+      {sub && <div className="text-base text-[var(--color-muted)] mt-1">{sub}</div>}
     </div>
   );
 }

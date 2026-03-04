@@ -25,14 +25,14 @@ function UserMessage({ entry }: { entry: any }) {
   return (
     <div className="border-l-2 border-[var(--color-user)] pl-3 py-2">
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs font-bold text-[var(--color-user)]">USER</span>
+        <span className="text-base font-bold text-[var(--color-user)]">USER</span>
         {entry.timestamp && (
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             {formatTimestamp(entry.timestamp)}
           </span>
         )}
       </div>
-      <div className="text-sm whitespace-pre-wrap break-words">{text}</div>
+      <div className="text-base whitespace-pre-wrap break-words">{text}</div>
     </div>
   );
 }
@@ -55,16 +55,16 @@ function ThinkingBlockView({
     <div className="border-l-2 border-[var(--color-thinking)] pl-3 py-1 my-1">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="text-xs text-[var(--color-thinking)] hover:underline cursor-pointer"
+        className="text-base text-[var(--color-thinking)] hover:underline cursor-pointer"
       >
         {expanded ? 'collapse thinking' : 'expand thinking'} ({thinking.length.toLocaleString()} chars)
       </button>
       {expanded ? (
-        <div className="text-xs text-[var(--color-muted)] whitespace-pre-wrap mt-1 max-h-96 overflow-auto font-mono">
+        <div className="text-base text-[var(--color-muted)] whitespace-pre-wrap mt-1 max-h-96 overflow-auto font-mono">
           {thinking}
         </div>
       ) : (
-        <div className="text-xs text-[var(--color-muted)] mt-1 italic">
+        <div className="text-base text-[var(--color-muted)] mt-1 italic">
           {preview}
           {isLong && '...'}
         </div>
@@ -90,12 +90,12 @@ function ToolUseView({
     <div className="border-l-2 border-[var(--color-tool)] pl-3 py-1 my-1">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="text-xs font-bold text-[var(--color-tool)] hover:underline cursor-pointer"
+        className="text-base font-bold text-[var(--color-tool)] hover:underline cursor-pointer"
       >
         {expanded ? '[-]' : '[+]'} {name}
       </button>
       {expanded && (
-        <pre className="text-xs text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded">
+        <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded">
           {JSON.stringify(input, null, 2)}
         </pre>
       )}
@@ -119,21 +119,21 @@ function AssistantMessage({
   return (
     <div className="border-l-2 border-[var(--color-assistant)] pl-3 py-2">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
-        <span className="text-xs font-bold text-[var(--color-assistant)]">
+        <span className="text-base font-bold text-[var(--color-assistant)]">
           ASSISTANT
         </span>
         {model && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
+          <span className="text-base px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
             {shortModel(model)}
           </span>
         )}
         {entry.timestamp && (
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             {formatTimestamp(entry.timestamp)}
           </span>
         )}
         {usage && (
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             in:{usage.input_tokens?.toLocaleString()} out:{usage.output_tokens?.toLocaleString()}
             {usage.cache_read_input_tokens ? ` cache:${usage.cache_read_input_tokens.toLocaleString()}` : ''}
           </span>
@@ -154,7 +154,7 @@ function AssistantMessage({
             return (
               <div
                 key={i}
-                className="text-sm whitespace-pre-wrap break-words my-1"
+                className="text-base whitespace-pre-wrap break-words my-1"
               >
                 {block.text}
               </div>
@@ -179,7 +179,7 @@ function AssistantMessage({
 function SystemMessage({ entry }: { entry: any }) {
   return (
     <div className="border-l-2 border-[var(--color-border)] pl-3 py-1">
-      <span className="text-xs text-[var(--color-muted)]">
+      <span className="text-base text-[var(--color-muted)]">
         {entry.subtype === 'turn_duration' && entry.durationMs
           ? `turn: ${formatDuration(entry.durationMs)}`
           : `system: ${entry.subtype ?? 'event'}`}

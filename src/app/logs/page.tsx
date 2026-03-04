@@ -35,7 +35,7 @@ export default function AllLogsPage() {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm"
+          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
         >
           <option value="user,assistant,system">All types</option>
           <option value="user">User only</option>
@@ -45,7 +45,7 @@ export default function AllLogsPage() {
         <select
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
-          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm"
+          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
         >
           <option value={50}>50 entries</option>
           <option value={100}>100 entries</option>
@@ -54,19 +54,19 @@ export default function AllLogsPage() {
       </div>
 
       {error && (
-        <div className="text-[var(--color-error)] text-sm">
+        <div className="text-[var(--color-error)] text-base">
           Failed to load: {String(error)}
         </div>
       )}
 
       {isLoading && (
-        <div className="text-[var(--color-muted)] text-sm">
+        <div className="text-[var(--color-muted)] text-base">
           Aggregating logs across sessions...
         </div>
       )}
 
       {data && (
-        <div className="text-xs text-[var(--color-muted)]">
+        <div className="text-base text-[var(--color-muted)]">
           {data.length} entries from recent sessions
         </div>
       )}
@@ -131,7 +131,7 @@ function LogEntry({
       style={{ borderColor }}
       onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex items-center gap-2 text-base">
         <span className="font-bold w-8" style={{ color: borderColor }}>
           {typeLabel}
         </span>
@@ -148,7 +148,7 @@ function LogEntry({
           </span>
         )}
       </div>
-      <div className="text-sm mt-0.5">
+      <div className="text-base mt-0.5">
         {expanded ? (
           <div className="whitespace-pre-wrap break-words">{preview}</div>
         ) : (

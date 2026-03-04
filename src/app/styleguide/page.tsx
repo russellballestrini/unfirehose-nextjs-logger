@@ -66,7 +66,7 @@ const BORDER_TYPES = [
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-bold text-[var(--color-accent)] uppercase tracking-wide">{title}</h3>
+      <h3 className="text-base font-bold text-[var(--color-accent)] uppercase tracking-wide">{title}</h3>
       {children}
     </div>
   );
@@ -74,7 +74,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex items-center gap-3 text-xs">
+    <div className="flex items-center gap-3 text-base">
       <span className="w-12 text-[var(--color-muted)] shrink-0">{label}</span>
       <div className="flex-1 h-3 bg-[var(--color-surface-hover)] rounded overflow-hidden">
         <div
@@ -115,8 +115,8 @@ export default function StyleguidePage() {
                 className="w-full h-10 rounded border border-[var(--color-border)]"
                 style={{ background: v.hex }}
               />
-              <div className="text-[10px] text-[var(--color-muted)] truncate">{v.name}</div>
-              <div className="text-[10px] font-mono">{v.hex}</div>
+              <div className="text-base text-[var(--color-muted)] truncate">{v.name}</div>
+              <div className="text-base font-mono">{v.hex}</div>
             </div>
           ))}
         </div>
@@ -127,11 +127,11 @@ export default function StyleguidePage() {
         <div className="space-y-2 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h1 className="text-2xl font-bold">Heading 2XL — bold</h1>
           <h2 className="text-lg font-bold">Heading LG — bold</h2>
-          <h3 className="text-sm font-bold">Heading SM — bold</h3>
-          <p className="text-sm">Body text — sm regular</p>
-          <p className="text-xs text-[var(--color-muted)]">Muted caption — xs muted</p>
-          <p className="text-sm text-[var(--color-accent)]">Accent text — sm accent</p>
-          <p className="text-xs font-mono bg-[var(--color-background)] inline-block px-2 py-0.5 rounded">
+          <h3 className="text-base font-bold">Heading Base — bold</h3>
+          <p className="text-base">Body text — base regular</p>
+          <p className="text-base text-[var(--color-muted)]">Muted caption — base muted</p>
+          <p className="text-base text-[var(--color-accent)]">Accent text — base accent</p>
+          <p className="text-base font-mono bg-[var(--color-background)] inline-block px-2 py-0.5 rounded">
             Monospace inline
           </p>
         </div>
@@ -142,36 +142,36 @@ export default function StyleguidePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* StatCard */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-xs text-[var(--color-muted)]">Total Sessions</div>
+            <div className="text-base text-[var(--color-muted)]">Total Sessions</div>
             <div className="text-2xl font-bold mt-1">412</div>
-            <div className="text-xs text-[var(--color-accent)] mt-1">+12 today</div>
+            <div className="text-base text-[var(--color-accent)] mt-1">+12 today</div>
           </div>
           {/* RateCard normal */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-xs text-[var(--color-muted)]">Cost / hour</div>
+            <div className="text-base text-[var(--color-muted)]">Cost / hour</div>
             <div className="text-2xl font-bold mt-1">$3.20</div>
-            <div className="text-xs text-[var(--color-muted)] mt-1">avg last 7d</div>
+            <div className="text-base text-[var(--color-muted)] mt-1">avg last 7d</div>
           </div>
           {/* RateCard warn */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-error)] p-4">
-            <div className="text-xs text-[var(--color-error)]">Rate Alert</div>
+            <div className="text-base text-[var(--color-error)]">Rate Alert</div>
             <div className="text-2xl font-bold text-[var(--color-error)] mt-1">$8.50/hr</div>
-            <div className="text-xs text-[var(--color-muted)] mt-1">exceeds $5 threshold</div>
+            <div className="text-base text-[var(--color-muted)] mt-1">exceeds $5 threshold</div>
           </div>
         </div>
         {/* ProjectCard mock */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 max-w-sm hover:border-[var(--color-accent)] transition-colors cursor-pointer">
           <div className="flex items-start justify-between">
-            <div className="font-bold text-sm truncate flex-1">unsandbox-com</div>
+            <div className="font-bold text-base truncate flex-1">unsandbox-com</div>
             <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0 mt-1" />
           </div>
-          <div className="text-xs text-[var(--color-muted)] mt-1">/home/fox/git/unsandbox.com</div>
-          <div className="flex gap-4 mt-3 text-xs text-[var(--color-muted)]">
+          <div className="text-base text-[var(--color-muted)] mt-1">/home/fox/git/unsandbox.com</div>
+          <div className="flex gap-4 mt-3 text-base text-[var(--color-muted)]">
             <span>24 sessions</span>
             <span>1.2K msgs</span>
             <span>2 hours ago</span>
           </div>
-          <div className="mt-2 text-xs text-[var(--color-accent)]">$42 / 30d</div>
+          <div className="mt-2 text-base text-[var(--color-accent)]">$42 / 30d</div>
         </div>
       </Section>
 
@@ -180,11 +180,11 @@ export default function StyleguidePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* BarChart */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-xs text-[var(--color-muted)] mb-3">BarChart — Messages / Day</div>
+            <div className="text-base text-[var(--color-muted)] mb-3">BarChart — Messages / Day</div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={barData}>
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
+                <XAxis dataKey="name" tick={{ fontSize: 16 }} />
+                <YAxis tick={{ fontSize: 16 }} />
                 <Tooltip />
                 <Bar dataKey="value" fill="#10b981" radius={[2, 2, 0, 0]} />
               </BarChart>
@@ -192,7 +192,7 @@ export default function StyleguidePage() {
           </div>
           {/* PieChart (donut) */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-xs text-[var(--color-muted)] mb-3">PieChart (donut) — Model Split</div>
+            <div className="text-base text-[var(--color-muted)] mb-3">PieChart (donut) — Model Split</div>
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie
@@ -213,11 +213,11 @@ export default function StyleguidePage() {
           </div>
           {/* AreaChart */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 md:col-span-2">
-            <div className="text-xs text-[var(--color-muted)] mb-3">AreaChart — Token Volume</div>
+            <div className="text-base text-[var(--color-muted)] mb-3">AreaChart — Token Volume</div>
             <ResponsiveContainer width="100%" height={160}>
               <AreaChart data={areaData}>
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 16 }} />
+                <YAxis tick={{ fontSize: 16 }} />
                 <Tooltip />
                 <Area type="monotone" dataKey="tokens" stroke="#10b981" fill="#10b98130" />
               </AreaChart>
@@ -230,16 +230,16 @@ export default function StyleguidePage() {
       <Section title="Interactive">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
           <div className="flex flex-wrap gap-3 items-center">
-            <button className="px-3 py-1.5 text-xs bg-[var(--color-accent)] text-[var(--color-background)] rounded font-bold hover:opacity-90 transition-opacity">
+            <button className="px-3 py-1.5 text-base bg-[var(--color-accent)] text-[var(--color-background)] rounded font-bold hover:opacity-90 transition-opacity">
               Primary
             </button>
-            <button className="px-3 py-1.5 text-xs bg-[var(--color-surface-hover)] text-[var(--color-foreground)] rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors">
+            <button className="px-3 py-1.5 text-base bg-[var(--color-surface-hover)] text-[var(--color-foreground)] rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors">
               Secondary
             </button>
-            <button className="px-3 py-1.5 text-xs bg-transparent text-[var(--color-error)] rounded border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-foreground)] transition-colors">
+            <button className="px-3 py-1.5 text-base bg-transparent text-[var(--color-error)] rounded border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-foreground)] transition-colors">
               Danger
             </button>
-            <button className="px-3 py-1.5 text-xs text-[var(--color-muted)] cursor-not-allowed opacity-50" disabled>
+            <button className="px-3 py-1.5 text-base text-[var(--color-muted)] cursor-not-allowed opacity-50" disabled>
               Disabled
             </button>
           </div>
@@ -249,24 +249,24 @@ export default function StyleguidePage() {
               placeholder="Text input"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
-              className="px-2 py-1.5 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded text-[var(--color-foreground)] w-40"
+              className="px-2 py-1.5 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded text-[var(--color-foreground)] w-40"
             />
             <input
               type="number"
               value={numberVal}
               onChange={(e) => setNumberVal(Number(e.target.value))}
-              className="px-2 py-1.5 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded text-[var(--color-foreground)] w-20"
+              className="px-2 py-1.5 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded text-[var(--color-foreground)] w-20"
             />
             <select
               value={selectVal}
               onChange={(e) => setSelectVal(e.target.value)}
-              className="px-2 py-1.5 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded text-[var(--color-foreground)]"
+              className="px-2 py-1.5 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded text-[var(--color-foreground)]"
             >
               <option value="opus">Opus</option>
               <option value="sonnet">Sonnet</option>
               <option value="haiku">Haiku</option>
             </select>
-            <label className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+            <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)]">
               <input
                 type="checkbox"
                 checked={checked}
@@ -296,7 +296,7 @@ export default function StyleguidePage() {
           {BORDER_TYPES.map((bt) => (
             <div
               key={bt.label}
-              className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3 text-xs"
+              className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3 text-base"
               style={{ borderLeftWidth: 3, borderLeftColor: bt.color }}
             >
               <span className="font-bold" style={{ color: bt.color }}>{bt.label}</span>
@@ -310,12 +310,12 @@ export default function StyleguidePage() {
       <Section title="Layout — Surface Cards">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-xs text-[var(--color-muted)]">Default surface card</div>
-            <div className="text-sm mt-2">Standard content area with border.</div>
+            <div className="text-base text-[var(--color-muted)]">Default surface card</div>
+            <div className="text-base mt-2">Standard content area with border.</div>
           </div>
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-accent)] p-4">
-            <div className="text-xs text-[var(--color-accent)]">Accent bordered card</div>
-            <div className="text-sm mt-2">Highlighted / selected state.</div>
+            <div className="text-base text-[var(--color-accent)]">Accent bordered card</div>
+            <div className="text-base mt-2">Highlighted / selected state.</div>
           </div>
         </div>
       </Section>

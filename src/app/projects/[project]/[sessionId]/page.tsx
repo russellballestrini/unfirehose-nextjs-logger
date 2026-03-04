@@ -107,19 +107,19 @@ export default function SessionViewerPage({
       <div className="shrink-0 mb-4">
         <Link
           href={`/projects/${project}`}
-          className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+          className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
         >
           &larr; Sessions
         </Link>
-        <h2 className="text-sm font-bold mt-1 truncate">
+        <h2 className="text-base font-bold mt-1 truncate">
           Session: {sessionId}
         </h2>
         <div className="flex items-center gap-4 mt-2">
-          <span className="text-xs text-[var(--color-muted)]">
+          <span className="text-base text-[var(--color-muted)]">
             {filteredEntries.length} entries
             {loading && ' (streaming...)'}
           </span>
-          <label className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] cursor-pointer">
+          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={showThinking}
@@ -128,7 +128,7 @@ export default function SessionViewerPage({
             />
             Thinking
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] cursor-pointer">
+          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={showTools}
@@ -137,7 +137,7 @@ export default function SessionViewerPage({
             />
             Tools
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] cursor-pointer">
+          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={autoScroll}
@@ -148,7 +148,7 @@ export default function SessionViewerPage({
           </label>
           <button
             onClick={scrollToBottom}
-            className="text-xs text-[var(--color-accent)] hover:underline"
+            className="text-base text-[var(--color-accent)] hover:underline"
           >
             Jump to end
           </button>
@@ -169,7 +169,7 @@ export default function SessionViewerPage({
           />
         ))}
         {loading && (
-          <div className="text-center py-4 text-[var(--color-muted)] text-sm">
+          <div className="text-center py-4 text-[var(--color-muted)] text-base">
             Streaming session data...
           </div>
         )}
