@@ -20,7 +20,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col">
+    <aside className="w-56 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col sticky top-0 h-screen overflow-y-auto">
       <div className="p-4 border-b border-[var(--color-border)]">
         <Link href="/" className="block">
           <h1 className="text-base font-bold text-[var(--color-accent)]">
