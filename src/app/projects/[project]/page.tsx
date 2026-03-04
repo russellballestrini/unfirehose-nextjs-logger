@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry } from '@/lib/types';
@@ -16,12 +16,42 @@ export default function ProjectSessionsPage({
 }) {
   const { project } = use(params);
   const decodedProject = decodeURIComponent(project);
+  const [yolo, setYolo] = useState(false);
+  const [booting, setBooting] = useState(false);
+  const [bootResult, setBootResult] = useState<string | null>(null);
 
   const { data, error } = useSWR<{
     project: string;
     originalPath: string;
     sessions: SessionIndexEntry[];
   }>(`/api/projects/${project}/sessions`, fetcher);
+
+  async function bootSession(sessionId?: string) {
+    if (!data?.originalPath) return;
+    setBooting(true);
+    setBootResult(null);
+    try {
+      const res = await fetch('/api/boot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath: data.originalPath,
+          projectName: decodedProject,
+          sessionId,
+          yolo,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setBootResult(`tmux attach -t ${result.tmuxSession}`);
+      } else {
+        setBootResult(`Error: ${result.error}${result.detail ? ' — ' + result.detail : ''}`);
+      }
+    } catch (err) {
+      setBootResult(`Error: ${String(err)}`);
+    }
+    setBooting(false);
+  }
 
   if (error) {
     return (
@@ -61,6 +91,33 @@ export default function ProjectSessionsPage({
         )}
       </div>
 
+      {/* Boot controls */}
+      {data.originalPath && (
+        <div className="grid grid-flow-col auto-cols-max gap-4 items-center">
+          <button
+            onClick={() => bootSession()}
+            disabled={booting}
+            className="px-3 py-1.5 text-base font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {booting ? 'Booting...' : 'Boot New Session'}
+          </button>
+          <label className="grid grid-flow-col auto-cols-max items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={yolo}
+              onChange={(e) => setYolo(e.target.checked)}
+              className="accent-[var(--color-error)]"
+            />
+            Yolo
+          </label>
+          {bootResult && (
+            <span className={`text-base font-mono ${bootResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
+              {bootResult}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="text-base text-[var(--color-muted)]">
         {data.sessions.length} sessions
       </div>
@@ -73,6 +130,7 @@ export default function ProjectSessionsPage({
               <th className="pb-2 pr-4 w-20">Messages</th>
               <th className="pb-2 pr-4 w-28">Branch</th>
               <th className="pb-2 pr-4 w-36">Modified</th>
+              <th className="pb-2 w-20"></th>
             </tr>
           </thead>
           <tbody>
@@ -104,6 +162,17 @@ export default function ProjectSessionsPage({
                   {session.modified
                     ? formatRelativeTime(session.modified)
                     : '-'}
+                </td>
+                <td className="py-2">
+                  {data.originalPath && (
+                    <button
+                      onClick={(e) => { e.preventDefault(); bootSession(session.sessionId); }}
+                      disabled={booting}
+                      className="text-base text-[var(--color-accent)] hover:underline disabled:opacity-50"
+                    >
+                      Resume
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
