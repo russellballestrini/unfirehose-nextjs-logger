@@ -146,17 +146,23 @@ function DetailPanel({
             </div>
           )}
           {meta.recentCommits.length > 0 && (() => {
-            const fetchRemote = meta.remotes.find((r) => r.type === 'fetch');
+            const fetchRemotes = meta.remotes.filter((r: any) => r.type === 'fetch');
             return (
               <div className="text-base space-y-1 font-mono">
                 {meta.recentCommits.slice(0, 5).map((c) => {
-                  const cUrl = fetchRemote ? commitUrl(fetchRemote.url, c.hash) : null;
+                  const commitLinks = fetchRemotes
+                    .map((r: any) => ({ name: r.name, url: commitUrl(r.url, c.hash) }))
+                    .filter((l: any) => l.url);
                   return (
                     <div key={c.hash} className="flex gap-2">
-                      {cUrl ? (
-                        <a href={cUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline shrink-0">
-                          {c.hash}
-                        </a>
+                      {commitLinks.length > 0 ? (
+                        <span className="shrink-0 flex gap-1">
+                          {commitLinks.map((l: any, i: number) => (
+                            <a key={l.name} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline" title={l.name}>
+                              {i === 0 ? c.hash : l.name}
+                            </a>
+                          ))}
+                        </span>
                       ) : (
                         <span className="text-[var(--color-accent)] shrink-0">{c.hash}</span>
                       )}
