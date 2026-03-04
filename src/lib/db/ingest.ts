@@ -4,6 +4,8 @@ import { createInterface } from 'readline';
 import path from 'path';
 import { getDb } from './schema';
 import { claudePaths, decodeProjectName } from '../claude-paths';
+import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
+import { normalizeUncloseaiEntry } from '../uncloseai-adapter';
 import type { SessionsIndex } from '../types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -269,6 +271,137 @@ function checkThresholds(db: ReturnType<typeof getDb>): number {
   return triggered;
 }
 
+async function ingestUncloseai(
+  db: ReturnType<typeof getDb>
+): Promise<Omit<IngestResult, 'alertsTriggered'>> {
+  const result = {
+    projectsAdded: 0,
+    sessionsAdded: 0,
+    messagesAdded: 0,
+    blocksAdded: 0,
+    filesScanned: 0,
+  };
+
+  const projectDirs = await readdir(uncloseaiPaths.sessions).catch(() => []);
+
+  for (const cwdSlug of projectDirs) {
+    const projDir = uncloseaiPaths.projectDir(cwdSlug);
+    const dirStat = await stat(projDir).catch(() => null);
+    if (!dirStat?.isDirectory()) continue;
+
+    const projectName = `uncloseai:${cwdSlug}`;
+    const displayName = `[uncloseai] ${decodeUncloseaiProjectName(cwdSlug)}`;
+
+    let files: string[];
+    try {
+      files = (await readdir(projDir)).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    if (files.length === 0) continue;
+
+    const projectId = getOrCreateProject(db, projectName, displayName);
+
+    const prevCount = db
+      .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
+      .get(projectId) as { c: number };
+    if (prevCount.c === 0 && files.length > 0) result.projectsAdded++;
+
+    for (const file of files) {
+      const sessionUuid = file.replace('.jsonl', '');
+      const filePath = uncloseaiPaths.sessionFile(cwdSlug, sessionUuid);
+      const fstat = await stat(filePath).catch(() => null);
+      if (!fstat) continue;
+
+      const offset = db
+        .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
+        .get(filePath) as { byte_offset: number } | undefined;
+      const startByte = offset?.byte_offset ?? 0;
+
+      if (fstat.size <= startByte) continue;
+
+      result.filesScanned++;
+
+      const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
+        cliVersion: 'uncloseai-cli',
+      });
+
+      if (!offset) result.sessionsAdded++;
+
+      const stream = createReadStream(filePath, {
+        start: startByte,
+        encoding: 'utf-8',
+      });
+      const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+      const batchInsert = db.transaction((lines: string[]) => {
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const raw = JSON.parse(line);
+
+            // Capture metadata from session_start
+            if (raw.type === 'session_start') {
+              db.prepare(
+                'UPDATE sessions SET first_prompt = COALESCE(first_prompt, ?) WHERE id = ?'
+              ).run(raw.prompt ?? null, sessionId);
+              if (raw.cwd) {
+                db.prepare(
+                  "UPDATE projects SET path = COALESCE(NULLIF(path, ''), ?) WHERE id = ?"
+                ).run(raw.cwd, projectId);
+              }
+            }
+
+            const normalized = normalizeUncloseaiEntry(raw);
+            if (!normalized) continue;
+
+            const messageId = insertMessage(db, sessionId, normalized);
+            if (messageId === null) continue;
+
+            result.messagesAdded++;
+
+            const content = normalized.message?.content ?? [];
+            if (Array.isArray(content)) {
+              result.blocksAdded += insertContentBlocks(
+                db,
+                messageId,
+                content
+              );
+            }
+          } catch {
+            // skip malformed lines
+          }
+        }
+      });
+
+      const batch: string[] = [];
+      for await (const line of rl) {
+        batch.push(line);
+        if (batch.length >= 500) {
+          batchInsert(batch.splice(0));
+        }
+      }
+      if (batch.length > 0) {
+        batchInsert(batch);
+      }
+
+      db.prepare(
+        `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(file_path) DO UPDATE SET
+           byte_offset = excluded.byte_offset,
+           last_ingested = excluded.last_ingested`
+      ).run(filePath, fstat.size);
+
+      db.prepare(
+        'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
+      ).run(new Date().toISOString(), sessionUuid);
+    }
+  }
+
+  return result;
+}
+
 export async function ingestAll(): Promise<IngestResult> {
   const db = getDb();
   const result: IngestResult = {
@@ -431,6 +564,14 @@ export async function ingestAll(): Promise<IngestResult> {
       ).run(new Date().toISOString(), meta.sessionId);
     }
   }
+
+  // Ingest uncloseai-cli sessions
+  const ucResult = await ingestUncloseai(db);
+  result.projectsAdded += ucResult.projectsAdded;
+  result.sessionsAdded += ucResult.sessionsAdded;
+  result.messagesAdded += ucResult.messagesAdded;
+  result.blocksAdded += ucResult.blocksAdded;
+  result.filesScanned += ucResult.filesScanned;
 
   // Check alert thresholds
   result.alertsTriggered = checkThresholds(db);

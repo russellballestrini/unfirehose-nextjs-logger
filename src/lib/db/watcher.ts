@@ -1,8 +1,10 @@
 import { watch, type FSWatcher } from 'fs';
 import { claudePaths } from '../claude-paths';
+import { uncloseaiPaths } from '../uncloseai-paths';
 import { ingestAll } from './ingest';
 
 let watcher: FSWatcher | null = null;
+let uncloseaiWatcher: FSWatcher | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let ingesting = false;
 
@@ -36,12 +38,29 @@ export function startWatcher() {
   } catch (err) {
     console.error('[watcher] failed to start:', err);
   }
+
+  if (!uncloseaiWatcher) {
+    try {
+      uncloseaiWatcher = watch(uncloseaiPaths.sessions, { recursive: true }, (_event, filename) => {
+        if (filename && filename.endsWith('.jsonl')) {
+          debouncedIngest();
+        }
+      });
+      console.log('[watcher] watching', uncloseaiPaths.sessions);
+    } catch (err) {
+      console.error('[watcher] uncloseai watch failed:', err);
+    }
+  }
 }
 
 export function stopWatcher() {
   if (watcher) {
     watcher.close();
     watcher = null;
+  }
+  if (uncloseaiWatcher) {
+    uncloseaiWatcher.close();
+    uncloseaiWatcher = null;
   }
   if (debounceTimer) {
     clearTimeout(debounceTimer);
