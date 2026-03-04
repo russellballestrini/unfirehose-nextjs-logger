@@ -275,7 +275,7 @@ export default function LivePage() {
                   style={{ background: color }}
                 />
                 <span
-                  className="truncate"
+                  className="break-words"
                   style={{ color }}
                 >
                   {item.projectName}
@@ -328,15 +328,14 @@ export default function LivePage() {
                 {/* Text content */}
                 {text && (
                   <span className="text-[var(--color-foreground)] break-words">
-                    {text.length > 200 ? text.slice(0, 200) + '\u2026' : text}
+                    {text}
                   </span>
                 )}
 
                 {/* Thinking preview */}
                 {thinking && (
                   <div className="text-[var(--color-thinking)] opacity-60 mt-0.5 italic">
-                    {thinking.slice(0, 150)}
-                    {thinking.length > 150 ? '\u2026' : ''}
+                    {thinking}
                   </div>
                 )}
               </div>

@@ -68,8 +68,6 @@ function ThinkingBlock({ block, forceExpand }: { block: any; forceExpand: boolea
   const [expanded, setExpanded] = useState(false);
   const isExpanded = forceExpand || expanded;
   const content = block.text_content ?? '';
-  const preview = content.slice(0, 500);
-  const needsTruncation = content.length > 500;
 
   return (
     <div className="border-l-3 border-[var(--color-thinking)] bg-[var(--color-surface)] rounded-r p-4 space-y-2">
@@ -85,11 +83,11 @@ function ThinkingBlock({ block, forceExpand }: { block: any; forceExpand: boolea
           {block.char_count.toLocaleString()} chars
         </span>
         {block.preceding_prompt && (
-          <span className="text-[var(--color-user)] italic truncate max-w-md">
+          <span className="text-[var(--color-user)] italic break-words">
             &ldquo;{block.preceding_prompt}&rdquo;
           </span>
         )}
-        {needsTruncation && !forceExpand && (
+        {content.length > 500 && !forceExpand && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[var(--color-accent)] hover:underline ml-auto"
@@ -99,12 +97,7 @@ function ThinkingBlock({ block, forceExpand }: { block: any; forceExpand: boolea
         )}
       </div>
       <pre className="text-base font-mono whitespace-pre-wrap text-[var(--color-foreground)] leading-relaxed max-h-[80vh] overflow-auto">
-        {isExpanded ? content : preview}
-        {!isExpanded && needsTruncation && (
-          <span className="text-[var(--color-muted)]">
-            {'\n\n'}--- {(content.length - 500).toLocaleString()} more characters ---
-          </span>
-        )}
+        {content}
       </pre>
     </div>
   );
@@ -153,7 +146,7 @@ function RepoContext({ projectName }: { projectName: string }) {
           {meta.recentCommits.slice(0, 8).map((c) => (
             <div key={c.hash} className="flex gap-2">
               <span className="text-[var(--color-accent)] shrink-0">{c.hash}</span>
-              <span className="truncate flex-1">{c.subject}</span>
+              <span className="break-words">{c.subject}</span>
               <span className="text-[var(--color-muted)] shrink-0">
                 {c.author}, {formatRelativeTime(c.date)}
               </span>
@@ -537,14 +530,14 @@ export default function AlertDetailPage() {
           <div className="space-y-1">
             {activeSessions.map((s: any) => (
               <div key={s.session_uuid} className="flex items-center gap-3 text-base py-2 px-2 rounded hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-0">
-                <span className="font-bold w-36 truncate shrink-0">{s.display_name}</span>
+                <span className="font-bold w-36 break-words">{s.display_name}</span>
                 {s.git_branch && (
                   <span className="bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-1.5 py-0.5 rounded font-mono text-base shrink-0">
                     {s.git_branch}
                   </span>
                 )}
-                <span className="text-[var(--color-muted)] truncate flex-1">
-                  {s.first_prompt ? (s.first_prompt.length > 100 ? s.first_prompt.slice(0, 100) + '\u2026' : s.first_prompt) : 'no initial prompt'}
+                <span className="text-[var(--color-muted)] break-words">
+                  {s.first_prompt || 'no initial prompt'}
                 </span>
                 <span className="text-[var(--color-muted)] shrink-0">{s.message_count} msgs</span>
                 <span className="font-bold shrink-0">{formatTokens(s.input_tokens + s.output_tokens)}</span>
@@ -592,7 +585,7 @@ export default function AlertDetailPage() {
                   <span className="text-[var(--color-user)] font-bold">{p.display_name}</span>
                 </div>
                 <div className="text-base text-[var(--color-foreground)] mt-0.5">
-                  {p.prompt.length > 300 ? p.prompt.slice(0, 300) + '\u2026' : p.prompt}
+                  {p.prompt}
                 </div>
               </div>
             ))}

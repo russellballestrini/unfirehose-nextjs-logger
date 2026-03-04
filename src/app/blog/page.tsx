@@ -188,7 +188,7 @@ export default function BlogPage() {
               )}
             </div>
             {(activeBasics?.summary ?? bio) && (
-              <p className="text-base text-[var(--color-muted)] mt-1 line-clamp-2">
+              <p className="text-base text-[var(--color-muted)] mt-1">
                 {activeBasics?.summary ?? bio}
               </p>
             )}
@@ -481,9 +481,7 @@ function PostCard({
       {displayContent && (
         <div className="mt-2">
           <div className="text-base text-[var(--color-foreground)] whitespace-pre-wrap break-words">
-            {isLong && !expanded
-              ? displayContent.slice(0, 280) + '...'
-              : displayContent}
+            {displayContent}
           </div>
           {isLong && (
             <button
@@ -510,7 +508,7 @@ function PostCard({
           href={post.source!}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-base text-[var(--color-muted)] font-mono mt-1 hover:text-[var(--color-accent)] block truncate"
+          className="text-base text-[var(--color-muted)] font-mono mt-1 hover:text-[var(--color-accent)] block break-all"
         >
           {post.source}
         </a>

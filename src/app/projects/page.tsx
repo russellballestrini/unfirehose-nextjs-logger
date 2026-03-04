@@ -156,7 +156,7 @@ function DetailPanel({
               {meta.recentCommits.slice(0, 5).map((c) => (
                 <div key={c.hash} className="flex gap-2">
                   <span className="text-[var(--color-accent)] shrink-0">{c.hash}</span>
-                  <span className="truncate flex-1">{c.subject}</span>
+                  <span className="break-words">{c.subject}</span>
                   <span className="text-[var(--color-muted)] shrink-0">
                     {c.author}, {formatRelativeTime(c.date)}
                   </span>
@@ -188,7 +188,7 @@ function DetailPanel({
             {activityDetail.recentPrompts.map((p, i) => (
               <div key={i} className="flex gap-2">
                 <span className="text-[var(--color-muted)] shrink-0">{formatRelativeTime(p.timestamp)}</span>
-                <span className="truncate">{p.prompt}</span>
+                <span className="break-words">{p.prompt}</span>
               </div>
             ))}
           </div>
@@ -358,7 +358,7 @@ function ProjectCard({
       }`}
     >
       <div className="flex items-start justify-between">
-        <div className="font-bold text-base truncate flex-1">
+        <div className="font-bold text-base break-words">
           {project.displayName}
         </div>
         {project.hasMemory && (
@@ -369,7 +369,7 @@ function ProjectCard({
         )}
       </div>
       {project.path && (
-        <div className="text-base text-[var(--color-muted)] mt-1 truncate">
+        <div className="text-base text-[var(--color-muted)] mt-1 break-all">
           {project.path}
         </div>
       )}

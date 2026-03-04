@@ -48,9 +48,6 @@ function ThinkingBlockView({
 
   if (!show) return null;
 
-  const preview = thinking.slice(0, 200);
-  const isLong = thinking.length > 200;
-
   return (
     <div className="border-l-2 border-[var(--color-thinking)] pl-3 py-1 my-1">
       <button
@@ -59,16 +56,9 @@ function ThinkingBlockView({
       >
         {expanded ? 'collapse thinking' : 'expand thinking'} ({thinking.length.toLocaleString()} chars)
       </button>
-      {expanded ? (
-        <div className="text-base text-[var(--color-muted)] whitespace-pre-wrap mt-1 max-h-96 overflow-auto font-mono">
-          {thinking}
-        </div>
-      ) : (
-        <div className="text-base text-[var(--color-muted)] mt-1 italic">
-          {preview}
-          {isLong && '...'}
-        </div>
-      )}
+      <div className={`text-base text-[var(--color-muted)] whitespace-pre-wrap mt-1 font-mono ${expanded ? 'max-h-96 overflow-auto' : ''}`}>
+        {thinking}
+      </div>
     </div>
   );
 }

@@ -111,7 +111,7 @@ export default function SessionViewerPage({
         >
           &larr; Sessions
         </Link>
-        <h2 className="text-base font-bold mt-1 truncate">
+        <h2 className="text-base font-bold mt-1 break-all">
           Session: {sessionId}
         </h2>
         <div className="flex items-center gap-4 mt-2">

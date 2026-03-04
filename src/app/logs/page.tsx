@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionEntry } from '@/lib/types';
-import { formatTimestamp, truncate } from '@/lib/format';
+import { formatTimestamp } from '@/lib/format';
 import { decodeProjectName } from '@/lib/claude-paths-client';
 import { PageContext } from '@/components/PageContext';
 
@@ -152,8 +152,8 @@ function LogEntry({
         {expanded ? (
           <div className="whitespace-pre-wrap break-words">{preview}</div>
         ) : (
-          <span className="text-[var(--color-muted)]">
-            {truncate(preview.replace(/\n/g, ' '), 120)}
+          <span className="text-[var(--color-muted)] break-words">
+            {preview.replace(/\n/g, ' ')}
           </span>
         )}
       </div>

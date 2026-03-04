@@ -4,7 +4,7 @@ import { use } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry } from '@/lib/types';
-import { formatRelativeTime, truncate } from '@/lib/format';
+import { formatRelativeTime } from '@/lib/format';
 import { PageContext } from '@/components/PageContext';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -44,7 +44,7 @@ export default function ProjectSessionsPage({
           sessions: data.sessions.length,
           path: data.originalPath || '',
         }}
-        details={data.sessions.slice(0, 20).map((s) => `${s.sessionId.slice(0, 8)}: ${truncate(s.firstPrompt ?? 'no prompt', 80)} (${s.messageCount ?? '?'} msgs)`).join('\n')}
+        details={data.sessions.slice(0, 20).map((s) => `${s.sessionId.slice(0, 8)}: ${s.firstPrompt ?? 'no prompt'} (${s.messageCount ?? '?'} msgs)`).join('\n')}
       />
       <div>
         <Link
@@ -86,7 +86,7 @@ export default function ProjectSessionsPage({
                     href={`/projects/${project}/${session.sessionId}`}
                     className="hover:text-[var(--color-accent)] transition-colors"
                   >
-                    {truncate(session.firstPrompt ?? session.sessionId, 80)}
+                    {session.firstPrompt ?? session.sessionId}
                   </Link>
                   {session.isSidechain && (
                     <span className="ml-2 text-base px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">
@@ -97,7 +97,7 @@ export default function ProjectSessionsPage({
                 <td className="py-2 pr-4 text-[var(--color-muted)]">
                   {session.messageCount ?? '?'}
                 </td>
-                <td className="py-2 pr-4 text-[var(--color-muted)] truncate max-w-28">
+                <td className="py-2 pr-4 text-[var(--color-muted)] break-words">
                   {session.gitBranch ?? '-'}
                 </td>
                 <td className="py-2 pr-4 text-[var(--color-muted)]">

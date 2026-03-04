@@ -336,7 +336,7 @@ export default function UsageMonitorPage() {
                   }`} />
 
                   {/* Project name */}
-                  <span className="font-bold truncate">{p.display_name}</span>
+                  <span className="font-bold break-words">{p.display_name}</span>
 
                   {/* Metrics bar */}
                   <div className="grid grid-flow-col auto-cols-max gap-4 text-base text-[var(--color-muted)]">
@@ -365,7 +365,7 @@ export default function UsageMonitorPage() {
                               {rp.timestamp ? formatRelativeTime(rp.timestamp) : ''}
                             </span>
                             <span className="text-[var(--color-foreground)] break-words">
-                              {rp.prompt.length > 150 ? rp.prompt.slice(0, 150) + '\u2026' : rp.prompt}
+                              {rp.prompt}
                             </span>
                           </div>
                         ))}

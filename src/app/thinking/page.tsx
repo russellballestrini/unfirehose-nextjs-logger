@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ThinkingExcerpt } from '@/lib/types';
-import { formatTimestamp, truncate } from '@/lib/format';
+import { formatTimestamp } from '@/lib/format';
 import { decodeProjectName } from '@/lib/claude-paths-client';
 import { PageContext } from '@/components/PageContext';
 
@@ -32,7 +32,7 @@ export default function ThinkingPage() {
           search_query: search || 'none',
           limit,
         }}
-        details={data?.slice(0, 10).map((t) => `[${decodeProjectName(t.project)}] ${t.thinking.slice(0, 100)}...`).join('\n')}
+        details={data?.slice(0, 10).map((t) => `[${decodeProjectName(t.project)}] ${t.thinking}`).join('\n')}
       />
       <h2 className="text-lg font-bold">Thinking Stream</h2>
 
@@ -105,7 +105,7 @@ function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
 
       {excerpt.precedingPrompt && (
         <div className="text-base text-[var(--color-user)] mb-2 italic">
-          &quot;{truncate(excerpt.precedingPrompt, 120)}&quot;
+          &quot;{excerpt.precedingPrompt}&quot;
         </div>
       )}
 
@@ -119,7 +119,7 @@ function ThinkingCard({ excerpt }: { excerpt: ThinkingExcerpt }) {
         <div className="text-base text-[var(--color-muted)] whitespace-pre-wrap font-mono max-h-96 overflow-auto">
           {expanded
             ? excerpt.thinking
-            : truncate(excerpt.thinking, 300)}
+            : excerpt.thinking}
         </div>
       </div>
     </div>

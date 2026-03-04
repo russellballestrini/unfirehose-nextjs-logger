@@ -156,7 +156,7 @@ export default function StyleguidePage() {
                 className="w-full h-10 rounded border border-[var(--color-border)]"
                 style={{ background: v.hex }}
               />
-              <div className="text-base text-[var(--color-muted)] truncate">{v.name}</div>
+              <div className="text-base text-[var(--color-muted)] break-all">{v.name}</div>
               <div className="text-base font-mono">{v.hex}</div>
             </div>
           ))}
@@ -203,7 +203,7 @@ export default function StyleguidePage() {
         {/* ProjectCard mock */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 max-w-sm hover:border-[var(--color-accent)] transition-colors cursor-pointer">
           <div className="grid grid-cols-[1fr_auto] items-start">
-            <div className="font-bold text-base truncate">unsandbox-com</div>
+            <div className="font-bold text-base break-words">unsandbox-com</div>
             <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] mt-1" />
           </div>
           <div className="text-base text-[var(--color-muted)] mt-1">/home/fox/git/unsandbox.com</div>
