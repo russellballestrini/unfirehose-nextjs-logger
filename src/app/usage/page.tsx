@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTokens, formatRelativeTime } from '@/lib/format';
@@ -12,8 +12,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
 } from 'recharts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -102,6 +100,11 @@ export default function UsageMonitorPage() {
     messages: recentMinutes.reduce((s: number, m: any) => s + (m.message_count ?? 0), 0),
   };
 
+  // Project bar chart scaling
+  const projectMaxTotal = byProject
+    ? Math.max(...byProject.map((p: any) => (p.input_tokens ?? 0) + (p.output_tokens ?? 0)), 1)
+    : 1;
+
   return (
     <div className="space-y-6">
       <PageContext
@@ -121,7 +124,7 @@ export default function UsageMonitorPage() {
       {/* Alert banner */}
       {alerts && alerts.length > 0 && (
         <div className="bg-red-950 border border-[var(--color-error)] rounded p-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="grid grid-cols-[1fr_auto] items-center mb-2">
             <h3 className="text-base font-bold text-[var(--color-error)]">
               USAGE ALERTS ({alerts.length})
             </h3>
@@ -158,9 +161,9 @@ export default function UsageMonitorPage() {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="grid grid-cols-[1fr_auto] items-center">
         <h2 className="text-lg font-bold">Usage Monitor</h2>
-        <div className="flex items-center gap-3">
+        <div className="grid grid-flow-col auto-cols-max items-center gap-3">
           <select
             value={window}
             onChange={(e) => setWindow(Number(e.target.value))}
@@ -252,37 +255,55 @@ export default function UsageMonitorPage() {
         )}
       </div>
 
-      {/* Usage by project */}
+      {/* Usage by project — CSS Grid bar chart, labels get priority */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Usage by Project ({window === 0 ? 'Lifetime' : window < 1440 ? `${window / 60}h` : `${window / 1440}d`})
         </h3>
         {byProject && byProject.length > 0 ? (
-          <>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={byProject} layout="vertical">
-                <XAxis type="number" tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
-                <YAxis
-                  type="category"
-                  dataKey="display_name"
-                  tick={{ fill: '#71717a', fontSize: 16 }}
-                  width={120}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: '#18181b',
-                    border: '1px solid #3f3f46',
-                    borderRadius: 4,
-                    color: '#fafafa',
-                    fontSize: 16,
-                  }}
-                  formatter={(v) => formatTokens(Number(v ?? 0))}
-                />
-                <Bar dataKey="input_tokens" name="Input" fill="#22c55e" stackId="a" />
-                <Bar dataKey="output_tokens" name="Output" fill="#a78bfa" stackId="a" />
-              </BarChart>
-            </ResponsiveContainer>
-          </>
+          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
+            {byProject.map((p: any) => {
+              const input = p.input_tokens ?? 0;
+              const output = p.output_tokens ?? 0;
+              const total = input + output;
+              const pct = projectMaxTotal > 0 ? (total / projectMaxTotal) * 100 : 0;
+              return (
+                <Fragment key={p.name}>
+                  <span className="text-base text-[var(--color-muted)] whitespace-nowrap">{p.display_name}</span>
+                  <div
+                    className="h-7 rounded bg-[var(--color-background)] overflow-hidden"
+                    title={`Input: ${formatTokens(input)} — Output: ${formatTokens(output)}`}
+                  >
+                    {total > 0 && (
+                      <div
+                        className="h-full grid"
+                        style={{
+                          width: `${Math.max(pct, 0.5)}%`,
+                          gridTemplateColumns: `${input}fr ${output}fr`,
+                        }}
+                      >
+                        <div className="bg-[#22c55e] h-full" />
+                        <div className="bg-[#a78bfa] h-full" />
+                      </div>
+                    )}
+                  </div>
+                </Fragment>
+              );
+            })}
+            {/* Scale */}
+            <span />
+            <div className="grid grid-cols-[auto_1fr_auto] text-base text-[var(--color-muted)]">
+              <span>0</span>
+              <span />
+              <span>{formatTokens(projectMaxTotal)}</span>
+            </div>
+            {/* Legend */}
+            <span />
+            <div className="grid grid-flow-col auto-cols-max gap-4 text-base text-[var(--color-muted)]">
+              <span><span className="inline-block w-3 h-3 rounded bg-[#22c55e] mr-1.5 align-middle" />Input</span>
+              <span><span className="inline-block w-3 h-3 rounded bg-[#a78bfa] mr-1.5 align-middle" />Output</span>
+            </div>
+          </div>
         ) : (
           <div className="text-[var(--color-muted)] text-base py-4 text-center">
             No per-project usage data in window.
@@ -300,13 +321,13 @@ export default function UsageMonitorPage() {
             {projectActivity.map((p: any) => (
               <div key={p.name}>
                 <div
-                  className={`flex items-center gap-3 text-base py-2 px-2 rounded cursor-pointer hover:bg-[var(--color-surface-hover)] ${
+                  className={`grid grid-cols-[auto_10rem_1fr_7rem] items-center gap-3 text-base py-2 px-2 rounded cursor-pointer hover:bg-[var(--color-surface-hover)] ${
                     expandedProject === p.name ? 'bg-[var(--color-surface-hover)]' : ''
                   }`}
                   onClick={() => setExpandedProject(expandedProject === p.name ? null : p.name)}
                 >
                   {/* Status indicator */}
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  <span className={`w-2 h-2 rounded-full ${
                     isActiveRecently(p.last_activity)
                       ? 'bg-[var(--color-accent)] animate-pulse'
                       : isActiveSameDay(p.last_activity)
@@ -315,10 +336,10 @@ export default function UsageMonitorPage() {
                   }`} />
 
                   {/* Project name */}
-                  <span className="font-bold w-40 truncate">{p.display_name}</span>
+                  <span className="font-bold truncate">{p.display_name}</span>
 
                   {/* Metrics bar */}
-                  <div className="flex gap-4 flex-1 text-base text-[var(--color-muted)]">
+                  <div className="grid grid-flow-col auto-cols-max gap-4 text-base text-[var(--color-muted)]">
                     <span>{p.user_messages.toLocaleString()} prompts</span>
                     <span>{p.session_count} sessions</span>
                     <span>{p.active_days}d active</span>
@@ -327,7 +348,7 @@ export default function UsageMonitorPage() {
                   </div>
 
                   {/* Last activity */}
-                  <span className="text-base text-[var(--color-muted)] w-28 text-right shrink-0">
+                  <span className="text-base text-[var(--color-muted)] text-right">
                     {p.last_activity ? formatRelativeTime(p.last_activity) : '-'}
                   </span>
                 </div>
@@ -339,8 +360,8 @@ export default function UsageMonitorPage() {
                       <>
                         <div className="text-base font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
                         {projectDetail.recentPrompts.map((rp: any, i: number) => (
-                          <div key={i} className="text-base flex gap-2">
-                            <span className="text-[var(--color-muted)] w-32 shrink-0">
+                          <div key={i} className="text-base grid grid-cols-[8rem_1fr] gap-2">
+                            <span className="text-[var(--color-muted)]">
                               {rp.timestamp ? formatRelativeTime(rp.timestamp) : ''}
                             </span>
                             <span className="text-[var(--color-foreground)] break-words">
@@ -444,20 +465,22 @@ export default function UsageMonitorPage() {
               <Link
                 key={a.id}
                 href={`/usage/alert/${a.id}`}
-                className={`text-base py-1 flex gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 cursor-pointer ${
+                className={`text-base py-1 grid grid-cols-[9rem_5rem_6rem_1fr_auto] gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 cursor-pointer ${
                   a.acknowledged
                     ? 'text-[var(--color-muted)]'
                     : 'text-[var(--color-error)]'
                 }`}
               >
-                <span className="w-36 shrink-0">{a.triggered_at}</span>
-                <span className="w-20 shrink-0">{a.window_minutes}min</span>
-                <span className="w-24 shrink-0 font-bold">{a.metric}</span>
+                <span>{a.triggered_at}</span>
+                <span>{a.window_minutes}min</span>
+                <span className="font-bold">{a.metric}</span>
                 <span>
                   {formatTokens(a.actual_value)} / {formatTokens(a.threshold_value)}
                 </span>
-                {a.acknowledged && (
+                {a.acknowledged ? (
                   <span className="text-[var(--color-accent)]">ack</span>
+                ) : (
+                  <span />
                 )}
               </Link>
             ))}

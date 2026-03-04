@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -36,6 +36,13 @@ const areaData = [
   { date: 'Mar 7', tokens: 4800 },
 ];
 
+const horizontalBarData = [
+  { name: 'unsandbox-com', input: 150000, output: 280000 },
+  { name: 'claude-sexy-logger', input: 90000, output: 195000 },
+  { name: 'uncloseai-com', input: 45000, output: 82000 },
+  { name: 'funlooper-com', input: 12000, output: 35000 },
+];
+
 const PIE_COLORS = ['#10b981', '#60a5fa', '#fbbf24'];
 
 const CSS_VARS = [
@@ -61,6 +68,12 @@ const BORDER_TYPES = [
   { label: 'tool', color: 'var(--color-tool)' },
 ];
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 // --- Components ---
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -74,15 +87,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex items-center gap-3 text-base">
-      <span className="w-12 text-[var(--color-muted)] shrink-0">{label}</span>
-      <div className="flex-1 h-3 bg-[var(--color-surface-hover)] rounded overflow-hidden">
+    <div className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3 text-base">
+      <span className="text-[var(--color-muted)]">{label}</span>
+      <div className="h-3 bg-[var(--color-surface-hover)] rounded overflow-hidden">
         <div
           className="h-full bg-[var(--color-accent)] rounded transition-all"
           style={{ width: `${value}%` }}
         />
       </div>
-      <span className="w-12 text-right text-[var(--color-muted)]">{value}%</span>
+      <span className="text-right text-[var(--color-muted)]">{value}%</span>
     </div>
   );
 }
@@ -92,6 +105,8 @@ export default function StyleguidePage() {
   const [numberVal, setNumberVal] = useState(30);
   const [selectVal, setSelectVal] = useState('opus');
   const [checked, setChecked] = useState(true);
+
+  const hBarMax = Math.max(...horizontalBarData.map((d) => d.input + d.output), 1);
 
   return (
     <div className="space-y-8 max-w-4xl">
@@ -105,6 +120,32 @@ export default function StyleguidePage() {
         Styleguide{' '}
         <span className="text-[var(--color-muted)] font-normal">component reference</span>
       </h2>
+
+      {/* Layout rule */}
+      <Section title="Layout — Grid Only">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+          <p className="text-base text-[var(--color-muted)]">
+            All layouts use CSS Grid. No flexbox. The pattern{' '}
+            <code className="text-[var(--color-accent)]">grid-cols-[auto_1fr]</code>{' '}
+            gives labels priority — they size to content (never truncated), bars fill the rest.
+          </p>
+          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
+            <span className="text-base text-[var(--color-muted)] whitespace-nowrap">Short</span>
+            <div className="h-4 bg-[var(--color-background)] rounded overflow-hidden">
+              <div className="h-full bg-[var(--color-accent)] rounded" style={{ width: '75%' }} />
+            </div>
+            <span className="text-base text-[var(--color-muted)] whitespace-nowrap">Much longer label here</span>
+            <div className="h-4 bg-[var(--color-background)] rounded overflow-hidden">
+              <div className="h-full bg-[var(--color-accent)] rounded" style={{ width: '40%' }} />
+            </div>
+          </div>
+          <p className="text-base text-[var(--color-muted)]">
+            For inline groups: <code className="text-[var(--color-accent)]">grid grid-flow-col auto-cols-max</code>.
+            For label+content rows: <code className="text-[var(--color-accent)]">grid grid-cols-[auto_1fr]</code>.
+            For equal columns: <code className="text-[var(--color-accent)]">grid grid-cols-N</code>.
+          </p>
+        </div>
+      </Section>
 
       {/* Colors */}
       <Section title="Colors">
@@ -161,12 +202,12 @@ export default function StyleguidePage() {
         </div>
         {/* ProjectCard mock */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 max-w-sm hover:border-[var(--color-accent)] transition-colors cursor-pointer">
-          <div className="flex items-start justify-between">
-            <div className="font-bold text-base truncate flex-1">unsandbox-com</div>
-            <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0 mt-1" />
+          <div className="grid grid-cols-[1fr_auto] items-start">
+            <div className="font-bold text-base truncate">unsandbox-com</div>
+            <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] mt-1" />
           </div>
           <div className="text-base text-[var(--color-muted)] mt-1">/home/fox/git/unsandbox.com</div>
-          <div className="flex gap-4 mt-3 text-base text-[var(--color-muted)]">
+          <div className="grid grid-flow-col auto-cols-max gap-4 mt-3 text-base text-[var(--color-muted)]">
             <span>24 sessions</span>
             <span>1.2K msgs</span>
             <span>2 hours ago</span>
@@ -178,7 +219,7 @@ export default function StyleguidePage() {
       {/* Charts */}
       <Section title="Charts">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* BarChart */}
+          {/* BarChart (Recharts — vertical) */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <div className="text-base text-[var(--color-muted)] mb-3">BarChart — Messages / Day</div>
             <ResponsiveContainer width="100%" height={160}>
@@ -223,13 +264,54 @@ export default function StyleguidePage() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          {/* Horizontal Bar Chart — CSS Grid */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 md:col-span-2">
+            <div className="text-base text-[var(--color-muted)] mb-3">Horizontal Bar — CSS Grid (labels get priority)</div>
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
+              {horizontalBarData.map((d) => {
+                const total = d.input + d.output;
+                const pct = hBarMax > 0 ? (total / hBarMax) * 100 : 0;
+                return (
+                  <Fragment key={d.name}>
+                    <span className="text-base text-[var(--color-muted)] whitespace-nowrap">{d.name}</span>
+                    <div
+                      className="h-7 rounded bg-[var(--color-background)] overflow-hidden"
+                      title={`Input: ${formatTokens(d.input)} — Output: ${formatTokens(d.output)}`}
+                    >
+                      <div
+                        className="h-full grid"
+                        style={{
+                          width: `${Math.max(pct, 0.5)}%`,
+                          gridTemplateColumns: `${d.input}fr ${d.output}fr`,
+                        }}
+                      >
+                        <div className="bg-[#22c55e] h-full" />
+                        <div className="bg-[#a78bfa] h-full" />
+                      </div>
+                    </div>
+                  </Fragment>
+                );
+              })}
+              <span />
+              <div className="grid grid-cols-[auto_1fr_auto] text-base text-[var(--color-muted)]">
+                <span>0</span>
+                <span />
+                <span>{formatTokens(hBarMax)}</span>
+              </div>
+              <span />
+              <div className="grid grid-flow-col auto-cols-max gap-4 text-base text-[var(--color-muted)]">
+                <span><span className="inline-block w-3 h-3 rounded bg-[#22c55e] mr-1.5 align-middle" />Input</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-[#a78bfa] mr-1.5 align-middle" />Output</span>
+              </div>
+            </div>
+          </div>
         </div>
       </Section>
 
       {/* Interactive */}
       <Section title="Interactive">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-          <div className="flex flex-wrap gap-3 items-center">
+          <div className="grid grid-flow-col auto-cols-max gap-3 items-center">
             <button className="px-3 py-1.5 text-base bg-[var(--color-accent)] text-[var(--color-background)] rounded font-bold hover:opacity-90 transition-opacity">
               Primary
             </button>
@@ -243,7 +325,7 @@ export default function StyleguidePage() {
               Disabled
             </button>
           </div>
-          <div className="flex flex-wrap gap-3 items-center">
+          <div className="grid grid-flow-col auto-cols-max gap-3 items-center">
             <input
               type="text"
               placeholder="Text input"
@@ -266,7 +348,7 @@ export default function StyleguidePage() {
               <option value="sonnet">Sonnet</option>
               <option value="haiku">Haiku</option>
             </select>
-            <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)]">
+            <label className="grid grid-flow-col auto-cols-max items-center gap-1.5 text-base text-[var(--color-muted)]">
               <input
                 type="checkbox"
                 checked={checked}
