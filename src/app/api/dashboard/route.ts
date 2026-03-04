@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
       },
       modelBreakdown,
       dailyActivity,
-      hourCounts: hourCounts.map((h: any) => ({ hour: `${h.hour}:00`, count: h.count })),
+      hourCounts: hourCounts.map((h: any) => ({ hour: h.hour, count: h.count })),
       dayOfWeekCounts: dayOfWeekCounts.map((d: any) => ({
         day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.dow],
         dow: d.dow,

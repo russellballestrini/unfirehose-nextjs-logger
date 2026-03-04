@@ -84,8 +84,14 @@ export default function DashboardPage() {
     cost: m.costUSD ?? 0,
   }));
 
+  // Find sleep center and rotate hour data for bell curve
+  const sleepCenter = findSleepCenter(data.hourCounts ?? []);
+  const rotatedHours = rotateHours(data.hourCounts ?? [], sleepCenter);
+  const localOffset = getLocalOffsetHours();
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   // Build day-of-week × hour curves for the heatmap
-  const dowHourData = buildDowHourCurves(data.dowHourHeatmap ?? []);
+  const dowHourData = buildDowHourCurves(data.dowHourHeatmap ?? [], sleepCenter);
 
   return (
     <div className="space-y-6">
@@ -149,18 +155,23 @@ export default function DashboardPage() {
 
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-            Hour Distribution (UTC)
+            Hour Distribution
+            <span className="font-normal text-[var(--color-muted)] ml-2">
+              UTC {localOffset >= 0 ? '+' : ''}{localOffset} ({tzName})
+            </span>
           </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data.hourCounts}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={rotatedHours} margin={{ bottom: 16 }}>
               <XAxis
                 dataKey="hour"
-                tick={{ fill: '#71717a', fontSize: 16 }}
-                interval={3}
+                tick={<DualHourTick offset={localOffset} />}
+                interval={2}
+                height={40}
               />
               <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
               <Tooltip
                 contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+                labelFormatter={(h) => formatDualHourTooltip(h as number)}
               />
               <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} />
             </BarChart>
@@ -194,20 +205,23 @@ export default function DashboardPage() {
         {/* Day × Hour hotspot curves */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-            Hotspots by Day &times; Hour (UTC)
+            Hotspots by Day &times; Hour
+            <span className="font-normal text-[var(--color-muted)] ml-2">
+              UTC {localOffset >= 0 ? '+' : ''}{localOffset}
+            </span>
           </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={dowHourData}>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={dowHourData} margin={{ bottom: 16 }}>
               <XAxis
                 dataKey="hour"
-                tick={{ fill: '#71717a', fontSize: 16 }}
-                tickFormatter={(h: number) => `${h}:00`}
-                interval={3}
+                tick={<DualHourTick offset={localOffset} />}
+                interval={2}
+                height={40}
               />
               <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
               <Tooltip
                 contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
-                labelFormatter={(h) => `${h}:00 UTC`}
+                labelFormatter={(h) => formatDualHourTooltip(h as number)}
               />
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
                 <Area
@@ -298,8 +312,57 @@ export default function DashboardPage() {
   );
 }
 
+/**
+ * Find the sleep trough: the 6-hour contiguous window (circular) with minimum total activity.
+ * Returns the hour at the center of that window — the chart starts there so sleep is at the edges
+ * and the activity bell curve peaks in the middle.
+ */
+function findSleepCenter(hourCounts: { hour: number; count: number }[]): number {
+  const counts = new Array(24).fill(0);
+  for (const h of hourCounts) counts[h.hour] = h.count;
+
+  const windowSize = 6;
+  let minSum = Infinity;
+  let minStart = 0;
+
+  for (let start = 0; start < 24; start++) {
+    let sum = 0;
+    for (let j = 0; j < windowSize; j++) {
+      sum += counts[(start + j) % 24];
+    }
+    if (sum < minSum) {
+      minSum = sum;
+      minStart = start;
+    }
+  }
+
+  // Center of the sleep window = start offset for the chart
+  return (minStart + Math.floor(windowSize / 2)) % 24;
+}
+
+/** Rotate an array of 24 hourly items so that `startHour` is index 0 */
+function rotateHours<T extends { hour: number }>(data: T[], startHour: number): T[] {
+  // Fill sparse data into a full 24-hour array
+  const full = new Array(24).fill(null).map((_, i) => {
+    const existing = data.find((d) => d.hour === i);
+    return existing ?? { hour: i, count: 0 } as unknown as T;
+  });
+  return [...full.slice(startHour), ...full.slice(0, startHour)];
+}
+
+/** Get the browser's UTC offset in hours (e.g., -5 for EST) */
+function getLocalOffsetHours(): number {
+  return -(new Date().getTimezoneOffset() / 60);
+}
+
+function formatDualHourTooltip(utcHour: number): string {
+  const offset = getLocalOffsetHours();
+  const localHour = ((utcHour + offset) % 24 + 24) % 24;
+  return `${utcHour}:00 UTC / ${localHour}:00 local`;
+}
+
 /** Pivot dow×hour rows into {hour, Sun, Mon, Tue, ...} for area chart */
-function buildDowHourCurves(heatmap: any[]): any[] {
+function buildDowHourCurves(heatmap: any[], startHour: number): any[] {
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const rows: any[] = [];
   for (let h = 0; h < 24; h++) {
@@ -313,7 +376,24 @@ function buildDowHourCurves(heatmap: any[]): any[] {
       rows[entry.hour][day] = entry.count;
     }
   }
-  return rows;
+  // Rotate to match the same sleep-centered ordering
+  return [...rows.slice(startHour), ...rows.slice(0, startHour)];
+}
+
+/** Custom tick that renders UTC on top, local below */
+function DualHourTick({ x, y, payload, offset }: any) {
+  const utcH = payload.value;
+  const localH = ((utcH + offset) % 24 + 24) % 24;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={12} textAnchor="middle" fill="#71717a" fontSize={11}>
+        {utcH}:00
+      </text>
+      <text x={0} y={0} dy={24} textAnchor="middle" fill="#a78bfa" fontSize={10}>
+        {localH}:00
+      </text>
+    </g>
+  );
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
