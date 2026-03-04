@@ -19,7 +19,7 @@ export default function AllLogsPage() {
   >(`/api/logs?limit=${limit}&types=${typeFilter}`, fetcher);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-[calc(100vh-3rem)]">
       <PageContext
         pageType="logs"
         summary={`All logs view. ${data ? `${data.length} entries` : 'Loading...'}. Filter: ${typeFilter}. Limit: ${limit}.`}
@@ -29,49 +29,49 @@ export default function AllLogsPage() {
           limit,
         }}
       />
-      <h2 className="text-lg font-bold">All Logs</h2>
-
-      <div className="flex gap-3 items-center">
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
-        >
-          <option value="user,assistant,system">All types</option>
-          <option value="user">User only</option>
-          <option value="assistant">Assistant only</option>
-          <option value="system">System only</option>
-        </select>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
-          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
-        >
-          <option value={50}>50 entries</option>
-          <option value={100}>100 entries</option>
-          <option value={200}>200 entries</option>
-        </select>
+      <div className="flex items-center justify-between mb-3 shrink-0">
+        <h2 className="text-lg font-bold">All Logs</h2>
+        <div className="flex gap-3 items-center">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
+          >
+            <option value="user,assistant,system">All types</option>
+            <option value="user">User only</option>
+            <option value="assistant">Assistant only</option>
+            <option value="system">System only</option>
+          </select>
+          <select
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
+          >
+            <option value={50}>50 entries</option>
+            <option value={100}>100 entries</option>
+            <option value={200}>200 entries</option>
+          </select>
+          {data && (
+            <span className="text-base text-[var(--color-muted)]">
+              {data.length} entries
+            </span>
+          )}
+        </div>
       </div>
 
       {error && (
-        <div className="text-[var(--color-error)] text-base">
+        <div className="text-[var(--color-error)] text-base mb-2 shrink-0">
           Failed to load: {String(error)}
         </div>
       )}
 
       {isLoading && (
-        <div className="text-[var(--color-muted)] text-base">
+        <div className="text-[var(--color-muted)] text-base mb-2 shrink-0">
           Aggregating logs across sessions...
         </div>
       )}
 
-      {data && (
-        <div className="text-base text-[var(--color-muted)]">
-          {data.length} entries from recent sessions
-        </div>
-      )}
-
-      <div className="space-y-1">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
         {data?.map((entry, i) => (
           <LogEntry key={i} entry={entry} />
         ))}
