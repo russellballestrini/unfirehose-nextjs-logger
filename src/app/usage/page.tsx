@@ -356,20 +356,52 @@ export default function UsageMonitorPage() {
                   </span>
                 </div>
 
-                {/* Expanded detail with recent prompts */}
+                {/* Expanded detail with recent prompts + git context */}
                 {expandedProject === p.name && projectDetail && (
                   <div className="ml-7 pl-4 border-l-2 border-[var(--color-border)] py-2 space-y-1.5">
+                    {/* Git status summary */}
+                    {projectDetail.git && (projectDetail.git.isDirty || projectDetail.git.unpushedCount > 0) && (
+                      <div className="flex gap-2 mb-1">
+                        {projectDetail.git.isDirty && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono">
+                            uncommitted changes
+                          </span>
+                        )}
+                        {projectDetail.git.unpushedCount > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
+                            {projectDetail.git.unpushedCount} unpushed
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {projectDetail.recentPrompts && projectDetail.recentPrompts.length > 0 ? (
                       <>
                         <div className="text-base font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
                         {projectDetail.recentPrompts.map((rp: any, i: number) => (
                           <div key={i} className="text-base grid grid-cols-[8rem_1fr] gap-2">
-                            <span className="text-[var(--color-muted)]">
+                            <span className="text-[var(--color-muted)] flex items-center gap-1.5">
                               {rp.timestamp ? formatRelativeTime(rp.timestamp) : ''}
                             </span>
-                            <span className="text-[var(--color-foreground)] break-words">
-                              {rp.prompt}
-                            </span>
+                            <div className="flex items-start gap-2">
+                              <span className="text-[var(--color-foreground)] break-words flex-1">
+                                {rp.prompt}
+                              </span>
+                              {rp.commitHash && (
+                                <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-mono" title={rp.commitSubject}>
+                                  {rp.commitHash}
+                                </span>
+                              )}
+                              {rp.gitStatus === 'uncommitted' && (
+                                <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono">
+                                  uncommitted
+                                </span>
+                              )}
+                              {rp.gitStatus === 'unpushed' && (
+                                <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
+                                  unpushed
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </>
