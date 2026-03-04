@@ -1,0 +1,15 @@
+stages:
+  - test
+
+test:
+  stage: test
+  image: node:24-slim
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+  before_script:
+    - npm ci
+  script:
+    - npm run lint
+    - npm test
