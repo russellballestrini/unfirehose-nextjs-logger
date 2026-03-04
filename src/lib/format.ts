@@ -65,7 +65,12 @@ export function truncate(str: string, maxLen: number): string {
  * Supports GitHub, GitLab, and Gitea/Forgejo (e.g. git.unturf.com).
  */
 export function gitRemoteToWebUrl(remoteUrl: string): string | null {
-  // SSH: git@host:owner/repo.git or git@host:owner/repo
+  // SSH with explicit port: ssh://git@host:port/path.git
+  const sshUrlMatch = remoteUrl.match(/^ssh:\/\/git@([^:]+):\d+\/(.+?)(?:\.git)?$/);
+  if (sshUrlMatch) {
+    return `https://${sshUrlMatch[1]}/${sshUrlMatch[2]}`;
+  }
+  // SSH shorthand: git@host:owner/repo.git or git@host:owner/repo
   const sshMatch = remoteUrl.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
   if (sshMatch) {
     return `https://${sshMatch[1]}/${sshMatch[2]}`;
