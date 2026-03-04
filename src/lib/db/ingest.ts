@@ -463,6 +463,23 @@ export function acknowledgeAlert(id: number) {
 
 export function getUsageTimeline(minutes = 60) {
   const db = getDb();
+
+  if (minutes === 0) {
+    return db
+      .prepare(
+        `SELECT minute,
+                SUM(input_tokens) as input_tokens,
+                SUM(output_tokens) as output_tokens,
+                SUM(cache_read_tokens) as cache_read_tokens,
+                SUM(cache_creation_tokens) as cache_creation_tokens,
+                SUM(message_count) as message_count
+         FROM usage_minutes
+         GROUP BY minute
+         ORDER BY minute`
+      )
+      .all();
+  }
+
   const windowStart = new Date(Date.now() - minutes * 60 * 1000)
     .toISOString()
     .slice(0, 16);
@@ -485,6 +502,23 @@ export function getUsageTimeline(minutes = 60) {
 
 export function getUsageByProject(minutes = 60) {
   const db = getDb();
+
+  if (minutes === 0) {
+    return db
+      .prepare(
+        `SELECT p.name, p.display_name,
+                SUM(um.input_tokens) as input_tokens,
+                SUM(um.output_tokens) as output_tokens,
+                SUM(um.cache_read_tokens) as cache_read_tokens,
+                SUM(um.message_count) as message_count
+         FROM usage_minutes um
+         JOIN projects p ON p.id = um.project_id
+         GROUP BY p.id
+         ORDER BY SUM(um.input_tokens + um.output_tokens) DESC`
+      )
+      .all();
+  }
+
   const windowStart = new Date(Date.now() - minutes * 60 * 1000)
     .toISOString()
     .slice(0, 16);

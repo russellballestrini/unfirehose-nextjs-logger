@@ -21,7 +21,7 @@ import {
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function UsageMonitorPage() {
-  const [window, setWindow] = useState(60);
+  const [window, setWindow] = useState(1440);
   const [ingesting, setIngesting] = useState(false);
   const [lastIngest, setLastIngest] = useState<any>(null);
 
@@ -106,7 +106,7 @@ export default function UsageMonitorPage() {
     <div className="space-y-6">
       <PageContext
         pageType="usage-monitor"
-        summary={`Usage monitor. Window: ${window}min. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages.`}
+        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages.`}
         metrics={{
           window_minutes: window,
           input_5min: currentRate.input,
@@ -166,10 +166,12 @@ export default function UsageMonitorPage() {
             onChange={(e) => setWindow(Number(e.target.value))}
             className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
           >
-            <option value={15}>15 min</option>
             <option value={60}>1 hour</option>
-            <option value={360}>6 hours</option>
             <option value={1440}>24 hours</option>
+            <option value={10080}>7 days</option>
+            <option value={20160}>14 days</option>
+            <option value={40320}>28 days</option>
+            <option value={0}>Lifetime</option>
           </select>
           <button
             onClick={runIngest}
@@ -249,7 +251,7 @@ export default function UsageMonitorPage() {
       {/* Usage by project */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-          Usage by Project ({window}min)
+          Usage by Project ({window === 0 ? 'Lifetime' : window < 1440 ? `${window / 60}h` : `${window / 1440}d`})
         </h3>
         {byProject && byProject.length > 0 ? (
           <>
