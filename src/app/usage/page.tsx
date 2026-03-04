@@ -206,7 +206,11 @@ export default function UsageMonitorPage() {
               <XAxis
                 dataKey="minute"
                 tick={{ fill: '#71717a', fontSize: 16 }}
-                tickFormatter={(m: string) => m.slice(11, 16)}
+                tickFormatter={(m: string) => {
+                  if (m.length <= 10) return m.slice(5); // day: MM-DD
+                  if (m.length <= 13) return m.slice(5, 13).replace('T', ' ') + 'h'; // hour: MM-DD HHh
+                  return m.slice(11, 16); // minute: HH:MM
+                }}
               />
               <YAxis tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
               <Tooltip

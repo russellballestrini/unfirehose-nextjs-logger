@@ -464,40 +464,32 @@ export function acknowledgeAlert(id: number) {
 export function getUsageTimeline(minutes = 60) {
   const db = getDb();
 
-  if (minutes === 0) {
-    return db
-      .prepare(
-        `SELECT minute,
-                SUM(input_tokens) as input_tokens,
-                SUM(output_tokens) as output_tokens,
-                SUM(cache_read_tokens) as cache_read_tokens,
-                SUM(cache_creation_tokens) as cache_creation_tokens,
-                SUM(message_count) as message_count
-         FROM usage_minutes
-         GROUP BY minute
-         ORDER BY minute`
-      )
-      .all();
-  }
+  // Bucket size: per-minute for <=24h, per-hour for <=14d, per-day for 28d+/lifetime
+  // substr(minute, 1, 16) = per-minute (2025-03-03T12:34)
+  // substr(minute, 1, 13) = per-hour   (2025-03-03T12)
+  // substr(minute, 1, 10) = per-day    (2025-03-03)
+  const bucket = minutes <= 1440 ? 16 : minutes <= 20160 ? 13 : 10;
 
-  const windowStart = new Date(Date.now() - minutes * 60 * 1000)
-    .toISOString()
-    .slice(0, 16);
-
-  return db
-    .prepare(
-      `SELECT minute,
+  const query = `SELECT substr(minute, 1, ${bucket}) as minute,
               SUM(input_tokens) as input_tokens,
               SUM(output_tokens) as output_tokens,
               SUM(cache_read_tokens) as cache_read_tokens,
               SUM(cache_creation_tokens) as cache_creation_tokens,
               SUM(message_count) as message_count
        FROM usage_minutes
-       WHERE minute >= ?
-       GROUP BY minute
-       ORDER BY minute`
-    )
-    .all(windowStart);
+       ${minutes > 0 ? 'WHERE minute >= ?' : ''}
+       GROUP BY substr(minute, 1, ${bucket})
+       ORDER BY minute`;
+
+  if (minutes === 0) {
+    return db.prepare(query).all();
+  }
+
+  const windowStart = new Date(Date.now() - minutes * 60 * 1000)
+    .toISOString()
+    .slice(0, 16);
+
+  return db.prepare(query).all(windowStart);
 }
 
 export function getUsageByProject(minutes = 60) {
