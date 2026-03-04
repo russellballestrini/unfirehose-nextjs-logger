@@ -51,11 +51,27 @@ function extractThinking(entry: any): string | null {
   return block?.thinking ?? null;
 }
 
-function extractTools(entry: any): string[] {
+function extractTools(entry: any): { name: string; detail?: string }[] {
   if (entry?.type !== 'assistant' || !Array.isArray(entry?.message?.content)) return [];
   return entry.message.content
     .filter((b: any) => b.type === 'tool_use')
-    .map((b: any) => b.name);
+    .map((b: any) => {
+      let detail: string | undefined;
+      if (b.name === 'Bash' && b.input?.command) {
+        detail = b.input.command;
+      } else if (b.name === 'Read' && b.input?.file_path) {
+        detail = b.input.file_path;
+      } else if (b.name === 'Write' && b.input?.file_path) {
+        detail = b.input.file_path;
+      } else if (b.name === 'Edit' && b.input?.file_path) {
+        detail = b.input.file_path;
+      } else if (b.name === 'Glob' && b.input?.pattern) {
+        detail = b.input.pattern;
+      } else if (b.name === 'Grep' && b.input?.pattern) {
+        detail = b.input.pattern;
+      }
+      return { name: b.name, detail };
+    });
 }
 
 function shortModel(model?: string): string {
@@ -321,7 +337,11 @@ export default function LivePage() {
                 {/* Tool calls */}
                 {tools.length > 0 && (
                   <span className="text-[var(--color-tool)]">
-                    {tools.map((t) => `[${t}]`).join(' ')}{' '}
+                    {tools.map((t, ti) => (
+                      <span key={ti}>
+                        [{t.name}]{t.detail ? <span className="text-[var(--color-muted)]"> {t.detail}</span> : ''}{' '}
+                      </span>
+                    ))}
                   </span>
                 )}
 
