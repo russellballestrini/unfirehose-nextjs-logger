@@ -134,16 +134,18 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS posts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       post_uuid TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      source TEXT,
-      content TEXT,
+      post_type TEXT NOT NULL DEFAULT 'status',
+      title TEXT,
+      content_text TEXT NOT NULL,
+      tags TEXT,
       url TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      in_reply_to TEXT,
+      published_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_type ON posts(post_type);
 
     -- Indexes for fast queries
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);

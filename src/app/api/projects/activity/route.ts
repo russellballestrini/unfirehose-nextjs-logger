@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
           prompt: (p.prompt ?? '').slice(0, 200),
           timestamp: p.timestamp,
           sessionId: p.session_uuid,
+          response: (p.response ?? '').slice(0, 2000) || null,
         })),
       });
     }

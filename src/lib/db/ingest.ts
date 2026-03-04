@@ -598,7 +598,24 @@ export function getProjectRecentPrompts(projectName: string, limit = 5) {
     SELECT
       cb.text_content as prompt,
       m.timestamp,
-      s.session_uuid
+      s.session_uuid,
+      (
+        SELECT cb2.text_content
+        FROM messages m2
+        JOIN content_blocks cb2 ON cb2.message_id = m2.id
+        WHERE m2.session_id = m.session_id
+          AND m2.type = 'assistant'
+          AND m2.id = (
+            SELECT MIN(m3.id) FROM messages m3
+            WHERE m3.session_id = m.session_id
+              AND m3.type = 'assistant'
+              AND m3.id > m.id
+          )
+          AND cb2.block_type = 'text'
+          AND cb2.text_content IS NOT NULL
+        ORDER BY cb2.position ASC
+        LIMIT 1
+      ) as response
     FROM content_blocks cb
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
@@ -616,7 +633,7 @@ export function getProjectRecentPrompts(projectName: string, limit = 5) {
       AND m.timestamp > datetime('now', '-30 days')
     ORDER BY m.timestamp DESC
     LIMIT ?
-  `).all(projectName, limit) as Array<{ prompt: string; timestamp: string; session_uuid: string }>;
+  `).all(projectName, limit) as Array<{ prompt: string; timestamp: string; session_uuid: string; response: string | null }>;
 }
 
 export function getAlertThresholds() {

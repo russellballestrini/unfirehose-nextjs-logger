@@ -59,7 +59,7 @@ function DetailPanel({
     `/api/projects/metadata?project=${encodeURIComponent(project.name)}`,
     fetcher
   );
-  const { data: activityDetail } = useSWR<{ recentPrompts: { prompt: string; timestamp: string; sessionId: string }[] }>(
+  const { data: activityDetail } = useSWR<{ recentPrompts: { prompt: string; timestamp: string; sessionId: string; response: string | null }[] }>(
     `/api/projects/activity?project=${encodeURIComponent(project.name)}`,
     fetcher
   );
@@ -192,9 +192,26 @@ function DetailPanel({
           <div className="text-base font-bold text-[var(--color-muted)] uppercase tracking-wide">Recent Prompts</div>
           <div className="space-y-1 text-base">
             {activityDetail.recentPrompts.map((p, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-[var(--color-muted)] shrink-0">{formatRelativeTime(p.timestamp)}</span>
-                <span className="break-words">{p.prompt}</span>
+              <div key={i} className="group">
+                <div className="flex gap-2">
+                  <span className="text-[var(--color-muted)] shrink-0">{formatRelativeTime(p.timestamp)}</span>
+                  <Link
+                    href={`/projects/${encodeURIComponent(project.name)}/${p.sessionId}`}
+                    className="break-words hover:text-[var(--color-accent)] transition-colors"
+                  >
+                    {p.prompt}
+                  </Link>
+                </div>
+                {p.response && (
+                  <details className="mt-0.5">
+                    <summary className="text-[var(--color-muted)] cursor-pointer hover:text-[var(--color-foreground)] text-base select-none">
+                      response
+                    </summary>
+                    <pre className="mt-1 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded p-2 whitespace-pre-wrap max-h-48 overflow-auto text-[var(--color-foreground)]">
+                      {p.response}
+                    </pre>
+                  </details>
+                )}
               </div>
             ))}
           </div>
