@@ -1,12 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import useSWR from 'swr';
-import type { StatsCache } from '@/lib/types';
 import { formatTokens } from '@/lib/format';
 import { PageContext } from '@/components/PageContext';
 import {
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -36,108 +38,189 @@ function shortModel(model: string): string {
     .replace(/-\d{8}$/, '');
 }
 
+const TIME_RANGES = [
+  { label: '1h', value: '1h' },
+  { label: '3h', value: '3h' },
+  { label: '6h', value: '6h' },
+  { label: '24h', value: '24h' },
+  { label: '7d', value: '7d' },
+  { label: '14d', value: '14d' },
+  { label: '28d', value: '28d' },
+];
+
+const DAY_COLORS = [
+  '#ef4444', // Sun - red
+  '#f59e0b', // Mon - amber
+  '#10b981', // Tue - emerald
+  '#06b6d4', // Wed - cyan
+  '#6366f1', // Thu - indigo
+  '#a78bfa', // Fri - violet
+  '#ec4899', // Sat - pink
+];
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export default function DashboardPage() {
-  const { data: stats, error } = useSWR<StatsCache>('/api/stats', fetcher);
-  const { data: tokenData } = useSWR<any>('/api/tokens', fetcher);
+  const [range, setRange] = useState('7d');
+  const { data, error } = useSWR(`/api/dashboard?range=${range}`, fetcher, {
+    refreshInterval: 30000,
+  });
 
   if (error) {
     return (
       <div className="text-[var(--color-error)]">
-        Failed to load stats: {String(error)}
+        Failed to load dashboard: {String(error)}
       </div>
     );
   }
-  if (!stats) {
-    return <div className="text-[var(--color-muted)]">Loading stats...</div>;
+  if (!data) {
+    return <div className="text-[var(--color-muted)]">Loading dashboard...</div>;
   }
 
-  const modelData = Object.entries(stats.modelUsage).map(([model, usage]) => ({
-    name: shortModel(model),
-    fullName: model,
-    tokens: usage.inputTokens + usage.outputTokens,
-    cost: usage.costUSD ?? 0,
+  const modelData = (data.modelBreakdown ?? []).map((m: any) => ({
+    name: shortModel(m.model),
+    fullName: m.model,
+    tokens: m.totalTokens,
+    cost: m.costUSD ?? 0,
   }));
 
-  const hourData = Object.entries(stats.hourCounts)
-    .map(([hour, count]) => ({ hour: `${hour}:00`, count }))
-    .sort((a, b) => parseInt(a.hour) - parseInt(b.hour));
-
-  const recentActivity = stats.dailyActivity.slice(-30);
+  // Build day-of-week × hour curves for the heatmap
+  const dowHourData = buildDowHourCurves(data.dowHourHeatmap ?? []);
 
   return (
     <div className="space-y-6">
       <PageContext
         pageType="dashboard"
-        summary={`Claude Code usage dashboard. ${stats.totalSessions} sessions, ${formatTokens(stats.totalMessages)} messages across ${modelData.length} models since ${stats.firstSessionDate?.split('T')[0] ?? 'unknown'}.${tokenData ? ` Equivalent API cost: $${Number(tokenData.totalCost).toLocaleString(undefined, { maximumFractionDigits: 0 })}.` : ''}`}
-        metrics={{
-          total_sessions: stats.totalSessions,
-          total_messages: stats.totalMessages,
-          models_used: modelData.length,
-          first_session: stats.firstSessionDate?.split('T')[0] ?? '',
-          equivalent_cost_usd: tokenData ? Number(tokenData.totalCost).toFixed(2) : 'loading',
-        }}
-        details={modelData.map((m: any) => `${m.name}: ${formatTokens(m.tokens)} tokens, $${m.cost.toFixed(2)} cost`).join('\n')}
+        summary={`Dashboard (${range}). ${data.summary.sessions} sessions, ${data.summary.messages} messages, $${data.summary.totalCost} equiv cost.`}
+        metrics={data.summary}
       />
-      <h2 className="text-lg font-bold">Dashboard</h2>
+
+      {/* Header with time range dropdown */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold">Dashboard</h2>
+        <select
+          value={range}
+          onChange={(e) => setRange(e.target.value)}
+          className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base text-[var(--color-foreground)] cursor-pointer"
+        >
+          {TIME_RANGES.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+      </div>
 
       {/* Stats cards */}
       <div className="grid grid-cols-5 gap-4">
-        <StatCard label="Sessions" value={String(stats.totalSessions)} />
-        <StatCard
-          label="Messages"
-          value={formatTokens(stats.totalMessages)}
-        />
-        <StatCard label="Models" value={String(modelData.length)} />
+        <StatCard label="Sessions" value={String(data.summary.sessions)} />
+        <StatCard label="Messages" value={formatTokens(data.summary.messages)} />
+        <StatCard label="Models" value={String(data.summary.models)} />
         <StatCard
           label="Equiv Cost"
-          value={tokenData ? `$${Number(tokenData.totalCost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '...'}
+          value={`$${data.summary.totalCost.toLocaleString()}`}
           sub="at API rates"
         />
         <StatCard
           label="Since"
-          value={stats.firstSessionDate?.split('T')[0] ?? '?'}
+          value={data.summary.since ?? '?'}
         />
       </div>
 
-      {/* Charts row */}
+      {/* Charts row: activity + hour distribution */}
       <div className="grid grid-cols-2 gap-4">
-        {/* Activity chart */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-            Daily Activity (last 30 days)
+            Activity ({range})
           </h3>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={recentActivity}>
+            <BarChart data={data.dailyActivity}>
               <XAxis
                 dataKey="date"
                 tick={{ fill: '#71717a', fontSize: 16 }}
                 tickFormatter={(d: string) => d.slice(5)}
               />
               <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
-              <Tooltip />
+              <Tooltip
+                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+              />
               <Bar dataKey="messageCount" fill="#10b981" radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Hour distribution */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
             Hour Distribution (UTC)
           </h3>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={hourData}>
+            <BarChart data={data.hourCounts}>
               <XAxis
                 dataKey="hour"
                 tick={{ fill: '#71717a', fontSize: 16 }}
                 interval={3}
               />
               <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
-              <Tooltip />
+              <Tooltip
+                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+              />
               <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} />
             </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Day of week charts row */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Day of week totals */}
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+            Day of Week ({range})
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={data.dayOfWeekCounts}>
+              <XAxis dataKey="day" tick={{ fill: '#71717a', fontSize: 16 }} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
+              <Tooltip
+                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+              />
+              <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                {(data.dayOfWeekCounts ?? []).map((d: any) => (
+                  <Cell key={d.day} fill={DAY_COLORS[d.dow]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Day × Hour hotspot curves */}
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+            Hotspots by Day &times; Hour (UTC)
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={dowHourData}>
+              <XAxis
+                dataKey="hour"
+                tick={{ fill: '#71717a', fontSize: 16 }}
+                tickFormatter={(h: number) => `${h}:00`}
+                interval={3}
+              />
+              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
+              <Tooltip
+                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+                labelFormatter={(h) => `${h}:00 UTC`}
+              />
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
+                <Area
+                  key={day}
+                  type="monotone"
+                  dataKey={day}
+                  stroke={DAY_COLORS[i]}
+                  fill={DAY_COLORS[i]}
+                  fillOpacity={0.1}
+                  strokeWidth={1.5}
+                />
+              ))}
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -145,7 +228,7 @@ export default function DashboardPage() {
       {/* Model usage */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-          Model Usage
+          Model Usage ({range})
         </h3>
         <div className="flex items-start gap-8">
           <ResponsiveContainer width={200} height={200}>
@@ -160,7 +243,7 @@ export default function DashboardPage() {
                 outerRadius={80}
                 strokeWidth={0}
               >
-                {modelData.map((entry) => (
+                {modelData.map((entry: any) => (
                   <Cell
                     key={entry.fullName}
                     fill={getModelColor(entry.fullName)}
@@ -175,7 +258,7 @@ export default function DashboardPage() {
                   color: '#fafafa',
                   fontSize: 16,
                 }}
-                formatter={(value) => formatTokens(Number(value ?? 0))}
+                formatter={(value: any) => formatTokens(Number(value ?? 0))}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -189,7 +272,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {modelData.map((m) => (
+                {modelData.map((m: any) => (
                   <tr key={m.fullName} className="border-t border-[var(--color-border)]">
                     <td className="py-1.5 flex items-center gap-2">
                       <span
@@ -213,6 +296,24 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+/** Pivot dow×hour rows into {hour, Sun, Mon, Tue, ...} for area chart */
+function buildDowHourCurves(heatmap: any[]): any[] {
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const rows: any[] = [];
+  for (let h = 0; h < 24; h++) {
+    const row: any = { hour: h };
+    for (const day of dayNames) row[day] = 0;
+    rows.push(row);
+  }
+  for (const entry of heatmap) {
+    const day = dayNames[entry.dow];
+    if (day && rows[entry.hour]) {
+      rows[entry.hour][day] = entry.count;
+    }
+  }
+  return rows;
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
