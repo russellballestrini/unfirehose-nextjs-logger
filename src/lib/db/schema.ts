@@ -218,6 +218,12 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_alerts_triggered ON alerts(triggered_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_uuid_unique ON messages(message_uuid) WHERE message_uuid IS NOT NULL;
+
+    -- Covering index for token aggregation queries (tokens page, dashboard)
+    CREATE INDEX IF NOT EXISTS idx_messages_model_tokens ON messages(model, timestamp)
+      WHERE model IS NOT NULL;
+    -- Speed up content_blocks lookups by type + message
+    CREATE INDEX IF NOT EXISTS idx_content_blocks_type_message ON content_blocks(block_type, message_id);
   `);
 
   // Schema migrations: add columns to existing tables

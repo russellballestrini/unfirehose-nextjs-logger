@@ -110,14 +110,21 @@ export async function GET(request: NextRequest) {
     const dailyModelTokens = stats.dailyModelTokens ?? [];
 
     // Content block type breakdown
-    const blockTypes = db.prepare(`
-      SELECT cb.block_type, COUNT(*) as count
-      FROM content_blocks cb
-      JOIN messages m ON m.id = cb.message_id
-      WHERE 1=1${dateFilter}
-      GROUP BY cb.block_type
-      ORDER BY count DESC
-    `).all(...dateParams) as Array<{ block_type: string; count: number }>;
+    const blockTypes = dateFilter
+      ? db.prepare(`
+          SELECT cb.block_type, COUNT(*) as count
+          FROM content_blocks cb
+          JOIN messages m ON m.id = cb.message_id
+          WHERE 1=1${dateFilter}
+          GROUP BY cb.block_type
+          ORDER BY count DESC
+        `).all(...dateParams) as Array<{ block_type: string; count: number }>
+      : db.prepare(`
+          SELECT block_type, COUNT(*) as count
+          FROM content_blocks
+          GROUP BY block_type
+          ORDER BY count DESC
+        `).all() as Array<{ block_type: string; count: number }>;
 
     return NextResponse.json({
       modelBreakdown,

@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   const search = url.searchParams.get('search')?.trim();
   const dateFrom = url.searchParams.get('from');
   const dateTo = url.searchParams.get('to');
+  const session = url.searchParams.get('session');
 
   try {
     const db = getDb();
@@ -25,6 +26,10 @@ export async function GET(request: NextRequest) {
       where += ' AND p.name = ?';
       params.push(projectFilter);
     }
+    if (session) {
+      where += ' AND s.session_uuid = ?';
+      params.push(session);
+    }
     if (dateFrom) {
       where += ' AND m.timestamp >= ?';
       params.push(dateFrom);
@@ -33,15 +38,15 @@ export async function GET(request: NextRequest) {
       where += ' AND m.timestamp <= ?';
       params.push(dateTo + 'T23:59:59');
     }
+
+    // When searching, join content_blocks to filter by text
+    const searchJoin = search
+      ? "JOIN content_blocks cb_search ON cb_search.message_id = m.id AND cb_search.block_type IN ('text', 'thinking')"
+      : '';
     if (search) {
       where += ' AND cb_search.text_content LIKE ?';
       params.push(`%${search}%`);
     }
-
-    // When searching, join content_blocks to filter by text
-    const searchJoin = search
-      ? 'JOIN content_blocks cb_search ON cb_search.message_id = m.id AND cb_search.block_type IN (\'text\', \'thinking\')'
-      : '';
 
     const query = `
       SELECT DISTINCT m.id, m.type, m.subtype, m.timestamp, m.model,
@@ -60,17 +65,29 @@ export async function GET(request: NextRequest) {
 
     const messages = db.prepare(query).all(...params) as any[];
 
-    // Get text preview for each message
-    const previewStmt = db.prepare(`
-      SELECT text_content, block_type, tool_name
+    if (messages.length === 0) {
+      return NextResponse.json({ entries: [], total: 0, limit, offset });
+    }
+
+    // Batch fetch previews for all messages in one query
+    const msgIds = messages.map(m => m.id);
+    const previewRows = db.prepare(`
+      SELECT message_id, text_content, block_type, tool_name
       FROM content_blocks
-      WHERE message_id = ? AND block_type IN ('text', 'thinking', 'tool_use')
-      ORDER BY position
-      LIMIT 5
-    `);
+      WHERE message_id IN (${msgIds.map(() => '?').join(',')})
+        AND block_type IN ('text', 'thinking', 'tool_use')
+      ORDER BY message_id, position
+    `).all(...msgIds) as any[];
+
+    // Group previews by message_id
+    const previewMap = new Map<number, any[]>();
+    for (const row of previewRows) {
+      if (!previewMap.has(row.message_id)) previewMap.set(row.message_id, []);
+      previewMap.get(row.message_id)!.push(row);
+    }
 
     const entries = messages.map(msg => {
-      const blocks = previewStmt.all(msg.id) as any[];
+      const blocks = (previewMap.get(msg.id) ?? []).slice(0, 5);
       let preview = '';
       for (const b of blocks) {
         if (b.block_type === 'text' && b.text_content) {
@@ -98,11 +115,12 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Total count for pagination info
+    // Total count for pagination
     const countParams: any[] = [];
     let countWhere = `m.type IN (${types.map(() => '?').join(',')})`;
     countParams.push(...types);
     if (projectFilter) { countWhere += ' AND p.name = ?'; countParams.push(projectFilter); }
+    if (session) { countWhere += ' AND s.session_uuid = ?'; countParams.push(session); }
     if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
     if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
     if (search) { countWhere += ' AND cb_search.text_content LIKE ?'; countParams.push(`%${search}%`); }

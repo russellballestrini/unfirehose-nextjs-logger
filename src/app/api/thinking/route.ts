@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     const query = `
       SELECT cb.text_content as thinking, cb.message_id,
-             m.timestamp, m.model,
+             m.timestamp, m.model, m.session_id,
              s.session_uuid, s.display_name as session_display,
              p.name as project_name, p.display_name as project_display
       FROM content_blocks cb
@@ -52,57 +52,72 @@ export async function GET(request: NextRequest) {
 
     const rows = db.prepare(query).all(...params) as any[];
 
-    // For each thinking block, get the preceding user prompt
-    const promptStmt = db.prepare(`
-      SELECT cb.text_content
-      FROM messages m2
-      JOIN content_blocks cb ON cb.message_id = m2.id AND cb.block_type = 'text'
-      WHERE m2.session_id = (SELECT session_id FROM messages WHERE id = ?)
-        AND m2.type = 'user'
-        AND m2.timestamp <= (SELECT timestamp FROM messages WHERE id = ?)
-      ORDER BY m2.timestamp DESC
-      LIMIT 1
+    // Batch: get the latest user prompt BEFORE each thinking block's message
+    // Group by session to reduce queries — one per unique session
+    const sessionMessages = new Map<number, { msgId: number; ts: string }[]>();
+    for (const row of rows) {
+      if (!sessionMessages.has(row.session_id)) sessionMessages.set(row.session_id, []);
+      sessionMessages.get(row.session_id)!.push({ msgId: row.message_id, ts: row.timestamp });
+    }
+
+    // For each session, get all user text blocks ordered by time (single query per session)
+    const promptCache = new Map<number, string>(); // message_id -> preceding prompt
+    const userPromptStmt = db.prepare(`
+      SELECT m.id, m.timestamp, SUBSTR(cb.text_content, 1, 300) as prompt
+      FROM messages m
+      JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
+      WHERE m.session_id = ? AND m.type = 'user'
+      ORDER BY m.timestamp
     `);
 
-    const entries = rows.map(row => {
-      let precedingPrompt = '';
-      try {
-        const prompt = promptStmt.get(row.message_id, row.message_id) as any;
-        if (prompt?.text_content) {
-          precedingPrompt = prompt.text_content.slice(0, 300);
+    for (const [sessionId, msgs] of sessionMessages) {
+      const userPrompts = userPromptStmt.all(sessionId) as any[];
+      for (const msg of msgs) {
+        // Find the latest user prompt before this message's timestamp
+        let best = '';
+        for (const up of userPrompts) {
+          if (up.timestamp <= msg.ts) best = up.prompt;
+          else break;
         }
-      } catch { /* skip */ }
+        promptCache.set(msg.msgId, best);
+      }
+    }
 
-      return {
-        sessionId: row.session_uuid,
-        sessionDisplay: row.session_display,
-        project: row.project_name,
-        projectDisplay: row.project_display,
-        timestamp: row.timestamp,
-        thinking: row.thinking,
-        precedingPrompt,
-        model: row.model,
-        charCount: row.thinking?.length ?? 0,
-      };
-    });
+    const entries = rows.map(row => ({
+      sessionId: row.session_uuid,
+      sessionDisplay: row.session_display,
+      project: row.project_name,
+      projectDisplay: row.project_display,
+      timestamp: row.timestamp,
+      thinking: row.thinking,
+      precedingPrompt: promptCache.get(row.message_id) ?? '',
+      model: row.model,
+      charCount: row.thinking?.length ?? 0,
+    }));
 
-    // Total count
-    const countParams: any[] = [];
-    let countWhere = "cb.block_type = 'thinking' AND cb.text_content IS NOT NULL AND cb.text_content != ''";
-    if (projectFilter) { countWhere += ' AND p.name = ?'; countParams.push(projectFilter); }
-    if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
-    if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
-    if (search) { countWhere += ' AND cb.text_content LIKE ?'; countParams.push(`%${search}%`); }
+    // Total count — fast path when no filters
+    let total: number;
+    if (!projectFilter && !dateFrom && !dateTo && !search) {
+      total = (db.prepare(
+        "SELECT COUNT(*) as total FROM content_blocks WHERE block_type = 'thinking' AND text_content IS NOT NULL AND text_content != ''"
+      ).get() as any).total;
+    } else {
+      const countParams: any[] = [];
+      let countWhere = "cb.block_type = 'thinking' AND cb.text_content IS NOT NULL AND cb.text_content != ''";
+      if (projectFilter) { countWhere += ' AND p.name = ?'; countParams.push(projectFilter); }
+      if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
+      if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
+      if (search) { countWhere += ' AND cb.text_content LIKE ?'; countParams.push(`%${search}%`); }
 
-    const countQuery = `
-      SELECT COUNT(*) as total
-      FROM content_blocks cb
-      JOIN messages m ON cb.message_id = m.id
-      JOIN sessions s ON m.session_id = s.id
-      JOIN projects p ON s.project_id = p.id
-      WHERE ${countWhere}
-    `;
-    const { total } = db.prepare(countQuery).get(...countParams) as { total: number };
+      total = (db.prepare(`
+        SELECT COUNT(*) as total
+        FROM content_blocks cb
+        JOIN messages m ON cb.message_id = m.id
+        JOIN sessions s ON m.session_id = s.id
+        JOIN projects p ON s.project_id = p.id
+        WHERE ${countWhere}
+      `).get(...countParams) as any).total;
+    }
 
     return NextResponse.json({ entries, total, limit, offset });
   } catch (err: any) {
