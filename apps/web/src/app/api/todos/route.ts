@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb();
     const body = await request.json();
-    const { content, projectId, sessionUuid, source } = body;
+    const { content, projectId, projectName, sessionUuid, source, status: initialStatus } = body;
 
     if (!content?.trim()) {
       return NextResponse.json({ error: 'content required' }, { status: 400 });
@@ -17,6 +17,11 @@ export async function POST(request: NextRequest) {
     // Resolve project and session from sessionUuid if provided
     let pid = projectId;
     let sid: number | null = null;
+
+    if (!pid && projectName) {
+      const proj = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as any;
+      if (proj) pid = proj.id;
+    }
 
     if (sessionUuid) {
       const sess = db.prepare(
@@ -34,16 +39,18 @@ export async function POST(request: NextRequest) {
       if (!pid) return NextResponse.json({ error: 'no projects found' }, { status: 400 });
     }
 
+    const todoStatus = initialStatus === 'in_progress' ? 'in_progress' : 'pending';
+
     const now = new Date().toISOString();
     const todoUuid = uuidv7();
     const result = db.prepare(`
       INSERT INTO todos (project_id, session_id, content, status, source, source_session_uuid, uuid, created_at, updated_at)
-      VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-    `).run(pid, sid, content.trim(), source ?? 'manual', sessionUuid ?? null, todoUuid, now, now);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(pid, sid, content.trim(), todoStatus, source ?? 'manual', sessionUuid ?? null, todoUuid, now, now);
 
     db.prepare(
       'INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, NULL, ?, ?)'
-    ).run(result.lastInsertRowid, 'pending', now);
+    ).run(result.lastInsertRowid, todoStatus, now);
 
     return NextResponse.json({ ok: true, id: Number(result.lastInsertRowid), uuid: todoUuid });
   } catch (err: any) {

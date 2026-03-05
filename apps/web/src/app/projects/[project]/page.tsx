@@ -46,6 +46,8 @@ export default function ProjectPage({
   const [booting, setBooting] = useState(false);
   const [bootResult, setBootResult] = useState<string | null>(null);
   const [showAllSessions, setShowAllSessions] = useState(false);
+  const [newTask, setNewTask] = useState('');
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
 
   const { data, error } = useSWR<{
     project: string;
@@ -58,7 +60,7 @@ export default function ProjectPage({
     fetcher
   );
 
-  const { data: full } = useSWR<any>(
+  const { data: full, mutate: mutateFull } = useSWR<any>(
     `/api/projects/${project}/full`,
     fetcher
   );
@@ -94,6 +96,26 @@ export default function ProjectPage({
       setBootResult(`Error: ${String(err)}`);
     }
     setBooting(false);
+  }
+
+  async function addTask(startNow: boolean) {
+    if (!newTask.trim() || taskSubmitting) return;
+    setTaskSubmitting(true);
+    try {
+      await fetch('/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: newTask.trim(),
+          projectName: decodedProject,
+          source: 'manual',
+          status: startNow ? 'in_progress' : 'pending',
+        }),
+      });
+      setNewTask('');
+      mutateFull();
+    } catch {}
+    setTaskSubmitting(false);
   }
 
   if (error) return <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>;
@@ -299,13 +321,43 @@ export default function ProjectPage({
       </div>
 
       {/* Open Todos */}
-      {full?.todos?.length > 0 && (
-        <div className="border border-[var(--color-border)] rounded p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
-            <span className="text-xs text-[var(--color-muted)]">{full.todos.length}</span>
-            <Link href="/todos" className="text-xs text-[var(--color-accent)] hover:underline ml-auto">View all</Link>
-          </div>
+      <div className="border border-[var(--color-border)] rounded p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
+          {full?.todos?.length > 0 && <span className="text-xs text-[var(--color-muted)]">{full.todos.length}</span>}
+          <Link href="/todos" className="text-xs text-[var(--color-accent)] hover:underline ml-auto">View all</Link>
+        </div>
+
+        {/* Add task form */}
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={newTask}
+            onChange={(e) => setNewTask(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addTask(false); }
+            }}
+            placeholder="Add a task..."
+            className="flex-1 px-3 py-1.5 text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded focus:border-[var(--color-accent)] focus:outline-none"
+            disabled={taskSubmitting}
+          />
+          <button
+            onClick={() => addTask(false)}
+            disabled={!newTask.trim() || taskSubmitting}
+            className="px-3 py-1.5 text-sm bg-[var(--color-surface-hover)] text-[var(--color-foreground)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40"
+          >
+            Queue
+          </button>
+          <button
+            onClick={() => addTask(true)}
+            disabled={!newTask.trim() || taskSubmitting}
+            className="px-3 py-1.5 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40"
+          >
+            Start Now
+          </button>
+        </div>
+
+        {full?.todos?.length > 0 && (
           <div className="space-y-1">
             {full.todos.map((t: any) => (
               <div key={t.id} className="flex items-center gap-2 text-sm">
@@ -321,8 +373,8 @@ export default function ProjectPage({
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Recent Prompts */}
       {full?.prompts?.length > 0 && (
