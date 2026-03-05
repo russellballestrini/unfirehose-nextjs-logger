@@ -51,6 +51,9 @@ export default function UsageMonitorPage() {
   const { data: dbStats } = useSWR('/api/ingest', fetcher, {
     refreshInterval: 30000,
   });
+  const { data: mesh } = useSWR('/api/mesh', fetcher, {
+    refreshInterval: 15000,
+  });
   const { data: projectActivity } = useSWR(
     '/api/projects/activity?days=30',
     fetcher,
@@ -111,7 +114,7 @@ export default function UsageMonitorPage() {
     <div className="space-y-6">
       <PageContext
         pageType="usage-monitor"
-        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages.`}
+        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages. Mesh: ${mesh?.summary?.reachableNodes ?? '?'} nodes, ${mesh?.summary?.totalClaudes ?? '?'} claudes, ${mesh?.summary?.totalCores ?? '?'} cores, ${mesh?.summary?.totalMemGB ?? '?'}GB.`}
         metrics={{
           window_minutes: window,
           input_5min: currentRate.input,
@@ -188,6 +191,28 @@ export default function UsageMonitorPage() {
           sub={dbStats ? `${formatTokens(dbStats.thinkingBlocks)} thinking` : ''}
         />
       </div>
+
+      {/* Mesh Status */}
+      {mesh && (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">
+              Permacomputer Mesh
+            </h3>
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-[var(--color-accent)] font-bold">{mesh.summary?.totalClaudes ?? 0} claudes</span>
+              <span className="text-[var(--color-muted)]">{mesh.summary?.totalCores ?? 0} cores</span>
+              <span className="text-[var(--color-muted)]">{mesh.summary?.totalMemGB ?? 0}GB total</span>
+              <span className="text-[var(--color-muted)]">{mesh.summary?.reachableNodes ?? 0}/{mesh.summary?.totalNodes ?? 0} nodes</span>
+            </div>
+          </div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(mesh.nodes?.length ?? 1, 3)}, 1fr)` }}>
+            {mesh.nodes?.map((node: any) => (
+              <MeshNodeCard key={node.hostname} node={node} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Token usage timeline */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -536,6 +561,81 @@ function isActiveSameDay(timestamp: string | null): boolean {
   const d = new Date(timestamp);
   const now = new Date();
   return d.toDateString() === now.toDateString();
+}
+
+function MeshNodeCard({ node }: { node: any }) {
+  if (!node.reachable) {
+    return (
+      <div className="rounded border border-[var(--color-border)] p-3 opacity-40">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-2 h-2 rounded-full bg-[var(--color-error)]" />
+          <span className="font-bold text-sm">{node.hostname}</span>
+          <span className="text-xs text-[var(--color-error)] ml-auto">{node.error || 'Unreachable'}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const memPct = node.memTotalGB > 0 ? (node.memUsedGB / node.memTotalGB) * 100 : 0;
+  const loadPerCore = node.cpuCores > 0 ? node.loadAvg[0] / node.cpuCores : 0;
+  const loadWarn = loadPerCore > 2;
+  const memWarn = memPct > 85;
+
+  return (
+    <div className={`rounded border p-3 ${loadWarn || memWarn ? 'border-[var(--color-error)] bg-red-950/30' : 'border-[var(--color-border)]'}`}>
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
+        <span className="font-bold text-sm">{node.hostname}</span>
+        <span className="text-xs text-[var(--color-muted)] ml-auto">up {node.uptime}</span>
+      </div>
+
+      {/* Claude count — hero stat */}
+      <div className="flex items-baseline gap-2 mb-3">
+        <span className="text-3xl font-bold text-[var(--color-accent)]">{node.claudeProcesses}</span>
+        <span className="text-sm text-[var(--color-muted)]">claudes</span>
+      </div>
+
+      {/* CPU */}
+      <div className="mb-2">
+        <div className="flex justify-between text-xs text-[var(--color-muted)] mb-1">
+          <span>{node.cpuCores} cores</span>
+          <span className={loadWarn ? 'text-[var(--color-error)] font-bold' : ''}>
+            load {node.loadAvg[0].toFixed(1)} / {node.loadAvg[1].toFixed(1)} / {node.loadAvg[2].toFixed(1)}
+          </span>
+        </div>
+        <div className="h-1.5 rounded bg-[var(--color-background)] overflow-hidden">
+          <div
+            className={`h-full rounded ${loadWarn ? 'bg-[var(--color-error)]' : 'bg-[#f97316]'}`}
+            style={{ width: `${Math.min(loadPerCore * 100, 100)}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Memory */}
+      <div className="mb-2">
+        <div className="flex justify-between text-xs text-[var(--color-muted)] mb-1">
+          <span>{node.memUsedGB}GB / {node.memTotalGB}GB</span>
+          <span className={memWarn ? 'text-[var(--color-error)] font-bold' : ''}>
+            {memPct.toFixed(0)}%
+          </span>
+        </div>
+        <div className="h-1.5 rounded bg-[var(--color-background)] overflow-hidden">
+          <div
+            className={`h-full rounded ${memWarn ? 'bg-[var(--color-error)]' : 'bg-[#60a5fa]'}`}
+            style={{ width: `${memPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Swap */}
+      {node.swapUsedGB > 0.1 && (
+        <div className="text-xs text-[var(--color-muted)]">
+          Swap: {node.swapUsedGB}GB / {node.swapTotalGB}GB
+        </div>
+      )}
+    </div>
+  );
 }
 
 function RateCard({
