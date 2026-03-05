@@ -145,7 +145,7 @@ export default function UsageMonitorPage() {
           {alerts.map((alert: any) => (
             <Link
               key={alert.id}
-              href={`/usage/alert/${alert.id}`}
+              href={`/alerts/${alert.id}`}
               className="text-base py-1 border-t border-red-900 block hover:bg-red-900/50 rounded px-1"
             >
               <span className="text-[var(--color-error)] font-bold">
@@ -506,7 +506,7 @@ export default function UsageMonitorPage() {
             {allAlerts.map((a: any) => (
               <Link
                 key={a.id}
-                href={`/usage/alert/${a.id}`}
+                href={`/alerts/${a.id}`}
                 className={`text-base py-1 grid grid-cols-[9rem_5rem_6rem_1fr_auto] gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 cursor-pointer ${
                   a.acknowledged
                     ? 'text-[var(--color-muted)]'

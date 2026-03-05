@@ -1061,15 +1061,39 @@ export async function ingestAll(): Promise<IngestResult> {
     result.filesScanned += fetchResult.filesScanned;
   }
 
-  // Backfill display_name for existing sessions that don't have one
-  const nullNames = db.prepare(
-    'SELECT id, first_prompt, session_uuid FROM sessions WHERE display_name IS NULL'
+  // Backfill display_name for sessions without one OR with preamble names
+  const needsName = db.prepare(
+    `SELECT id, first_prompt, session_uuid FROM sessions
+     WHERE display_name IS NULL
+        OR display_name = '(blackops session)'
+        OR display_name LIKE 'Agent Blackops%'
+        OR display_name LIKE '[Request interrupted%'`
   ).all() as Array<{ id: number; first_prompt: string | null; session_uuid: string }>;
-  if (nullNames.length > 0) {
+  if (needsName.length > 0) {
     const updateName = db.prepare('UPDATE sessions SET display_name = ? WHERE id = ?');
+    // Try to find a real user prompt if first_prompt is a preamble
+    const findRealPrompt = db.prepare(`
+      SELECT cb.text_content FROM messages m
+      JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
+      WHERE m.session_id = ? AND m.type = 'user'
+        AND cb.text_content NOT LIKE '%blackops%'
+        AND cb.text_content NOT LIKE '%Request interrupted%'
+        AND cb.text_content NOT LIKE '%shadow clone%'
+        AND LENGTH(cb.text_content) > 15
+      ORDER BY m.timestamp
+      LIMIT 1
+    `);
     const backfill = db.transaction(() => {
-      for (const row of nullNames) {
-        updateName.run(generateSessionName(row.first_prompt, row.session_uuid), row.id);
+      for (const row of needsName) {
+        let name = generateSessionName(row.first_prompt, row.session_uuid);
+        // If name fell back to UUID, try finding a real prompt from content_blocks
+        if (name === row.session_uuid.slice(0, 8)) {
+          const real = findRealPrompt.get(row.id) as { text_content: string } | undefined;
+          if (real?.text_content) {
+            name = generateSessionName(real.text_content, row.session_uuid);
+          }
+        }
+        updateName.run(name, row.id);
       }
     });
     backfill();
@@ -1087,13 +1111,18 @@ export async function ingestAll(): Promise<IngestResult> {
   return result;
 }
 
-export function getRecentAlerts(limit = 20) {
+export function getRecentAlerts(limit = 20, offset = 0) {
   const db = getDb();
   return db
     .prepare(
-      `SELECT * FROM alerts ORDER BY triggered_at DESC LIMIT ?`
+      `SELECT * FROM alerts ORDER BY triggered_at DESC LIMIT ? OFFSET ?`
     )
-    .all(limit);
+    .all(limit, offset);
+}
+
+export function getAlertsCount() {
+  const db = getDb();
+  return (db.prepare('SELECT COUNT(*) as c FROM alerts').get() as { c: number }).c;
 }
 
 export function getUnacknowledgedAlerts() {
