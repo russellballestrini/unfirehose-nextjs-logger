@@ -202,34 +202,41 @@ export default function ProjectPage({
         )}
       </div>
 
-      {/* Task input */}
-      <div className="flex gap-2">
-        <input
-          type="text"
+      {/* Task input — primary interaction point */}
+      <div className="border-2 border-[var(--color-accent)] rounded-lg p-4 bg-[var(--color-surface)]">
+        <textarea
           value={newTask}
           onChange={(e) => setNewTask(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addTask(false); }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addTask(true); }
+            if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); addTask(false); }
           }}
-          placeholder="Add a task..."
-          className="flex-1 px-3 py-2 text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded focus:border-[var(--color-accent)] focus:outline-none"
+          placeholder="What should Claude work on? (Ctrl+Enter to start now, Shift+Enter to queue)"
+          rows={4}
+          className="w-full px-3 py-3 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y min-h-[100px]"
           disabled={taskSubmitting}
         />
-        <button
-          onClick={() => addTask(false)}
-          disabled={!newTask.trim() || taskSubmitting}
-          className="px-3 py-2 text-sm bg-[var(--color-surface-hover)] text-[var(--color-foreground)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40"
-        >
-          Queue
-        </button>
-        <button
-          onClick={() => addTask(true)}
-          disabled={!newTask.trim() || taskSubmitting}
-          className="px-3 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40"
-          title={data?.originalPath ? 'Creates todo and boots Claude session with this task' : 'No project path — will create todo only'}
-        >
-          Start Now
-        </button>
+        <div className="flex items-center justify-between mt-3">
+          <span className="text-xs text-[var(--color-muted)]">
+            {data?.originalPath ? 'Start Now boots a Claude agent in tmux' : 'No project path — queue only'}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => addTask(false)}
+              disabled={!newTask.trim() || taskSubmitting}
+              className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] text-[var(--color-foreground)] rounded-lg hover:bg-[var(--color-border)] transition-colors disabled:opacity-40"
+            >
+              Queue
+            </button>
+            <button
+              onClick={() => addTask(true)}
+              disabled={!newTask.trim() || taskSubmitting}
+              className="px-6 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {taskSubmitting ? 'Starting...' : 'Start Now'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Git + Branch */}

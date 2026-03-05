@@ -12,7 +12,7 @@ import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unfirehose/ui/
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function ThinkingPage() {
-  const [limit, setLimit] = useState(200);
+  const [limit, setLimit] = useState(1000);
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [range, setRange] = useTimeRange('thinking_range', '24h');
@@ -68,10 +68,9 @@ export default function ThinkingPage() {
           onChange={(e) => { setLimit(Number(e.target.value)); setPage(0); }}
           className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-2 py-1 text-xs"
         >
-          <option value={100}>100</option>
-          <option value={200}>200</option>
-          <option value={500}>500</option>
           <option value={1000}>1,000</option>
+          <option value={10000}>10,000</option>
+          <option value={30000}>30,000</option>
         </select>
       </div>
 

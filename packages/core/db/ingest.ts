@@ -326,7 +326,7 @@ function upsertTodo(
 
   // Terminal statuses are sticky — ingest can never reopen a closed todo.
   // This prevents re-ingestion from overwriting manual triage decisions.
-  const TERMINAL_STATUSES = ['completed', 'obsolete'];
+  const TERMINAL_STATUSES = ['completed', 'obsolete', 'deleted'];
 
   if (todo.externalId) {
     // TaskCreate/TaskUpdate style: key on project + external_id
