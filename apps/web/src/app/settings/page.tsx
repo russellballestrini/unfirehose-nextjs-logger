@@ -218,7 +218,7 @@ export default function SettingsPage() {
             {lightMode ? 'Light Mode' : 'Dark Mode'}
           </button>
         </div>
-        <HexColorPicker value={accentColor} onChange={(v) => saveSetting(SETTINGS_KEYS.accentColor, v)} />
+        <HexColorPicker value={accentColor} settingKey={SETTINGS_KEYS.accentColor} />
       </div>
 
       {/* Scrobble */}
@@ -475,53 +475,57 @@ function hexToHue(hex: string): number {
   return Math.round(hue);
 }
 
-function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
-  const [localColor, setLocalColor] = useState(value);
-  const [hexInput, setHexInput] = useState(value);
-  const [hexFocused, setHexFocused] = useState(false);
-  const hue = hexToHue(localColor);
+function HexColorPicker({ value, settingKey }: { value: string; settingKey: string }) {
+  const [color, setColor] = useState(value);
+  const [hexText, setHexText] = useState(value.replace('#', ''));
+  const [editing, setEditing] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    setLocalColor(value);
-    if (!hexFocused) setHexInput(value);
-  }, [value, hexFocused]);
+  const hue = hexToHue(color);
 
-  function applyColor(hex: string) {
-    setLocalColor(hex);
-    setHexInput(hex);
-    // Instant visual feedback via CSS variable
+  function applyAndSave(hex: string) {
+    setColor(hex);
+    if (!editing) setHexText(hex.replace('#', ''));
     document.documentElement.style.setProperty('--color-accent', hex);
     document.documentElement.style.setProperty('--color-assistant', hex);
-    // Debounce the API save
+    // Debounce API save — no SWR mutate, no re-render
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => onChange(hex), 400);
+    saveTimer.current = setTimeout(() => {
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set', key: settingKey, value: hex }),
+      });
+    }, 300);
   }
 
-  function commitHex(hex: string) {
-    const clean = hex.replace(/[^0-9a-fA-F]/g, '');
-    if (clean.length === 6 || clean.length === 3) {
-      const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
-      applyColor('#' + full.toLowerCase());
+  function commitHex() {
+    const clean = hexText.replace(/[^0-9a-fA-F]/g, '');
+    if (clean.length === 6) {
+      applyAndSave('#' + clean.toLowerCase());
+    } else if (clean.length === 3) {
+      const full = clean.split('').map(c => c + c).join('');
+      applyAndSave('#' + full.toLowerCase());
     }
+    setEditing(false);
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: localColor }} />
+        <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: color }} />
         <div className="flex items-center gap-1">
           <span className="text-base text-[var(--color-muted)]">#</span>
           <input
             type="text"
-            value={hexInput.replace('#', '')}
+            value={hexText}
             onChange={(e) => {
               const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
-              setHexInput('#' + v);
+              setHexText(v);
             }}
-            onFocus={() => setHexFocused(true)}
-            onBlur={() => { setHexFocused(false); commitHex(hexInput); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { commitHex(hexInput); (e.target as HTMLInputElement).blur(); } }}
+            onFocus={() => setEditing(true)}
+            onBlur={() => commitHex()}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitHex(); } }}
             className="w-24 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1.5 text-base font-mono"
             maxLength={6}
             spellCheck={false}
@@ -533,7 +537,11 @@ function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: st
         min={0}
         max={360}
         value={hue}
-        onChange={(e) => applyColor(hslToHex(Number(e.target.value), 0.7, 0.55))}
+        onChange={(e) => {
+          const hex = hslToHex(Number(e.target.value), 0.7, 0.55);
+          setHexText(hex.replace('#', ''));
+          applyAndSave(hex);
+        }}
         className="w-full h-3 rounded-full appearance-none cursor-pointer"
         style={{
           background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
