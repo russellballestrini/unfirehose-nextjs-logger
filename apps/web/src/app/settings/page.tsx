@@ -56,17 +56,6 @@ const PLANS = [
   },
 ];
 
-const ACCENT_PRESETS = [
-  { label: 'Emerald', value: '#10b981' },
-  { label: 'Cyan', value: '#22d3ee' },
-  { label: 'Blue', value: '#3b82f6' },
-  { label: 'Violet', value: '#8b5cf6' },
-  { label: 'Pink', value: '#ec4899' },
-  { label: 'Rose', value: '#f43f5e' },
-  { label: 'Orange', value: '#f97316' },
-  { label: 'Amber', value: '#f59e0b' },
-];
-
 const SETTINGS_KEYS = {
   accentColor: 'theme_accent_color',
   plan: 'unfirehose_plan',
@@ -203,21 +192,6 @@ export default function SettingsPage() {
       {/* Accent Color */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
         <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
-        <div className="flex flex-wrap gap-2">
-          {ACCENT_PRESETS.map((preset) => (
-            <button
-              key={preset.value}
-              onClick={() => saveSetting(SETTINGS_KEYS.accentColor, preset.value)}
-              className={`w-10 h-10 rounded-lg border-2 transition-all cursor-pointer ${
-                accentColor === preset.value
-                  ? 'border-white scale-110'
-                  : 'border-transparent hover:border-[var(--color-muted)]'
-              }`}
-              style={{ backgroundColor: preset.value }}
-              title={preset.label}
-            />
-          ))}
-        </div>
         <HexColorPicker value={accentColor} onChange={(v) => saveSetting(SETTINGS_KEYS.accentColor, v)} />
       </div>
 
