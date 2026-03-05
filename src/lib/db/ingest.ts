@@ -30,9 +30,14 @@ function getOrCreateProject(
   projectPath?: string
 ): number {
   const existing = db
-    .prepare('SELECT id FROM projects WHERE name = ?')
-    .get(name) as { id: number } | undefined;
-  if (existing) return existing.id;
+    .prepare('SELECT id, path FROM projects WHERE name = ?')
+    .get(name) as { id: number; path: string } | undefined;
+  if (existing) {
+    if (projectPath && (!existing.path || existing.path === '')) {
+      db.prepare('UPDATE projects SET path = ? WHERE id = ?').run(projectPath, existing.id);
+    }
+    return existing.id;
+  }
 
   const result = db
     .prepare(
