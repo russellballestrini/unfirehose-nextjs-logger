@@ -334,7 +334,7 @@ export default function StyleguidePage() {
                         }}
                       >
                         <div className="bg-[#22c55e] h-full" />
-                        <div className="bg-[#a78bfa] h-full" />
+                        <div className="bg-[var(--color-accent)] h-full" />
                       </div>
                     </div>
                   </Fragment>
@@ -349,7 +349,7 @@ export default function StyleguidePage() {
               <span />
               <div className="grid grid-flow-col auto-cols-max gap-4 text-base text-[var(--color-muted)]">
                 <span><span className="inline-block w-3 h-3 rounded bg-[#22c55e] mr-1.5 align-middle" />Input</span>
-                <span><span className="inline-block w-3 h-3 rounded bg-[#a78bfa] mr-1.5 align-middle" />Output</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-[var(--color-accent)] mr-1.5 align-middle" />Output</span>
               </div>
             </div>
           </div>
@@ -448,25 +448,25 @@ const from = getTimeRangeFrom(range); // ISO string or undefined
             </div>
             <div className="space-y-2">
               {/* Normal card */}
-              <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-3.5 shadow-md hover:shadow-xl hover:border-[var(--color-muted)] hover:-translate-y-0.5 transition-all cursor-grab active:cursor-grabbing active:scale-[1.03] active:rotate-1">
+              <div className="rounded-xl border border-[var(--color-border)] p-3.5 shadow-md hover:shadow-xl hover:border-[var(--color-muted)] hover:-translate-y-0.5 transition-all cursor-grab active:cursor-grabbing active:scale-[1.03] active:rotate-1" style={{ background: 'color-mix(in srgb, var(--color-accent) 6%, var(--color-surface))' }}>
                 <p className="text-sm font-medium mb-2 leading-snug">Add unit tests for auth module</p>
                 <div className="flex items-center gap-1.5 text-xs">
-                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa] font-medium">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-medium">claude</span>
                   <span className="px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">~15m</span>
                   <span className="ml-auto text-[var(--color-muted)]">2h ago</span>
                 </div>
               </div>
               {/* Card with ticket badge */}
-              <div className="bg-[var(--color-surface)] rounded-xl border border-yellow-400/40 p-3.5 shadow-md bg-yellow-400/[0.03] cursor-grab">
+              <div className="rounded-xl border border-yellow-400/40 p-3.5 shadow-md cursor-grab" style={{ background: 'color-mix(in srgb, var(--color-accent) 6%, var(--color-surface))' }}>
                 <p className="text-sm font-medium mb-2 leading-snug">Refactor ingestion pipeline</p>
                 <div className="flex items-center gap-1.5 text-xs">
-                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa] font-medium">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-medium">claude</span>
                   <span className="px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400">~60m</span>
                   <span className="px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 font-bold">ticket</span>
                 </div>
               </div>
               {/* Card being dragged (simulated) */}
-              <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-3.5 shadow-2xl opacity-30 scale-90 rotate-2">
+              <div className="rounded-xl border border-[var(--color-border)] p-3.5 shadow-2xl opacity-30 scale-90 rotate-2" style={{ background: 'color-mix(in srgb, var(--color-accent) 6%, var(--color-surface))' }}>
                 <p className="text-sm font-medium mb-2 leading-snug">Fix PII detection for emails</p>
                 <div className="flex items-center gap-1.5 text-xs">
                   <span className="px-1.5 py-0.5 rounded bg-[#34d39922] text-[#34d399] font-medium">manual</span>
@@ -487,21 +487,21 @@ const from = getTimeRangeFrom(range); // ISO string or undefined
               <span className="text-sm font-bold text-[var(--color-accent)]">Drop to power up agent</span>
             </div>
             <div className="space-y-2">
-              {/* Active card with purple glow + RUNNING */}
-              <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-accent)]/50 p-3.5 shadow-lg shadow-[0_0_12px_var(--color-accent)]">
+              {/* Active card with accent glow + RUNNING */}
+              <div className="rounded-xl border border-[var(--color-accent)]/50 p-3.5 shadow-lg shadow-[0_0_12px_var(--color-accent)]" style={{ background: 'color-mix(in srgb, var(--color-accent) 10%, var(--color-surface))' }}>
                 <div className="flex items-center gap-1.5 mb-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
                   <span className="text-xs font-bold text-[var(--color-accent)]">RUNNING</span>
                 </div>
                 <p className="text-sm font-medium mb-2 leading-snug">Translate Polish (pl) - 1016 strings</p>
                 <div className="flex items-center gap-1.5 text-xs">
-                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa] font-medium">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-medium">claude</span>
                   <span className="px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">~30m</span>
                   <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-[var(--color-accent)] text-white">Deploy</span>
                 </div>
               </div>
               {/* Landed card (simulated glow burst) */}
-              <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-accent)]/50 p-3.5 card-landed shadow-lg shadow-[0_0_12px_var(--color-accent)]">
+              <div className="rounded-xl border border-[var(--color-accent)]/50 p-3.5 card-landed shadow-lg shadow-[0_0_12px_var(--color-accent)]" style={{ background: 'color-mix(in srgb, var(--color-accent) 10%, var(--color-surface))' }}>
                 <div className="flex items-center gap-1.5 mb-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
                   <span className="text-xs font-bold text-[var(--color-accent)]">RUNNING</span>
@@ -523,17 +523,17 @@ const from = getTimeRangeFrom(range); // ISO string or undefined
             </div>
             <div className="text-xs text-[var(--color-muted)] font-bold mb-1.5">2026-03-05</div>
             <div className="space-y-1.5">
-              <div className="rounded-lg border border-[#10b981]/20 p-2.5 text-sm bg-[var(--color-surface)]">
+              <div className="rounded-lg border border-[#10b981]/20 p-2.5 text-sm" style={{ background: 'color-mix(in srgb, var(--color-accent) 4%, var(--color-surface))' }}>
                 <p className="line-through text-[var(--color-muted)] text-xs leading-snug">Setup project scaffolding</p>
                 <div className="flex items-center gap-1.5 mt-1 text-xs text-[var(--color-muted)]">
                   <span className="px-1.5 py-0.5 rounded bg-[#34d39922] text-[#34d399] font-medium">manual</span>
                   <span className="text-[#10b981]">1h ago</span>
                 </div>
               </div>
-              <div className="rounded-lg border border-[#10b981]/20 p-2.5 text-sm bg-[var(--color-surface)]">
+              <div className="rounded-lg border border-[#10b981]/20 p-2.5 text-sm" style={{ background: 'color-mix(in srgb, var(--color-accent) 4%, var(--color-surface))' }}>
                 <p className="line-through text-[var(--color-muted)] text-xs leading-snug">Fix auth token refresh</p>
                 <div className="flex items-center gap-1.5 mt-1 text-xs text-[var(--color-muted)]">
-                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa] font-medium">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-medium">claude</span>
                   <span className="text-[#10b981]">3h ago</span>
                 </div>
               </div>

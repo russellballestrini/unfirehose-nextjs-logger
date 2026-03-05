@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatTimestamp } from '@unfirehose/core/format';
 import { decodeProjectName } from '@unfirehose/core/claude-paths-client';
 import { PageContext } from '@unfirehose/ui/PageContext';
@@ -287,6 +287,16 @@ export default function LivePage() {
     entries.slice(-100).map((e) => e.sessionId)
   );
 
+  // Find the most recent output entry (assistant or tool result)
+  const mostRecentOutputIdx = useMemo(() => {
+    for (let j = entries.length - 1; j >= 0; j--) {
+      const le = entries[j].entry;
+      if (le.type === 'assistant') return j;
+      if (le.type === 'user' && Array.isArray(le.message?.content) && le.message.content.some((b: any) => b.type === 'tool_result') && !extractText(le)) return j;
+    }
+    return -1;
+  }, [entries]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)]">
       <PageContext
@@ -414,10 +424,16 @@ export default function LivePage() {
           const isToolOutput = isUser && toolResults.length > 0 && !text.trim();
           const hasErrors = toolResults.some(r => r.isError);
 
-          // Hover popup only for content that doesn't fit inline
+          // Expandable content check
           const textLineCount = text ? text.split('\n').length : 0;
           const toolResultLineCount = toolResults.reduce((s, r) => s + (r.content ? r.content.split('\n').length : 0), 0);
           const hasExpandableContent = textLineCount > 1 || toolResultLineCount > 1 || !!thinking;
+
+          // Auto-expand logic: last 5 entries are expanded, most recent output always expanded
+          const isRecentEntry = i >= entries.length - 5;
+          const isMostRecentOutput = i === mostRecentOutputIdx;
+          const autoExpanded = hasExpandableContent && (isRecentEntry || isMostRecentOutput);
+          const showExpanded = autoExpanded || isHovered;
 
           return (
             <div
@@ -489,16 +505,16 @@ export default function LivePage() {
                     </span>
                   )}
 
-                  {/* Tool result preview */}
-                  {isToolOutput && toolResults.length > 0 && (
+                  {/* Tool result preview (only when collapsed) */}
+                  {!showExpanded && isToolOutput && toolResults.length > 0 && (
                     <span className={hasErrors ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-60'}>
                       {toolResults[0].content.split('\n')[0].slice(0, 120)}
                       {toolResults[0].content.split('\n').length > 1 ? '...' : ''}
                     </span>
                   )}
 
-                  {/* Text preview */}
-                  {text && !isToolOutput && (
+                  {/* Text preview (only when collapsed) */}
+                  {!showExpanded && text && !isToolOutput && (
                     <span className="text-[var(--color-foreground)]">
                       {text.split('\n')[0].slice(0, 200)}
                     </span>
@@ -507,12 +523,18 @@ export default function LivePage() {
 
               </div>
 
-              {/* Inline expand on hover */}
-              {isHovered && hasExpandableContent && (
+              {/* Expanded content — auto for recent entries, hover for older */}
+              <div
+                className={`overflow-hidden transition-all duration-400 ${
+                  showExpanded && hasExpandableContent ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+                }`}
+              >
                 <div
-                  className="output-reveal-inline px-3 pb-2 pl-[10rem] space-y-2"
+                  className="px-3 pb-2 pl-[10rem] space-y-2"
                   style={{
-                    background: 'color-mix(in srgb, var(--color-accent) 3%, var(--color-surface))',
+                    background: isMostRecentOutput
+                      ? 'color-mix(in srgb, var(--color-accent) 5%, var(--color-surface))'
+                      : 'color-mix(in srgb, var(--color-accent) 3%, var(--color-surface))',
                   }}
                 >
                   {/* Thinking */}
@@ -545,7 +567,7 @@ export default function LivePage() {
                     </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
           );
         })}

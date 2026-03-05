@@ -1,8 +1,41 @@
-import { readFile, readdir } from 'fs/promises';
+import { readFile, readdir, stat } from 'fs/promises';
 import { claudePaths } from '@unfirehose/core/claude-paths';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unfirehose/core/db/schema';
 import type { SessionsIndex } from '@unfirehose/core/types';
+
+/**
+ * Resolve a Claude project name (e.g. "-home-fox-git-unfirehose-nextjs-logger")
+ * back to its original filesystem path by testing which `-` are directory separators.
+ * Uses DFS, preferring longer segments (fewer splits) to handle ambiguous hyphens.
+ */
+async function resolveProjectPath(projectName: string): Promise<string | undefined> {
+  const parts = projectName.replace(/^-/, '').split('-');
+
+  async function resolve(idx: number, prefix: string): Promise<string | undefined> {
+    if (idx >= parts.length) {
+      try { await stat(prefix); return prefix; } catch { return undefined; }
+    }
+    // Try consuming remaining parts as one segment first (fewest splits = most likely)
+    for (let end = parts.length; end > idx; end--) {
+      const segment = parts.slice(idx, end).join('-');
+      const candidate = `${prefix}/${segment}`;
+      try {
+        const s = await stat(candidate);
+        if (end === parts.length) return candidate; // final segment, path exists
+        if (s.isDirectory()) {
+          const result = await resolve(end, candidate);
+          if (result) return result;
+        }
+      } catch {
+        // Not a valid path at this split
+      }
+    }
+    return undefined;
+  }
+
+  return resolve(0, '');
+}
 
 export async function GET(
   request: NextRequest,
@@ -38,7 +71,11 @@ export async function GET(
         : [];
       const dbMap = new Map(dbSessions.map(r => [r.session_uuid, r]));
 
+      // Try to resolve the original filesystem path from the project name
+      const derivedPath = await resolveProjectPath(project);
+
       index = {
+        originalPath: derivedPath,
         entries: sessionIds.map((id) => {
           const row = dbMap.get(id);
           return {

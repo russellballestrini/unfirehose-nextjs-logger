@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Markdown from 'react-markdown';
 import { formatTimestamp, formatDuration } from '@unfirehose/core/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -32,7 +33,9 @@ function UserMessage({ entry }: { entry: any }) {
           </span>
         )}
       </div>
-      <div className="text-base whitespace-pre-wrap break-words">{text}</div>
+      <div className="text-base break-words md-content">
+        <Markdown>{text}</Markdown>
+      </div>
     </div>
   );
 }
@@ -72,23 +75,14 @@ function ToolUseView({
   input: Record<string, unknown>;
   show: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-
   if (!show) return null;
 
   return (
     <div className="border-l-2 border-[var(--color-tool)] pl-3 py-1 my-1">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-base font-bold text-[var(--color-tool)] hover:underline cursor-pointer"
-      >
-        {expanded ? '[-]' : '[+]'} {name}
-      </button>
-      {expanded && (
-        <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded">
-          {JSON.stringify(input, null, 2)}
-        </pre>
-      )}
+      <span className="text-base font-bold text-[var(--color-tool)]">{name}</span>
+      <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded">
+        {JSON.stringify(input, null, 2)}
+      </pre>
     </div>
   );
 }
@@ -144,9 +138,9 @@ function AssistantMessage({
             return (
               <div
                 key={i}
-                className="text-base whitespace-pre-wrap break-words my-1"
+                className="text-base break-words my-1 md-content"
               >
-                {block.text}
+                <Markdown>{block.text}</Markdown>
               </div>
             );
           }

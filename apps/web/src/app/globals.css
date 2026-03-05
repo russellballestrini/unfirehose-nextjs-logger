@@ -131,6 +131,62 @@ body {
   animation: column-pulse 0.4s ease-out;
 }
 
+/* Live output inline expand on hover */
+@keyframes output-expand {
+  0% { opacity: 0; max-height: 0; }
+  100% { opacity: 1; max-height: 60vh; }
+}
+.output-reveal-inline {
+  animation: output-expand 0.2s ease-out;
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+/* Markdown content styling */
+.md-content h1 { font-size: 1.5rem; font-weight: bold; margin: 1rem 0 0.5rem; }
+.md-content h2 { font-size: 1.25rem; font-weight: bold; margin: 0.75rem 0 0.5rem; color: var(--color-accent); }
+.md-content h3 { font-size: 1.1rem; font-weight: bold; margin: 0.5rem 0 0.25rem; }
+.md-content h4, .md-content h5, .md-content h6 { font-weight: bold; margin: 0.5rem 0 0.25rem; }
+.md-content p { margin: 0.35rem 0; }
+.md-content ul, .md-content ol { margin: 0.35rem 0; padding-left: 1.5rem; }
+.md-content ul { list-style: disc; }
+.md-content ol { list-style: decimal; }
+.md-content li { margin: 0.15rem 0; }
+.md-content code {
+  background: var(--color-background);
+  color: var(--color-accent);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.md-content pre {
+  background: var(--color-background);
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.md-content pre code {
+  background: none;
+  padding: 0;
+  color: var(--color-foreground);
+}
+.md-content blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: 0.75rem;
+  color: var(--color-muted);
+  margin: 0.5rem 0;
+}
+.md-content a {
+  color: var(--color-user);
+  text-decoration: underline;
+}
+.md-content strong { font-weight: bold; }
+.md-content em { font-style: italic; }
+.md-content hr { border-color: var(--color-border); margin: 0.75rem 0; }
+.md-content table { border-collapse: collapse; margin: 0.5rem 0; }
+.md-content th, .md-content td { border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; }
+.md-content th { background: var(--color-surface); font-weight: bold; }
+
 /* General hover states */
 a:hover {
   transition: color 0.15s ease;

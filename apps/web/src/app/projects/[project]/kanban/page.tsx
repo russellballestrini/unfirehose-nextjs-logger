@@ -103,8 +103,8 @@ export default function ProjectKanbanPage({ params }: { params: Promise<{ projec
     return false;
   }, []);
 
-  const fetchTodos = useCallback(() => {
-    setLoading(true);
+  const fetchTodos = useCallback((showLoading = true) => {
+    if (showLoading) setLoading(true);
     fetch(`/api/todos?project=${encodeURIComponent(decodedProject)}`)
       .then(r => r.json())
       .then(data => {
@@ -118,21 +118,30 @@ export default function ProjectKanbanPage({ params }: { params: Promise<{ projec
   useEffect(() => { fetchTodos(); }, [fetchTodos]);
 
   const updateTodo = useCallback(async (id: number, updates: { estimatedMinutes?: number; status?: string }) => {
+    // Optimistic update — move the card immediately
+    setTodos(prev => prev.map(t => t.id === id ? {
+      ...t,
+      ...updates,
+      ...(updates.status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
+      updatedAt: new Date().toISOString(),
+    } : t));
     await fetch('/api/todos', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, ...updates }),
     });
-    fetchTodos();
+    // Sync with server silently (no loading flash)
+    fetchTodos(false);
   }, [fetchTodos]);
 
   const deleteTodo = useCallback(async (id: number) => {
+    setTodos(prev => prev.filter(t => t.id !== id));
     await fetch('/api/todos', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     });
-    fetchTodos();
+    fetchTodos(false);
   }, [fetchTodos]);
 
   const addTodo = useCallback(async (startNow = false) => {
@@ -164,7 +173,7 @@ export default function ProjectKanbanPage({ params }: { params: Promise<{ projec
       }
 
       setNewTodo('');
-      fetchTodos();
+      fetchTodos(false);
     } catch { /* silent */ }
     setSubmitting(false);
   }, [newTodo, submitting, fetchTodos, decodedProject, projectData]);

@@ -22,7 +22,8 @@
     "react-dom": ">=19"
   },
   "dependencies": {
-    "@unfirehose/core": "*"
+    "@unfirehose/core": "*",
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
     "@unfirehose/config": "*",
