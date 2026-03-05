@@ -1,10 +1,10 @@
 # 3017: UUIDv7 for Todos + Triage Infrastructure
 
-**Status:** phases 1-2 complete, phase 3 (dependency graph) needs fox approval
+**Status:** all phases complete
 **Project:** claude-sexy-logger
 **Estimated:** 90m
 **Todo IDs:** (new — no existing todo covers this)
-**Blocked by:** fox approval on plan
+**Blocked by:** none
 
 ## Context
 

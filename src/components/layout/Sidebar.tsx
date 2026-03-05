@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: '~' },
   { href: '/projects', label: 'Projects', icon: '>' },
   { href: '/todos', label: 'Todos', icon: '=' },
+  { href: '/todos/graph', label: 'Graph', icon: '.' },
   { href: '/thinking', label: 'Thinking', icon: '?' },
   { href: '/logs', label: 'All Logs', icon: '#' },
   { href: '/tokens', label: 'Tokens', icon: '$' },
@@ -36,7 +37,7 @@ export function Sidebar() {
           const isActive =
             item.href === '/'
               ? pathname === '/'
-              : pathname.startsWith(item.href);
+              : pathname === item.href || (pathname.startsWith(item.href + '/') && !NAV_ITEMS.some(n => n !== item && n.href.startsWith(item.href + '/') && pathname.startsWith(n.href)));
           return (
             <Link
               key={item.href}
