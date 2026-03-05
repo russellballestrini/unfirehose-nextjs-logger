@@ -316,53 +316,70 @@ function extractTodosFromEntry(
     }
   }
 
-  // 2. Tool calls: TaskCreate, TaskUpdate, TodoWrite
+  // 2. Tool calls and results: TaskCreate, TaskUpdate, TodoWrite
   const content = entry.message?.content;
   if (!Array.isArray(content)) return;
 
   for (const block of content) {
-    if (block.type !== 'tool_use') continue;
+    if (block.type === 'tool_use') {
+      if (block.name === 'TaskCreate' && block.input) {
+        upsertTodo(db, projectId, sessionId, {
+          content: block.input.subject ?? block.input.description ?? '',
+          status: 'pending',
+          activeForm: block.input.activeForm,
+          source: 'claude',
+          sourceSessionUuid: sessionUuid,
+        });
+      }
 
-    if (block.name === 'TaskCreate' && block.input) {
-      upsertTodo(db, projectId, sessionId, {
-        content: block.input.subject ?? block.input.description ?? '',
-        status: 'pending',
-        activeForm: block.input.activeForm,
-        source: 'claude',
-        sourceSessionUuid: sessionUuid,
-      });
-    }
+      if (block.name === 'TaskUpdate' && block.input?.taskId) {
+        const taskId = String(block.input.taskId);
+        if (block.input.status) {
+          const existing = db.prepare(
+            'SELECT id, status FROM todos WHERE project_id = ? AND external_id = ? AND source = ?'
+          ).get(projectId, taskId, 'claude') as { id: number; status: string } | undefined;
+          if (existing && existing.status !== block.input.status) {
+            const now = new Date().toISOString();
+            const newStatus = block.input.status === 'deleted' ? 'completed' : block.input.status;
+            db.prepare(
+              `UPDATE todos SET status = ?, updated_at = ?, completed_at = CASE WHEN ? IN ('completed', 'deleted') THEN ? ELSE completed_at END WHERE id = ?`
+            ).run(newStatus, now, block.input.status, now, existing.id);
+            db.prepare(
+              'INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, ?, ?, ?)'
+            ).run(existing.id, existing.status, newStatus, now);
+          }
+        }
+      }
 
-    if (block.name === 'TaskUpdate' && block.input?.taskId) {
-      const taskId = String(block.input.taskId);
-      if (block.input.status) {
-        // Try to find by external_id first
-        const existing = db.prepare(
-          'SELECT id, status FROM todos WHERE project_id = ? AND external_id = ?'
-        ).get(projectId, taskId) as { id: number; status: string } | undefined;
-        if (existing && existing.status !== block.input.status) {
-          const now = new Date().toISOString();
-          const newStatus = block.input.status === 'deleted' ? 'completed' : block.input.status;
-          db.prepare(
-            'UPDATE todos SET status = ?, updated_at = ?, completed_at = CASE WHEN ? IN (\'completed\', \'deleted\') THEN ? ELSE completed_at END WHERE id = ?'
-          ).run(newStatus, now, block.input.status, now, existing.id);
-          db.prepare(
-            'INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, ?, ?, ?)'
-          ).run(existing.id, existing.status, newStatus, now);
+      if (block.name === 'TodoWrite' && block.input?.todos) {
+        for (const todo of block.input.todos) {
+          if (!todo.content) continue;
+          upsertTodo(db, projectId, sessionId, {
+            content: todo.content,
+            status: todo.status ?? 'pending',
+            activeForm: todo.activeForm,
+            source: 'claude',
+            sourceSessionUuid: sessionUuid,
+          });
         }
       }
     }
 
-    if (block.name === 'TodoWrite' && block.input?.todos) {
-      for (const todo of block.input.todos) {
-        if (!todo.content) continue;
-        upsertTodo(db, projectId, sessionId, {
-          content: todo.content,
-          status: todo.status ?? 'pending',
-          activeForm: todo.activeForm,
-          source: 'claude',
-          sourceSessionUuid: sessionUuid,
-        });
+    // Parse tool_result: "Task #N created successfully: <subject>"
+    // This assigns external_id to the most recently created todo without one
+    if (block.type === 'tool_result' && typeof block.content === 'string') {
+      const taskMatch = block.content.match(/^Task #(\d+) created/);
+      if (taskMatch) {
+        const externalId = taskMatch[1];
+        // Find the most recent todo in this session without an external_id
+        db.prepare(`
+          UPDATE todos SET external_id = ?
+          WHERE id = (
+            SELECT id FROM todos
+            WHERE project_id = ? AND session_id = ? AND external_id IS NULL AND source = 'claude'
+            ORDER BY id DESC LIMIT 1
+          )
+        `).run(externalId, projectId, sessionId);
       }
     }
   }
@@ -495,18 +512,18 @@ function backfillTodosFromContentBlocks(db: ReturnType<typeof getDb>) {
 
     // Process tool results containing task lists (TaskList results)
     const taskListResults = db.prepare(`
-      SELECT cb.content, m.session_id, s.project_id, s.session_uuid
+      SELECT cb.text_content, m.session_id, s.project_id, s.session_uuid
       FROM content_blocks cb
       JOIN messages m ON cb.message_id = m.id
       JOIN sessions s ON m.session_id = s.id
-      WHERE cb.block_type = 'tool_result' AND cb.content LIKE '%"subject"%'
+      WHERE cb.block_type = 'tool_result' AND cb.text_content LIKE '%"subject"%'
       ORDER BY m.timestamp ASC
       LIMIT 10000
     `).all() as any[];
 
     for (const row of taskListResults) {
       try {
-        const resultData = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
+        const resultData = typeof row.text_content === 'string' ? JSON.parse(row.text_content) : row.text_content;
         const tasks = resultData?.tasks ?? (Array.isArray(resultData) ? resultData : null);
         if (!tasks || !Array.isArray(tasks)) continue;
 
