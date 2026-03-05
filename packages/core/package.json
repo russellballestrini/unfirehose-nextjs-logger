@@ -1,0 +1,38 @@
+{
+  "name": "@sexy-logger/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "tsc --noEmit"
+  },
+  "exports": {
+    "./db/schema": "./db/schema.ts",
+    "./db/ingest": "./db/ingest.ts",
+    "./db/watcher": "./db/watcher.ts",
+    "./claude-paths": "./claude-paths.ts",
+    "./claude-paths-client": "./claude-paths-client.ts",
+    "./fetch-paths": "./fetch-paths.ts",
+    "./uncloseai-paths": "./uncloseai-paths.ts",
+    "./uncloseai-adapter": "./uncloseai-adapter.ts",
+    "./jsonl-reader": "./jsonl-reader.ts",
+    "./format": "./format.ts",
+    "./types": "./types.ts",
+    "./pii": "./pii.ts",
+    "./session-name": "./session-name.ts",
+    "./uuidv7": "./uuidv7.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "^5",
+    "vitest": "^4.0.18"
+  }
+}
