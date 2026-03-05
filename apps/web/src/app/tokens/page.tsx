@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import useSWR from 'swr';
 import { formatTokens } from '@sexy-logger/core/format';
 import { PageContext } from '@sexy-logger/ui/PageContext';
@@ -61,7 +62,10 @@ function formatCost(usd: number): string {
 
 export default function TokensPage() {
   const [range, setRange] = useTimeRange('tokens_range', '7d');
-  const from = getTimeRangeFrom(range);
+  // Memoize `from` so the SWR key stays stable across re-renders.
+  // getTimeRangeFrom calls Date.now() — without memoization, each render
+  // produces a new timestamp, giving SWR a new key, causing infinite re-fetches.
+  const from = useMemo(() => getTimeRangeFrom(range), [range]);
   const qs = from ? `?from=${encodeURIComponent(from)}` : '';
 
   const { data, error } = useSWR(`/api/tokens${qs}`, fetcher);

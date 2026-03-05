@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTimestamp, formatRelativeTime } from '@sexy-logger/core/format';
@@ -25,7 +25,7 @@ export default function ThinkingPage() {
     setDebounceTimer(setTimeout(() => { setSearchDebounced(val); setPage(0); }, 300));
   };
 
-  const from = getTimeRangeFrom(range);
+  const from = useMemo(() => getTimeRangeFrom(range), [range]);
 
   const params = new URLSearchParams({
     limit: String(limit),
