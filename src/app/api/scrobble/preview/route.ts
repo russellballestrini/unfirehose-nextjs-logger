@@ -78,11 +78,11 @@ export async function GET() {
         OR project_visibility.auto_detected != excluded.auto_detected
     `);
 
-    // Only auto-set visibility if user hasn't manually changed it
+    // Auto-set visibility to public for projects with public forge remotes
     const autoSetVis = db.prepare(`
       UPDATE project_visibility
       SET visibility = 'public', updated_at = datetime('now')
-      WHERE project_id = ? AND visibility = 'private' AND auto_detected = 'public_remote'
+      WHERE project_id = ? AND visibility = 'private' AND auto_detected LIKE 'public_remote:%'
     `);
 
     for (const p of projects) {
@@ -92,7 +92,7 @@ export async function GET() {
         const detection = isPublic ? 'public_remote' : 'private_remote';
         const remoteStr = remotes.join(', ');
         upsertVis.run(p.id, p.visibility ?? 'private', `${detection}:${remoteStr}`);
-        if (isPublic && p.visibility === 'private' && !p.auto_detected) {
+        if (isPublic && p.visibility === 'private') {
           autoSetVis.run(p.id);
           p.visibility = 'public';
           p.auto_detected = `${detection}:${remoteStr}`;
