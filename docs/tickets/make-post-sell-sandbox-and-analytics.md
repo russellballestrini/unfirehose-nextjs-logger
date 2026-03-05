@@ -1,6 +1,7 @@
 # make-post-sell: Sandbox Mode + Analytics + S3 Storage
 
 **Repo:** make-post-sell
+**Status:** in-progress (24 remaining)
 **Priority:** Medium
 **Todo IDs:** 2730-2735, 2771-2788
 

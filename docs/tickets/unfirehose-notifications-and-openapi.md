@@ -1,6 +1,7 @@
 # unfirehose: Notifications + OpenAPI + Architecture
 
 **Repo:** unfirehose
+**Status:** closed (completed by mega deploy 2026-03-05)
 **Priority:** Medium-High
 **Todo IDs:** 2935-2938, 2969-2978
 

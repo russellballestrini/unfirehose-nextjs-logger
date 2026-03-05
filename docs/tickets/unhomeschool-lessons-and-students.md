@@ -1,6 +1,7 @@
 # unhomeschool-com: One-Time Lessons + Student Accounts
 
 **Repo:** unhomeschool-com
+**Status:** closed (completed by mega deploy 2026-03-05)
 **Priority:** Medium
 **Todo IDs:** 2532-2536, 2546-2548
 

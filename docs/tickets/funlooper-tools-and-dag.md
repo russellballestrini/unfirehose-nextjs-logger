@@ -1,6 +1,7 @@
 # funlooper-com: 33 New Tools + DAG Scheduler + Tool Chains
 
 **Repo:** funlooper-com
+**Status:** in-progress (11 remaining)
 **Priority:** Medium
 **Todo IDs:** 2875-2885
 
