@@ -17,12 +17,17 @@ export function ThemeProvider() {
 
   const accent = settings?.theme_accent_color;
 
+  // Apply light/dark mode from localStorage on mount
+  useEffect(() => {
+    const light = localStorage.getItem('unfirehose_light_mode') === 'true';
+    document.documentElement.classList.toggle('light', light);
+    document.documentElement.classList.toggle('dark', !light);
+  }, []);
+
   useEffect(() => {
     if (!accent) return;
     document.documentElement.style.setProperty('--color-accent', accent);
-    // Also update assistant color to match accent
     document.documentElement.style.setProperty('--color-assistant', accent);
-    // Update selection color
     document.documentElement.style.setProperty('--selection-accent', accent + '40');
 
     return () => {

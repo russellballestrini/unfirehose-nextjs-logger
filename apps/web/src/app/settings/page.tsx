@@ -92,6 +92,24 @@ export default function SettingsPage() {
   );
 
   const accentColor = settings?.[SETTINGS_KEYS.accentColor] ?? '#10b981';
+  const [lightMode, setLightMode] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('unfirehose_light_mode');
+    if (saved === 'true') {
+      setLightMode(true);
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
+  function toggleTheme() {
+    const next = !lightMode;
+    setLightMode(next);
+    localStorage.setItem('unfirehose_light_mode', String(next));
+    document.documentElement.classList.toggle('light', next);
+    document.documentElement.classList.toggle('dark', !next);
+  }
   const currentPlan = settings?.[SETTINGS_KEYS.plan] ?? '';
   const displayName = settings?.[SETTINGS_KEYS.displayName] ?? '';
   const handle = settings?.[SETTINGS_KEYS.handle] ?? '';
@@ -186,9 +204,17 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Accent Color */}
+      {/* Accent Color + Theme */}
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
+          <button
+            onClick={toggleTheme}
+            className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
+          >
+            {lightMode ? 'Light Mode' : 'Dark Mode'}
+          </button>
+        </div>
         <HexColorPicker value={accentColor} onChange={(v) => saveSetting(SETTINGS_KEYS.accentColor, v)} />
       </div>
 
