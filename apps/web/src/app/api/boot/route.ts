@@ -27,7 +27,7 @@ function exec(cmd: string, args: string[], opts: { timeout: number }): Promise<{
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { projectPath, sessionId, yolo, prompt } = body;
+  const { projectPath, sessionId, yolo, prompt, parentSessionUuid } = body;
 
   // Validate projectPath exists
   if (!projectPath || typeof projectPath !== 'string') {
@@ -57,15 +57,15 @@ export async function POST(request: NextRequest) {
 
   try {
     if (IS_WINDOWS) {
-      return await bootWindows({ projectPath, sessionId, yolo, prompt, sessionName });
+      return await bootWindows({ projectPath, sessionId, yolo, prompt, sessionName, parentSessionUuid });
     }
 
     // Try tmux first, fall back to screen
     const mux = await detectMultiplexer();
     if (mux === 'tmux') {
-      return await bootTmux({ projectPath, sessionId, yolo, prompt, sessionName });
+      return await bootTmux({ projectPath, sessionId, yolo, prompt, sessionName, parentSessionUuid });
     } else if (mux === 'screen') {
-      return await bootScreen({ projectPath, sessionId, yolo, prompt, sessionName });
+      return await bootScreen({ projectPath, sessionId, yolo, prompt, sessionName, parentSessionUuid });
     } else {
       return NextResponse.json({
         error: 'No terminal multiplexer found',
@@ -89,6 +89,7 @@ interface BootOpts {
   yolo?: boolean;
   prompt?: string;
   sessionName: string;
+  parentSessionUuid?: string;
 }
 
 async function detectMultiplexer(): Promise<'tmux' | 'screen' | null> {
@@ -154,9 +155,12 @@ async function bootTmux(opts: BootOpts) {
     'bash', '-l',
   ], { timeout: 5000 });
 
+  const envPrefix = opts.parentSessionUuid
+    ? `export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid} && `
+    : '';
   await exec('tmux', [
     'send-keys', '-t', opts.sessionName,
-    `unset CLAUDECODE && ${parts.join(' ')}`,
+    `unset CLAUDECODE && ${envPrefix}${parts.join(' ')}`,
     'Enter',
   ], { timeout: 5000 });
 
@@ -172,7 +176,10 @@ async function bootScreen(opts: BootOpts) {
   const { parts, cleanupFiles } = buildClaudeArgs(opts);
   await writePromptFiles(opts, cleanupFiles);
 
-  const shellCmd = `cd ${JSON.stringify(opts.projectPath)} && unset CLAUDECODE && ${parts.join(' ')}`;
+  const envPrefix = opts.parentSessionUuid
+    ? `export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid} && `
+    : '';
+  const shellCmd = `cd ${JSON.stringify(opts.projectPath)} && unset CLAUDECODE && ${envPrefix}${parts.join(' ')}`;
 
   await exec('screen', [
     '-dmS', opts.sessionName,

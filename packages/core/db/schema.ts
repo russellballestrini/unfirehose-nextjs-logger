@@ -234,6 +234,8 @@ function migrate(db: Database.Database) {
   addColumn('sessions', 'status', "TEXT DEFAULT 'active'");
   addColumn('sessions', 'closed_at', 'TEXT');
   addColumn('sessions', 'last_message_at', 'TEXT');
+  addColumn('sessions', 'delegated_from', 'TEXT');  // parent session UUID for cross-harness dedup
+  addColumn('sessions', 'harness', 'TEXT');          // originating harness (claude-code, fetch, uncloseai, hermes, agnt)
   addColumn('todos', 'estimated_minutes', 'INTEGER');
   addColumn('todos', 'uuid', 'TEXT');
 

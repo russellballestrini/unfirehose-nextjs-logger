@@ -33,6 +33,7 @@ Native format documentation and field mapping for each harness:
 | [Aider](./harnesses/aider.md) | Multi-provider | Documented | Adapter: planned |
 | [Cursor](./harnesses/cursor.md) | Multi-provider | Researched | Adapter: planned |
 | [Continue.dev](./harnesses/continue-dev.md) | Multi-provider | Researched | Adapter: planned |
+| [Hermes Agent](./harnesses/hermes-agent.md) | Local (Hermes) | Documented | Adapter: planned |
 | [agnt](./harnesses/agnt.md) | Multi-provider | Native target | Ships with unfirehose/1.0 |
 
 ## API Field Maps

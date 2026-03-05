@@ -1,7 +1,8 @@
-import { readdir, readFile, stat } from 'fs/promises';
+import { readdir, readFile, stat, mkdir, appendFile } from 'fs/promises';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import path from 'path';
+import { homedir } from 'os';
 import { getDb } from './schema';
 import { claudePaths, decodeProjectName } from '../claude-paths';
 import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
@@ -12,6 +13,8 @@ import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
 import type { SessionsIndex } from '../types';
 
+const CANONICAL_ROOT = path.join(homedir(), '.unfirehose', 'canonical');
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export interface IngestResult {
@@ -21,6 +24,65 @@ export interface IngestResult {
   blocksAdded: number;
   filesScanned: number;
   alertsTriggered: number;
+}
+
+/**
+ * Normalize a raw harness entry to unfirehose/1.0 canonical format.
+ * Works for Claude Code, Fetch, and uncloseai entries.
+ */
+function toCanonical(entry: any, harness: string): any | null {
+  if (!entry.type || !['user', 'assistant', 'system'].includes(entry.type)) return null;
+
+  const canonical: any = {
+    $schema: 'unfirehose/1.0',
+    role: entry.type,
+    id: entry.uuid ?? null,
+    parentId: entry.parentUuid ?? null,
+    timestamp: entry.timestamp ?? null,
+    sidechain: entry.isSidechain ?? false,
+    harness,
+  };
+
+  if (entry.message?.model) canonical.model = entry.message.model;
+  if (entry.message?.stop_reason) canonical.stopReason = entry.message.stop_reason;
+  if (entry.subtype) canonical.subtype = entry.subtype;
+  if (entry.durationMs) canonical.durationMs = entry.durationMs;
+  if (entry.sessionId) canonical.sessionId = entry.sessionId;
+
+  // Normalize content blocks
+  if (entry.message?.content && Array.isArray(entry.message.content)) {
+    canonical.content = entry.message.content.map((block: any) => {
+      switch (block.type) {
+        case 'text':
+          return { type: 'text', text: block.text };
+        case 'thinking':
+          return { type: 'reasoning', text: block.thinking, signature: block.thinking_signature };
+        case 'tool_use':
+          return { type: 'tool-call', toolCallId: block.id, toolName: block.name, input: block.input };
+        case 'tool_result':
+          return { type: 'tool-result', toolCallId: block.tool_use_id, output: block.content, isError: block.is_error };
+        default:
+          return block;
+      }
+    });
+  } else if (entry.type === 'user' && typeof entry.message?.content === 'string') {
+    canonical.content = [{ type: 'text', text: entry.message.content }];
+  }
+
+  // Normalize usage
+  const usage = entry.message?.usage;
+  if (usage) {
+    canonical.usage = {
+      inputTokens: usage.input_tokens ?? 0,
+      outputTokens: usage.output_tokens ?? 0,
+      inputTokenDetails: {
+        cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+      },
+    };
+  }
+
+  return canonical;
 }
 
 function getOrCreateProject(
@@ -57,12 +119,22 @@ function getOrCreateSession(
     cliVersion?: string;
     createdAt?: string;
     isSidechain?: boolean;
+    harness?: string;
+    delegatedFrom?: string;
   }
 ): number {
   const existing = db
     .prepare('SELECT id FROM sessions WHERE session_uuid = ?')
     .get(sessionUuid) as { id: number } | undefined;
-  if (existing) return existing.id;
+  if (existing) {
+    // Backfill harness/delegated_from if not set
+    if (meta.harness || meta.delegatedFrom) {
+      db.prepare(
+        'UPDATE sessions SET harness = COALESCE(harness, ?), delegated_from = COALESCE(delegated_from, ?) WHERE id = ?'
+      ).run(meta.harness ?? null, meta.delegatedFrom ?? null, existing.id);
+    }
+    return existing.id;
+  }
 
   // Sanitize PII from first prompt before storage
   const firstPrompt = meta.firstPrompt
@@ -72,8 +144,8 @@ function getOrCreateSession(
 
   const result = db
     .prepare(
-      `INSERT INTO sessions (session_uuid, project_id, git_branch, first_prompt, cli_version, created_at, is_sidechain, display_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sessions (session_uuid, project_id, git_branch, first_prompt, cli_version, created_at, is_sidechain, display_name, harness, delegated_from)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       sessionUuid,
@@ -83,7 +155,9 @@ function getOrCreateSession(
       meta.cliVersion ?? null,
       meta.createdAt ?? null,
       meta.isSidechain ? 1 : 0,
-      displayName
+      displayName,
+      meta.harness ?? null,
+      meta.delegatedFrom ?? null
     );
   return result.lastInsertRowid as number;
 }
@@ -695,6 +769,7 @@ async function ingestFetch(
 
       const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
         cliVersion: 'fetch',
+        harness: 'fetch',
       });
 
       if (!offset) result.sessionsAdded++;
@@ -824,6 +899,7 @@ async function ingestUncloseai(
 
       const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
         cliVersion: 'uncloseai-cli',
+        harness: 'uncloseai',
       });
 
       if (!offset) result.sessionsAdded++;
@@ -833,6 +909,9 @@ async function ingestUncloseai(
         encoding: 'utf-8',
       });
       const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+      // Buffer canonical entries for async write after sync transaction
+      const canonicalBuffer: any[] = [];
 
       const batchInsert = db.transaction((lines: string[]) => {
         for (const line of lines) {
@@ -854,6 +933,10 @@ async function ingestUncloseai(
 
             const normalized = normalizeUncloseaiEntry(raw);
             if (!normalized) continue;
+
+            // Generate canonical event for non-compliant harness
+            const canonical = toCanonical(normalized, 'uncloseai');
+            if (canonical) canonicalBuffer.push(canonical);
 
             const messageId = insertMessage(db, sessionId, normalized);
             if (messageId === null) continue;
@@ -886,6 +969,14 @@ async function ingestUncloseai(
       }
       if (batch.length > 0) {
         batchInsert(batch);
+      }
+
+      // Write canonical JSONL for non-compliant harness
+      if (canonicalBuffer.length > 0) {
+        const canonicalLines = canonicalBuffer.map(e => JSON.stringify(e)).join('\n') + '\n';
+        const canonDir = path.join(CANONICAL_ROOT, 'uncloseai', cwdSlug);
+        await mkdir(canonDir, { recursive: true });
+        await appendFile(path.join(canonDir, `${sessionUuid}.jsonl`), canonicalLines, 'utf-8');
       }
 
       db.prepare(
@@ -991,6 +1082,7 @@ export async function ingestAll(): Promise<IngestResult> {
         firstPrompt: meta.firstPrompt,
         createdAt: meta.createdAt,
         isSidechain: meta.isSidechain,
+        harness: 'claude-code',
       });
 
       if (!offset) result.sessionsAdded++;
@@ -1002,6 +1094,9 @@ export async function ingestAll(): Promise<IngestResult> {
       });
       const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
+      // Track delegation info discovered during ingestion
+      let detectedDelegatedFrom: string | null = null;
+
       // Batch insert in a transaction for speed
       const batchInsert = db.transaction(
         (lines: string[]) => {
@@ -1009,6 +1104,23 @@ export async function ingestAll(): Promise<IngestResult> {
             if (!line.trim()) continue;
             try {
               const entry = JSON.parse(line);
+
+              // Detect delegation: check for UNFIREHOSE_PARENT_SESSION in env or explicit field
+              if (!detectedDelegatedFrom) {
+                if (entry.delegatedFrom) {
+                  detectedDelegatedFrom = entry.delegatedFrom;
+                } else if (entry.type === 'user' && entry.message?.content) {
+                  // Check if system prompt or first message references parent session
+                  const textContent = Array.isArray(entry.message.content)
+                    ? entry.message.content.map((b: any) => b.text ?? '').join(' ')
+                    : String(entry.message.content);
+                  const parentMatch = textContent.match(/UNFIREHOSE_PARENT_SESSION[=: ]+([a-f0-9-]{36})/i);
+                  if (parentMatch) {
+                    detectedDelegatedFrom = parentMatch[1];
+                  }
+                }
+              }
+
               const messageId = insertMessage(db, sessionId, entry);
               if (messageId === null) continue; // skipped (duplicate or non-message type)
 
@@ -1025,8 +1137,9 @@ export async function ingestAll(): Promise<IngestResult> {
               }
 
               // Update usage minutes for assistant messages with token data
+              // Skip usage rollups for delegated sessions (parent already counted)
               const usage = entry.message?.usage;
-              if (usage && entry.timestamp) {
+              if (usage && entry.timestamp && !detectedDelegatedFrom) {
                 updateUsageMinutes(db, projectId, entry.timestamp, {
                   inputTokens: usage.input_tokens ?? 0,
                   outputTokens: usage.output_tokens ?? 0,
@@ -1053,6 +1166,13 @@ export async function ingestAll(): Promise<IngestResult> {
       }
       if (batch.length > 0) {
         batchInsert(batch);
+      }
+
+      // Link delegation if detected during ingestion
+      if (detectedDelegatedFrom) {
+        db.prepare(
+          'UPDATE sessions SET delegated_from = ?, is_sidechain = 1 WHERE session_uuid = ? AND delegated_from IS NULL'
+        ).run(detectedDelegatedFrom, meta.sessionId);
       }
 
       // Update ingestion offset
@@ -1166,6 +1286,53 @@ export async function ingestAll(): Promise<IngestResult> {
     backfillLastMsg();
     console.log(`[backfill] Set last_message_at for ${nullLastMsg.length} sessions`);
   }
+
+  // Heuristic delegation detection: find sessions spawned by Agent tool calls
+  // in other sessions (same project, child started within 30s of Agent tool_use)
+  const unlinkedSessions = db.prepare(`
+    SELECT s.id, s.session_uuid, s.project_id, s.created_at, s.first_prompt
+    FROM sessions s
+    WHERE s.delegated_from IS NULL
+      AND s.harness = 'claude-code'
+      AND s.created_at IS NOT NULL
+  `).all() as Array<{ id: number; session_uuid: string; project_id: number; created_at: string; first_prompt: string | null }>;
+
+  if (unlinkedSessions.length > 0) {
+    const findParentAgent = db.prepare(`
+      SELECT s.session_uuid
+      FROM content_blocks cb
+      JOIN messages m ON cb.message_id = m.id
+      JOIN sessions s ON m.session_id = s.id
+      WHERE cb.block_type = 'tool_use'
+        AND cb.tool_name = 'Agent'
+        AND s.project_id = ?
+        AND s.session_uuid != ?
+        AND m.timestamp BETWEEN datetime(?, '-30 seconds') AND datetime(?, '+30 seconds')
+      LIMIT 1
+    `);
+
+    const linkDelegation = db.transaction(() => {
+      for (const sess of unlinkedSessions) {
+        if (!sess.created_at) continue;
+        const parent = findParentAgent.get(
+          sess.project_id, sess.session_uuid, sess.created_at, sess.created_at
+        ) as { session_uuid: string } | undefined;
+        if (parent) {
+          db.prepare(
+            'UPDATE sessions SET delegated_from = ? WHERE id = ? AND delegated_from IS NULL'
+          ).run(parent.session_uuid, sess.id);
+        }
+      }
+    });
+    linkDelegation();
+  }
+
+  // Backfill harness for sessions without one
+  db.prepare(`
+    UPDATE sessions SET harness = 'claude-code'
+    WHERE harness IS NULL
+      AND session_uuid IN (SELECT REPLACE(file_path, '.jsonl', '') FROM ingest_offsets WHERE file_path LIKE '%/.claude/projects/%')
+  `).run();
 
   // Check alert thresholds
   result.alertsTriggered = checkThresholds(db);
