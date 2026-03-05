@@ -1,6 +1,6 @@
 # 2956: Fix blackops tmux session naming
 
-**Status:** open
+**Status:** closed (fixed)
 **Project:** claude-sexy-logger
 **Estimated:** 10m
 **Todo IDs:** 2956

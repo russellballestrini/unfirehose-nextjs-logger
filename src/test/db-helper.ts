@@ -28,7 +28,11 @@ export function createTestDb(): Database.Database {
       cli_version TEXT,
       created_at TEXT,
       updated_at TEXT,
-      is_sidechain INTEGER DEFAULT 0
+      is_sidechain INTEGER DEFAULT 0,
+      display_name TEXT,
+      status TEXT DEFAULT 'active',
+      closed_at TEXT,
+      last_message_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -100,6 +104,69 @@ export function createTestDb(): Database.Database {
       UNIQUE(window_minutes, metric)
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_uuid TEXT UNIQUE NOT NULL,
+      post_type TEXT NOT NULL DEFAULT 'status',
+      title TEXT,
+      content_text TEXT NOT NULL,
+      tags TEXT,
+      url TEXT,
+      in_reply_to TEXT,
+      published_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS pii_replacements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      original_hash TEXT NOT NULL,
+      token TEXT NOT NULL,
+      pii_type TEXT NOT NULL,
+      message_id INTEGER REFERENCES messages(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS todos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      project_id INTEGER NOT NULL REFERENCES projects(id),
+      session_id INTEGER REFERENCES sessions(id),
+      external_id TEXT,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      active_form TEXT,
+      source TEXT NOT NULL DEFAULT 'claude',
+      source_session_uuid TEXT,
+      blocked_by TEXT,
+      estimated_minutes INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS todo_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      todo_id INTEGER NOT NULL REFERENCES todos(id),
+      old_status TEXT,
+      new_status TEXT NOT NULL,
+      message_id INTEGER REFERENCES messages(id),
+      event_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS project_visibility (
+      project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+      visibility TEXT NOT NULL DEFAULT 'private',
+      auto_detected TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
     CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
@@ -110,26 +177,13 @@ export function createTestDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_alerts_triggered ON alerts(triggered_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_uuid_unique ON messages(message_uuid) WHERE message_uuid IS NOT NULL;
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS posts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_uuid TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      source TEXT,
-      content TEXT,
-      url TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_type ON posts(post_type);
+    CREATE INDEX IF NOT EXISTS idx_pii_message ON pii_replacements(message_id);
+    CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id);
+    CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_todo_events_todo ON todo_events(todo_id);
   `);
 
   // Seed default alert thresholds
@@ -261,5 +315,42 @@ export function seedAlert(
     opts.details ?? '{}',
     opts.acknowledged ?? 0,
     opts.triggeredAt ?? null,
+  ).lastInsertRowid as number;
+}
+
+/** Insert a todo row */
+export function seedTodo(
+  db: Database.Database,
+  projectId: number,
+  content: string,
+  opts: {
+    uuid?: string;
+    sessionId?: number;
+    externalId?: string;
+    status?: string;
+    activeForm?: string;
+    source?: string;
+    sourceSessionUuid?: string;
+    blockedBy?: string;
+    estimatedMinutes?: number;
+    completedAt?: string;
+  } = {}
+): number {
+  return db.prepare(
+    `INSERT INTO todos (uuid, project_id, session_id, external_id, content, status, active_form, source, source_session_uuid, blocked_by, estimated_minutes, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    opts.uuid ?? null,
+    projectId,
+    opts.sessionId ?? null,
+    opts.externalId ?? null,
+    content,
+    opts.status ?? 'pending',
+    opts.activeForm ?? null,
+    opts.source ?? 'claude',
+    opts.sourceSessionUuid ?? null,
+    opts.blockedBy ?? null,
+    opts.estimatedMinutes ?? null,
+    opts.completedAt ?? null,
   ).lastInsertRowid as number;
 }
