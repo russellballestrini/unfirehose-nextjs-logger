@@ -58,6 +58,7 @@ export default function TodosPage() {
   const [counts, setCounts] = useState<Counts>({ pending: 0, inProgress: 0, completed: 0, total: 0 });
   const [filter, setFilter] = useState<string>('active');
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'kanban' | 'project'>('kanban');
   const [newTodo, setNewTodo] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -146,6 +147,19 @@ export default function TodosPage() {
         </div>
         <div className="ml-auto flex gap-2">
           <button
+            onClick={() => setView('kanban')}
+            className={`px-3 py-1 text-sm rounded border ${view === 'kanban' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-[var(--color-border)] text-[var(--color-muted)]'}`}
+          >
+            Kanban
+          </button>
+          <button
+            onClick={() => setView('project')}
+            className={`px-3 py-1 text-sm rounded border ${view === 'project' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-[var(--color-border)] text-[var(--color-muted)]'}`}
+          >
+            By Project
+          </button>
+          <span className="w-px bg-[var(--color-border)]" />
+          <button
             onClick={() => setFilter('active')}
             className={`px-3 py-1 text-sm rounded border ${filter === 'active' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-[var(--color-border)] text-[var(--color-muted)]'}`}
           >
@@ -209,8 +223,8 @@ export default function TodosPage() {
         </div>
       ) : (
         <>
-          {/* Kanban columns */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {view === 'kanban' ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {STATUS_COLUMNS.map(col => (
               <div key={col.key}>
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--color-border)]">
@@ -223,7 +237,7 @@ export default function TodosPage() {
                     {columns[col.key]?.length ?? 0}
                   </span>
                 </div>
-                <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-2">
                   {(columns[col.key] ?? []).map(todo => (
                     <TodoCard key={todo.id} todo={todo} onUpdate={updateTodo} />
                   ))}
@@ -236,11 +250,7 @@ export default function TodosPage() {
               </div>
             ))}
           </div>
-
-          {/* By project view */}
-          <h2 className="text-lg font-bold mb-4 border-t border-[var(--color-border)] pt-6">
-            By Project
-          </h2>
+          ) : (
           <div className="space-y-4">
             {byProject.map(group => {
               const groupEst = group.todos
@@ -301,6 +311,7 @@ export default function TodosPage() {
               );
             })}
           </div>
+          )}
         </>
       )}
     </div>
