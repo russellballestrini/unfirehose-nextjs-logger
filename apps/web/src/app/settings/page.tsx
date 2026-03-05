@@ -36,7 +36,7 @@ const PLANS = [
       'Status posts & microblog',
       'API access + 1 custom hose',
     ],
-    price: '$14/mo or $97/yr',
+    price: '$14/mo or $97/yr (42% off)',
   },
   {
     value: 'team',
