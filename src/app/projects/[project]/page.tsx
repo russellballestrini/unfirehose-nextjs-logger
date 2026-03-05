@@ -4,7 +4,7 @@ import { use, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@/lib/types';
-import { formatRelativeTime, gitRemoteToWebUrl, commitUrl } from '@/lib/format';
+import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@/lib/format';
 import { PageContext } from '@/components/PageContext';
 import { SessionPopover } from '@/components/SessionPopover';
 
@@ -29,6 +29,12 @@ export default function ProjectSessionsPage({
 
   const { data: meta } = useSWR<ProjectMetadata>(
     `/api/projects/metadata?project=${encodeURIComponent(decodedProject)}`,
+    fetcher
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: full } = useSWR<any>(
+    `/api/projects/${project}/full`,
     fetcher
   );
 
@@ -173,6 +179,102 @@ export default function ProjectSessionsPage({
               {bootResult}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Project Stats */}
+      {full?.stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {[
+            { label: 'Sessions', value: full.stats.sessionCount },
+            { label: 'Messages', value: full.stats.messageCount.toLocaleString() },
+            { label: 'Input', value: formatTokens(full.stats.totalInput) },
+            { label: 'Output', value: formatTokens(full.stats.totalOutput) },
+            { label: 'Active Days', value: full.stats.activeDays },
+            { label: 'Equiv Cost', value: `$${full.stats.totalCost.toFixed(2)}` },
+          ].map(({ label, value }) => (
+            <div key={label} className="border border-[var(--color-border)] rounded p-3 text-center">
+              <div className="text-lg font-bold">{value}</div>
+              <div className="text-xs text-[var(--color-muted)]">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Models + Tools row */}
+      {full && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {full.models?.length > 0 && (
+            <div className="border border-[var(--color-border)] rounded p-4">
+              <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">Models</h3>
+              <div className="space-y-1">
+                {full.models.map((m: any) => (
+                  <div key={m.model} className="flex justify-between text-sm">
+                    <span className="font-mono truncate">{m.model.replace('claude-', '')}</span>
+                    <span className="text-[var(--color-muted)] shrink-0 ml-2">{m.messages} msgs / ${m.cost.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {full.toolUsage?.length > 0 && (
+            <div className="border border-[var(--color-border)] rounded p-4">
+              <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">Top Tools</h3>
+              <div className="space-y-1">
+                {full.toolUsage.map((t: any) => (
+                  <div key={t.tool_name} className="flex justify-between text-sm">
+                    <span className="font-mono">{t.tool_name}</span>
+                    <span className="text-[var(--color-muted)]">{t.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Open Todos */}
+      {full?.todos?.length > 0 && (
+        <div className="border border-[var(--color-border)] rounded p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
+            <Link href="/todos" className="text-xs text-[var(--color-accent)] hover:underline ml-auto">
+              View all
+            </Link>
+          </div>
+          <div className="space-y-1">
+            {full.todos.map((t: any) => (
+              <div key={t.id} className="flex items-center gap-2 text-sm">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: t.status === 'in_progress' ? '#fbbf24' : 'var(--color-muted)' }}
+                />
+                <span className="flex-1 truncate">{t.content}</span>
+                <span className="text-xs text-[var(--color-muted)] shrink-0">
+                  {t.source !== 'claude' && <span className="mr-1">[{t.source}]</span>}
+                  {formatRelativeTime(t.updatedAt)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Prompts */}
+      {full?.prompts?.length > 0 && (
+        <div className="border border-[var(--color-border)] rounded p-4">
+          <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">Recent Prompts</h3>
+          <div className="space-y-2">
+            {full.prompts.map((p: any, i: number) => (
+              <div key={i} className="text-sm border-l-2 border-[var(--color-border)] pl-3">
+                <p className="text-[var(--color-foreground)]">{p.text}</p>
+                <div className="flex gap-2 text-xs text-[var(--color-muted)] mt-1">
+                  <span>{formatRelativeTime(p.timestamp)}</span>
+                  {p.sessionDisplay && <span>{p.sessionDisplay}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
