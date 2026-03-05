@@ -16,14 +16,39 @@ export async function GET(
       const raw = await readFile(claudePaths.sessionsIndex(project), 'utf-8');
       index = JSON.parse(raw);
     } catch {
-      // No index — build from JSONL filenames
+      // No index — build from JSONL filenames + enrich from DB
       const files = await readdir(claudePaths.projectDir(project));
       const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+      const sessionIds = jsonlFiles.map((f) => f.replace('.jsonl', ''));
+
+      const db = getDb();
+      const dbSessions = sessionIds.length > 0
+        ? db.prepare(
+            `SELECT s.session_uuid, s.git_branch, s.first_prompt, s.last_message_at,
+                    COUNT(m.id) as message_count
+             FROM sessions s
+             LEFT JOIN messages m ON m.session_id = s.id
+             WHERE s.session_uuid IN (${sessionIds.map(() => '?').join(',')})
+             GROUP BY s.session_uuid`
+          ).all(...sessionIds) as Array<{
+            session_uuid: string; git_branch: string | null;
+            first_prompt: string | null; last_message_at: string | null;
+            message_count: number;
+          }>
+        : [];
+      const dbMap = new Map(dbSessions.map(r => [r.session_uuid, r]));
+
       index = {
-        entries: jsonlFiles.map((f) => ({
-          sessionId: f.replace('.jsonl', ''),
-          messageCount: 0,
-        })),
+        entries: sessionIds.map((id) => {
+          const row = dbMap.get(id);
+          return {
+            sessionId: id,
+            messageCount: row?.message_count ?? 0,
+            gitBranch: row?.git_branch ?? undefined,
+            firstPrompt: row?.first_prompt ?? undefined,
+            modified: row?.last_message_at ?? undefined,
+          };
+        }),
       };
     }
 
