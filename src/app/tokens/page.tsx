@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import { formatTokens } from '@/lib/format';
 import { PageContext } from '@/components/PageContext';
@@ -21,6 +22,27 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+const DATE_PRESETS = [
+  { label: 'Today', value: 'today' },
+  { label: '24h', value: '24h' },
+  { label: '3d', value: '3d' },
+  { label: '7d', value: '7d' },
+  { label: '30d', value: '30d' },
+  { label: 'All', value: 'all' },
+] as const;
+
+function getDateRange(preset: string): { from?: string; to?: string } {
+  if (preset === 'all') return {};
+  const now = new Date();
+  const d = new Date();
+  if (preset === 'today') d.setHours(0, 0, 0, 0);
+  else if (preset === '24h') d.setTime(now.getTime() - 24 * 60 * 60 * 1000);
+  else if (preset === '3d') d.setTime(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  else if (preset === '7d') d.setTime(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  else if (preset === '30d') d.setTime(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  return { from: d.toISOString() };
+}
 
 const MODEL_COLORS: Record<string, string> = {
   'claude-opus-4-6': '#a78bfa',
@@ -58,7 +80,21 @@ function formatCost(usd: number): string {
 
 
 export default function TokensPage() {
-  const { data, error } = useSWR('/api/tokens', fetcher);
+  const [datePreset, _setDatePreset] = useState(() => {
+    if (typeof globalThis.localStorage !== 'undefined') {
+      return localStorage.getItem('tokens_range') ?? 'all';
+    }
+    return 'all';
+  });
+  const setDatePreset = (v: string) => { _setDatePreset(v); localStorage.setItem('tokens_range', v); };
+  const dateRange = useMemo(() => getDateRange(datePreset), [datePreset]);
+
+  const params = new URLSearchParams();
+  if (dateRange.from) params.set('from', dateRange.from);
+  if (dateRange.to) params.set('to', dateRange.to);
+  const qs = params.toString();
+
+  const { data, error } = useSWR(`/api/tokens${qs ? `?${qs}` : ''}`, fetcher);
 
   if (error) {
     return (
@@ -160,7 +196,24 @@ export default function TokensPage() {
           ...toolCalls.slice(0, 10).map((t: any) => `  ${t.tool_name}: ${t.count.toLocaleString()} calls`),
         ].join('\n')}
       />
-      <h2 className="text-lg font-bold">Token Usage</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold">Token Usage</h2>
+        <div className="flex gap-1">
+          {DATE_PRESETS.map(p => (
+            <button
+              key={p.value}
+              onClick={() => setDatePreset(p.value)}
+              className={`px-3 py-1 rounded text-sm border transition-colors ${
+                datePreset === p.value
+                  ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
+                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-5 gap-4">

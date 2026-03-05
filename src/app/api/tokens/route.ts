@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises';
 import { claudePaths } from '@/lib/claude-paths';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@/lib/types';
 import { getDb } from '@/lib/db/schema';
 
@@ -26,10 +26,26 @@ function calcCost(model: string, input: number, output: number, cacheRead: numbe
   );
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const raw = await readFile(claudePaths.statsCache, 'utf-8');
     const stats: StatsCache = JSON.parse(raw);
+
+    const url = request.nextUrl;
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+
+    // Build date filter clause
+    let dateFilter = '';
+    const dateParams: string[] = [];
+    if (from) {
+      dateFilter += ' AND m.created_at >= ?';
+      dateParams.push(from);
+    }
+    if (to) {
+      dateFilter += ' AND m.created_at < ?';
+      dateParams.push(to);
+    }
 
     // Get real token numbers from SQLite
     const db = getDb();
@@ -39,10 +55,10 @@ export async function GET() {
              SUM(output_tokens) as output_tokens,
              SUM(cache_read_tokens) as cache_read_tokens,
              SUM(cache_creation_tokens) as cache_creation_tokens
-      FROM messages
-      WHERE model IS NOT NULL AND model != '<synthetic>'
+      FROM messages m
+      WHERE model IS NOT NULL AND model != '<synthetic>'${dateFilter}
       GROUP BY model
-    `).all() as Array<{
+    `).all(...dateParams) as Array<{
       model: string;
       input_tokens: number;
       output_tokens: number;
@@ -72,33 +88,36 @@ export async function GET() {
 
     // Tool call breakdown from SQLite
     const toolCalls = db.prepare(`
-      SELECT tool_name, COUNT(*) as count
-      FROM content_blocks
-      WHERE block_type = 'tool_use' AND tool_name IS NOT NULL
-      GROUP BY tool_name
+      SELECT cb.tool_name, COUNT(*) as count
+      FROM content_blocks cb
+      JOIN messages m ON m.id = cb.message_id
+      WHERE cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL${dateFilter}
+      GROUP BY cb.tool_name
       ORDER BY count DESC
-    `).all() as Array<{ tool_name: string; count: number }>;
+    `).all(...dateParams) as Array<{ tool_name: string; count: number }>;
 
     // Tool calls by model
     const toolsByModel = db.prepare(`
       SELECT m.model, COUNT(cb.id) as count
       FROM content_blocks cb
       JOIN messages m ON m.id = cb.message_id
-      WHERE cb.block_type = 'tool_use'
+      WHERE cb.block_type = 'tool_use'${dateFilter}
       GROUP BY m.model
       ORDER BY count DESC
-    `).all() as Array<{ model: string; count: number }>;
+    `).all(...dateParams) as Array<{ model: string; count: number }>;
 
     // Daily token usage from stats cache (line chart data)
     const dailyModelTokens = stats.dailyModelTokens ?? [];
 
     // Content block type breakdown
     const blockTypes = db.prepare(`
-      SELECT block_type, COUNT(*) as count
-      FROM content_blocks
-      GROUP BY block_type
+      SELECT cb.block_type, COUNT(*) as count
+      FROM content_blocks cb
+      JOIN messages m ON m.id = cb.message_id
+      WHERE 1=1${dateFilter}
+      GROUP BY cb.block_type
       ORDER BY count DESC
-    `).all() as Array<{ block_type: string; count: number }>;
+    `).all(...dateParams) as Array<{ block_type: string; count: number }>;
 
     return NextResponse.json({
       modelBreakdown,
