@@ -38,6 +38,19 @@ const PLANS = [
     ],
     price: '$14/mo or $97/yr',
   },
+  {
+    value: 'team',
+    label: 'Team — $420/mo',
+    features: [
+      'Everything in Starter',
+      'Unlimited seats',
+      'Shared team dashboard',
+      'Org-wide analytics & usage',
+      'SSO & role management',
+      'Priority support & SLA',
+    ],
+    price: '$420/mo — unlimited seats',
+  },
 ];
 
 const SETTINGS_KEYS = {
