@@ -479,6 +479,7 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
   const [color, setColor] = useState(value);
   const [hexText, setHexText] = useState(value.replace('#', ''));
   const hexRef = useRef(value.replace('#', ''));
+  const { mutate: mutateSettings } = useSWR('/api/settings', fetcher);
 
   const hue = hexToHue(color);
 
@@ -489,6 +490,9 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
     hexRef.current = clean.replace('#', '');
     document.documentElement.style.setProperty('--color-accent', clean);
     document.documentElement.style.setProperty('--color-assistant', clean);
+    // Optimistic SWR update — prevents ThemeProvider from overwriting with stale value
+    // revalidate: false avoids refetch that would cause parent re-render / scroll jump
+    mutateSettings((prev: Record<string, string> | undefined) => ({ ...prev, [settingKey]: clean }), { revalidate: false });
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
