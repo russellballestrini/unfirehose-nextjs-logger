@@ -8,9 +8,9 @@ import { PageContext } from '@/components/PageContext';
 
 const VISIBILITY_OPTIONS = ['public', 'unlisted', 'private'] as const;
 const VISIBILITY_ICONS: Record<string, string> = {
-  public: '🌐',
-  unlisted: '🔗',
-  private: '🔒',
+  public: 'o',
+  unlisted: '~',
+  private: 'x',
 };
 const VISIBILITY_COLORS: Record<string, string> = {
   public: '#10b981',
@@ -26,8 +26,11 @@ export default function ScrobblePage() {
   useEffect(() => {
     fetch('/api/scrobble/preview')
       .then(r => r.json())
-      .then(setData)
-      .catch(() => {})
+      .then(d => {
+        if (d.error) throw new Error(d.error);
+        setData(d);
+      })
+      .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, []);
 
@@ -61,7 +64,7 @@ export default function ScrobblePage() {
 
   return (
     <div className="p-6 max-w-5xl">
-      <PageContext pageName="Scrobble Preview" pageDescription="Review what data will be shared when scrobbling is enabled" />
+      <PageContext pageType="scrobble" summary={`Scrobble Preview. ${data?.projects?.length ?? 0} projects.`} metrics={{ projects: data?.projects?.length ?? 0, public: publicCount, private: privateCount }} />
       <h1 className="text-xl font-bold mb-2">Scrobble Preview</h1>
       <p className="text-[var(--color-muted)] text-sm mb-6">
         Review and configure what data will be shared. Set each project&apos;s visibility before enabling scrobble.

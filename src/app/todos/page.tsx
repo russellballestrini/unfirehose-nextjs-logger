@@ -54,14 +54,19 @@ export default function TodosPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     const statusParam = filter === 'active' ? '?status=pending,in_progress' : '';
     fetch(`/api/todos${statusParam}`)
       .then(r => r.json())
       .then(data => {
+        if (data.error) throw new Error(data.error);
         setByProject(data.byProject ?? []);
         setCounts(data.counts ?? { pending: 0, inProgress: 0, completed: 0, total: 0 });
       })
-      .catch(() => {})
+      .catch(() => {
+        setByProject([]);
+        setCounts({ pending: 0, inProgress: 0, completed: 0, total: 0 });
+      })
       .finally(() => setLoading(false));
   }, [filter]);
 
@@ -78,8 +83,9 @@ export default function TodosPage() {
   return (
     <div className="p-6">
       <PageContext
-        pageName="Todos"
-        pageDescription="Cross-session task tracking across all projects and agents"
+        pageType="todos"
+        summary={`Todos. ${counts.total} total, ${counts.pending} pending, ${counts.inProgress} in progress.`}
+        metrics={{ pending: counts.pending, in_progress: counts.inProgress, completed: counts.completed, total: counts.total }}
       />
       <div className="flex items-center gap-4 mb-6">
         <h1 className="text-xl font-bold">Todos</h1>

@@ -54,7 +54,7 @@ export default function ActivePage() {
 
   return (
     <div className="p-6 max-w-6xl">
-      <PageContext pageName="Active Sessions" pageDescription="Currently active agent sessions across all projects" />
+      <PageContext pageType="active-sessions" summary={`Active Sessions. ${sessions.length} active.`} metrics={{ active: sessions.length }} />
       <div className="flex items-center gap-3 mb-6">
         <h1 className="text-xl font-bold">Active Sessions</h1>
         <span className="text-[var(--color-muted)] text-base">

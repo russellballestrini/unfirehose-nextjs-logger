@@ -113,6 +113,7 @@ export interface SessionIndexEntry {
   fullPath?: string;
   fileMtime?: number;
   firstPrompt?: string;
+  displayName?: string;
   summary?: string;
   messageCount?: number;
   created?: string;

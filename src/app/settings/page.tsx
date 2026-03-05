@@ -11,59 +11,48 @@ const PLANS = [
     value: '',
     label: 'Select a plan...',
     features: [],
+    price: '',
   },
   {
     value: 'free',
     label: 'Free',
-    features: ['Local dashboard', 'Session viewer', '7-day scrobble history'],
+    features: [
+      'Local dashboard + session viewer',
+      'All harness ingestion (Claude, uncloseai, Fetch)',
+      'PII anonymization',
+      'Cross-session todo tracking',
+      '7-day scrobble history',
+      'AGPL-3.0 — self-host forever',
+    ],
+    price: '$0',
   },
   {
     value: 'starter',
     label: 'Starter — $14/mo',
     features: [
-      'Public coding profile',
+      'Everything in Free',
+      'Public coding profile on unfirehose.org',
       'Scrobble feed (unlimited history)',
       'Follow other developers',
       'Status posts & microblog',
-      '1 custom hose (feed)',
-    ],
-  },
-  {
-    value: 'pro',
-    label: 'Pro — $69/mo',
-    features: [
-      'Everything in Starter',
-      'Unlimited hoses (publish & subscribe)',
-      'Thinking stream (share reasoning)',
-      'Blog / long-form posts',
-      'Project showcases with repo links',
+      'API access + 1 custom hose',
       'Social analytics',
-      'API access',
     ],
-  },
-  {
-    value: 'max',
-    label: 'Max — $149/mo',
-    features: [
-      'Everything in Pro',
-      'Team feeds & org profiles',
-      'Priority firehose ingestion',
-      'Custom feed algorithms',
-      'Webhook integrations',
-      'Advanced search across network',
-    ],
+    price: '$14/mo or $97/yr',
   },
   {
     value: 'ultra',
     label: 'Ultra — $420/mo',
     features: [
-      'Everything in Max',
-      'White-label embeds',
-      'Unlimited team members',
-      'Dedicated firehose capacity',
-      'Custom hose marketplace',
+      'Everything in Starter',
+      'Public firehose data sync (read + write)',
+      'Dedicated bucket provisioning',
+      'KYC verified account',
+      'Unlimited hoses + team members',
+      'Webhook integrations',
       'SLA & priority support',
     ],
+    price: '$420/mo — requires KYC',
   },
 ];
 
@@ -215,9 +204,14 @@ export default function SettingsPage() {
                 <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
                   {plan.label}
                 </span>
-                {currentPlan === plan.value && (
-                  <span className="text-base text-[var(--color-accent)] font-bold">current</span>
-                )}
+                <div className="flex items-center gap-2">
+                  {plan.price && plan.price !== '$0' && (
+                    <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
+                  )}
+                  {currentPlan === plan.value && (
+                    <span className="text-base text-[var(--color-accent)] font-bold">current</span>
+                  )}
+                </div>
               </div>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                 {plan.features.map((f, i) => (
