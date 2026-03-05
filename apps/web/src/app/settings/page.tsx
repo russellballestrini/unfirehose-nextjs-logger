@@ -158,33 +158,31 @@ export default function SettingsPage() {
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
         <h3 className="text-base font-bold text-[var(--color-muted)]">Profile</h3>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Display Name</label>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Display Name</label>
+          <input
+            type="text"
+            defaultValue={displayName}
+            placeholder="fox"
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+            onBlur={(e) => {
+              if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
+            }}
+          />
+        </div>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Handle</label>
+          <div className="flex items-center">
+            <span className="text-[var(--color-muted)] text-base mr-1">@</span>
             <input
               type="text"
-              defaultValue={displayName}
+              defaultValue={handle}
               placeholder="fox"
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
               onBlur={(e) => {
-                if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
+                if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
               }}
             />
-          </div>
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Handle</label>
-            <div className="flex items-center">
-              <span className="text-[var(--color-muted)] text-base mr-1">@</span>
-              <input
-                type="text"
-                defaultValue={handle}
-                placeholder="fox"
-                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-                onBlur={(e) => {
-                  if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
-                }}
-              />
-            </div>
           </div>
         </div>
 
