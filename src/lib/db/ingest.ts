@@ -391,6 +391,146 @@ function extractTodosFromEntry(
   }
 }
 
+/**
+ * Backfill todos from already-ingested content_blocks.
+ * Runs once when todos table is empty (i.e., todo extraction was added after initial ingestion).
+ */
+function backfillTodosFromContentBlocks(db: ReturnType<typeof getDb>) {
+  console.log('[backfill] Backfilling todos from content_blocks...');
+
+  // Process TaskCreate tool calls
+  const taskCreates = db.prepare(`
+    SELECT cb.tool_input, m.session_id, s.project_id, s.session_uuid
+    FROM content_blocks cb
+    JOIN messages m ON cb.message_id = m.id
+    JOIN sessions s ON m.session_id = s.id
+    WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskCreate'
+    ORDER BY m.timestamp ASC
+  `).all() as any[];
+
+  // Group by session to assign sequential external_ids
+  const sessionTaskCounters = new Map<number, number>();
+
+  const backfillTx = db.transaction(() => {
+    for (const row of taskCreates) {
+      try {
+        const input = typeof row.tool_input === 'string' ? JSON.parse(row.tool_input) : row.tool_input;
+        if (!input) continue;
+
+        const counter = (sessionTaskCounters.get(row.session_id) ?? 0) + 1;
+        sessionTaskCounters.set(row.session_id, counter);
+
+        upsertTodo(db, row.project_id, row.session_id, {
+          externalId: String(counter),
+          content: input.subject ?? input.description ?? '',
+          status: 'pending',
+          activeForm: input.activeForm,
+          source: 'claude',
+          sourceSessionUuid: row.session_uuid,
+        });
+      } catch { /* skip malformed */ }
+    }
+
+    // Process TaskUpdate tool calls (must run after TaskCreate)
+    const taskUpdates = db.prepare(`
+      SELECT cb.tool_input, m.session_id, s.project_id
+      FROM content_blocks cb
+      JOIN messages m ON cb.message_id = m.id
+      JOIN sessions s ON m.session_id = s.id
+      WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskUpdate'
+      ORDER BY m.timestamp ASC
+    `).all() as any[];
+
+    for (const row of taskUpdates) {
+      try {
+        const input = typeof row.tool_input === 'string' ? JSON.parse(row.tool_input) : row.tool_input;
+        if (!input?.taskId || !input?.status) continue;
+
+        const taskId = String(input.taskId);
+        const newStatus = input.status === 'deleted' ? 'completed' : input.status;
+
+        const existing = db.prepare(
+          'SELECT id, status FROM todos WHERE project_id = ? AND external_id = ? AND source = ?'
+        ).get(row.project_id, taskId, 'claude') as { id: number; status: string } | undefined;
+
+        if (existing && existing.status !== newStatus) {
+          const now = new Date().toISOString();
+          db.prepare(
+            `UPDATE todos SET status = ?, updated_at = ?, completed_at = CASE WHEN ? IN ('completed', 'deleted') THEN ? ELSE completed_at END WHERE id = ?`
+          ).run(newStatus, now, input.status, now, existing.id);
+          db.prepare(
+            'INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, ?, ?, ?)'
+          ).run(existing.id, existing.status, newStatus, now);
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    // Process TodoWrite tool calls
+    const todoWrites = db.prepare(`
+      SELECT cb.tool_input, m.session_id, s.project_id, s.session_uuid
+      FROM content_blocks cb
+      JOIN messages m ON cb.message_id = m.id
+      JOIN sessions s ON m.session_id = s.id
+      WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TodoWrite'
+      ORDER BY m.timestamp ASC
+    `).all() as any[];
+
+    for (const row of todoWrites) {
+      try {
+        const input = typeof row.tool_input === 'string' ? JSON.parse(row.tool_input) : row.tool_input;
+        if (!input?.todos || !Array.isArray(input.todos)) continue;
+
+        for (const todo of input.todos) {
+          if (!todo.content) continue;
+          upsertTodo(db, row.project_id, row.session_id, {
+            content: todo.content,
+            status: todo.status ?? 'pending',
+            activeForm: todo.activeForm,
+            source: 'claude',
+            sourceSessionUuid: row.session_uuid,
+          });
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    // Process tool results containing task lists (TaskList results)
+    const taskListResults = db.prepare(`
+      SELECT cb.content, m.session_id, s.project_id, s.session_uuid
+      FROM content_blocks cb
+      JOIN messages m ON cb.message_id = m.id
+      JOIN sessions s ON m.session_id = s.id
+      WHERE cb.block_type = 'tool_result' AND cb.content LIKE '%"subject"%'
+      ORDER BY m.timestamp ASC
+      LIMIT 10000
+    `).all() as any[];
+
+    for (const row of taskListResults) {
+      try {
+        const resultData = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
+        const tasks = resultData?.tasks ?? (Array.isArray(resultData) ? resultData : null);
+        if (!tasks || !Array.isArray(tasks)) continue;
+
+        for (const task of tasks) {
+          if (!task.subject && !task.id) continue;
+          upsertTodo(db, row.project_id, row.session_id, {
+            externalId: task.id ? String(task.id) : undefined,
+            content: task.subject ?? '',
+            status: task.status ?? 'pending',
+            blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : undefined,
+            source: 'claude',
+            sourceSessionUuid: row.session_uuid,
+          });
+        }
+      } catch { /* not JSON or malformed */ }
+    }
+  });
+
+  backfillTx();
+
+  const finalCount = (db.prepare('SELECT COUNT(*) as c FROM todos').get() as { c: number }).c;
+  console.log(`[backfill] Backfilled ${finalCount} todos from content_blocks`);
+}
+
 function checkThresholds(db: ReturnType<typeof getDb>): number {
   const thresholds = db
     .prepare('SELECT * FROM alert_thresholds WHERE enabled = 1')
@@ -916,6 +1056,12 @@ export async function ingestAll(): Promise<IngestResult> {
       }
     });
     backfill();
+  }
+
+  // Backfill todos from existing content_blocks if todos table is empty
+  const todoCount = (db.prepare('SELECT COUNT(*) as c FROM todos').get() as { c: number }).c;
+  if (todoCount === 0) {
+    backfillTodosFromContentBlocks(db);
   }
 
   // Check alert thresholds
