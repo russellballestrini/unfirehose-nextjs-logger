@@ -65,7 +65,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No projects with active todos found' }, { status: 404 });
   }
 
-  // Check which projects already have running deployments
+  // Clean up stale deployments: check which "running" entries still have live tmux sessions
+  let liveTmux: Set<string>;
+  try {
+    const { stdout } = await execAsync('tmux', ['list-sessions', '-F', '#{session_name}'], { timeout: 3000 });
+    liveTmux = new Set(stdout.trim().split('\n').filter(Boolean));
+  } catch {
+    liveTmux = new Set();
+  }
+
+  const staleDeployments = db.prepare(
+    "SELECT id, tmux_session FROM agent_deployments WHERE status = 'running'"
+  ).all() as any[];
+  for (const d of staleDeployments) {
+    if (!liveTmux.has(d.tmux_session)) {
+      db.prepare(
+        "UPDATE agent_deployments SET status = 'failed', stopped_at = datetime('now') WHERE id = ?"
+      ).run(d.id);
+    }
+  }
+
+  // Check which projects still have actually running deployments
   const runningProjects = new Set(
     (db.prepare(
       "SELECT project_id FROM agent_deployments WHERE status = 'running'"
