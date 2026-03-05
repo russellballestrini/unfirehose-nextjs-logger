@@ -1,13 +1,15 @@
 import path from 'path';
+import os from 'os';
 
 /**
  * Path helpers for Fetch JSONL session data.
  *
- * Fetch writes JSONL to {DATA_DIR}/jsonl/{project-slug}/{session-id}.jsonl.
- * Set FETCH_JSONL_DIR env var to point at the Fetch JSONL output directory.
+ * Fetch writes JSONL to ~/.fetch/sessions/{project-slug}/{session-id}.jsonl.
+ * Override with FETCH_JSONL_DIR env var if Fetch writes elsewhere.
  */
 
-const FETCH_JSONL_DIR = process.env.FETCH_JSONL_DIR || '';
+const FETCH_JSONL_DIR = process.env.FETCH_JSONL_DIR
+  || path.join(os.homedir(), '.fetch', 'sessions');
 
 export const fetchPaths = {
   root: FETCH_JSONL_DIR,
