@@ -130,7 +130,7 @@ export default function SettingsPage() {
   const selectedPlanData = PLANS.find((p) => p.value === currentPlan);
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-4xl">
       <PageContext
         pageType="settings"
         summary={`Settings. Plan: ${currentPlan || 'not set'}. Handle: ${handle || 'not set'}. Scrobble: ${scrobbleEnabled ? 'on' : 'off'}.`}
@@ -204,55 +204,58 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Accent Color + Theme */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
-          <button
-            onClick={toggleTheme}
-            className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
-          >
-            {lightMode ? 'Light Mode' : 'Dark Mode'}
-          </button>
-        </div>
-        <HexColorPicker value={accentColor} onChange={(v) => saveSetting(SETTINGS_KEYS.accentColor, v)} />
-      </div>
-
-      {/* Plan */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
-
-        <div className="grid grid-cols-1 gap-2">
-          {PLANS.filter((p) => p.value).map((plan) => (
-            <div
-              key={plan.value}
-              onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
-              className={`rounded border p-3 cursor-pointer transition-colors ${
-                currentPlan === plan.value
-                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
-                  : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
-              }`}
+      {/* Accent Color + Plan — side by side on wide screens */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Accent Color + Theme */}
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
+            <button
+              onClick={toggleTheme}
+              className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
             >
-              <div className="flex items-center justify-between">
-                <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
-                  {plan.label}
-                </span>
-                <div className="flex items-center gap-2">
-                  {plan.price && plan.price !== '$0' && (
-                    <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
-                  )}
-                  {currentPlan === plan.value && (
-                    <span className="text-base text-[var(--color-accent)] font-bold">current</span>
-                  )}
+              {lightMode ? 'Light Mode' : 'Dark Mode'}
+            </button>
+          </div>
+          <HexColorPicker value={accentColor} onChange={(v) => saveSetting(SETTINGS_KEYS.accentColor, v)} />
+        </div>
+
+        {/* Plan */}
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
+
+          <div className="grid grid-cols-1 gap-2">
+            {PLANS.filter((p) => p.value).map((plan) => (
+              <div
+                key={plan.value}
+                onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
+                className={`rounded border p-3 cursor-pointer transition-colors ${
+                  currentPlan === plan.value
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                    : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
+                    {plan.label}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {plan.price && plan.price !== '$0' && (
+                      <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
+                    )}
+                    {currentPlan === plan.value && (
+                      <span className="text-base text-[var(--color-accent)] font-bold">current</span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {plan.features.map((f, i) => (
+                    <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
+                  ))}
                 </div>
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                {plan.features.map((f, i) => (
-                  <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
-                ))}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
