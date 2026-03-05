@@ -478,10 +478,14 @@ function hexToHue(hex: string): number {
 function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
   const [localColor, setLocalColor] = useState(value);
   const [hexInput, setHexInput] = useState(value);
+  const [hexFocused, setHexFocused] = useState(false);
   const hue = hexToHue(localColor);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { setLocalColor(value); setHexInput(value); }, [value]);
+  useEffect(() => {
+    setLocalColor(value);
+    if (!hexFocused) setHexInput(value);
+  }, [value, hexFocused]);
 
   function applyColor(hex: string) {
     setLocalColor(hex);
@@ -515,8 +519,9 @@ function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: st
               const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
               setHexInput('#' + v);
             }}
-            onBlur={() => commitHex(hexInput)}
-            onKeyDown={(e) => { if (e.key === 'Enter') commitHex(hexInput); }}
+            onFocus={() => setHexFocused(true)}
+            onBlur={() => { setHexFocused(false); commitHex(hexInput); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { commitHex(hexInput); (e.target as HTMLInputElement).blur(); } }}
             className="w-24 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1.5 text-base font-mono"
             maxLength={6}
             spellCheck={false}
