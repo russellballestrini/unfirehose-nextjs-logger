@@ -3,26 +3,31 @@
 **Repo:** unsandbox-com
 **Priority:** Low
 **Todo IDs:** 3037-3054
+**Status:** DONE
 
-## Languages Remaining (16)
-- Portuguese (pt) — 1231 strings
-- Italian (it) — 1014 strings
-- Dutch (nl) — 1013 strings
-- Polish (pl) — 1016 strings
-- Russian (ru) — 1231 strings
-- Ukrainian (uk) — 1293 strings
-- Swedish (sv) — 1261 strings
-- Turkish (tr) — 1291 strings
-- Japanese (ja) — 1014 strings
-- Korean (ko) — 1013 strings
-- Chinese Simplified (zh) — 1293 strings
-- Chinese Traditional (zh-TW) — 1293 strings
-- Arabic (ar) — 1012 strings
-- Hindi (hi) — 1014 strings
-- Indonesian (id) — 1016 strings
-- Vietnamese (vi) — 1293 strings
-- Spanish (es) — 212 remaining
-- French (fr) — 228 remaining
+## Languages Completed (18)
+- [x] Portuguese (pt) — 1806 strings translated
+- [x] Italian (it) — 1806 strings translated
+- [x] Dutch (nl) — 1806 strings translated
+- [x] Polish (pl) — 1806 strings translated
+- [x] Russian (ru) — 1806 strings translated
+- [x] Ukrainian (uk) — 1806 strings translated
+- [x] Swedish (sv) — 1806 strings translated
+- [x] Turkish (tr) — 1806 strings translated
+- [x] Japanese (ja) — 1806 strings translated
+- [x] Korean (ko) — 1806 strings translated
+- [x] Chinese Simplified (zh) — 1806 strings translated
+- [x] Chinese Traditional (zh-TW) — 1806 strings translated
+- [x] Arabic (ar) — 1806 strings translated
+- [x] Hindi (hi) — 1806 strings translated
+- [x] Indonesian (id) — 1806 strings translated
+- [x] Vietnamese (vi) — 1806 strings translated
+- [x] Spanish (es) — 1806 strings translated
+- [x] French (fr) — 1806 strings translated
 
-## Notes
-Spanish and French are nearly complete (212/228 remaining). Others are full translations. Can be batch-processed with ML translation + human review. Low priority until user demand from those locales.
+## Resolution
+All 18 languages verified fully translated (0 empty msgstr entries) as of 2026-03-05.
+Completed by unsandbox.com commit c882ba02 (2026-02-26): "translate all untranslated gettext strings across 19 languages".
+Spot-checked translation quality for es, fr, ja, ar, zh — all show proper localized translations.
+
+Note: Georgian (ka) still has 1001 untranslated strings but was not part of this ticket.
