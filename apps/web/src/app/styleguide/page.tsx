@@ -107,6 +107,14 @@ export default function StyleguidePage() {
   const [selectVal, setSelectVal] = useState('opus');
   const [checked, setChecked] = useState(true);
   const [timeRange, setTimeRange] = useTimeRange('styleguide_range', '7d');
+  const [lightMode, setLightMode] = useState(false);
+
+  function toggleTheme() {
+    const next = !lightMode;
+    setLightMode(next);
+    document.documentElement.classList.toggle('light', next);
+    document.documentElement.classList.toggle('dark', !next);
+  }
 
   const hBarMax = Math.max(...horizontalBarData.map((d) => d.input + d.output), 1);
 
@@ -118,10 +126,18 @@ export default function StyleguidePage() {
         metrics={{ components: 12, sections: 8 }}
       />
 
-      <h2 className="text-lg font-bold">
-        Styleguide{' '}
-        <span className="text-[var(--color-muted)] font-normal">component reference</span>
-      </h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold">
+          Styleguide{' '}
+          <span className="text-[var(--color-muted)] font-normal">component reference</span>
+        </h2>
+        <button
+          onClick={toggleTheme}
+          className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
+        >
+          {lightMode ? 'Light Mode' : 'Dark Mode'}
+        </button>
+      </div>
 
       {/* Layout rule */}
       <Section title="Layout — Grid Only">

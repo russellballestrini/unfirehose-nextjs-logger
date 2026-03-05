@@ -26,8 +26,8 @@ export function Sidebar() {
     <aside className="w-56 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col sticky top-0 h-screen overflow-y-auto">
       <div className="p-4 border-b border-[var(--color-border)]">
         <Link href="/" className="block">
-          <h1 className="text-base font-bold text-[var(--color-accent)]">
-            unfirehose
+          <h1 className="text-base font-bold">
+            <span className="text-[var(--color-foreground)]">un</span><span className="text-[var(--color-accent)]">firehose</span>
           </h1>
           <p className="text-base text-[var(--color-muted)] mt-1">nextjs logger</p>
         </Link>

@@ -17,6 +17,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
+:root.light {
+  --color-background: #fafafa;
+  --color-foreground: #09090b;
+  --color-surface: #f4f4f5;
+  --color-surface-hover: #e4e4e7;
+  --color-border: #d4d4d8;
+  --color-muted: #71717a;
+  --color-thinking: #7c3aed;
+  --color-user: #2563eb;
+  --color-assistant: #059669;
+  --color-tool: #d97706;
+  --color-error: #dc2626;
+}
+
 body {
   background: var(--color-background);
   color: var(--color-foreground);
@@ -125,4 +139,38 @@ select option {
 /* Checkbox accent */
 input[type="checkbox"] {
   cursor: pointer;
+}
+
+/* Light mode overrides */
+:root.light select option {
+  background: #f4f4f5;
+  color: #09090b;
+}
+:root.light .recharts-default-tooltip {
+  background: #f4f4f5 !important;
+  border-color: #d4d4d8 !important;
+}
+:root.light .recharts-tooltip-label {
+  color: #09090b !important;
+}
+:root.light .recharts-tooltip-item {
+  color: #27272a !important;
+}
+:root.light .recharts-tooltip-item-name {
+  color: #71717a !important;
+}
+:root.light .recharts-tooltip-item-value {
+  color: #09090b !important;
+}
+:root.light .recharts-legend-item-text {
+  color: #3f3f46 !important;
+}
+:root.light ::-webkit-scrollbar-track {
+  background: #fafafa;
+}
+:root.light ::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+}
+:root.light ::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
 }
