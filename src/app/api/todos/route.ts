@@ -106,7 +106,10 @@ export async function GET(request: NextRequest) {
       params.push(source);
     }
 
-    query += ' ORDER BY t.updated_at DESC LIMIT 500';
+    query += ` ORDER BY
+      CASE t.status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+      t.updated_at DESC
+      LIMIT 2000`;
 
     const todos = db.prepare(query).all(...params) as any[];
 
