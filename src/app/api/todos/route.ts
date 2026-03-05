@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
     const source = url.searchParams.get('source');
 
     let query = `
-      SELECT t.*, p.name as project_name, p.display_name as project_display,
+      SELECT t.*, p.name as project_name, p.display_name as project_display, p.path as project_path,
              s.session_uuid, s.display_name as session_display
       FROM todos t
       JOIN projects p ON t.project_id = p.id
@@ -114,12 +114,13 @@ export async function GET(request: NextRequest) {
     const todos = db.prepare(query).all(...params) as any[];
 
     // Group by project for overview
-    const byProject: Record<string, { project: string; display: string; todos: any[] }> = {};
+    const byProject: Record<string, { project: string; display: string; projectPath: string | null; todos: any[] }> = {};
     for (const todo of todos) {
       if (!byProject[todo.project_name]) {
         byProject[todo.project_name] = {
           project: todo.project_name,
           display: todo.project_display,
+          projectPath: todo.project_path ?? null,
           todos: [],
         };
       }

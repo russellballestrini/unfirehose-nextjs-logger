@@ -27,6 +27,7 @@ interface Todo {
 interface ProjectGroup {
   project: string;
   display: string;
+  projectPath: string | null;
   todos: Todo[];
 }
 
@@ -61,6 +62,8 @@ export default function TodosPage() {
   const [view, setView] = useState<'kanban' | 'project'>('kanban');
   const [newTodo, setNewTodo] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [bootResult, setBootResult] = useState<{ key: string; msg: string } | null>(null);
+  const [booting, setBooting] = useState<string | null>(null);
 
   const fetchTodos = useCallback(() => {
     setLoading(true);
@@ -104,6 +107,31 @@ export default function TodosPage() {
     } catch { /* silent */ }
     setSubmitting(false);
   }, [newTodo, submitting, fetchTodos]);
+
+  const bootAgent = useCallback(async (projectPath: string, key: string, prompt?: string) => {
+    setBooting(key);
+    setBootResult(null);
+    try {
+      const res = await fetch('/api/boot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath,
+          yolo: true,
+          prompt,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setBootResult({ key, msg: `tmux: ${result.tmuxSession}` });
+      } else {
+        setBootResult({ key, msg: `Error: ${result.error}` });
+      }
+    } catch (err) {
+      setBootResult({ key, msg: `Error: ${String(err)}` });
+    }
+    setBooting(null);
+  }, []);
 
   // Collect all todos into columns
   const columns: Record<string, Todo[]> = { pending: [], in_progress: [], completed: [] };
@@ -238,9 +266,14 @@ export default function TodosPage() {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {(columns[col.key] ?? []).map(todo => (
-                    <TodoCard key={todo.id} todo={todo} onUpdate={updateTodo} />
-                  ))}
+                  {(columns[col.key] ?? []).map(todo => {
+                    const group = byProject.find(g => g.project === todo.projectName);
+                    return (
+                      <TodoCard key={todo.id} todo={todo} onUpdate={updateTodo}
+                        projectPath={group?.projectPath ?? null}
+                        onBoot={bootAgent} booting={booting} bootResult={bootResult} />
+                    );
+                  })}
                   {(columns[col.key]?.length ?? 0) === 0 && (
                     <p className="text-sm text-[var(--color-muted)] text-center py-4">
                       None
@@ -272,9 +305,34 @@ export default function TodosPage() {
                       {group.todos.length} todos
                     </span>
                     {groupEst > 0 && (
-                      <span className="text-sm text-[var(--color-muted)] ml-auto">
+                      <span className="text-sm text-[var(--color-muted)]">
                         ~{groupEst < 60 ? `${groupEst}m` : `${Math.floor(groupEst / 60)}h ${groupEst % 60}m`}
                       </span>
+                    )}
+                    {group.projectPath && (
+                      <div className="ml-auto flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const activeTodos = group.todos
+                              .filter(t => t.status !== 'completed')
+                              .slice(0, 10)
+                              .map(t => `- ${t.content}`)
+                              .join('\n');
+                            const prompt = `Work on the pending todos for this project:\n${activeTodos}`;
+                            bootAgent(group.projectPath!, `project-${group.project}`, prompt);
+                          }}
+                          disabled={booting === `project-${group.project}`}
+                          className="px-2 py-1 text-xs font-bold bg-[var(--color-error)] text-white rounded hover:opacity-90 disabled:opacity-50"
+                          title="Spawn claude --dangerously-skip-permissions in tmux"
+                        >
+                          {booting === `project-${group.project}` ? 'Deploying...' : 'Deploy Agent'}
+                        </button>
+                        {bootResult?.key === `project-${group.project}` && (
+                          <span className={`text-xs font-mono ${bootResult.msg.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
+                            {bootResult.msg}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div className="mt-3 space-y-1">
@@ -318,9 +376,17 @@ export default function TodosPage() {
   );
 }
 
-function TodoCard({ todo, onUpdate }: { todo: Todo; onUpdate: (id: number, updates: { estimatedMinutes?: number; status?: string }) => void }) {
+function TodoCard({ todo, onUpdate, projectPath, onBoot, booting, bootResult }: {
+  todo: Todo;
+  onUpdate: (id: number, updates: { estimatedMinutes?: number; status?: string }) => void;
+  projectPath: string | null;
+  onBoot: (path: string, key: string, prompt?: string) => void;
+  booting: string | null;
+  bootResult: { key: string; msg: string } | null;
+}) {
   const [showEstimate, setShowEstimate] = useState(false);
   const needsTicket = (todo.estimatedMinutes ?? 0) > TICKET_THRESHOLD;
+  const bootKey = `todo-${todo.id}`;
 
   return (
     <div className={`border rounded p-3 text-sm ${
@@ -395,10 +461,25 @@ function TodoCard({ todo, onUpdate }: { todo: Todo; onUpdate: (id: number, updat
             {todo.sessionDisplay}
           </Link>
         )}
+        {projectPath && todo.status !== 'completed' && (
+          <button
+            onClick={() => onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`)}
+            disabled={booting === bootKey}
+            className="px-1.5 py-0.5 text-xs font-bold bg-[var(--color-error)] text-white rounded hover:opacity-90 disabled:opacity-50"
+            title="Deploy agent to work on this todo"
+          >
+            {booting === bootKey ? '...' : 'Deploy'}
+          </button>
+        )}
         <span className="ml-auto shrink-0" title={formatTimestamp(todo.createdAt)}>
           {formatRelativeTime(todo.updatedAt)}
         </span>
       </div>
+      {bootResult?.key === bootKey && (
+        <div className={`mt-1 text-xs font-mono ${bootResult.msg.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
+          {bootResult.msg}
+        </div>
+      )}
 
       {/* Timestamps detail */}
       {todo.completedAt && (

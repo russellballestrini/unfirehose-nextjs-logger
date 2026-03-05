@@ -7,7 +7,7 @@ const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { projectPath, projectName, sessionId, yolo } = body;
+  const { projectPath, projectName, sessionId, yolo, prompt } = body;
 
   // Validate projectPath exists
   if (!projectPath || typeof projectPath !== 'string') {
@@ -32,6 +32,12 @@ export async function POST(request: NextRequest) {
   }
   if (yolo) {
     parts.push('--dangerously-skip-permissions');
+  }
+  // Prompt must be last — it's a positional arg
+  if (prompt && typeof prompt === 'string') {
+    // Shell-escape the prompt for tmux
+    const safePrompt = prompt.replace(/'/g, "'\\''");
+    parts.push(`'${safePrompt}'`);
   }
   const claudeCmd = parts.join(' ');
 
