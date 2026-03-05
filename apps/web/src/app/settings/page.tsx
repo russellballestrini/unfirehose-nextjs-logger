@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@sexy-logger/ui/PageContext';
 
@@ -443,23 +443,36 @@ function hexToHue(hex: string): number {
 }
 
 function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+  const [localColor, setLocalColor] = useState(value);
   const [hexInput, setHexInput] = useState(value);
-  const hue = hexToHue(value);
+  const hue = hexToHue(localColor);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { setHexInput(value); }, [value]);
+  useEffect(() => { setLocalColor(value); setHexInput(value); }, [value]);
+
+  function applyColor(hex: string) {
+    setLocalColor(hex);
+    setHexInput(hex);
+    // Instant visual feedback via CSS variable
+    document.documentElement.style.setProperty('--color-accent', hex);
+    document.documentElement.style.setProperty('--color-assistant', hex);
+    // Debounce the API save
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => onChange(hex), 400);
+  }
 
   function commitHex(hex: string) {
     const clean = hex.replace(/[^0-9a-fA-F]/g, '');
     if (clean.length === 6 || clean.length === 3) {
       const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
-      onChange('#' + full.toLowerCase());
+      applyColor('#' + full.toLowerCase());
     }
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: value }} />
+        <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: localColor }} />
         <div className="flex items-center gap-1">
           <span className="text-base text-[var(--color-muted)]">#</span>
           <input
@@ -482,7 +495,7 @@ function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: st
         min={0}
         max={360}
         value={hue}
-        onChange={(e) => onChange(hslToHex(Number(e.target.value), 0.7, 0.55))}
+        onChange={(e) => applyColor(hslToHex(Number(e.target.value), 0.7, 0.55))}
         className="w-full h-3 rounded-full appearance-none cursor-pointer"
         style={{
           background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
