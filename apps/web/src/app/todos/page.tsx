@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { formatRelativeTime, formatTimestamp } from '@unfirehose/core/format';
 import { PageContext } from '@unfirehose/ui/PageContext';
@@ -38,7 +38,7 @@ interface Counts {
   total: number;
 }
 
-const TICKET_THRESHOLD = 15; // minutes — tasks bigger than this need a ticket
+const TICKET_THRESHOLD = 15;
 
 const STATUS_COLUMNS = [
   { key: 'pending', label: 'Pending', color: 'var(--color-muted)' },
@@ -68,6 +68,8 @@ export default function TodosPage() {
   const [megaLoading, setMegaLoading] = useState(false);
   const [megaPanelOpen, setMegaPanelOpen] = useState(false);
   const [autoCull, setAutoCull] = useState(false);
+  const [draggedTodo, setDraggedTodo] = useState<Todo | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
   const fetchTodos = useCallback(() => {
     setLoading(true);
@@ -122,7 +124,6 @@ export default function TodosPage() {
       const todoResult = await res.json();
 
       if (startNow) {
-        // Find a project path to boot into — use first project with a path
         const projectGroup = byProject.find(g => g.projectPath);
         if (projectGroup?.projectPath) {
           const bootRes = await fetch('/api/boot', {
@@ -156,11 +157,7 @@ export default function TodosPage() {
       const res = await fetch('/api/boot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectPath,
-          yolo: true,
-          prompt,
-        }),
+        body: JSON.stringify({ projectPath, yolo: true, prompt }),
       });
       const result = await res.json();
       if (result.success) {
@@ -208,32 +205,23 @@ export default function TodosPage() {
       const res = await fetch('/api/boot/mega', { method: 'DELETE' });
       const data = await res.json();
       setMegaStatus((prev: any) => ({ ...prev, cullResult: data }));
-      // Refresh status after cull
-      setTimeout(() => {
-        megaRefresh();
-        fetchTodos();
-      }, 500);
+      setTimeout(() => { megaRefresh(); fetchTodos(); }, 500);
     } catch (err) {
       setMegaStatus({ error: String(err) });
     }
     setMegaLoading(false);
   }, [megaRefresh, fetchTodos]);
 
-  // Auto-cull: poll every 60s, refresh status + cull finished agents + refresh todos
   useEffect(() => {
     if (!autoCull) return;
     const interval = setInterval(async () => {
       try {
-        // Cull finished
         await fetch('/api/boot/mega', { method: 'DELETE' });
-        // Refresh status
         const res = await fetch('/api/boot/mega');
         const data = await res.json();
         setMegaStatus(data);
         setMegaPanelOpen(true);
-        // Refresh todos to pick up completed ones
         fetchTodos();
-        // Auto-disable if no agents left
         if (data.active === 0) setAutoCull(false);
       } catch { /* silent */ }
     }, 60000);
@@ -250,11 +238,42 @@ export default function TodosPage() {
     }
   }
 
+  // Drag and drop handlers
+  const handleDragStart = useCallback((todo: Todo) => {
+    setDraggedTodo(todo);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedTodo(null);
+    setDragOverColumn(null);
+  }, []);
+
+  const handleDrop = useCallback(async (targetStatus: string) => {
+    if (!draggedTodo || draggedTodo.status === targetStatus) {
+      setDraggedTodo(null);
+      setDragOverColumn(null);
+      return;
+    }
+
+    const todo = draggedTodo;
+    setDraggedTodo(null);
+    setDragOverColumn(null);
+
+    // Update status
+    await updateTodo(todo.id, { status: targetStatus });
+
+    // If dropping into in_progress, boot an agent
+    if (targetStatus === 'in_progress' && todo.status === 'pending') {
+      const group = byProject.find(g =>
+        g.todos.some(t => t.id === todo.id) && g.projectPath
+      );
+      if (group?.projectPath) {
+        bootAgent(group.projectPath, `todo-${todo.id}`, `Work on this task: ${todo.content}`);
+      }
+    }
+  }, [draggedTodo, updateTodo, byProject, bootAgent]);
+
   // Stats
-  const needsTicket = [...(columns.pending ?? []), ...(columns.in_progress ?? [])]
-    .filter(t => (t.estimatedMinutes ?? 0) > TICKET_THRESHOLD);
-  const quickTasks = [...(columns.pending ?? []), ...(columns.in_progress ?? [])]
-    .filter(t => t.estimatedMinutes !== null && t.estimatedMinutes <= TICKET_THRESHOLD);
   const unestimated = [...(columns.pending ?? []), ...(columns.in_progress ?? [])]
     .filter(t => t.estimatedMinutes === null);
   const totalEstMinutes = [...(columns.pending ?? []), ...(columns.in_progress ?? [])]
@@ -344,7 +363,7 @@ export default function TodosPage() {
 
       {/* Mega Deploy Status Panel */}
       {megaPanelOpen && megaStatus && (
-        <div className="mb-4 border border-[var(--color-border)] rounded p-4 bg-[var(--color-surface)]">
+        <div className="mb-4 border border-[var(--color-border)] rounded-lg p-4 bg-[var(--color-surface)]">
           <div className="flex items-center gap-3 mb-3">
             <h2 className="font-bold text-sm">Agent Fleet</h2>
             {megaStatus.active != null && (
@@ -376,13 +395,12 @@ export default function TodosPage() {
             )}
             <button
               onClick={() => setMegaPanelOpen(false)}
-              className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm"
+              className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm cursor-pointer"
             >
               Close
             </button>
           </div>
 
-          {/* Deployment results (after POST) */}
           {megaStatus.results && (
             <div className="space-y-1 text-sm">
               {megaStatus.results.map((r: any, i: number) => (
@@ -393,15 +411,13 @@ export default function TodosPage() {
                   }`} />
                   <span className="font-medium">{r.project}</span>
                   <span className="text-[var(--color-muted)]">
-                    {r.status === 'launched' ? `${r.tmuxSession} (${r.todoCount} todos)` :
-                     r.status === 'skipped' ? r.reason : r.reason}
+                    {r.status === 'launched' ? `${r.tmuxSession} (${r.todoCount} todos)` : r.reason}
                   </span>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Live deployments (after GET) */}
           {megaStatus.deployments && (
             <div className="space-y-1 text-sm">
               {megaStatus.deployments.map((d: any) => (
@@ -411,9 +427,7 @@ export default function TodosPage() {
                   }`} />
                   <span className="font-medium">{d.project}</span>
                   <span className="font-mono text-xs text-[var(--color-muted)]">{d.tmuxSession}</span>
-                  <span className="text-xs">
-                    {d.todosCompleted}/{d.todoCount} done
-                  </span>
+                  <span className="text-xs">{d.todosCompleted}/{d.todoCount} done</span>
                   {d.allDone && <span className="text-xs text-blue-400">ready to cull</span>}
                   {!d.alive && <span className="text-xs text-[var(--color-error)]">dead</span>}
                   <span className="text-xs text-[var(--color-muted)] ml-auto">
@@ -441,20 +455,20 @@ export default function TodosPage() {
           onChange={e => setNewTodo(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addTodo(false); } }}
           placeholder="Add a task..."
-          className="flex-1 px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
+          className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
           disabled={submitting}
         />
         <button
           onClick={() => addTodo(false)}
           disabled={submitting || !newTodo.trim()}
-          className="px-3 py-1.5 text-sm rounded bg-[var(--color-surface-hover)] text-[var(--color-foreground)] hover:bg-[var(--color-border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-1.5 text-sm rounded-lg bg-[var(--color-surface-hover)] text-[var(--color-foreground)] hover:bg-[var(--color-border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           Queue
         </button>
         <button
           onClick={() => addTodo(true)}
           disabled={submitting || !newTodo.trim()}
-          className="px-3 py-1.5 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+          className="px-3 py-1.5 text-sm font-bold rounded-lg bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           title="Creates todo and boots Claude in a tmux session"
         >
           {submitting ? '...' : 'Start Now'}
@@ -467,14 +481,13 @@ export default function TodosPage() {
           {totalEstMinutes > 0 && (
             <span>~{totalEstMinutes < 60 ? `${totalEstMinutes}m` : `${Math.floor(totalEstMinutes / 60)}h ${totalEstMinutes % 60}m`} remaining</span>
           )}
-          {quickTasks.length > 0 && (
-            <span className="text-green-400">{quickTasks.length} quick (&lt;{TICKET_THRESHOLD}m)</span>
-          )}
-          {needsTicket.length > 0 && (
-            <span className="text-yellow-400">{needsTicket.length} need ticket (&gt;{TICKET_THRESHOLD}m)</span>
-          )}
           {unestimated.length > 0 && (
             <span>{unestimated.length} unestimated</span>
+          )}
+          {draggedTodo && (
+            <span className="text-[var(--color-accent)] font-bold animate-pulse">
+              Drop into a column to move &mdash; In Progress boots an agent
+            </span>
           )}
         </div>
       )}
@@ -482,7 +495,7 @@ export default function TodosPage() {
       {loading ? (
         <p className="text-[var(--color-muted)]">Loading...</p>
       ) : counts.total === 0 ? (
-        <div className="border border-[var(--color-border)] rounded p-8 text-center">
+        <div className="border border-[var(--color-border)] rounded-lg p-8 text-center">
           <p className="text-[var(--color-muted)] text-lg mb-2">No todos found</p>
           <p className="text-[var(--color-muted)] text-base">
             Todos are extracted from Claude Code sessions (TodoWrite, TaskCreate/TaskUpdate) during ingestion.
@@ -492,35 +505,71 @@ export default function TodosPage() {
         <>
           {view === 'kanban' ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {STATUS_COLUMNS.map(col => (
-              <div key={col.key}>
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--color-border)]">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: col.color }}
-                  />
-                  <h2 className="font-medium">{col.label}</h2>
-                  <span className="text-[var(--color-muted)] text-sm ml-auto">
-                    {columns[col.key]?.length ?? 0}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {(columns[col.key] ?? []).map(todo => {
-                    const group = byProject.find(g => g.project === todo.projectName);
-                    return (
-                      <TodoCard key={todo.id} todo={todo} onUpdate={updateTodo} onDelete={deleteTodo}
-                        projectPath={group?.projectPath ?? null}
-                        onBoot={bootAgent} booting={booting} bootResult={bootResult} />
-                    );
-                  })}
-                  {(columns[col.key]?.length ?? 0) === 0 && (
-                    <p className="text-sm text-[var(--color-muted)] text-center py-4">
-                      None
-                    </p>
+            {STATUS_COLUMNS.map(col => {
+              const isOver = dragOverColumn === col.key;
+              const canDrop = draggedTodo && draggedTodo.status !== col.key;
+              return (
+                <div
+                  key={col.key}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverColumn(col.key); }}
+                  onDragLeave={() => setDragOverColumn(null)}
+                  onDrop={(e) => { e.preventDefault(); handleDrop(col.key); }}
+                  className={`rounded-xl transition-all duration-200 ${
+                    isOver && canDrop
+                      ? 'bg-[var(--color-accent)]/5 ring-2 ring-[var(--color-accent)]/50 ring-inset'
+                      : ''
+                  }`}
+                >
+                  {/* Column header */}
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b-2" style={{ borderBottomColor: col.color }}>
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: col.color }}
+                    />
+                    <h2 className="font-bold text-sm">{col.label}</h2>
+                    <span className="text-xs text-[var(--color-muted)] ml-auto">
+                      {columns[col.key]?.length ?? 0}
+                    </span>
+                  </div>
+
+                  {/* Drop zone indicator */}
+                  {isOver && canDrop && (
+                    <div className="border-2 border-dashed border-[var(--color-accent)]/50 rounded-lg p-2 mb-2 text-center">
+                      <span className="text-xs text-[var(--color-accent)]">
+                        {col.key === 'in_progress' ? 'Drop to start agent' : col.key === 'completed' ? 'Drop to complete' : 'Drop to move'}
+                      </span>
+                    </div>
                   )}
+
+                  {/* Cards */}
+                  <div className="space-y-2 min-h-[100px]">
+                    {(columns[col.key] ?? []).map(todo => {
+                      const group = byProject.find(g => g.project === todo.projectName);
+                      return (
+                        <KanbanCard
+                          key={todo.id}
+                          todo={todo}
+                          onUpdate={updateTodo}
+                          onDelete={deleteTodo}
+                          projectPath={group?.projectPath ?? null}
+                          onBoot={bootAgent}
+                          booting={booting}
+                          bootResult={bootResult}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          isDragging={draggedTodo?.id === todo.id}
+                        />
+                      );
+                    })}
+                    {(columns[col.key]?.length ?? 0) === 0 && (
+                      <p className="text-sm text-[var(--color-muted)] text-center py-8 italic">
+                        {col.key === 'completed' ? 'Nothing completed yet' : 'Empty'}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           ) : (
           <div className="space-y-4">
@@ -529,10 +578,7 @@ export default function TodosPage() {
                 .filter(t => t.status !== 'completed')
                 .reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
               return (
-                <div
-                  key={group.project}
-                  className="border border-[var(--color-border)] rounded p-4"
-                >
+                <div key={group.project} className="border border-[var(--color-border)] rounded-lg p-4">
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/projects/${encodeURIComponent(group.project)}`}
@@ -540,9 +586,7 @@ export default function TodosPage() {
                     >
                       {group.display}
                     </Link>
-                    <span className="text-sm text-[var(--color-muted)]">
-                      {group.todos.length} todos
-                    </span>
+                    <span className="text-sm text-[var(--color-muted)]">{group.todos.length} todos</span>
                     {groupEst > 0 && (
                       <span className="text-sm text-[var(--color-muted)]">
                         ~{groupEst < 60 ? `${groupEst}m` : `${Math.floor(groupEst / 60)}h ${groupEst % 60}m`}
@@ -561,7 +605,7 @@ export default function TodosPage() {
                             bootAgent(group.projectPath!, `project-${group.project}`, prompt);
                           }}
                           disabled={booting === `project-${group.project}`}
-                          className="px-2 py-1 text-xs font-bold bg-[var(--color-error)] text-white rounded hover:opacity-90 disabled:opacity-50"
+                          className="px-2 py-1 text-xs font-bold bg-[var(--color-error)] text-white rounded-lg hover:opacity-90 disabled:opacity-50"
                           title="Spawn claude --dangerously-skip-permissions in tmux"
                         >
                           {booting === `project-${group.project}` ? 'Deploying...' : 'Deploy Agent'}
@@ -576,20 +620,14 @@ export default function TodosPage() {
                   </div>
                   <div className="mt-3 space-y-1">
                     {group.todos.slice(0, 15).map(todo => (
-                      <div
-                        key={todo.id}
-                        className="flex items-center gap-2 text-sm"
-                      >
+                      <div key={todo.id} className="flex items-center gap-2 text-sm">
                         <StatusDot status={todo.status} />
                         <span className="flex-1 truncate">{todo.content}</span>
                         {todo.estimatedMinutes !== null && (
                           <span className={`text-xs shrink-0 ${
-                            todo.estimatedMinutes > TICKET_THRESHOLD
-                              ? 'text-yellow-400'
-                              : 'text-[var(--color-muted)]'
+                            todo.estimatedMinutes > TICKET_THRESHOLD ? 'text-yellow-400' : 'text-[var(--color-muted)]'
                           }`}>
                             {todo.estimatedMinutes}m
-                            {todo.estimatedMinutes > TICKET_THRESHOLD && ' [ticket]'}
                           </span>
                         )}
                         <SourceBadge source={todo.source} />
@@ -599,9 +637,7 @@ export default function TodosPage() {
                       </div>
                     ))}
                     {group.todos.length > 15 && (
-                      <p className="text-sm text-[var(--color-muted)]">
-                        +{group.todos.length - 15} more
-                      </p>
+                      <p className="text-sm text-[var(--color-muted)]">+{group.todos.length - 15} more</p>
                     )}
                   </div>
                 </div>
@@ -615,7 +651,9 @@ export default function TodosPage() {
   );
 }
 
-function TodoCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bootResult }: {
+// --- Kanban Card ---
+
+function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bootResult, onDragStart, onDragEnd, isDragging }: {
   todo: Todo;
   onUpdate: (id: number, updates: { estimatedMinutes?: number; status?: string }) => void;
   onDelete: (id: number) => void;
@@ -623,138 +661,171 @@ function TodoCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, boot
   onBoot: (path: string, key: string, prompt?: string) => void;
   booting: string | null;
   bootResult: { key: string; msg: string } | null;
+  onDragStart: (todo: Todo) => void;
+  onDragEnd: () => void;
+  isDragging: boolean;
 }) {
   const [showEstimate, setShowEstimate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const needsTicket = (todo.estimatedMinutes ?? 0) > TICKET_THRESHOLD;
   const bootKey = `todo-${todo.id}`;
+  const isCompleted = todo.status === 'completed';
 
   return (
-    <div className={`border rounded p-3 text-sm ${
-      needsTicket
-        ? 'border-yellow-400/40 bg-yellow-400/5'
-        : 'border-[var(--color-border)]'
-    }`}>
-      <div className="flex items-start gap-2 mb-2">
-        <span className="flex-1">{todo.content}</span>
-        {needsTicket && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 shrink-0">
-            ticket
-          </span>
-        )}
-      </div>
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(todo.id));
+        onDragStart(todo);
+      }}
+      onDragEnd={onDragEnd}
+      className={`
+        bg-[var(--color-surface)] rounded-lg border p-3 text-sm
+        shadow-md hover:shadow-lg
+        transition-all duration-150 select-none
+        ${isDragging
+          ? 'opacity-40 scale-95 rotate-1'
+          : 'cursor-grab active:cursor-grabbing hover:border-[var(--color-muted)] active:scale-[1.02] active:shadow-xl active:rotate-1'
+        }
+        ${needsTicket
+          ? 'border-yellow-400/40 bg-yellow-400/[0.03]'
+          : isCompleted
+            ? 'border-[#10b981]/30 opacity-70'
+            : todo.status === 'in_progress'
+              ? 'border-[#fbbf24]/40'
+              : 'border-[var(--color-border)]'
+        }
+      `}
+    >
+      {/* Card content */}
+      <p className={`font-medium mb-2 leading-snug ${isCompleted ? 'line-through text-[var(--color-muted)]' : ''}`}>
+        {todo.content}
+      </p>
 
-      {/* Time estimate */}
-      <div className="flex items-center gap-2 mb-2">
+      {/* Time estimate row */}
+      <div className="flex items-center gap-1.5 mb-2">
         {todo.estimatedMinutes !== null ? (
           <span
-            className={`text-xs px-1.5 py-0.5 rounded cursor-pointer ${
+            className={`text-xs px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
               needsTicket
-                ? 'bg-yellow-400/20 text-yellow-400'
-                : 'bg-[var(--color-surface-hover)] text-[var(--color-muted)]'
+                ? 'bg-yellow-400/20 text-yellow-400 hover:bg-yellow-400/30'
+                : 'bg-[var(--color-surface-hover)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
             }`}
-            onClick={() => setShowEstimate(!showEstimate)}
-            title="Click to change estimate"
+            onClick={(e) => { e.stopPropagation(); setShowEstimate(!showEstimate); }}
           >
             ~{todo.estimatedMinutes}m
           </span>
         ) : (
           <span
-            className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)] cursor-pointer"
-            onClick={() => setShowEstimate(!showEstimate)}
-            title="Set time estimate"
+            className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)] cursor-pointer hover:text-[var(--color-foreground)] transition-colors"
+            onClick={(e) => { e.stopPropagation(); setShowEstimate(!showEstimate); }}
           >
             ?m
           </span>
         )}
-        {showEstimate && (
-          <div className="flex gap-1">
-            {TIME_PRESETS.map(m => (
-              <button
-                key={m}
-                onClick={() => { onUpdate(todo.id, { estimatedMinutes: m }); setShowEstimate(false); }}
-                className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
-                  m > TICKET_THRESHOLD
-                    ? 'border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/10'
-                    : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
-                }`}
-              >
-                {m}m
-              </button>
-            ))}
-          </div>
+        {needsTicket && (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 font-bold">
+            ticket
+          </span>
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
+      {/* Estimate picker */}
+      {showEstimate && (
+        <div className="flex gap-1 mb-2 flex-wrap">
+          {TIME_PRESETS.map(m => (
+            <button
+              key={m}
+              onClick={(e) => { e.stopPropagation(); onUpdate(todo.id, { estimatedMinutes: m }); setShowEstimate(false); }}
+              className={`text-xs px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                m > TICKET_THRESHOLD
+                  ? 'border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/10'
+                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
+              }`}
+            >
+              {m}m
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Footer: source, session, actions */}
+      <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] flex-wrap">
         <SourceBadge source={todo.source} />
-        {todo.blockedBy.length > 0 && (
-          <span className="text-[var(--color-error)]">
-            blocked by {todo.blockedBy.join(', ')}
-          </span>
-        )}
+
         {todo.sessionDisplay && todo.sessionUuid && todo.projectName && (
           <Link
             href={`/projects/${encodeURIComponent(todo.projectName)}/${todo.sessionUuid}`}
-            className="hover:text-[var(--color-accent)] truncate max-w-[120px]"
+            className="hover:text-[var(--color-accent)] truncate max-w-[100px]"
             title={todo.sessionDisplay}
+            onClick={(e) => e.stopPropagation()}
           >
             {todo.sessionDisplay}
           </Link>
         )}
+
         {projectPath && todo.status !== 'completed' && (
           <button
-            onClick={() => onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`)}
+            onClick={(e) => { e.stopPropagation(); onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`); }}
             disabled={booting === bootKey}
-            className="px-1.5 py-0.5 text-xs font-bold bg-[var(--color-error)] text-white rounded hover:opacity-90 disabled:opacity-50"
+            className="px-1.5 py-0.5 text-xs font-bold bg-[var(--color-accent)] text-white rounded hover:opacity-90 disabled:opacity-50 cursor-pointer"
             title="Deploy agent to work on this todo"
           >
             {booting === bootKey ? '...' : 'Deploy'}
           </button>
         )}
+
         {confirmDelete ? (
           <span className="flex items-center gap-1 shrink-0">
             <button
-              onClick={() => { onDelete(todo.id); setConfirmDelete(false); }}
-              className="px-1.5 py-0.5 text-xs font-bold bg-[var(--color-error)] text-white rounded hover:opacity-90"
+              onClick={(e) => { e.stopPropagation(); onDelete(todo.id); setConfirmDelete(false); }}
+              className="px-1.5 py-0.5 text-xs font-bold bg-[var(--color-error)] text-white rounded hover:opacity-90 cursor-pointer"
             >
               Confirm
             </button>
             <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-1.5 py-0.5 text-xs text-[var(--color-muted)] rounded border border-[var(--color-border)] hover:border-[var(--color-muted)]"
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); }}
+              className="px-1.5 py-0.5 text-xs text-[var(--color-muted)] rounded border border-[var(--color-border)] hover:border-[var(--color-muted)] cursor-pointer"
             >
               Cancel
             </button>
           </span>
         ) : (
           <button
-            onClick={() => setConfirmDelete(true)}
-            className="px-1.5 py-0.5 text-xs text-[var(--color-muted)] rounded border border-[var(--color-border)] hover:border-[var(--color-error)] hover:text-[var(--color-error)] shrink-0"
-            title="Delete todo"
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            className="px-1.5 py-0.5 text-xs text-[var(--color-muted)] rounded border border-[var(--color-border)] hover:border-[var(--color-error)] hover:text-[var(--color-error)] shrink-0 cursor-pointer"
           >
             Del
           </button>
         )}
+
         <span className="ml-auto shrink-0" title={formatTimestamp(todo.createdAt)}>
           {formatRelativeTime(todo.updatedAt)}
         </span>
       </div>
+
+      {/* Boot result */}
       {bootResult?.key === bootKey && (
-        <div className={`mt-1 text-xs font-mono ${bootResult.msg.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
+        <div className={`mt-2 text-xs font-mono px-2 py-1 rounded ${
+          bootResult.msg.startsWith('Error')
+            ? 'text-[var(--color-error)] bg-[var(--color-error)]/10'
+            : 'text-[var(--color-accent)] bg-[var(--color-accent)]/10'
+        }`}>
           {bootResult.msg}
         </div>
       )}
 
-      {/* Timestamps detail */}
       {todo.completedAt && (
-        <div className="mt-1 text-xs text-green-400">
+        <div className="mt-1.5 text-xs text-[#10b981]">
           Completed {formatRelativeTime(todo.completedAt)}
         </div>
       )}
     </div>
   );
 }
+
+// --- Small components ---
 
 function StatusDot({ status }: { status: string }) {
   const colors: Record<string, string> = {

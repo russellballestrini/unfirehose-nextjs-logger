@@ -430,6 +430,91 @@ const from = getTimeRangeFrom(range); // ISO string or undefined
         </div>
       </Section>
 
+      {/* Kanban Cards */}
+      <Section title="Kanban Cards">
+        <p className="text-base text-[var(--color-muted)]">
+          Drag-and-drop todo cards with status columns. Cards have shadow, rounded corners, grab cursor.
+          Dragging adds elevation + rotation. Drop zones highlight on hover.
+        </p>
+        <div className="grid grid-cols-3 gap-4 mt-3">
+          {/* Pending column */}
+          <div>
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b-2 border-[var(--color-muted)]">
+              <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-muted)]" />
+              <span className="font-bold text-sm">Pending</span>
+              <span className="text-xs text-[var(--color-muted)] ml-auto">3</span>
+            </div>
+            <div className="space-y-2">
+              {/* Normal card */}
+              <div className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] p-3 shadow-md hover:shadow-lg hover:border-[var(--color-muted)] transition-all cursor-grab active:cursor-grabbing">
+                <p className="text-sm font-medium mb-2">Add unit tests for auth module</p>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa]">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">~15m</span>
+                  <span className="ml-auto text-[var(--color-muted)]">2h ago</span>
+                </div>
+              </div>
+              {/* Card with ticket badge */}
+              <div className="bg-[var(--color-surface)] rounded-lg border border-yellow-400/40 p-3 shadow-md bg-yellow-400/[0.03] cursor-grab">
+                <p className="text-sm font-medium mb-2">Refactor ingestion pipeline</p>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa]">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400">~60m</span>
+                  <span className="px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 font-bold">ticket</span>
+                </div>
+              </div>
+              {/* Card being dragged (simulated) */}
+              <div className="bg-[var(--color-surface)] rounded-lg border-2 border-[var(--color-accent)] p-3 shadow-xl rotate-2 scale-105 opacity-90 cursor-grabbing">
+                <p className="text-sm font-medium mb-2">Fix PII detection for emails</p>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="px-1.5 py-0.5 rounded bg-[#34d39922] text-[#34d399]">manual</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">~5m</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* In Progress column */}
+          <div>
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b-2 border-[#fbbf24]">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#fbbf24]" />
+              <span className="font-bold text-sm">In Progress</span>
+              <span className="text-xs text-[var(--color-muted)] ml-auto">1</span>
+            </div>
+            {/* Drop zone highlight */}
+            <div className="border-2 border-dashed border-[var(--color-accent)]/50 rounded-lg p-3 mb-2 bg-[var(--color-accent)]/5 text-center">
+              <span className="text-xs text-[var(--color-accent)]">Drop to start agent</span>
+            </div>
+            <div className="space-y-2">
+              <div className="bg-[var(--color-surface)] rounded-lg border border-[#fbbf24]/40 p-3 shadow-md">
+                <p className="text-sm font-medium mb-2">Translate Polish (pl) - 1016 strings</p>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="px-1.5 py-0.5 rounded bg-[#a78bfa22] text-[#a78bfa]">claude</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[#fbbf24]/20 text-[#fbbf24]">~30m</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[var(--color-accent)] text-white font-bold">tmux: proj-143201</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Completed column */}
+          <div>
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b-2 border-[#10b981]">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />
+              <span className="font-bold text-sm">Completed</span>
+              <span className="text-xs text-[var(--color-muted)] ml-auto">1</span>
+            </div>
+            <div className="space-y-2">
+              <div className="bg-[var(--color-surface)] rounded-lg border border-[#10b981]/30 p-3 shadow-sm opacity-70">
+                <p className="text-sm font-medium mb-2 line-through text-[var(--color-muted)]">Setup project scaffolding</p>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="px-1.5 py-0.5 rounded bg-[#34d39922] text-[#34d399]">manual</span>
+                  <span className="text-[#10b981]">done 1h ago</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* Progress Bars */}
       <Section title="Progress Bars">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
