@@ -12,7 +12,7 @@ import {
 
 let testDb: Database.Database;
 
-vi.mock('@/lib/db/schema', () => ({
+vi.mock('./schema', () => ({
   getDb: () => testDb,
 }));
 

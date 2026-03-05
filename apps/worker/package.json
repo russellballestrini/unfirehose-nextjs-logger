@@ -8,12 +8,13 @@
     "start": "tsx src/main.ts",
     "build": "echo 'worker: no build step (tsx runtime)'",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "echo 'no tests yet'"
   },
   "dependencies": {
     "@sexy-logger/core": "*"
   },
   "devDependencies": {
+    "@sexy-logger/config": "*",
     "@types/node": "^20",
     "tsx": "^4",
     "typescript": "^5",

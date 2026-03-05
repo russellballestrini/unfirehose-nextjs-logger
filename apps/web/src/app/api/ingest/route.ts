@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server';
 import { ingestAll, getDbStats } from '@sexy-logger/core/db/ingest';
-import { startWatcher } from '@sexy-logger/core/db/watcher';
-
-// Start file watcher on first import (server-side singleton)
-startWatcher();
 
 export async function POST() {
   try {

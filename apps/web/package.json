@@ -25,6 +25,7 @@
     "swr": "^2.4.1"
   },
   "devDependencies": {
+    "@sexy-logger/config": "*",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
