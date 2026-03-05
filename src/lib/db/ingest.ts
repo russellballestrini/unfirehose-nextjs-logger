@@ -186,7 +186,7 @@ function insertContentBlocks(
       if (replacements.length > 0) {
         textContent = sanitized;
         for (const r of replacements) {
-          piiStmt.run(r.originalHash, r.token, r.type, messageId);
+          piiStmt.run(r.originalHash, r.token, r.piiType, messageId);
         }
       }
     }

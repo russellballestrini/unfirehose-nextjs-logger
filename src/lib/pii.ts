@@ -1,43 +1,67 @@
 import { createHash } from 'crypto';
 
 export interface PIIReplacement {
-  type: string;
-  token: string;
-  originalHash: string;
+  token: string;      // e.g. __EMAIL_1__
+  piiType: string;    // email, credit_card, ssn, phone, ip
+  originalHash: string; // SHA-256 hex of original value (never raw PII)
 }
 
 interface PIIPattern {
-  type: string;
+  piiType: string;
   regex: RegExp;
+  validate?: (match: string) => boolean;
+}
+
+// Private IPv4 ranges to exclude from IP detection
+function isPrivateIP(ip: string): boolean {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((p) => p < 0 || p > 255)) return false;
+
+  // 127.x.x.x (loopback)
+  if (parts[0] === 127) return true;
+  // 0.0.0.0
+  if (parts.every((p) => p === 0)) return true;
+  // 10.x.x.x
+  if (parts[0] === 10) return true;
+  // 192.168.x.x
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  // 172.16.0.0 – 172.31.255.255
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  // 169.254.x.x (link-local)
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  // 255.255.255.255 (broadcast)
+  if (parts.every((p) => p === 255)) return true;
+
+  return false;
 }
 
 // Patterns ordered by specificity (more specific first to avoid partial matches)
 const PII_PATTERNS: PIIPattern[] = [
-  // Credit card: Visa (4xxx), Mastercard (51-55xx), Amex (34xx/37xx), Discover (6011/65xx)
-  // Supports 4-4-4-4, 4-4-4-1..4, and Amex 4-6-5 groupings
+  // Credit card: 13-19 digit sequences with optional separators (spaces, dashes)
   {
-    type: 'CREDIT_CARD',
-    regex: /\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))[\s-]?\d{4,6}[\s-]?\d{4,5}[\s-]?\d{0,4}\b/g,
+    piiType: 'credit_card',
+    regex: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{1,7}\b/g,
   },
   // SSN: exactly NNN-NN-NNNN
   {
-    type: 'SSN',
+    piiType: 'ssn',
     regex: /\b\d{3}-\d{2}-\d{4}\b/g,
   },
   // Phone: US formats — (NNN) NNN-NNNN, NNN-NNN-NNNN, NNN.NNN.NNNN, +1NNNNNNNNNN, etc.
   {
-    type: 'PHONE',
+    piiType: 'phone',
     regex: /\b(?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}\b/g,
   },
   // Email
   {
-    type: 'EMAIL',
+    piiType: 'email',
     regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
-  // Street address: number + street name + suffix
+  // IPv4 addresses (public only — private ranges excluded via validate)
   {
-    type: 'ADDRESS',
-    regex: /\b\d{1,5}\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Ln|Lane|Rd|Road|Way|Ct|Court|Pl|Place|Ter|Terrace|Cir|Circle|Pkwy|Parkway|Hwy|Highway)\.?\b/gi,
+    piiType: 'ip',
+    regex: /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g,
+    validate: (match: string) => !isPrivateIP(match),
   },
 ];
 
@@ -47,7 +71,8 @@ function sha256(text: string): string {
 
 /**
  * Sanitize PII from text using __TYPE_N__ placeholder tokens.
- * Pattern follows the uncloseai.js translation.js preservation approach.
+ * Counter N is 1-based, per-type within each text block.
+ * Returns sanitized text and replacement metadata (with hashed originals, never raw PII).
  */
 export function sanitizePII(text: string): {
   sanitized: string;
@@ -57,7 +82,6 @@ export function sanitizePII(text: string): {
 
   const replacements: PIIReplacement[] = [];
   const counters: Record<string, number> = {};
-  let sanitized = text;
 
   // Track already-replaced ranges to avoid double-matching
   const replaced: Array<{ start: number; end: number; token: string }> = [];
@@ -73,13 +97,16 @@ export function sanitizePII(text: string): {
       // Skip if this range overlaps with an already-replaced range
       if (replaced.some((r) => start < r.end && end > r.start)) continue;
 
-      const count = counters[pattern.type] ?? 0;
-      counters[pattern.type] = count + 1;
-      const token = `__${pattern.type}_${count}__`;
+      // Skip if validate function exists and rejects the match
+      if (pattern.validate && !pattern.validate(match[0])) continue;
+
+      const count = (counters[pattern.piiType] ?? 0) + 1;
+      counters[pattern.piiType] = count;
+      const token = `__${pattern.piiType.toUpperCase()}_${count}__`;
 
       replacements.push({
-        type: pattern.type,
         token,
+        piiType: pattern.piiType,
         originalHash: sha256(match[0]),
       });
 
@@ -89,6 +116,7 @@ export function sanitizePII(text: string): {
 
   // Apply replacements from end to start so indices stay valid
   replaced.sort((a, b) => b.start - a.start);
+  let sanitized = text;
   for (const r of replaced) {
     sanitized = sanitized.slice(0, r.start) + r.token + sanitized.slice(r.end);
   }
