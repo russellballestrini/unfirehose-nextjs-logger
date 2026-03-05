@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@sexy-logger/core/db/schema';
+import { getDb } from '@unfirehose/core/db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

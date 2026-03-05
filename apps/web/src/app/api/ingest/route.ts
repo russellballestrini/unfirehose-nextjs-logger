@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { ingestAll, getDbStats } from '@sexy-logger/core/db/ingest';
+import { ingestAll, getDbStats } from '@unfirehose/core/db/ingest';
 
 export async function POST() {
   try {

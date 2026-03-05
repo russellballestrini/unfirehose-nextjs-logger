@@ -26,7 +26,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
 `);
 
-vi.mock('@sexy-logger/core/db/schema', () => ({ getDb: () => db }));
+vi.mock('@unfirehose/core/db/schema', () => ({ getDb: () => db }));
 
 const { GET } = await import('./route');
 

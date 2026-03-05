@@ -1,5 +1,5 @@
 {
-  "name": "@sexy-logger/core",
+  "name": "@unfirehose/core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -29,7 +29,7 @@
     "better-sqlite3": "^12.6.2"
   },
   "devDependencies": {
-    "@sexy-logger/config": "*",
+    "@unfirehose/config": "*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@vitest/coverage-v8": "^4.0.18",

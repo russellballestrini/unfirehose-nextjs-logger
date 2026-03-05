@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { execFile } from 'child_process';
 import path from 'path';
-import { claudePaths } from '@sexy-logger/core/claude-paths';
-import type { ProjectMetadata, GitRemote, GitCommit, SessionsIndex } from '@sexy-logger/core/types';
+import { claudePaths } from '@unfirehose/core/claude-paths';
+import type { ProjectMetadata, GitRemote, GitCommit, SessionsIndex } from '@unfirehose/core/types';
 
 // Module-level cache: project -> { data, ts }
 const cache = new Map<string, { data: ProjectMetadata; ts: number }>();

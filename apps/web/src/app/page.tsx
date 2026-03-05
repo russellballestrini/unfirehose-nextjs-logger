@@ -1,9 +1,9 @@
 'use client';
 
 import useSWR from 'swr';
-import { formatTokens } from '@sexy-logger/core/format';
-import { PageContext } from '@sexy-logger/ui/PageContext';
-import { TimeRangeSelect, useTimeRange } from '@sexy-logger/ui/TimeRangeSelect';
+import { formatTokens } from '@unfirehose/core/format';
+import { PageContext } from '@unfirehose/ui/PageContext';
+import { TimeRangeSelect, useTimeRange } from '@unfirehose/ui/TimeRangeSelect';
 import {
   BarChart,
   Bar,

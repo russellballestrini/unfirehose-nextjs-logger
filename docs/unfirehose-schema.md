@@ -577,7 +577,7 @@ To add support for a new harness:
 The adapter function signature:
 
 ```typescript
-import type { SessionEntry } from '@sexy-logger/core/types';
+import type { SessionEntry } from '@unfirehose/core/types';
 
 export function normalizeEntry(raw: unknown): SessionEntry | null {
   // Map native harness fields → canonical format

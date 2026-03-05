@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { formatTokens, formatRelativeTime } from '@sexy-logger/core/format';
-import { PageContext } from '@sexy-logger/ui/PageContext';
-import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@sexy-logger/ui/TimeRangeSelect';
+import { formatTokens, formatRelativeTime } from '@unfirehose/core/format';
+import { PageContext } from '@unfirehose/ui/PageContext';
+import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unfirehose/ui/TimeRangeSelect';
 import {
   AreaChart,
   Area,

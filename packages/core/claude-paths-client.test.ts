@@ -15,6 +15,6 @@ describe('decodeProjectName (client)', () => {
   });
 
   it('decodes deep paths after git', () => {
-    expect(decodeProjectName('-home-fox-git-claude-sexy-logger')).toBe('claude-sexy-logger');
+    expect(decodeProjectName('-home-fox-git-unfirehose')).toBe('unfirehose');
   });
 });

@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { claudePaths, decodeProjectName } from '@sexy-logger/core/claude-paths';
+import { claudePaths, decodeProjectName } from '@unfirehose/core/claude-paths';
 import { NextResponse } from 'next/server';
-import type { ProjectInfo, SessionsIndex } from '@sexy-logger/core/types';
+import type { ProjectInfo, SessionsIndex } from '@unfirehose/core/types';
 
 export async function GET() {
   try {

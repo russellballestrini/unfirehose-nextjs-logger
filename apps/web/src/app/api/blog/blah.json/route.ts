@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getPosts, getAllSettings, type PostRow } from '@sexy-logger/core/db/ingest';
+import { getPosts, getAllSettings, type PostRow } from '@unfirehose/core/db/ingest';
 
 // Serves the blog as a jsonblog.org-compatible feed (we call ours blah.json)
 export async function GET() {

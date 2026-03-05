@@ -1,5 +1,5 @@
 {
-  "name": "@sexy-logger/ui",
+  "name": "@unfirehose/ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -22,10 +22,10 @@
     "react-dom": ">=19"
   },
   "dependencies": {
-    "@sexy-logger/core": "*"
+    "@unfirehose/core": "*"
   },
   "devDependencies": {
-    "@sexy-logger/config": "*",
+    "@unfirehose/config": "*",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",

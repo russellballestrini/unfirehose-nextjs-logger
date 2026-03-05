@@ -32,7 +32,7 @@ describe('Sidebar', () => {
 
   it('renders the app title', () => {
     render(<Sidebar />);
-    expect(screen.getByText('claude_sexy_logger')).toBeTruthy();
+    expect(screen.getByText('unfirehose')).toBeTruthy();
   });
 
   it('renders correct href for nav items', () => {

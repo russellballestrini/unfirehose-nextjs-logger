@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { formatTimestamp } from '@sexy-logger/core/format';
-import { decodeProjectName } from '@sexy-logger/core/claude-paths-client';
-import { PageContext } from '@sexy-logger/ui/PageContext';
-import { SessionPopover } from '@sexy-logger/ui/SessionPopover';
+import { formatTimestamp } from '@unfirehose/core/format';
+import { decodeProjectName } from '@unfirehose/core/claude-paths-client';
+import { PageContext } from '@unfirehose/ui/PageContext';
+import { SessionPopover } from '@unfirehose/ui/SessionPopover';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

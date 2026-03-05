@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { homedir } from 'os';
 
-const DB_PATH = path.join(homedir(), '.claude', 'sexy_logger.db');
+const DB_PATH = path.join(homedir(), '.claude', 'unfirehose.db');
 
 let _db: Database.Database | null = null;
 

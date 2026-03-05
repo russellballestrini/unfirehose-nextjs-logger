@@ -1,5 +1,5 @@
 import { readFile } from 'fs/promises';
-import { claudePaths } from '@sexy-logger/core/claude-paths';
+import { claudePaths } from '@unfirehose/core/claude-paths';
 import { NextResponse } from 'next/server';
 
 export async function GET() {

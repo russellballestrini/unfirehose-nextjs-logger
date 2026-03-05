@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { Readable } from 'stream';
 
-vi.mock('@sexy-logger/core/claude-paths', () => ({
+vi.mock('@unfirehose/core/claude-paths', () => ({
   claudePaths: {
     sessionFile: (p: string, s: string) => `/mock/${p}/${s}.jsonl`,
   },

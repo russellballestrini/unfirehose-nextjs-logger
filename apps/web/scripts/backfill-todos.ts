@@ -1,4 +1,4 @@
-import { getDb } from '@sexy-logger/core/db/schema';
+import { getDb } from '@unfirehose/core/db/schema';
 
 const db = getDb();
 

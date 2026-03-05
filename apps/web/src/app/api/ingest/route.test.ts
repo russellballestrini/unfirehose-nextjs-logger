@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('@sexy-logger/core/db/ingest', () => ({
+vi.mock('@unfirehose/core/db/ingest', () => ({
   ingestAll: vi.fn().mockResolvedValue({
     projectsAdded: 1, sessionsAdded: 2, messagesAdded: 10, blocksAdded: 20, filesScanned: 3, alertsTriggered: 0,
   }),

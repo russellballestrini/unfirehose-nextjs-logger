@@ -20,7 +20,7 @@ Six related todos for the paid tier infrastructure:
 These were auto-extracted from a planning session but the work lives across multiple repos:
 - `unfirehose` repo — API, bucket sync, tier enforcement
 - `unsandbox.com` — wallet/billing, KYC flow, key provisioning
-- `claude_sexy_logger` — local scrobble client that sends data
+- `unfirehose` — local scrobble client that sends data
 
 ## Questions for fox
 

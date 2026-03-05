@@ -1,5 +1,5 @@
-import { claudePaths } from '@sexy-logger/core/claude-paths';
-import { createJsonlReadableStream, collectJsonl } from '@sexy-logger/core/jsonl-reader';
+import { claudePaths } from '@unfirehose/core/claude-paths';
+import { createJsonlReadableStream, collectJsonl } from '@unfirehose/core/jsonl-reader';
 import { NextRequest, NextResponse } from 'next/server';
 import { stat } from 'fs/promises';
 

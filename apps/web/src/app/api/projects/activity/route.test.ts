@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@sexy-logger/core/db/ingest', () => ({
+vi.mock('@unfirehose/core/db/ingest', () => ({
   getProjectActivity: vi.fn().mockReturnValue([
     { name: 'proj-1', display_name: 'Project 1', user_messages: 20, assistant_messages: 18, total_input: 1000000, total_output: 500000, total_cache_read: 100000, total_cache_write: 50000 },
   ]),

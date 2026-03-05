@@ -6,7 +6,7 @@ import {
   acknowledgeAlert,
   getAlertThresholds,
   updateAlertThreshold,
-} from '@sexy-logger/core/db/ingest';
+} from '@unfirehose/core/db/ingest';
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);

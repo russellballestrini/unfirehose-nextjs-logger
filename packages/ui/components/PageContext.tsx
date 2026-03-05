@@ -39,7 +39,7 @@ export function PageContext({
     setMeta('csl:metrics', JSON.stringify(metrics));
 
     // Set page-level description for general scrapers
-    setMeta('description', `claude_sexy_logger ${pageType}: ${summary}`);
+    setMeta('description', `unfirehose ${pageType}: ${summary}`);
 
     return () => {
       document.querySelectorAll('meta[name^="csl:"]').forEach((el) => el.remove());
@@ -53,7 +53,7 @@ export function PageContext({
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'Dataset',
-    name: `claude_sexy_logger ${pageType}`,
+    name: `unfirehose ${pageType}`,
     description: summary,
     variableMeasured: Object.entries(metrics).map(([k, v]) => ({
       '@type': 'PropertyValue',
@@ -78,7 +78,7 @@ export function PageContext({
         aria-hidden="true"
         style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}
       >
-        <h2>claude_sexy_logger — {pageType}</h2>
+        <h2>unfirehose — {pageType}</h2>
         <p>{summary}</p>
         <pre>{metricsText}</pre>
         {details && <pre>{details}</pre>}

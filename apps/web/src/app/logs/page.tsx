@@ -3,9 +3,9 @@
 import { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { formatTimestamp, formatRelativeTime } from '@sexy-logger/core/format';
-import { PageContext } from '@sexy-logger/ui/PageContext';
-import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@sexy-logger/ui/TimeRangeSelect';
+import { formatTimestamp, formatRelativeTime } from '@unfirehose/core/format';
+import { PageContext } from '@unfirehose/ui/PageContext';
+import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unfirehose/ui/TimeRangeSelect';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('@sexy-logger/core/claude-paths', () => ({
+vi.mock('@unfirehose/core/claude-paths', () => ({
   claudePaths: {
     projects: '/mock/.claude/projects',
     projectDir: (p: string) => `/mock/.claude/projects/${p}`,

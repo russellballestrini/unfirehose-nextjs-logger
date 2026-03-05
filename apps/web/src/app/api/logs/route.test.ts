@@ -7,7 +7,7 @@ const db = createTestDb();
 // Add missing migrations
 try { db.exec('ALTER TABLE sessions ADD COLUMN display_name TEXT'); } catch { /* already exists */ }
 
-vi.mock('@sexy-logger/core/db/schema', () => ({ getDb: () => db }));
+vi.mock('@unfirehose/core/db/schema', () => ({ getDb: () => db }));
 
 const { GET } = await import('./route');
 

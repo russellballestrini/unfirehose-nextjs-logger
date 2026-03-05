@@ -1,5 +1,5 @@
 {
-  "name": "@sexy-logger/web",
+  "name": "@unfirehose/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -12,8 +12,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@sexy-logger/core": "*",
-    "@sexy-logger/ui": "*",
+    "@unfirehose/core": "*",
+    "@unfirehose/ui": "*",
     "@tanstack/react-virtual": "^3.13.19",
     "date-fns": "^4.1.0",
     "next": "16.1.6",
@@ -25,7 +25,7 @@
     "swr": "^2.4.1"
   },
   "devDependencies": {
-    "@sexy-logger/config": "*",
+    "@unfirehose/config": "*",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

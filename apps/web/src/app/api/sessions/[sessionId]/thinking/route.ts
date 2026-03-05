@@ -1,7 +1,7 @@
-import { claudePaths } from '@sexy-logger/core/claude-paths';
-import { streamJsonl } from '@sexy-logger/core/jsonl-reader';
+import { claudePaths } from '@unfirehose/core/claude-paths';
+import { streamJsonl } from '@unfirehose/core/jsonl-reader';
 import { NextRequest, NextResponse } from 'next/server';
-import type { ThinkingExcerpt, ContentBlock } from '@sexy-logger/core/types';
+import type { ThinkingExcerpt, ContentBlock } from '@unfirehose/core/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyEntry = any;

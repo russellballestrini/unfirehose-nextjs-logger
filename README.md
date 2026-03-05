@@ -1,4 +1,4 @@
-# claude_sexy_logger
+# unfirehose
 
 A local-first dashboard for Claude Code power users. Reads your `~/.claude/` session data, normalizes it into SQLite, and gives you a single pane of glass across every project, every agent, every token.
 
@@ -89,15 +89,15 @@ Configure alert thresholds, display preferences, and integration settings.
 ## Quickstart
 
 ```bash
-git clone https://github.com/russellballestrini/claude_sexy_logger.git
-cd claude_sexy_logger
+git clone https://github.com/russellballestrini/unfirehose.git
+cd unfirehose
 npm install
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The first load triggers an ingestion of your `~/.claude/` session data into SQLite at `~/.claude/sexy_logger.db`. Subsequent ingestions are incremental (byte offset tracking) and triggered automatically by file watcher on JSONL changes.
+The first load triggers an ingestion of your `~/.claude/` session data into SQLite at `~/.claude/unfirehose.db`. Subsequent ingestions are incremental (byte offset tracking) and triggered automatically by file watcher on JSONL changes.
 
 ### Requirements
 
@@ -114,7 +114,7 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
   [file watcher]             fs.watch on active JSONL files
         │
         ▼
-  ~/.claude/sexy_logger.db   SQLite (normalized: projects → sessions → messages → content_blocks)
+  ~/.claude/unfirehose.db   SQLite (normalized: projects → sessions → messages → content_blocks)
         │
         ▼
   Next.js API routes         20+ endpoints serving dashboard, usage, projects, sessions, tokens, alerts

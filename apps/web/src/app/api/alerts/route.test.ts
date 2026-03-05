@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@sexy-logger/core/db/ingest', () => ({
+vi.mock('@unfirehose/core/db/ingest', () => ({
   getRecentAlerts: vi.fn().mockReturnValue([{ id: 1, metric: 'output_tokens' }]),
   getUnacknowledgedAlerts: vi.fn().mockReturnValue([{ id: 2, acknowledged: 0 }]),
   getAlertThresholds: vi.fn().mockReturnValue([{ id: 1, window_minutes: 5 }]),

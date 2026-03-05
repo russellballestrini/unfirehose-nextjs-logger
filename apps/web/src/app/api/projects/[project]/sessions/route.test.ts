@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@sexy-logger/core/claude-paths', () => ({
+vi.mock('@unfirehose/core/claude-paths', () => ({
   claudePaths: {
     sessionsIndex: (p: string) => `/mock/${p}/sessions-index.json`,
     projectDir: (p: string) => `/mock/${p}`,

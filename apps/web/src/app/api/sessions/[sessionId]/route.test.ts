@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@sexy-logger/core/claude-paths', () => ({
+vi.mock('@unfirehose/core/claude-paths', () => ({
   claudePaths: {
     sessionFile: (project: string, sessionId: string) => `/mock/${project}/${sessionId}.jsonl`,
   },
@@ -11,7 +11,7 @@ vi.mock('fs/promises', () => ({
   stat: vi.fn().mockResolvedValue({ size: 1024 }),
 }));
 
-vi.mock('@sexy-logger/core/jsonl-reader', () => ({
+vi.mock('@unfirehose/core/jsonl-reader', () => ({
   collectJsonl: vi.fn().mockResolvedValue([
     { type: 'user', message: { content: 'hello' } },
     { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },

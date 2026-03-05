@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@sexy-logger/core/db/schema';
-import { claudePaths } from '@sexy-logger/core/claude-paths';
+import { getDb } from '@unfirehose/core/db/schema';
+import { claudePaths } from '@unfirehose/core/claude-paths';
 import { appendFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 

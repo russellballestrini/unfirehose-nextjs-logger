@@ -2,9 +2,9 @@
 
 import useSWR from 'swr';
 import Link from 'next/link';
-import type { ProjectInfo } from '@sexy-logger/core/types';
-import { PageContext } from '@sexy-logger/ui/PageContext';
-import { formatRelativeTime, formatTokens } from '@sexy-logger/core/format';
+import type { ProjectInfo } from '@unfirehose/core/types';
+import { PageContext } from '@unfirehose/ui/PageContext';
+import { formatRelativeTime, formatTokens } from '@unfirehose/core/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

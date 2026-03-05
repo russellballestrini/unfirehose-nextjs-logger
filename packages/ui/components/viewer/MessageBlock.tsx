@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { formatTimestamp, formatDuration } from '@sexy-logger/core/format';
+import { formatTimestamp, formatDuration } from '@unfirehose/core/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

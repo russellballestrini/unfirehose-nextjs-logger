@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@sexy-logger/core/db/ingest', () => ({
+vi.mock('@unfirehose/core/db/ingest', () => ({
   getUsageTimeline: vi.fn().mockReturnValue([
     { minute: '2026-03-03T14:00', input_tokens: 1000, output_tokens: 500 },
   ]),

@@ -3,7 +3,7 @@ import {
   getAllSettings,
   setSetting,
   deleteSetting,
-} from '@sexy-logger/core/db/ingest';
+} from '@unfirehose/core/db/ingest';
 
 export async function GET() {
   const settings = getAllSettings();

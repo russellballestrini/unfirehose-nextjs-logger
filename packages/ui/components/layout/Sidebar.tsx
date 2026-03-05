@@ -27,9 +27,9 @@ export function Sidebar() {
       <div className="p-4 border-b border-[var(--color-border)]">
         <Link href="/" className="block">
           <h1 className="text-base font-bold text-[var(--color-accent)]">
-            claude_sexy_logger
+            unfirehose
           </h1>
-          <p className="text-base text-[var(--color-muted)] mt-1">session viewer</p>
+          <p className="text-base text-[var(--color-muted)] mt-1">nextjs logger</p>
         </Link>
       </div>
       <nav className="flex-1 p-2">

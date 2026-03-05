@@ -8,12 +8,12 @@ vi.mock('fs/promises', () => ({
   })),
 }));
 
-vi.mock('@sexy-logger/core/claude-paths', () => ({
+vi.mock('@unfirehose/core/claude-paths', () => ({
   claudePaths: { statsCache: '/mock/.claude/stats-cache.json' },
 }));
 
 const mockAll = vi.fn();
-vi.mock('@sexy-logger/core/db/schema', () => ({
+vi.mock('@unfirehose/core/db/schema', () => ({
   getDb: () => ({
     prepare: () => ({ all: mockAll }),
   }),

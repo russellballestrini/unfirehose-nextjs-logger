@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUsageTimeline, getUsageByProject } from '@sexy-logger/core/db/ingest';
+import { getUsageTimeline, getUsageByProject } from '@unfirehose/core/db/ingest';
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);

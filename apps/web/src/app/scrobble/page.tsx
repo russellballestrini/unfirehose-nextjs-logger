@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { formatTokens } from '@sexy-logger/core/format';
-import { PageContext } from '@sexy-logger/ui/PageContext';
+import { formatTokens } from '@unfirehose/core/format';
+import { PageContext } from '@unfirehose/ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@sexy-logger/ui/layout/Sidebar";
-import { ThemeProvider } from "@sexy-logger/ui/ThemeProvider";
+import { Sidebar } from "@unfirehose/ui/layout/Sidebar";
+import { ThemeProvider } from "@unfirehose/ui/ThemeProvider";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -10,8 +10,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "claude_sexy_logger",
-  description: "Claude Code session viewer",
+  title: "unfirehose",
+  description: "unfirehose nextjs logger",
 };
 
 export default function RootLayout({

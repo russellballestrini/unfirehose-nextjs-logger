@@ -4,7 +4,7 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@sexy-logger/core': path.resolve(__dirname, '.'),
+      '@unfirehose/core': path.resolve(__dirname, '.'),
     },
   },
   test: {

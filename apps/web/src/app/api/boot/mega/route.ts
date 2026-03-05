@@ -3,7 +3,7 @@ import { execFile } from 'child_process';
 import { stat, writeFile, unlink } from 'fs/promises';
 import path from 'path';
 import { tmpdir } from 'os';
-import { getDb } from '@sexy-logger/core/db/schema';
+import { getDb } from '@unfirehose/core/db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

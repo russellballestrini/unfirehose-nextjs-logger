@@ -1,6 +1,6 @@
 # Database Schema & Index Reference
 
-SQLite database at `~/.claude/sexy_logger.db`. WAL mode, foreign keys enforced.
+SQLite database at `~/.claude/unfirehose.db`. WAL mode, foreign keys enforced.
 
 Schema defined in `packages/core/db/schema.ts`.
 

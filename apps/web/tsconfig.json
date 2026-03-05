@@ -1,5 +1,5 @@
 {
-  "extends": "@sexy-logger/config/tsconfig/nextjs",
+  "extends": "@unfirehose/config/tsconfig/nextjs",
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"]

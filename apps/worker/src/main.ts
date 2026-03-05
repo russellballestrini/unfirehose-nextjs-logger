@@ -1,5 +1,5 @@
-import { startWatcher, stopWatcher } from '@sexy-logger/core/db/watcher';
-import { ingestAll, getDbStats } from '@sexy-logger/core/db/ingest';
+import { startWatcher, stopWatcher } from '@unfirehose/core/db/watcher';
+import { ingestAll, getDbStats } from '@unfirehose/core/db/ingest';
 
 const POLL_INTERVAL_MS = 60_000;
 

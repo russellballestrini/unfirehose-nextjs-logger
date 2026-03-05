@@ -1,7 +1,7 @@
 # 3017: UUIDv7 for Todos + Triage Infrastructure
 
 **Status:** all phases complete
-**Project:** claude-sexy-logger
+**Project:** unfirehose
 **Estimated:** 90m
 **Todo IDs:** (new — no existing todo covers this)
 **Blocked by:** none

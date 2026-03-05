@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { formatRelativeTime, formatTimestamp } from '@sexy-logger/core/format';
-import { PageContext } from '@sexy-logger/ui/PageContext';
+import { formatRelativeTime, formatTimestamp } from '@unfirehose/core/format';
+import { PageContext } from '@unfirehose/ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

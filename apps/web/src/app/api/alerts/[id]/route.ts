@@ -7,7 +7,7 @@ import {
   getThinkingBlocksInWindow,
   getTimelineInWindow,
   getUserPromptsInWindow,
-} from '@sexy-logger/core/db/ingest';
+} from '@unfirehose/core/db/ingest';
 
 // 2026 blended rates (same as /api/projects/activity)
 const AVG_RATE = { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 };

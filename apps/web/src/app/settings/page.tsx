@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
-import { PageContext } from '@sexy-logger/ui/PageContext';
+import { PageContext } from '@unfirehose/ui/PageContext';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -368,7 +368,7 @@ export default function SettingsPage() {
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
         <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
         <div className="text-base text-[var(--color-muted)] space-y-1">
-          <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/sexy_logger.db</span></div>
+          <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
           <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
         </div>
       </div>

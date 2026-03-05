@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, Fragment } from 'react';
-import { TimeRangeSelect, useTimeRange } from '@sexy-logger/ui/TimeRangeSelect';
+import { TimeRangeSelect, useTimeRange } from '@unfirehose/ui/TimeRangeSelect';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
   AreaChart, Area,
 } from 'recharts';
-import { PageContext } from '@sexy-logger/ui/PageContext';
+import { PageContext } from '@unfirehose/ui/PageContext';
 
 // --- Mock data ---
 
@@ -39,7 +39,7 @@ const areaData = [
 
 const horizontalBarData = [
   { name: 'unsandbox-com', input: 150000, output: 280000 },
-  { name: 'claude-sexy-logger', input: 90000, output: 195000 },
+  { name: 'unfirehose', input: 90000, output: 195000 },
   { name: 'uncloseai-com', input: 45000, output: 82000 },
   { name: 'funlooper-com', input: 12000, output: 35000 },
 ];
@@ -114,7 +114,7 @@ export default function StyleguidePage() {
     <div className="space-y-8 max-w-4xl">
       <PageContext
         pageType="styleguide"
-        summary="Component reference and design system for claude_sexy_logger."
+        summary="Component reference and design system for unfirehose."
         metrics={{ components: 12, sections: 8 }}
       />
 
@@ -322,7 +322,7 @@ export default function StyleguidePage() {
             <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
             <span className="text-base text-[var(--color-muted)]">Current: {timeRange}</span>
           </div>
-          <pre className="text-sm text-[var(--color-muted)] bg-[var(--color-background)] p-3 rounded overflow-x-auto">{`import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@sexy-logger/ui/TimeRangeSelect';
+          <pre className="text-sm text-[var(--color-muted)] bg-[var(--color-background)] p-3 rounded overflow-x-auto">{`import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unfirehose/ui/TimeRangeSelect';
 
 const [range, setRange] = useTimeRange('my_page_range', '7d');
 const from = getTimeRangeFrom(range); // ISO string or undefined

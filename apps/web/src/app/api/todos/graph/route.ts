@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@sexy-logger/core/db/schema';
+import { getDb } from '@unfirehose/core/db/schema';
 import { execSync } from 'child_process';
 
 const STATUS_COLORS: Record<string, string> = {

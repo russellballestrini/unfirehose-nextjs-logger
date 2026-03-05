@@ -1,5 +1,5 @@
 {
-  "extends": "@sexy-logger/config/tsconfig/node",
+  "extends": "@unfirehose/config/tsconfig/node",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist"

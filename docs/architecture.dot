@@ -31,7 +31,7 @@ digraph architecture {
 
   // Storage
   subgraph cluster_db {
-    label="SQLite (WAL mode)\n~/.claude/sexy_logger.db"
+    label="SQLite (WAL mode)\n~/.claude/unfirehose.db"
     style=dashed
     color="#444466"
     fontcolor="#999999"

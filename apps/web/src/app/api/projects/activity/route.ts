@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
-import { getProjectActivity, getProjectRecentPrompts } from '@sexy-logger/core/db/ingest';
-import { claudePaths } from '@sexy-logger/core/claude-paths';
-import type { SessionsIndex } from '@sexy-logger/core/types';
+import { getProjectActivity, getProjectRecentPrompts } from '@unfirehose/core/db/ingest';
+import { claudePaths } from '@unfirehose/core/claude-paths';
+import type { SessionsIndex } from '@unfirehose/core/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

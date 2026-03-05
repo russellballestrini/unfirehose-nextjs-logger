@@ -3,10 +3,10 @@
 import { use, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import type { SessionIndexEntry, ProjectMetadata } from '@sexy-logger/core/types';
-import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@sexy-logger/core/format';
-import { PageContext } from '@sexy-logger/ui/PageContext';
-import { SessionPopover } from '@sexy-logger/ui/SessionPopover';
+import type { SessionIndexEntry, ProjectMetadata } from '@unfirehose/core/types';
+import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unfirehose/core/format';
+import { PageContext } from '@unfirehose/ui/PageContext';
+import { SessionPopover } from '@unfirehose/ui/SessionPopover';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

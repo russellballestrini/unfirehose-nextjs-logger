@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@sexy-logger/core/db/schema';
-import { uuidv7 } from '@sexy-logger/core/uuidv7';
+import { getDb } from '@unfirehose/core/db/schema';
+import { uuidv7 } from '@unfirehose/core/uuidv7';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

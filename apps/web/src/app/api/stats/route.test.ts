@@ -9,7 +9,7 @@ vi.mock('fs/promises', () => ({
   })),
 }));
 
-vi.mock('@sexy-logger/core/claude-paths', () => ({
+vi.mock('@unfirehose/core/claude-paths', () => ({
   claudePaths: { statsCache: '/mock/.claude/stats-cache.json' },
 }));
 

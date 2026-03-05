@@ -1,8 +1,8 @@
 import { readFile, readdir } from 'fs/promises';
-import { claudePaths } from '@sexy-logger/core/claude-paths';
+import { claudePaths } from '@unfirehose/core/claude-paths';
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@sexy-logger/core/db/schema';
-import type { SessionsIndex } from '@sexy-logger/core/types';
+import { getDb } from '@unfirehose/core/db/schema';
+import type { SessionsIndex } from '@unfirehose/core/types';
 
 export async function GET(
   request: NextRequest,

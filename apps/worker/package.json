@@ -1,5 +1,5 @@
 {
-  "name": "@sexy-logger/worker",
+  "name": "@unfirehose/worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,10 @@
     "test": "echo 'no tests yet'"
   },
   "dependencies": {
-    "@sexy-logger/core": "*"
+    "@unfirehose/core": "*"
   },
   "devDependencies": {
-    "@sexy-logger/config": "*",
+    "@unfirehose/config": "*",
     "@types/node": "^20",
     "tsx": "^4",
     "typescript": "^5",

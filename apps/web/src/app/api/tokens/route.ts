@@ -1,8 +1,8 @@
 import { readFile } from 'fs/promises';
-import { claudePaths } from '@sexy-logger/core/claude-paths';
+import { claudePaths } from '@unfirehose/core/claude-paths';
 import { NextRequest, NextResponse } from 'next/server';
-import type { StatsCache } from '@sexy-logger/core/types';
-import { getDb } from '@sexy-logger/core/db/schema';
+import type { StatsCache } from '@unfirehose/core/types';
+import { getDb } from '@unfirehose/core/db/schema';
 
 // Anthropic API pricing per million tokens (2026 rates)
 // Used to show equivalent value even on Max plan

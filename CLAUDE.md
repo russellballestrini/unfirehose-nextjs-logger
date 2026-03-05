@@ -30,7 +30,7 @@ Then ask fox what the mission is.
 
 ## Architecture
 
-Next.js 15 App Router + TypeScript + Tailwind v4 + better-sqlite3. Reads Claude Code JSONL from `~/.claude/`, ingests into SQLite at `~/.claude/sexy_logger.db`. Dashboard at `localhost:3000`.
+Next.js 15 App Router + TypeScript + Tailwind v4 + better-sqlite3. Reads Claude Code JSONL from `~/.claude/`, ingests into SQLite at `~/.claude/unfirehose.db`. Dashboard at `localhost:3000`.
 
 Key pages: Live, Active, Dashboard, Projects, Todos, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Settings.
 
@@ -47,7 +47,7 @@ Start every session by checking the todo landscape:
 curl -s localhost:3000/api/todos/summary | python3 -m json.tool
 
 # Actionable work for this project
-curl -s "localhost:3000/api/todos/pending?project=-home-fox-git-claude-sexy-logger"
+curl -s "localhost:3000/api/todos/pending?project=-home-fox-git-unfirehose"
 
 # Quick wins only (under 15 minutes)
 curl -s "localhost:3000/api/todos/pending?quick=true&limit=20"

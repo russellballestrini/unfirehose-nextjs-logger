@@ -3,7 +3,7 @@ import {
   getPosts,
   createPost,
   deletePost,
-} from '@sexy-logger/core/db/ingest';
+} from '@unfirehose/core/db/ingest';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
