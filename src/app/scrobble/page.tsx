@@ -121,6 +121,15 @@ export default function ScrobblePage() {
                 >
                   {p.visibility}
                 </span>
+                {p.autoDetected?.startsWith('public_remote:') && (
+                  <span
+                    className="text-xs px-1.5 py-0.5 rounded"
+                    style={{ color: '#10b981', backgroundColor: '#10b98122' }}
+                    title={p.autoDetected.replace('public_remote:', '')}
+                  >
+                    open source
+                  </span>
+                )}
               </div>
               <div className="text-xs text-[var(--color-muted)] mt-1">
                 {p.sessionCount} sessions / {p.messageCount.toLocaleString()} messages / {formatTokens(p.totalInput + p.totalOutput)} tokens
