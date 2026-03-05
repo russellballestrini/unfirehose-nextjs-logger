@@ -444,24 +444,35 @@ function HoseToggle({
   );
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace('#', '');
-  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+function hslToHex(h: number, s: number, l: number): string {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-function rgbToHex(r: number, g: number, b: number): string {
-  return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+function hexToHue(hex: string): number {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max === min) return 0;
+  const d = max - min;
+  let hue = 0;
+  if (max === r) hue = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+  else if (max === g) hue = ((b - r) / d + 2) * 60;
+  else hue = ((r - g) / d + 4) * 60;
+  return Math.round(hue);
 }
 
 function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
   const [hexInput, setHexInput] = useState(value);
-  const [r, g, b] = hexToRgb(value);
+  const hue = hexToHue(value);
 
-  // Sync when value changes externally (e.g. preset click)
-  useEffect(() => {
-    setHexInput(value);
-  }, [value]);
+  useEffect(() => { setHexInput(value); }, [value]);
 
   function commitHex(hex: string) {
     const clean = hex.replace(/[^0-9a-fA-F]/g, '');
@@ -471,21 +482,8 @@ function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: st
     }
   }
 
-  function setChannel(channel: 0 | 1 | 2, val: number) {
-    const rgb: [number, number, number] = [r, g, b];
-    rgb[channel] = Math.max(0, Math.min(255, val));
-    onChange(rgbToHex(...rgb));
-  }
-
-  const channels = [
-    { label: 'R', val: r, ch: 0 as const, color: '#f87171' },
-    { label: 'G', val: g, ch: 1 as const, color: '#4ade80' },
-    { label: 'B', val: b, ch: 2 as const, color: '#60a5fa' },
-  ];
-
   return (
     <div className="space-y-3">
-      {/* Hex input + preview swatch */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: value }} />
         <div className="flex items-center gap-1">
@@ -505,33 +503,17 @@ function HexColorPicker({ value, onChange }: { value: string; onChange: (hex: st
           />
         </div>
       </div>
-
-      {/* RGB sliders */}
-      {channels.map(({ label, val, ch, color }) => (
-        <div key={label} className="flex items-center gap-3">
-          <span className="w-4 text-base font-bold text-center" style={{ color }}>{label}</span>
-          <input
-            type="range"
-            min={0}
-            max={255}
-            value={val}
-            onChange={(e) => setChannel(ch, Number(e.target.value))}
-            className="flex-1 h-2 rounded appearance-none cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, ${rgbToHex(...([r, g, b].map((v, i) => i === ch ? 0 : v) as [number, number, number]))}, ${rgbToHex(...([r, g, b].map((v, i) => i === ch ? 255 : v) as [number, number, number]))})`,
-              accentColor: color,
-            }}
-          />
-          <input
-            type="number"
-            min={0}
-            max={255}
-            value={val}
-            onChange={(e) => setChannel(ch, Number(e.target.value))}
-            className="w-16 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-base font-mono text-center"
-          />
-        </div>
-      ))}
+      <input
+        type="range"
+        min={0}
+        max={360}
+        value={hue}
+        onChange={(e) => onChange(hslToHex(Number(e.target.value), 0.7, 0.55))}
+        className="w-full h-3 rounded-full appearance-none cursor-pointer"
+        style={{
+          background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+        }}
+      />
     </div>
   );
 }
