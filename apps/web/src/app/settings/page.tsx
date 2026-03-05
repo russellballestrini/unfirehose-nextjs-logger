@@ -478,29 +478,26 @@ function hexToHue(hex: string): number {
 function HexColorPicker({ value, settingKey }: { value: string; settingKey: string }) {
   const [color, setColor] = useState(value);
   const [hexText, setHexText] = useState(value.replace('#', ''));
-  const editingRef = useRef(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const committedRef = useRef(false);
+  const hexRef = useRef(value.replace('#', ''));
 
   const hue = hexToHue(color);
 
   function save(hex: string) {
-    setColor(hex);
-    setHexText(hex.replace('#', ''));
-    document.documentElement.style.setProperty('--color-accent', hex);
-    document.documentElement.style.setProperty('--color-assistant', hex);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set', key: settingKey, value: hex }),
-      });
-    }, 300);
+    const clean = hex.startsWith('#') ? hex : '#' + hex;
+    setColor(clean);
+    setHexText(clean.replace('#', ''));
+    hexRef.current = clean.replace('#', '');
+    document.documentElement.style.setProperty('--color-accent', clean);
+    document.documentElement.style.setProperty('--color-assistant', clean);
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set', key: settingKey, value: clean }),
+    });
   }
 
-  function commitHex() {
-    const clean = hexText.replace(/[^0-9a-fA-F]/g, '');
+  function tryCommit(text: string) {
+    const clean = text.replace(/[^0-9a-fA-F]/g, '');
     if (clean.length === 6) {
       save('#' + clean.toLowerCase());
     } else if (clean.length === 3) {
@@ -518,19 +515,13 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
             type="text"
             value={hexText}
             onChange={(e) => {
-              setHexText(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6));
+              const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+              setHexText(v);
+              hexRef.current = v;
             }}
-            onFocus={() => { editingRef.current = true; committedRef.current = false; }}
-            onBlur={() => {
-              editingRef.current = false;
-              if (!committedRef.current) commitHex();
-            }}
+            onBlur={() => tryCommit(hexRef.current)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                committedRef.current = true;
-                commitHex();
-              }
+              if (e.key === 'Enter') tryCommit(hexRef.current);
             }}
             className="w-24 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1.5 text-base font-mono"
             maxLength={6}
