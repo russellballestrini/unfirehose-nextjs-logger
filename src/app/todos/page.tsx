@@ -58,6 +58,8 @@ export default function TodosPage() {
   const [counts, setCounts] = useState<Counts>({ pending: 0, inProgress: 0, completed: 0, total: 0 });
   const [filter, setFilter] = useState<string>('active');
   const [loading, setLoading] = useState(true);
+  const [newTodo, setNewTodo] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const fetchTodos = useCallback(() => {
     setLoading(true);
@@ -86,6 +88,21 @@ export default function TodosPage() {
     });
     fetchTodos();
   }, [fetchTodos]);
+
+  const addTodo = useCallback(async () => {
+    if (!newTodo.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await fetch('/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newTodo.trim(), source: 'manual' }),
+      });
+      setNewTodo('');
+      fetchTodos();
+    } catch { /* silent */ }
+    setSubmitting(false);
+  }, [newTodo, submitting, fetchTodos]);
 
   // Collect all todos into columns
   const columns: Record<string, Todo[]> = { pending: [], in_progress: [], completed: [] };
@@ -141,6 +158,26 @@ export default function TodosPage() {
             All
           </button>
         </div>
+      </div>
+
+      {/* Add todo */}
+      <div className="flex gap-2 mb-4">
+        <input
+          type="text"
+          value={newTodo}
+          onChange={e => setNewTodo(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addTodo()}
+          placeholder="Add a task..."
+          className="flex-1 px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
+          disabled={submitting}
+        />
+        <button
+          onClick={addTodo}
+          disabled={submitting || !newTodo.trim()}
+          className="px-4 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {submitting ? '...' : 'Add'}
+        </button>
       </div>
 
       {/* Triage summary */}
