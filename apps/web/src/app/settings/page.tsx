@@ -699,14 +699,14 @@ function BootstrapPanel() {
             value={projectPath}
             onChange={e => {
               setProjectPath(e.target.value);
-              const proj = projectList.find((p: any) => p.originalPath === e.target.value);
+              const proj = projectList.find((p: any) => p.path === e.target.value);
               setProjectName(proj?.name ?? '');
             }}
             className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
           >
             <option value="">select project...</option>
             {projectList.map((p: any) => (
-              <option key={p.name} value={p.originalPath || ''}>
+              <option key={p.name} value={p.path || ''}>
                 {p.displayName || p.name}
               </option>
             ))}

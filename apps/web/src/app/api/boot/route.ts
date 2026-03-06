@@ -317,8 +317,72 @@ async function bootScreen(opts: BootOpts) {
   });
 }
 
+// Get the primary git fetch remote URL for a local project path
+async function getLocalGitRemote(projectPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec('git', ['-C', projectPath, 'remote', '-v'], { timeout: 5000 });
+    // Prefer origin fetch, fallback to any fetch remote
+    const lines = stdout.trim().split('\n').filter(Boolean);
+    const originFetch = lines.find(l => l.startsWith('origin\t') && l.includes('(fetch)'));
+    const anyFetch = lines.find(l => l.includes('(fetch)'));
+    const line = originFetch || anyFetch;
+    if (!line) return null;
+    const match = line.match(/\t(\S+)\s+\(fetch\)/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Get the default branch (main or master) for a local repo
+async function getLocalDefaultBranch(projectPath: string): Promise<string> {
+  try {
+    const { stdout } = await exec('git', ['-C', projectPath, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 });
+    return stdout.trim() || 'main';
+  } catch {
+    return 'main';
+  }
+}
+
+// Ensure the project repo exists on the remote host, clone if needed
+async function ensureRemoteRepo(sshBase: string[], projectPath: string) {
+  const sshCmd = sshBase[0];
+  const sshArgs = sshBase.slice(1);
+
+  // Check if project dir exists on remote
+  try {
+    await exec(sshCmd, [...sshArgs, `test -d '${projectPath}'`], { timeout: 10000 });
+    return; // exists, nothing to do
+  } catch {
+    // doesn't exist — need to clone
+  }
+
+  // Get git remote URL from local project
+  const remoteUrl = await getLocalGitRemote(projectPath);
+  if (!remoteUrl) {
+    // No git remote — just create the directory so the harness can start
+    await exec(sshCmd, [...sshArgs, `mkdir -p '${projectPath}'`], { timeout: 10000 });
+    return;
+  }
+
+  const defaultBranch = await getLocalDefaultBranch(projectPath);
+  const parentDir = path.dirname(projectPath);
+
+  // Clone the repo on remote (SSH agent forwarding passes keys)
+  const cloneCmd = [
+    `mkdir -p '${parentDir}'`,
+    `cd '${parentDir}'`,
+    `git clone '${remoteUrl}' '${path.basename(projectPath)}'`,
+    `cd '${path.basename(projectPath)}'`,
+    `git checkout '${defaultBranch}' 2>/dev/null || true`,
+  ].join(' && ');
+
+  await exec(sshCmd, [...sshArgs, cloneCmd], { timeout: 120000 });
+}
+
 async function bootRemote(host: string, opts: BootOpts) {
-  const sshBase = ['ssh', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no', host];
+  // -A enables agent forwarding so git on remote can use local SSH keys
+  const sshBase = ['ssh', '-A', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no', host];
 
   // Pre-flight: check claude is available on remote
   try {
@@ -341,6 +405,9 @@ async function bootRemote(host: string, opts: BootOpts) {
       host,
     }, { status: 500 });
   }
+
+  // Ensure project repo exists on remote — clone if missing
+  await ensureRemoteRepo(sshBase, opts.projectPath);
 
   // Build the claude command for remote execution
   const claudeCmd = buildClaudeCmd(opts);
