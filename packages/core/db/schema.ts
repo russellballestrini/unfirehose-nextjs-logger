@@ -215,6 +215,25 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Mesh node snapshots for time-series charts (watts, load, ISP cost)
+    CREATE TABLE IF NOT EXISTS mesh_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      hostname TEXT NOT NULL,
+      cpu_cores INTEGER,
+      load_avg_1 REAL,
+      load_avg_5 REAL,
+      load_avg_15 REAL,
+      mem_total_gb REAL,
+      mem_used_gb REAL,
+      power_watts REAL,
+      gpu_power_watts REAL,
+      power_source TEXT,
+      claude_processes INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_ts ON mesh_snapshots(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_host ON mesh_snapshots(hostname, timestamp);
+
     -- Indexes for fast queries
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);

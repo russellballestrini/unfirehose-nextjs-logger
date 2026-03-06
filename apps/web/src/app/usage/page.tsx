@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTokens, formatRelativeTime } from '@unfirehose/core/format';
@@ -9,9 +9,12 @@ import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unfirehose/
 import {
   AreaChart,
   Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from 'recharts';
 
@@ -79,6 +82,27 @@ export default function UsageMonitorPage() {
   const { data: mesh } = useSWR('/api/mesh', fetcher, {
     refreshInterval: 15000,
   });
+  const meshHistoryHours = window === 0 ? 720 : Math.max(1, Math.ceil(window / 60));
+  const { data: meshHistory, mutate: mutateMeshHistory } = useSWR(
+    `/api/mesh/history?hours=${meshHistoryHours}`,
+    fetcher,
+    { refreshInterval: 30000 }
+  );
+
+  // Record mesh snapshot every time mesh data refreshes
+  const lastSnapshotRef = useRef<string>('');
+  useEffect(() => {
+    if (!mesh?.nodes?.length) return;
+    const key = mesh.nodes.map((n: any) => `${n.hostname}:${n.loadAvg?.[0]}`).join(',');
+    if (key === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = key;
+    fetch('/api/mesh/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes: mesh.nodes }),
+    }).then(() => mutateMeshHistory());
+  }, [mesh, mutateMeshHistory]);
+
   const { data: apmonitor } = useSWR('/api/apmonitor', fetcher, {
     refreshInterval: 15000,
   });
@@ -301,6 +325,98 @@ export default function UsageMonitorPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mesh Time-Series Charts */}
+      {meshHistory?.timeline?.length > 0 && (
+        <div className="space-y-4">
+          {/* Power Wattage */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              Compute Wattage
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {meshHistory.timeline[meshHistory.timeline.length - 1]?.totalWatts ?? 0}W current
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={meshHistory.timeline}>
+                <XAxis
+                  dataKey="timestamp"
+                  tick={{ fill: '#71717a', fontSize: 12 }}
+                  tickFormatter={(t: string) => t.slice(11, 16)}
+                />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
+                <Tooltip
+                  labelFormatter={(t: string) => t}
+                  formatter={(v: number, name: string) => [`${v}W`, name]}
+                  contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="totalWatts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
+                {meshHistory.timeline.some((t: any) => t.gpuWatts > 0) && (
+                  <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* CPU Load */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              CPU Load
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {meshHistory.timeline[meshHistory.timeline.length - 1]?.totalLoad ?? 0} / {meshHistory.timeline[meshHistory.timeline.length - 1]?.totalCores ?? 0} cores
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={meshHistory.timeline}>
+                <XAxis
+                  dataKey="timestamp"
+                  tick={{ fill: '#71717a', fontSize: 12 }}
+                  tickFormatter={(t: string) => t.slice(11, 16)}
+                />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
+                <Tooltip
+                  labelFormatter={(t: string) => t}
+                  formatter={(v: number, name: string) => [typeof v === 'number' ? v.toFixed(1) : v, name]}
+                  contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
+                />
+                <Legend />
+                <Area type="monotone" dataKey="totalCores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
+                <Area type="monotone" dataKey="totalLoad" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Memory Usage */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              Memory Usage
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {meshHistory.timeline[meshHistory.timeline.length - 1]?.memUsedGB ?? 0} / {meshHistory.timeline[meshHistory.timeline.length - 1]?.memTotalGB ?? 0} GB
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={meshHistory.timeline}>
+                <XAxis
+                  dataKey="timestamp"
+                  tick={{ fill: '#71717a', fontSize: 12 }}
+                  tickFormatter={(t: string) => t.slice(11, 16)}
+                />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
+                <Tooltip
+                  labelFormatter={(t: string) => t}
+                  formatter={(v: number, name: string) => [`${v}GB`, name]}
+                  contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
+                />
+                <Legend />
+                <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
+                <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}
