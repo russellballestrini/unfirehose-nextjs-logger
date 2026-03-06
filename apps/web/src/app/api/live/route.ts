@@ -25,49 +25,32 @@ async function findHotSessions(): Promise<TrackedFile[]> {
     const dirStat = await stat(projDir).catch(() => null);
     if (!dirStat?.isDirectory()) continue;
 
-    // Check sessions-index for recent sessions
+    // Read sessions-index for originalPath metadata
+    let originalPath: string | undefined;
     try {
       const indexRaw = await readFile(claudePaths.sessionsIndex(dir), 'utf-8');
       const index: SessionsIndex = JSON.parse(indexRaw);
+      originalPath = index.originalPath;
+    } catch { /* no index */ }
 
-      for (const entry of index.entries) {
-        const modified = entry.modified ? new Date(entry.modified).getTime() : 0;
-        if (modified < cutoff) continue;
-
-        const filePath = claudePaths.sessionFile(dir, entry.sessionId);
+    // Scan all JSONL files by mtime (index doesn't always track all sessions)
+    try {
+      const files = await readdir(projDir);
+      for (const f of files) {
+        if (!f.endsWith('.jsonl')) continue;
+        const filePath = path.join(projDir, f);
         const fstat = await stat(filePath).catch(() => null);
-        if (!fstat) continue;
-
-        // Also check actual file mtime
-        if (fstat.mtimeMs >= cutoff) {
+        if (fstat && fstat.mtimeMs >= cutoff) {
           hot.push({
             path: filePath,
             project: dir,
-            sessionId: entry.sessionId,
+            sessionId: f.replace('.jsonl', ''),
             size: fstat.size,
-            originalPath: index.originalPath,
+            originalPath,
           });
         }
       }
-    } catch {
-      // No index — scan JSONL files directly
-      try {
-        const files = await readdir(projDir);
-        for (const f of files) {
-          if (!f.endsWith('.jsonl')) continue;
-          const filePath = path.join(projDir, f);
-          const fstat = await stat(filePath).catch(() => null);
-          if (fstat && fstat.mtimeMs >= cutoff) {
-            hot.push({
-              path: filePath,
-              project: dir,
-              sessionId: f.replace('.jsonl', ''),
-              size: fstat.size,
-            });
-          }
-        }
-      } catch { /* skip */ }
-    }
+    } catch { /* skip */ }
   }
 
   return hot;
