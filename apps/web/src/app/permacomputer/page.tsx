@@ -1240,8 +1240,6 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
   const score = useMemo(() => computeMeshScore(econNodes, geoipNodes, firstMeshHostname), [econNodes, geoipNodes, firstMeshHostname]);
   const configuredCount = econNodes.filter(n => n.econ.location).length;
 
-  if (allNodes.length === 0) return null;
-
   // Aggregate by provider
   const byProvider = useMemo(() => {
     const map = new Map<string, { count: number; cost: number }>();
@@ -1262,6 +1260,8 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [econNodes]);
+
+  if (allNodes.length === 0) return null;
 
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
