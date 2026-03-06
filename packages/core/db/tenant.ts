@@ -70,3 +70,14 @@ export function closeAllTenantDbs(): void {
   }
   pool.clear();
 }
+
+/**
+ * Delete data older than `days` for free-tier accounts.
+ * Runs on ingest to keep free-tier DBs bounded.
+ */
+export function pruneOldData(db: Database.Database, days: number): number {
+  if (!isFinite(days)) return 0;
+  const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
+  const result = db.prepare('DELETE FROM logs WHERE timestamp < ?').run(cutoff);
+  return result.changes;
+}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ingestAll, getDbStats, ingestJsonlLines } from '@unfirehose/core/db/ingest';
 import { isMultiTenant, authenticateRequest } from '@unfirehose/core/auth';
-import { getTenantDb } from '@unfirehose/core/db/tenant';
+import { getTenantDb, pruneOldData } from '@unfirehose/core/db/tenant';
 import { getControlDb } from '@unfirehose/core/db/control';
 import { uuidv7 } from '@unfirehose/core/uuidv7';
 import { tierLimits } from '@unfirehose/core/tiers';
@@ -68,6 +68,11 @@ async function handleCloudIngest(request: NextRequest) {
   }
 
   const result = ingestJsonlLines(tenantDb, lines, projectName, sessionUuid);
+
+  // Prune old data for free-tier accounts
+  if (limits.dataWindowDays < Infinity) {
+    pruneOldData(tenantDb, limits.dataWindowDays);
+  }
 
   const controlDb = getControlDb();
   controlDb.prepare(`
