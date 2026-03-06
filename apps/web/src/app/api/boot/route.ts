@@ -125,8 +125,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Register deployment so orchestrators auto-cull when todos complete
-    if (todoIds?.length > 0 && projectName) {
+    // Register every deployment so UNEOF cull can find it
+    if (projectName) {
       try {
         const db = getDb();
         const proj = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: number } | undefined;
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
           db.prepare(`
             INSERT INTO agent_deployments (tmux_session, tmux_window, project_id, todo_ids, status, started_at)
             VALUES (?, ?, ?, ?, 'running', datetime('now'))
-          `).run(sessionName, windowName, proj.id, JSON.stringify(todoIds));
+          `).run(sessionName, windowName, proj.id, JSON.stringify(todoIds ?? []));
         }
       } catch { /* non-fatal */ }
     }
