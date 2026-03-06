@@ -17,7 +17,8 @@ const AGENT_SYSTEM_PROMPT = `You are a deployed agent. Follow these rules:
 - Commit and push your work after completing each task or logical group.
 - Check docs/tickets/ for related ticket files. Update ticket status when work is complete.
 - Update relevant docs when your changes affect them.
-- Never force push. If something is unclear or risky, skip it.`;
+- Never force push. If something is unclear or risky, skip it.
+- When all work is complete, signal finished: curl -X POST localhost:3000/api/boot/finished -H 'Content-Type: application/json' -d '{"tmuxSession": "'$UNFIREHOSE_TMUX_SESSION'", "tmuxWindow": "'$UNFIREHOSE_TMUX_WINDOW'"}'`;
 
 function exec(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -259,12 +260,17 @@ async function bootTmux(opts: BootOpts) {
   // Wait for bash to initialize
   await new Promise(resolve => setTimeout(resolve, 1500));
 
-  const envPrefix = opts.parentSessionUuid
-    ? `export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid} && `
-    : '';
+  const envVars = [
+    'unset CLAUDECODE',
+    `export UNFIREHOSE_TMUX_SESSION=${opts.sessionName}`,
+    `export UNFIREHOSE_TMUX_WINDOW=${opts.windowName}`,
+  ];
+  if (opts.parentSessionUuid) {
+    envVars.push(`export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid}`);
+  }
   await exec('tmux', [
     'send-keys', '-t', target,
-    `unset CLAUDECODE && ${envPrefix}${parts.join(' ')}`,
+    `${envVars.join(' && ')} && ${parts.join(' ')}`,
     'Enter',
   ], { timeout: 5000 });
 
@@ -328,9 +334,14 @@ async function bootRemote(host: string, opts: BootOpts) {
 
   // Build the claude command for remote execution
   const claudeCmd = buildClaudeCmd(opts);
-  const envPrefix = opts.parentSessionUuid
-    ? `export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid} && `
-    : '';
+  const envVars = [
+    'unset CLAUDECODE',
+    `export UNFIREHOSE_TMUX_SESSION=${opts.sessionName}`,
+    `export UNFIREHOSE_TMUX_WINDOW=${opts.windowName}`,
+  ];
+  if (opts.parentSessionUuid) {
+    envVars.push(`export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid}`);
+  }
 
   // Build system prompt append if yolo
   let sysPromptArg = '';
@@ -347,7 +358,7 @@ async function bootRemote(host: string, opts: BootOpts) {
     promptArg = ` '${escaped}'`;
   }
 
-  const fullCmd = `unset CLAUDECODE && ${envPrefix}${claudeCmd}${sysPromptArg}${promptArg}`;
+  const fullCmd = `${envVars.join(' && ')} && ${claudeCmd}${sysPromptArg}${promptArg}`;
   const target = `${opts.sessionName}:${opts.windowName}`;
 
   // Create session if it doesn't exist, otherwise add a new window
