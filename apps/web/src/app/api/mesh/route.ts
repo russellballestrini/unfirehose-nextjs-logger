@@ -113,7 +113,11 @@ function estimateWattsFromLoad(cores: number, load1m: number): number {
 
 function getLocalStats(): MeshNode {
   try {
-    const hostname = execSync('hostname', { encoding: 'utf-8' }).trim();
+    let hostname = execSync('hostname', { encoding: 'utf-8' }).trim();
+    try {
+      const fqdn = execSync('hostname -f', { encoding: 'utf-8' }).trim();
+      if (fqdn && fqdn.includes('.')) hostname = fqdn;
+    } catch { /* no FQDN available */ }
 
     // CPU cores
     const cpuCores = parseInt(execSync('nproc', { encoding: 'utf-8' }).trim());
@@ -182,11 +186,13 @@ function getLocalStats(): MeshNode {
 function getRemoteStats(host: string): MeshNode {
   try {
     // Main stats command
-    const cmd = `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'hostname && nproc && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux | grep -i "[c]laude" | wc -l'`;
+    const cmd = `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'hostname -f 2>/dev/null || hostname && nproc && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux | grep -i "[c]laude" | wc -l'`;
     const output = execSync(cmd, { encoding: 'utf-8', timeout: 10000 });
     const lines = output.trim().split('\n');
 
-    const hostname = lines[0];
+    // Prefer the SSH config host if it's a FQDN, otherwise use what the remote reported
+    const remoteHostname = lines[0];
+    const hostname = host.includes('.') ? host : (remoteHostname.includes('.') ? remoteHostname : host);
     const cpuCores = parseInt(lines[1]);
 
     // Parse meminfo from remote
