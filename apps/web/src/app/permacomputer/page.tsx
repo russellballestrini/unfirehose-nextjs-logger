@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unfirehose/ui/PageContext';
 
@@ -266,6 +266,30 @@ export default function PermacomputerPage() {
     mutateSettings((prev: any) => ({ ...prev, [key]: value }), { revalidate: false });
     await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key, value }) });
   }, [mutateSettings]);
+
+  // Auto-apply GeoIP on first load for nodes without saved econ
+  const autoAppliedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!geoipData?.nodes || !settings) return;
+    const geoNodes: any[] = geoipData.nodes;
+    for (const geo of geoNodes) {
+      if (geo.error || !geo.lat || autoAppliedRef.current.has(geo.hostname)) continue;
+      const key = nodeEconKey(geo.hostname);
+      if (settings[key]) continue; // already has per-node config
+      autoAppliedRef.current.add(geo.hostname);
+      const defaults = getDefaultEcon(settings);
+      const locationLabel = [geo.city, geo.regionCode, geo.countryCode].filter(Boolean).join(', ');
+      const econ: NodeEcon = {
+        ...defaults,
+        lat: geo.lat,
+        lon: geo.lon,
+        location: locationLabel,
+        notes: `${geo.isp}${geo.as ? ` (${geo.as})` : ''}`,
+      };
+      const withRegion = applyGeoRegionElectricity(econ, settings);
+      saveNodeEcon(geo.hostname, withRegion);
+    }
+  }, [geoipData, settings, saveNodeEcon]);
 
   // Build combined node list: mesh nodes enriched with SSH config
   const allNodes = useMemo(() => {
