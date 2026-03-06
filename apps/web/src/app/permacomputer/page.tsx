@@ -39,7 +39,7 @@ interface NodeEcon {
   notes: string;
 }
 
-const DEFAULT_ECON: NodeEcon = {
+const HARDCODED_DEFAULTS: NodeEcon = {
   ispCostMonthly: 110,
   electricityCostKwh: 0.12,
   location: '',
@@ -49,6 +49,51 @@ const DEFAULT_ECON: NodeEcon = {
   lon: 0,
   notes: '',
 };
+
+// Geo-region keys mapped to lat/lon bounding boxes for auto-matching
+const GEO_REGION_BOUNDS: { key: string; latMin: number; latMax: number; lonMin: number; lonMax: number }[] = [
+  { key: 'us-east', latMin: 24, latMax: 50, lonMin: -85, lonMax: -66 },
+  { key: 'us-west', latMin: 30, latMax: 50, lonMin: -125, lonMax: -110 },
+  { key: 'us-midwest', latMin: 36, latMax: 50, lonMin: -110, lonMax: -85 },
+  { key: 'us-south', latMin: 24, latMax: 36, lonMin: -110, lonMax: -85 },
+  { key: 'eu-west', latMin: 36, latMax: 60, lonMin: -10, lonMax: 3 },
+  { key: 'eu-central', latMin: 45, latMax: 55, lonMin: 3, lonMax: 25 },
+  { key: 'eu-north', latMin: 55, latMax: 72, lonMin: -10, lonMax: 30 },
+  { key: 'ap-east', latMin: 30, latMax: 46, lonMin: 125, lonMax: 150 },
+  { key: 'ap-south', latMin: 6, latMax: 36, lonMin: 68, lonMax: 98 },
+  { key: 'ap-southeast', latMin: -10, latMax: 25, lonMin: 95, lonMax: 140 },
+  { key: 'sa-east', latMin: -55, latMax: 15, lonMin: -82, lonMax: -34 },
+  { key: 'oc', latMin: -48, latMax: -10, lonMin: 110, lonMax: 180 },
+];
+
+function detectGeoRegion(lat: number, lon: number): string | null {
+  for (const r of GEO_REGION_BOUNDS) {
+    if (lat >= r.latMin && lat <= r.latMax && lon >= r.lonMin && lon <= r.lonMax) return r.key;
+  }
+  return null;
+}
+
+function getDefaultEcon(settings: any): NodeEcon {
+  return {
+    ispCostMonthly: parseFloat(settings?.mesh_default_isp_cost) || HARDCODED_DEFAULTS.ispCostMonthly,
+    electricityCostKwh: parseFloat(settings?.mesh_default_electricity_kwh) || HARDCODED_DEFAULTS.electricityCostKwh,
+    location: '',
+    provider: settings?.mesh_default_provider || HARDCODED_DEFAULTS.provider,
+    linkMbps: parseFloat(settings?.mesh_default_link_mbps) || HARDCODED_DEFAULTS.linkMbps,
+    lat: 0,
+    lon: 0,
+    notes: '',
+  };
+}
+
+function applyGeoRegionElectricity(econ: NodeEcon, settings: any): NodeEcon {
+  if (!econ.lat && !econ.lon) return econ;
+  const region = detectGeoRegion(econ.lat, econ.lon);
+  if (!region) return econ;
+  const regionRate = settings?.[`mesh_region_electricity_${region}`];
+  if (!regionRate) return econ;
+  return { ...econ, electricityCostKwh: parseFloat(regionRate) || econ.electricityCostKwh };
+}
 
 const PROVIDERS = [
   { value: 'home', label: 'Home ISP' },
@@ -181,18 +226,39 @@ export default function PermacomputerPage() {
   const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
   const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[] }>('/api/ssh-config', fetcher);
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
+  const geoipEnabled = settings?.mesh_geoip_auto !== 'false';
+  const { data: geoipData, isLoading: geoipLoading } = useSWR(
+    geoipEnabled ? '/api/mesh/geoip' : null,
+    fetcher,
+    { refreshInterval: 0, revalidateOnFocus: false }
+  );
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   const hosts = sshData?.hosts ?? [];
   const meshNodes: any[] = mesh?.nodes ?? [];
   const reachable = meshNodes.filter((n: any) => n.reachable);
 
-  // Load per-node economics from settings
+  // Load per-node economics: settings defaults → geo-region override → per-node override
   const getNodeEcon = useCallback((hostname: string): NodeEcon => {
+    const defaults = getDefaultEcon(settings);
     const raw = settings?.[nodeEconKey(hostname)];
-    if (!raw) return { ...DEFAULT_ECON };
-    try { return { ...DEFAULT_ECON, ...JSON.parse(raw) }; } catch { return { ...DEFAULT_ECON }; }
+    if (!raw) return { ...defaults };
+    try {
+      const perNode = { ...defaults, ...JSON.parse(raw) };
+      // Apply geo-region electricity if the per-node value matches the global default (not manually overridden)
+      const parsed = JSON.parse(raw);
+      if (parsed.electricityCostKwh === undefined) {
+        return applyGeoRegionElectricity(perNode, settings);
+      }
+      return perNode;
+    } catch { return { ...defaults }; }
   }, [settings]);
+
+  // GeoIP lookup by hostname
+  const getNodeGeoIP = useCallback((hostname: string) => {
+    const nodes: any[] = geoipData?.nodes ?? [];
+    return nodes.find((n: any) => n.hostname === hostname || n.hostname === 'localhost' && hostname === (mesh?.nodes?.[0]?.hostname ?? 'localhost'));
+  }, [geoipData, mesh]);
 
   const saveNodeEcon = useCallback(async (hostname: string, econ: NodeEcon) => {
     const key = nodeEconKey(hostname);
@@ -240,7 +306,7 @@ export default function PermacomputerPage() {
       </div>
 
       {/* Mesh Summary Bar */}
-      {mesh?.summary && <MeshSummaryBar summary={mesh.summary} />}
+      {mesh?.summary && <MeshSummaryBar summary={mesh.summary} geoipLoading={geoipLoading} geoipCount={geoipData?.nodes?.filter((n: any) => !n.error).length ?? 0} />}
 
       {/* Mesh Economics */}
       <MeshEconomicsPanel allNodes={allNodes} meshNodes={meshNodes} getNodeEcon={getNodeEcon} />
@@ -253,6 +319,7 @@ export default function PermacomputerPage() {
             node={meshNode}
             sshHost={sshHost}
             econ={getNodeEcon(key)}
+            geoip={getNodeGeoIP(key)}
             isSelected={selectedNode === key}
             onSelect={() => setSelectedNode(selectedNode === key ? null : key)}
           />
@@ -272,6 +339,8 @@ export default function PermacomputerPage() {
           mutateMesh={mutateMesh}
           econ={getNodeEcon(selectedNode)}
           onSaveEcon={(econ) => saveNodeEcon(selectedNode, econ)}
+          geoip={getNodeGeoIP(selectedNode)}
+          settings={settings}
         />
       )}
 
@@ -288,7 +357,7 @@ export default function PermacomputerPage() {
 // Mesh Summary Bar
 // ============================================================
 
-function MeshSummaryBar({ summary }: { summary: any }) {
+function MeshSummaryBar({ summary, geoipLoading, geoipCount }: { summary: any; geoipLoading?: boolean; geoipCount?: number }) {
   const memPct = summary.totalMemGB > 0 ? Math.round((summary.totalMemUsedGB / summary.totalMemGB) * 100) : 0;
   const allGreen = summary.reachableNodes === summary.totalNodes;
 
@@ -321,6 +390,10 @@ function MeshSummaryBar({ summary }: { summary: any }) {
         <span className={`text-base font-bold ${allGreen ? 'text-green-400' : 'text-yellow-400'}`}>
           {allGreen ? 'all green' : 'degraded'}
         </span>
+        {geoipLoading && <span className="text-xs text-[var(--color-muted)] animate-pulse">geoip...</span>}
+        {!geoipLoading && geoipCount !== undefined && geoipCount > 0 && (
+          <span className="text-xs text-[var(--color-muted)]">{geoipCount} geolocated</span>
+        )}
       </div>
     </div>
   );
@@ -339,8 +412,8 @@ function MiniStat({ label, value, accent }: { label: string; value: string | num
 // Node Card (compact, clickable)
 // ============================================================
 
-function NodeCard({ node, sshHost, econ, isSelected, onSelect }: {
-  node: any; sshHost?: SshHost; econ: NodeEcon; isSelected: boolean; onSelect: () => void;
+function NodeCard({ node, sshHost, econ, geoip, isSelected, onSelect }: {
+  node: any; sshHost?: SshHost; econ: NodeEcon; geoip?: any; isSelected: boolean; onSelect: () => void;
 }) {
   const reachable = node?.reachable;
   const name = sshHost?.name ?? node?.hostname ?? '?';
@@ -392,8 +465,10 @@ function NodeCard({ node, sshHost, econ, isSelected, onSelect }: {
             <span>{cpuCores} cores</span>
             {swap > 0 && <span className="text-yellow-400">swap {swap}G</span>}
             {node.uptime && <span>up {node.uptime}</span>}
-            {econ.location && <span className="text-[var(--color-accent)]/70">{econ.location}</span>}
-            {econ.provider !== 'home' && <span>{PROVIDERS.find(p => p.value === econ.provider)?.label ?? econ.provider}</span>}
+            {geoip?.city && <span className="text-[var(--color-accent)]/70">{geoip.city}, {geoip.countryCode}</span>}
+            {!geoip?.city && econ.location && <span className="text-[var(--color-accent)]/70">{econ.location}</span>}
+            {geoip?.isp && <span className="truncate max-w-[120px]">{geoip.isp}</span>}
+            {!geoip?.isp && econ.provider !== 'home' && <span>{PROVIDERS.find(p => p.value === econ.provider)?.label ?? econ.provider}</span>}
             <span className="ml-auto">${econ.ispCostMonthly}/mo</span>
           </div>
         </>
@@ -465,7 +540,7 @@ function AddNodeButton({ hosts, keys, mutate }: { hosts: SshHost[]; keys: string
 // Node Detail Panel (expanded view with deep probe data)
 // ============================================================
 
-function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh, mutateMesh, econ, onSaveEcon }: {
+function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh, mutateMesh, econ, onSaveEcon, geoip, settings }: {
   hostname: string;
   sshHost?: SshHost;
   meshNode?: any;
@@ -475,6 +550,8 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
   mutateMesh: () => void;
   econ: NodeEcon;
   onSaveEcon: (econ: NodeEcon) => void;
+  geoip?: any;
+  settings?: any;
 }) {
   const probeHost = sshHost?.hostname ?? sshHost?.name ?? hostname;
   const { data: detail, isLoading, mutate: mutateDetail } = useSWR(
@@ -571,7 +648,7 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
         {detail?.reachable && activeTab === 'disk' && <DiskTab detail={detail} />}
         {detail?.reachable && activeTab === 'network' && <NetworkTab detail={detail} />}
         {detail?.reachable && activeTab === 'sessions' && <SessionsTab detail={detail} />}
-        {activeTab === 'economics' && <EconomicsTab hostname={hostname} econ={econ} onSave={onSaveEcon} meshNode={meshNode} />}
+        {activeTab === 'economics' && <EconomicsTab hostname={hostname} econ={econ} onSave={onSaveEcon} meshNode={meshNode} geoip={geoip} settings={settings} />}
       </div>
     </div>
   );
@@ -1167,8 +1244,8 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon }: {
 // Economics Tab (per-node)
 // ============================================================
 
-function EconomicsTab({ hostname, econ, onSave, meshNode }: {
-  hostname: string; econ: NodeEcon; onSave: (e: NodeEcon) => void; meshNode?: any;
+function EconomicsTab({ hostname, econ, onSave, meshNode, geoip, settings }: {
+  hostname: string; econ: NodeEcon; onSave: (e: NodeEcon) => void; meshNode?: any; geoip?: any; settings?: any;
 }) {
   const [form, setForm] = useState<NodeEcon>(econ);
   const [saved, setSaved] = useState(false);
@@ -1191,6 +1268,22 @@ function EconomicsTab({ hostname, econ, onSave, meshNode }: {
     } else {
       setForm({ ...form, location: loc });
     }
+  };
+
+  // Auto-populate from GeoIP data
+  const applyGeoIP = () => {
+    if (!geoip || geoip.error) return;
+    const locationLabel = [geoip.city, geoip.regionCode, geoip.countryCode].filter(Boolean).join(', ');
+    const updated: NodeEcon = {
+      ...form,
+      lat: geoip.lat || form.lat,
+      lon: geoip.lon || form.lon,
+      location: locationLabel || form.location,
+      notes: form.notes || `${geoip.isp}${geoip.as ? ` (${geoip.as})` : ''}`,
+    };
+    // Apply geo-region electricity rate if available
+    const withRegion = applyGeoRegionElectricity(updated, settings);
+    setForm(withRegion);
   };
 
   // Power cost estimate
@@ -1264,6 +1357,31 @@ function EconomicsTab({ hostname, econ, onSave, meshNode }: {
           placeholder="e.g. Comcast 1Gbps, basement rack, UPS battery backup"
           className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base" />
       </div>
+
+      {/* GeoIP auto-populate */}
+      {geoip && !geoip.error && (
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-[var(--color-muted)]">GeoIP Detection</div>
+            <button onClick={applyGeoIP}
+              className="px-3 py-1 text-xs font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors cursor-pointer">
+              Apply GeoIP Data
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div><span className="text-[var(--color-muted)]">IP:</span> <span className="font-mono">{geoip.ip}</span></div>
+            <div><span className="text-[var(--color-muted)]">Location:</span> {geoip.city}, {geoip.region}, {geoip.countryCode}</div>
+            <div><span className="text-[var(--color-muted)]">ISP:</span> {geoip.isp}</div>
+            <div><span className="text-[var(--color-muted)]">Coords:</span> <span className="font-mono">{geoip.lat}, {geoip.lon}</span></div>
+          </div>
+          {geoip.org && geoip.org !== geoip.isp && (
+            <div className="text-xs"><span className="text-[var(--color-muted)]">Org:</span> {geoip.org} <span className="text-[var(--color-muted)]">AS:</span> {geoip.as}</div>
+          )}
+        </div>
+      )}
+      {geoip?.error && (
+        <div className="text-xs text-yellow-400">GeoIP: {geoip.error}</div>
+      )}
 
       {/* Save */}
       <div className="flex items-center gap-3">

@@ -64,6 +64,13 @@ const SETTINGS_KEYS = {
   firehoseEndpoint: 'unfirehose_endpoint',
   firehoseEnabled: 'unfirehose_enabled',
   scrobbleEnabled: 'unfirehose_scrobble',
+  // Mesh defaults
+  meshDefaultIspCost: 'mesh_default_isp_cost',
+  meshDefaultElectricity: 'mesh_default_electricity_kwh',
+  meshDefaultProvider: 'mesh_default_provider',
+  meshDefaultLinkMbps: 'mesh_default_link_mbps',
+  meshCurrencyOracle: 'mesh_currency_oracle',
+  meshGeoipAuto: 'mesh_geoip_auto',
 };
 
 export default function SettingsPage() {
@@ -128,6 +135,14 @@ export default function SettingsPage() {
   const totalPrompts = activity
     ? activity.reduce((s: number, p: { user_messages?: number }) => s + (p.user_messages ?? 0), 0)
     : 0;
+
+  // Mesh defaults
+  const meshDefaultIspCost = settings?.[SETTINGS_KEYS.meshDefaultIspCost] ?? '110';
+  const meshDefaultElectricity = settings?.[SETTINGS_KEYS.meshDefaultElectricity] ?? '0.12';
+  const meshDefaultProvider = settings?.[SETTINGS_KEYS.meshDefaultProvider] ?? 'home';
+  const meshDefaultLinkMbps = settings?.[SETTINGS_KEYS.meshDefaultLinkMbps] ?? '100';
+  const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
+  const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
   const selectedPlanData = PLANS.find((p) => p.value === currentPlan);
 
@@ -227,6 +242,89 @@ export default function SettingsPage() {
           <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
           <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
         </div>
+      </div>
+
+      {/* Mesh Defaults */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+        <h3 className="text-base font-bold text-[var(--color-muted)]">Mesh Defaults</h3>
+        <p className="text-base text-[var(--color-muted)]">
+          Default values for new nodes. Per-node overrides in Permacomputer → node Economics tab.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-base text-[var(--color-muted)] block mb-1">ISP Cost ($/mo)</label>
+            <input
+              type="number"
+              defaultValue={meshDefaultIspCost}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+              onBlur={(e) => {
+                if (e.target.value !== meshDefaultIspCost) saveSetting(SETTINGS_KEYS.meshDefaultIspCost, e.target.value);
+              }}
+            />
+          </div>
+          <div>
+            <label className="text-base text-[var(--color-muted)] block mb-1">Electricity ($/kWh)</label>
+            <input
+              type="number"
+              step="0.01"
+              defaultValue={meshDefaultElectricity}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+              onBlur={(e) => {
+                if (e.target.value !== meshDefaultElectricity) saveSetting(SETTINGS_KEYS.meshDefaultElectricity, e.target.value);
+              }}
+            />
+          </div>
+          <div>
+            <label className="text-base text-[var(--color-muted)] block mb-1">Default Provider</label>
+            <select
+              defaultValue={meshDefaultProvider}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+              onChange={(e) => saveSetting(SETTINGS_KEYS.meshDefaultProvider, e.target.value)}
+            >
+              {MESH_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-base text-[var(--color-muted)] block mb-1">Link Speed (Mbps)</label>
+            <input
+              type="number"
+              defaultValue={meshDefaultLinkMbps}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+              onBlur={(e) => {
+                if (e.target.value !== meshDefaultLinkMbps) saveSetting(SETTINGS_KEYS.meshDefaultLinkMbps, e.target.value);
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 text-base">
+            <input
+              type="checkbox"
+              checked={meshGeoipAuto}
+              className="accent-[var(--color-accent)]"
+              onChange={(e) => saveSetting(SETTINGS_KEYS.meshGeoipAuto, String(e.target.checked))}
+            />
+            <span className={meshGeoipAuto ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
+              Auto GeoIP from egress
+            </span>
+          </label>
+          <label className="flex items-center gap-2 text-base">
+            <input
+              type="checkbox"
+              checked={meshCurrencyOracle}
+              className="accent-[var(--color-accent)]"
+              onChange={(e) => saveSetting(SETTINGS_KEYS.meshCurrencyOracle, String(e.target.checked))}
+            />
+            <span className={meshCurrencyOracle ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
+              Currency Oracle
+            </span>
+          </label>
+        </div>
+
+        {/* Geo-region overrides */}
+        <GeoRegionOverrides settings={settings} saveSetting={saveSetting} />
       </div>
 
       </div>{/* end left column */}
@@ -407,6 +505,82 @@ function HoseToggle({
         {enabled && <span className="text-[var(--color-accent)] text-base">on</span>}
       </div>
       <div className="text-base text-[var(--color-muted)]">{desc}</div>
+    </div>
+  );
+}
+
+const MESH_PROVIDERS = [
+  { value: 'home', label: 'Home ISP' },
+  { value: 'colo', label: 'Colocation' },
+  { value: 'aws', label: 'AWS' },
+  { value: 'gcp', label: 'Google Cloud' },
+  { value: 'azure', label: 'Azure' },
+  { value: 'hetzner', label: 'Hetzner' },
+  { value: 'ovh', label: 'OVH' },
+  { value: 'digitalocean', label: 'DigitalOcean' },
+  { value: 'vultr', label: 'Vultr' },
+  { value: 'linode', label: 'Linode/Akamai' },
+  { value: 'oracle', label: 'Oracle Cloud' },
+  { value: 'scaleway', label: 'Scaleway' },
+  { value: 'unsandbox', label: 'unsandbox.com' },
+  { value: 'other', label: 'Other' },
+];
+
+const DEFAULT_REGIONS = [
+  { key: 'us-east', label: 'US East', electricityKwh: '0.22' },
+  { key: 'us-west', label: 'US West', electricityKwh: '0.18' },
+  { key: 'us-midwest', label: 'US Midwest', electricityKwh: '0.14' },
+  { key: 'us-south', label: 'US South', electricityKwh: '0.12' },
+  { key: 'eu-west', label: 'EU West', electricityKwh: '0.35' },
+  { key: 'eu-central', label: 'EU Central', electricityKwh: '0.38' },
+  { key: 'eu-north', label: 'EU North', electricityKwh: '0.25' },
+  { key: 'ap-east', label: 'AP East (Japan/Korea)', electricityKwh: '0.28' },
+  { key: 'ap-south', label: 'AP South (India)', electricityKwh: '0.08' },
+  { key: 'ap-southeast', label: 'AP Southeast', electricityKwh: '0.15' },
+  { key: 'sa-east', label: 'SA East (Brazil)', electricityKwh: '0.16' },
+  { key: 'oc', label: 'Oceania (Australia)', electricityKwh: '0.30' },
+];
+
+function GeoRegionOverrides({ settings, saveSetting }: {
+  settings: Record<string, string> | undefined;
+  saveSetting: (key: string, value: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer"
+      >
+        {expanded ? '▾' : '▸'} Geo-region electricity overrides
+      </button>
+      {expanded && (
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2">
+          {DEFAULT_REGIONS.map(region => {
+            const settingKey = `mesh_region_electricity_${region.key}`;
+            const current = settings?.[settingKey] ?? region.electricityKwh;
+            return (
+              <div key={region.key} className="flex items-center gap-2">
+                <span className="text-base text-[var(--color-muted)] w-28 truncate">{region.label}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-base text-[var(--color-muted)]">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    defaultValue={current}
+                    className="w-16 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-base font-mono"
+                    onBlur={(e) => {
+                      if (e.target.value !== current) saveSetting(settingKey, e.target.value);
+                    }}
+                  />
+                  <span className="text-base text-[var(--color-muted)]">/kWh</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
