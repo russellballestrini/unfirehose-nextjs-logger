@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac, timingSafeEqual } from 'crypto';
 
 const MULTI_TENANT = process.env.MULTI_TENANT === 'true';
 const AUTH_SECRET = process.env.AUTH_SECRET ?? '';
@@ -10,38 +9,63 @@ const PUBLIC_API_PREFIXES = ['/api/webhooks/', '/api/ingest', '/api/health', '/a
 // Public web routes
 const PUBLIC_WEB_PATHS = ['/', '/login'];
 
-function base64url(str: string): string {
-  return Buffer.from(str).toString('base64url');
+// --- Edge-compatible JWT helpers (Web Crypto API) ---
+
+function base64url(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let str = '';
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlEncode(str: string): string {
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function base64urlDecode(str: string): string {
-  return Buffer.from(str, 'base64url').toString();
+  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  return atob(padded);
 }
 
-function signJwt(payload: Record<string, unknown>): string {
-  const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = base64url(JSON.stringify(payload));
-  const sig = createHmac('sha256', AUTH_SECRET)
-    .update(`${header}.${body}`)
-    .digest('base64url');
-  return `${header}.${body}.${sig}`;
+function base64urlToUint8Array(str: string): Uint8Array {
+  const raw = base64urlDecode(str);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
 }
 
-function verifyJwt(token: string): Record<string, unknown> | null {
+let _cryptoKey: CryptoKey | null = null;
+async function getCryptoKey(): Promise<CryptoKey> {
+  if (_cryptoKey) return _cryptoKey;
+  const enc = new TextEncoder();
+  _cryptoKey = await crypto.subtle.importKey(
+    'raw', enc.encode(AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'],
+  );
+  return _cryptoKey;
+}
+
+async function signJwt(payload: Record<string, unknown>): Promise<string> {
+  const header = base64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const body = base64urlEncode(JSON.stringify(payload));
+  const key = await getCryptoKey();
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${header}.${body}`));
+  return `${header}.${body}.${base64url(sig)}`;
+}
+
+async function verifyJwt(token: string): Promise<Record<string, unknown> | null> {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
 
   const [header, body, sig] = parts;
-  const expected = createHmac('sha256', AUTH_SECRET)
-    .update(`${header}.${body}`)
-    .digest('base64url');
+  const key = await getCryptoKey();
 
-  // Timing-safe comparison
+  // Verify HMAC signature
   try {
-    const sigBuf = Buffer.from(sig, 'base64url');
-    const expBuf = Buffer.from(expected, 'base64url');
-    if (sigBuf.length !== expBuf.length) return null;
-    if (!timingSafeEqual(sigBuf, expBuf)) return null;
+    const sigBytes = base64urlToUint8Array(sig);
+    const valid = await crypto.subtle.verify(
+      'HMAC', key, sigBytes, new TextEncoder().encode(`${header}.${body}`),
+    );
+    if (!valid) return null;
   } catch {
     return null;
   }
@@ -66,7 +90,7 @@ function isPublicWebPath(pathname: string): boolean {
   return PUBLIC_WEB_PATHS.includes(pathname);
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   // Local mode: pass through everything
   if (!MULTI_TENANT) {
     return NextResponse.next();
@@ -98,14 +122,8 @@ export function middleware(request: NextRequest) {
       );
     }
 
-    // We cannot call validateApiKey here (middleware runs on the edge/node
-    // boundary and cannot use better-sqlite3 directly). Instead, we pass the
-    // raw key forward in a header and let the API route validate it.
-    // However, if we *do* have access to the db at middleware time (Node.js
-    // runtime), we validate here and inject the account ID.
-    //
-    // For now, we use a lazy-import approach: the actual validation happens
-    // in the API route. Middleware just confirms the key format and passes it.
+    // Middleware just confirms the key format and passes it.
+    // Actual validation happens in the API route (needs better-sqlite3).
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set('X-Api-Key', token);
 
@@ -131,7 +149,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Verify JWT session
-  const payload = verifyJwt(sessionCookie);
+  const payload = await verifyJwt(sessionCookie);
   if (!payload || !payload.accountId) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);

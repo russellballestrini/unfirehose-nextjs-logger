@@ -24,6 +24,31 @@ export default function UsageMonitorPage() {
   const window = getTimeRangeMinutes(range);
   const [ingesting, setIngesting] = useState(false);
   const [lastIngest, setLastIngest] = useState<any>(null);
+  const { data: settings } = useSWR('/api/settings', fetcher, { revalidateOnFocus: false });
+  const [kwhRates, setKwhRates] = useState<Record<string, number>>({});
+
+  // Load per-node electricity rates from settings
+  useEffect(() => {
+    if (!settings) return;
+    const rates: Record<string, number> = {};
+    for (const [k, v] of Object.entries(settings)) {
+      if (k.startsWith('electricity_rate_')) {
+        rates[k.replace('electricity_rate_', '')] = parseFloat(v as string) || DEFAULT_KWH_RATE;
+      }
+    }
+    setKwhRates(rates);
+  }, [settings]);
+
+  const getKwhRate = (hostname: string) => kwhRates[hostname] ?? DEFAULT_KWH_RATE;
+
+  const saveKwhRate = (hostname: string, rate: number) => {
+    setKwhRates(prev => ({ ...prev, [hostname]: rate }));
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set', key: `electricity_rate_${hostname}`, value: String(rate) }),
+    });
+  };
 
   // Auto-refresh every 10 seconds
   const { data: timeline, mutate: mutateTimeline } = useSWR(
@@ -182,9 +207,9 @@ export default function UsageMonitorPage() {
 
       {/* Live rate cards */}
       <div className="grid grid-cols-4 gap-4">
-        <RateCard label="Input (5min)" value={formatTokens(currentRate.input)} warn={currentRate.input > 500000} />
-        <RateCard label="Output (5min)" value={formatTokens(currentRate.output)} warn={currentRate.output > 100000} />
-        <RateCard label="Messages (5min)" value={String(currentRate.messages)} warn={currentRate.messages > 50} />
+        <RateCard label="Input (5min)" value={formatTokens(currentRate.input)} warn={currentRate.input > 5000000} />
+        <RateCard label="Output (5min)" value={formatTokens(currentRate.output)} warn={currentRate.output > 10000000} />
+        <RateCard label="Messages (5min)" value={String(currentRate.messages)} warn={currentRate.messages > 50000} />
         <RateCard
           label="DB Records"
           value={dbStats ? formatTokens(dbStats.messages) : '...'}
@@ -204,11 +229,21 @@ export default function UsageMonitorPage() {
               <span className="text-[var(--color-muted)]">{mesh.summary?.totalCores ?? 0} cores</span>
               <span className="text-[var(--color-muted)]">{mesh.summary?.totalMemGB ?? 0}GB total</span>
               <span className="text-[var(--color-muted)]">{mesh.summary?.reachableNodes ?? 0}/{mesh.summary?.totalNodes ?? 0} nodes</span>
+              {(() => {
+                const totalCost = (mesh.nodes ?? [])
+                  .filter((n: any) => n.reachable)
+                  .reduce((sum: number, n: any) => {
+                    const watts = (n.powerWatts ?? estimateWatts(n.cpuCores, n.loadAvg[0])) + (n.gpuPowerWatts ?? 0);
+                    return sum + (watts * 24 * 30 / 1000) * getKwhRate(n.hostname);
+                  }, 0);
+                return <span className="text-[var(--color-accent)]">~${totalCost.toFixed(0)}/mo elec</span>;
+              })()}
+              <span className="text-[var(--color-muted)]">{mesh.summary?.totalPowerWatts ?? 0}W total</span>
             </div>
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(mesh.nodes?.length ?? 1, 3)}, 1fr)` }}>
             {mesh.nodes?.map((node: any) => (
-              <MeshNodeCard key={node.hostname} node={node} />
+              <MeshNodeCard key={node.hostname} node={node} kwhRate={getKwhRate(node.hostname)} onRateChange={saveKwhRate} />
             ))}
           </div>
         </div>
@@ -563,7 +598,18 @@ function isActiveSameDay(timestamp: string | null): boolean {
   return d.toDateString() === now.toDateString();
 }
 
-function MeshNodeCard({ node }: { node: any }) {
+const DEFAULT_KWH_RATE = 0.31; // USD per kWh — unsandbox default
+
+// Estimate watts from CPU cores and load average
+// Rough model: idle core ~10W, loaded core ~40W, linear interpolation
+function estimateWatts(cores: number, loadAvg1: number): number {
+  const idleWattsPerCore = 10;
+  const loadedWattsPerCore = 40;
+  const utilization = Math.min(loadAvg1 / cores, 1);
+  return cores * (idleWattsPerCore + utilization * (loadedWattsPerCore - idleWattsPerCore));
+}
+
+function MeshNodeCard({ node, kwhRate, onRateChange }: { node: any; kwhRate: number; onRateChange: (hostname: string, rate: number) => void }) {
   if (!node.reachable) {
     return (
       <div className="rounded border border-[var(--color-border)] p-3 opacity-40">
@@ -634,6 +680,43 @@ function MeshNodeCard({ node }: { node: any }) {
           Swap: {node.swapUsedGB}GB / {node.swapTotalGB}GB
         </div>
       )}
+
+      {/* Electricity */}
+      {(() => {
+        const cpuWatts = node.powerWatts ?? estimateWatts(node.cpuCores, node.loadAvg[0]);
+        const gpuWatts = node.gpuPowerWatts ?? 0;
+        const totalWatts = cpuWatts + gpuWatts;
+        const kwhPerMonth = (totalWatts * 24 * 30) / 1000;
+        const costPerMonth = kwhPerMonth * kwhRate;
+        const sourceLabel = node.powerSource === 'rapl' ? 'rapl' : node.powerSource === 'nvidia' ? 'nvidia' : 'est.';
+        return (
+          <div className="mt-2 pt-2 border-t border-[var(--color-border)]">
+            <div className="flex justify-between text-xs text-[var(--color-muted)]">
+              <span>
+                {cpuWatts.toFixed(0)}W cpu
+                {gpuWatts > 0 && <> + {gpuWatts.toFixed(0)}W gpu</>}
+                {' '}
+                <span className={`text-[10px] ${node.powerSource === 'rapl' ? 'text-[var(--color-accent)]' : 'opacity-60'}`}>
+                  [{sourceLabel}]
+                </span>
+              </span>
+              <span className="text-[var(--color-accent)] font-bold">${costPerMonth.toFixed(0)}/mo</span>
+            </div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[10px] text-[var(--color-muted)]">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={kwhRate}
+                onChange={(e) => onRateChange(node.hostname, parseFloat(e.target.value) || 0)}
+                className="w-14 text-[10px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
+              />
+              <span className="text-[10px] text-[var(--color-muted)]">/kWh</span>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

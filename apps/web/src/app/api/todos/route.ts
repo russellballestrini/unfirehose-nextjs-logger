@@ -90,7 +90,7 @@ export async function PATCH(request: NextRequest) {
 
       // Auto-cull: when a todo completes, check if its deployment is finished
       if (status === 'completed') {
-        cullFinishedDeployments(db, id);
+        try { cullFinishedDeployments(db, id); } catch { /* table may not exist */ }
       }
     }
 

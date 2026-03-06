@@ -21,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${geistMono.variable} antialiased min-h-screen flex`}>
+      <body className={`${geistMono.variable} antialiased h-screen flex overflow-hidden`}>
         <ThemeProvider />
         <Sidebar />
         <main className="flex-1 overflow-auto p-6">

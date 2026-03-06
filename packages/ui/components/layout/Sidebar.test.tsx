@@ -17,22 +17,27 @@ const { Sidebar } = await import('./Sidebar');
 afterEach(() => cleanup());
 
 describe('Sidebar', () => {
-  it('renders all 9 navigation items', () => {
+  it('renders all navigation items', () => {
     render(<Sidebar />);
     expect(screen.getByText('Live')).toBeTruthy();
+    expect(screen.getByText('Active')).toBeTruthy();
     expect(screen.getByText('Dashboard')).toBeTruthy();
     expect(screen.getByText('Projects')).toBeTruthy();
+    expect(screen.getByText('Todos')).toBeTruthy();
+    expect(screen.getByText('Graph')).toBeTruthy();
     expect(screen.getByText('Thinking')).toBeTruthy();
     expect(screen.getByText('All Logs')).toBeTruthy();
     expect(screen.getByText('Tokens')).toBeTruthy();
-    expect(screen.getByText('Usage Monitor')).toBeTruthy();
+    expect(screen.getByText('Usage')).toBeTruthy();
+    expect(screen.getByText('Keys')).toBeTruthy();
+    expect(screen.getByText('Schema')).toBeTruthy();
     expect(screen.getByText('Styleguide')).toBeTruthy();
     expect(screen.getByText('Settings')).toBeTruthy();
   });
 
   it('renders the app title', () => {
     render(<Sidebar />);
-    expect(screen.getByText('unfirehose')).toBeTruthy();
+    expect(screen.getByText('firehose')).toBeTruthy();
   });
 
   it('renders correct href for nav items', () => {

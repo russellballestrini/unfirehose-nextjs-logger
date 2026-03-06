@@ -380,31 +380,66 @@ async function ensureRemoteRepo(sshBase: string[], projectPath: string) {
   await exec(sshCmd, [...sshArgs, cloneCmd], { timeout: 120000 });
 }
 
+// Bootstrap missing tools on remote host via SSH
+async function ensureRemoteTools(sshBase: string[], host: string): Promise<{ bootstrapped: string[] }> {
+  const sshCmd = sshBase[0];
+  const sshArgs = sshBase.slice(1);
+  const bootstrapped: string[] = [];
+
+  // Check and install tmux
+  try {
+    await exec(sshCmd, [...sshArgs, 'which tmux'], { timeout: 10000 });
+  } catch {
+    // Try apt first (Debian/Ubuntu), fall back to yum/dnf
+    const installCmd = [
+      'sudo apt-get update -qq && sudo apt-get install -y -qq tmux',
+      '|| sudo yum install -y tmux 2>/dev/null',
+      '|| sudo dnf install -y tmux 2>/dev/null',
+    ].join(' ');
+    await exec(sshCmd, [...sshArgs, installCmd], { timeout: 120000 });
+    bootstrapped.push('tmux');
+  }
+
+  // Check and install node/npm if missing (needed for claude)
+  try {
+    await exec(sshCmd, [...sshArgs, 'which node'], { timeout: 10000 });
+  } catch {
+    // Install node via nvm
+    const installCmd = [
+      'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash',
+      '&& export NVM_DIR="$HOME/.nvm"',
+      '&& . "$NVM_DIR/nvm.sh"',
+      '&& nvm install --lts',
+    ].join(' ');
+    await exec(sshCmd, [...sshArgs, installCmd], { timeout: 180000 });
+    bootstrapped.push('node');
+  }
+
+  // Check and install claude CLI
+  try {
+    await exec(sshCmd, [...sshArgs, 'bash -lc "which claude"'], { timeout: 15000 });
+  } catch {
+    // Install via npm (use bash -l to pick up nvm paths)
+    await exec(sshCmd, [...sshArgs, 'bash -lc "npm install -g @anthropic-ai/claude-code"'], { timeout: 180000 });
+    bootstrapped.push('claude');
+  }
+
+  // Verify claude is now available
+  try {
+    await exec(sshCmd, [...sshArgs, 'bash -lc "which claude"'], { timeout: 15000 });
+  } catch {
+    throw new Error(`Failed to bootstrap claude on ${host}. Check that npm install succeeded and claude is in PATH.`);
+  }
+
+  return { bootstrapped };
+}
+
 async function bootRemote(host: string, opts: BootOpts) {
   // -A enables agent forwarding so git on remote can use local SSH keys
   const sshBase = ['ssh', '-A', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no', host];
 
-  // Pre-flight: check claude is available on remote
-  try {
-    await exec(sshBase[0], [...sshBase.slice(1), 'which claude'], { timeout: 15000 });
-  } catch {
-    return NextResponse.json({
-      error: `Claude not found on ${host}`,
-      detail: 'Claude CLI must be installed and in PATH on the remote host.',
-      host,
-    }, { status: 500 });
-  }
-
-  // Pre-flight: check tmux is available
-  try {
-    await exec(sshBase[0], [...sshBase.slice(1), 'which tmux'], { timeout: 10000 });
-  } catch {
-    return NextResponse.json({
-      error: `tmux not found on ${host}`,
-      detail: 'Install tmux on the remote host.',
-      host,
-    }, { status: 500 });
-  }
+  // Bootstrap: install tmux, node, and claude if missing
+  const { bootstrapped } = await ensureRemoteTools(sshBase, host);
 
   // Ensure project repo exists on remote — clone if missing
   await ensureRemoteRepo(sshBase, opts.projectPath);
@@ -459,6 +494,7 @@ async function bootRemote(host: string, opts: BootOpts) {
     multiplexer: 'tmux',
     host,
     command: `ssh ${host} tmux attach -t ${opts.sessionName}`,
+    bootstrapped: bootstrapped.length ? bootstrapped : undefined,
   });
 }
 
