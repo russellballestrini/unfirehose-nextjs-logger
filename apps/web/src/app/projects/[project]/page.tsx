@@ -248,6 +248,34 @@ export default function ProjectPage({
         </div>
       </div>
 
+      {/* Open Todos */}
+      <div className="border border-[var(--color-border)] rounded p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
+          {full?.todos?.length > 0 && <span className="text-xs text-[var(--color-muted)]">{full.todos.length}</span>}
+          <Link href={`/projects/${project}/kanban`} className="text-xs text-[var(--color-accent)] hover:underline ml-auto">Kanban</Link>
+          <Link href="/todos" className="text-xs text-[var(--color-accent)] hover:underline">All todos</Link>
+        </div>
+
+        {full?.todos?.length > 0 && (
+          <div className="space-y-1">
+            {full.todos.map((t: any) => (
+              <div key={t.id} className="flex items-center gap-2 text-sm">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: t.status === 'in_progress' ? '#fbbf24' : 'var(--color-muted)' }}
+                />
+                <span className="flex-1 truncate">{t.content}</span>
+                <span className="text-xs text-[var(--color-muted)] shrink-0">
+                  {t.source !== 'claude' && <span className="mr-1">[{t.source}]</span>}
+                  {formatRelativeTime(t.updatedAt)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Git + Branch */}
       {meta && (fetchRemotes.length > 0 || meta.branch) && (
         <div className="flex items-center gap-3 flex-wrap">
@@ -382,34 +410,6 @@ export default function ProjectPage({
             </div>
           )}
         </div>
-      </div>
-
-      {/* Open Todos */}
-      <div className="border border-[var(--color-border)] rounded p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
-          {full?.todos?.length > 0 && <span className="text-xs text-[var(--color-muted)]">{full.todos.length}</span>}
-          <Link href={`/projects/${project}/kanban`} className="text-xs text-[var(--color-accent)] hover:underline ml-auto">Kanban</Link>
-          <Link href="/todos" className="text-xs text-[var(--color-accent)] hover:underline">All todos</Link>
-        </div>
-
-        {full?.todos?.length > 0 && (
-          <div className="space-y-1">
-            {full.todos.map((t: any) => (
-              <div key={t.id} className="flex items-center gap-2 text-sm">
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: t.status === 'in_progress' ? '#fbbf24' : 'var(--color-muted)' }}
-                />
-                <span className="flex-1 truncate">{t.content}</span>
-                <span className="text-xs text-[var(--color-muted)] shrink-0">
-                  {t.source !== 'claude' && <span className="mr-1">[{t.source}]</span>}
-                  {formatRelativeTime(t.updatedAt)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Recent Prompts */}
