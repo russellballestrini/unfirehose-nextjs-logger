@@ -542,6 +542,122 @@ const from = getTimeRangeFrom(range); // ISO string or undefined
         </div>
       </Section>
 
+      {/* Bootstrap Harness */}
+      <Section title="Bootstrap Harness">
+        <p className="text-base text-[var(--color-muted)]">
+          Panel for bootstrapping Claude Code or custom harnesses on local or remote hosts via SSH.
+          Selects host from mesh nodes, harness type, project, multiplexer (tmux/screen), and mode.
+          Located on the Usage page below Mesh Status. Calls POST /api/boot.
+        </p>
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <h3 className="text-base font-bold text-[var(--color-muted)]">Bootstrap Harness</h3>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* Host */}
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Host</label>
+              <select className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" defaultValue="localhost">
+                <option value="localhost">localhost</option>
+                <option value="perma1.foxhop.net">perma1.foxhop.net (2 claudes)</option>
+                <option value="perma2.foxhop.net">perma2.foxhop.net (0 claudes)</option>
+              </select>
+            </div>
+
+            {/* Harness */}
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Harness</label>
+              <select className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base" defaultValue="claude">
+                <option value="claude">Claude Code</option>
+                <option value="custom">Custom Command</option>
+              </select>
+            </div>
+
+            {/* Multiplexer */}
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Multiplexer</label>
+              <div className="flex gap-2">
+                <div className="flex-1 px-3 py-1.5 text-base rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-bold text-center">
+                  tmux
+                </div>
+                <div className="flex-1 px-3 py-1.5 text-base rounded border border-[var(--color-border)] text-center text-[var(--color-muted)]">
+                  screen
+                </div>
+              </div>
+            </div>
+
+            {/* Mode */}
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Mode</label>
+              <div className="w-full px-3 py-1.5 text-base rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-bold text-center">
+                YOLO (skip perms)
+              </div>
+            </div>
+          </div>
+
+          {/* Project */}
+          <div>
+            <label className="text-base text-[var(--color-muted)] block mb-1">Project</label>
+            <div className="flex gap-2">
+              <select className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" defaultValue="/home/fox/git/unfirehose-nextjs-logger">
+                <option value="">select project...</option>
+                <option value="/home/fox/git/unfirehose-nextjs-logger">unfirehose-nextjs-logger</option>
+                <option value="/home/fox/git/unsandbox.com">unsandbox-com</option>
+              </select>
+              <input
+                type="text"
+                placeholder="or enter path: /home/fox/git/..."
+                className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+                readOnly
+              />
+            </div>
+          </div>
+
+          {/* Prompt */}
+          <div>
+            <label className="text-base text-[var(--color-muted)] block mb-1">Initial Prompt (optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. fix the failing tests"
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
+              readOnly
+            />
+          </div>
+
+          {/* Boot button + result */}
+          <div className="flex items-center gap-3">
+            <button className="px-6 py-2 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors cursor-pointer">
+              Boot Claude on localhost
+            </button>
+            <div className="text-base text-green-400 font-mono">
+              tmux session: unfirehose-nextjs-logger
+              <span className="text-[var(--color-muted)] ml-2">
+                tmux attach -t unfirehose-nextjs-logger
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <pre className="text-sm text-[var(--color-muted)] bg-[var(--color-background)] p-3 rounded overflow-x-auto mt-3">{`POST /api/boot
+{
+  "projectPath": "/home/fox/git/myproject",
+  "harness": "claude",            // or custom command string
+  "preferMultiplexer": "tmux",    // "tmux" | "screen"
+  "yolo": true,                   // --dangerously-skip-permissions
+  "prompt": "fix the tests",      // optional initial prompt
+  "host": "perma1.foxhop.net"     // omit for localhost
+}
+
+Response:
+{
+  "success": true,
+  "tmuxSession": "myproject",
+  "tmuxWindow": "143022",
+  "multiplexer": "tmux",
+  "host": "perma1.foxhop.net",
+  "command": "ssh perma1.foxhop.net tmux attach -t myproject"
+}`}</pre>
+      </Section>
+
       {/* Progress Bars */}
       <Section title="Progress Bars">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
