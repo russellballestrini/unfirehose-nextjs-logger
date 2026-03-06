@@ -87,12 +87,13 @@ export default function SettingsPage() {
   const saveSetting = useCallback(
     async (key: string, value: string) => {
       setSaving(true);
+      // Optimistic update — merge into SWR cache without refetch to avoid resetting inputs
+      mutate((prev: Record<string, string> | undefined) => ({ ...prev, [key]: value }), { revalidate: false });
       await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set', key, value }),
       });
-      mutate();
       setSaving(false);
       showToast('Saved');
     },

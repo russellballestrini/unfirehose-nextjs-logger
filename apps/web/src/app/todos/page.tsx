@@ -91,8 +91,6 @@ export default function TodosPage() {
   const [filter, setFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'project'>('kanban');
-  const [newTodo, setNewTodo] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [bootResult, setBootResult] = useState<{ key: string; msg: string } | null>(null);
   const [booting, setBooting] = useState<string | null>(null);
   const [megaStatus, setMegaStatus] = useState<any>(null);
@@ -142,43 +140,6 @@ export default function TodosPage() {
     });
     fetchTodos();
   }, [fetchTodos]);
-
-  const addTodo = useCallback(async (startNow = false) => {
-    if (!newTodo.trim() || submitting) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/todos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: newTodo.trim(),
-          source: 'manual',
-          status: startNow ? 'in_progress' : 'pending',
-        }),
-      });
-      const todoResult = await res.json();
-
-      if (startNow) {
-        const projectGroup = byProject.find(g => g.projectPath);
-        if (projectGroup?.projectPath) {
-          const bootRes = await fetch('/api/boot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectPath: projectGroup.projectPath, yolo: true, prompt: newTodo.trim() }),
-          });
-          const bootData = await bootRes.json();
-          setBootResult({
-            key: `todo-${todoResult.id}`,
-            msg: bootData.success ? `tmux: ${bootData.tmuxSession}` : `Error: ${bootData.error}`,
-          });
-        }
-      }
-
-      setNewTodo('');
-      fetchTodos();
-    } catch { /* silent */ }
-    setSubmitting(false);
-  }, [newTodo, submitting, fetchTodos, byProject]);
 
   const bootAgent = useCallback(async (projectPath: string, key: string, prompt?: string) => {
     setBooting(key);
@@ -358,21 +319,6 @@ export default function TodosPage() {
       {megaPanelOpen && megaStatus && (
         <MegaPanel megaStatus={megaStatus} onClose={() => setMegaPanelOpen(false)} />
       )}
-
-      {/* Add todo */}
-      <div className="flex gap-2 mb-4">
-        <input
-          type="text" value={newTodo} onChange={e => setNewTodo(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addTodo(false); } }}
-          placeholder="Add a task..."
-          className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
-          disabled={submitting}
-        />
-        <button onClick={() => addTodo(false)} disabled={submitting || !newTodo.trim()} className="px-4 py-2 text-sm rounded-lg bg-[var(--color-surface-hover)] text-[var(--color-foreground)] hover:bg-[var(--color-border)] disabled:opacity-40 transition-colors">Queue</button>
-        <button onClick={() => addTodo(true)} disabled={submitting || !newTodo.trim()} className="px-5 py-2 text-sm font-bold rounded-lg bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 disabled:opacity-40 transition-opacity" title="Creates todo and boots Claude in a tmux session">
-          {submitting ? '...' : 'Start Now'}
-        </button>
-      </div>
 
       {/* Triage summary */}
       {!loading && counts.total > 0 && (
