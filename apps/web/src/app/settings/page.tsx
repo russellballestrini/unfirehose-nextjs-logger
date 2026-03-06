@@ -138,6 +138,11 @@ export default function SettingsPage() {
     ? activity.reduce((s: number, p: { user_messages?: number }) => s + (p.user_messages ?? 0), 0)
     : 0;
 
+  // LLM commit message generation
+  const llmEndpoint = settings?.llm_commit_endpoint ?? 'https://uncloseai.com/v1/chat/completions';
+  const llmApiKey = settings?.llm_commit_api_key ?? '';
+  const llmModel = settings?.llm_commit_model ?? 'deepseek-r1:32b';
+
   // Mesh defaults
   const meshDefaultIspCost = settings?.[SETTINGS_KEYS.meshDefaultIspCost] ?? '110';
   const meshDefaultElectricity = settings?.[SETTINGS_KEYS.meshDefaultElectricity] ?? '0.12';
@@ -475,6 +480,55 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* LLM — commit message generation */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+        <h3 className="text-base font-bold text-[var(--color-muted)]">LLM — Commit Messages</h3>
+        <p className="text-base text-[var(--color-muted)]">
+          OpenAI-compatible endpoint for auto-generating commit messages from diffs.
+          Works with OpenAI, Anthropic (via proxy), uncloseai, ollama, groq, together, etc.
+        </p>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Endpoint</label>
+          <input
+            type="url"
+            defaultValue={llmEndpoint}
+            placeholder="https://uncloseai.com/v1/chat/completions"
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+            onBlur={(e) => {
+              if (e.target.value !== llmEndpoint) saveSetting('llm_commit_endpoint', e.target.value);
+            }}
+          />
+        </div>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">API Key</label>
+          <input
+            type="password"
+            defaultValue={llmApiKey}
+            placeholder="sk-..."
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+            onBlur={(e) => {
+              if (e.target.value !== llmApiKey) saveSetting('llm_commit_api_key', e.target.value);
+            }}
+          />
+          <span className="text-xs text-[var(--color-muted)]">Optional for local endpoints (localhost/127.0.0.1)</span>
+        </div>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Model</label>
+          <input
+            type="text"
+            defaultValue={llmModel}
+            placeholder="deepseek-r1:32b"
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+            onBlur={(e) => {
+              if (e.target.value !== llmModel) saveSetting('llm_commit_model', e.target.value);
+            }}
+          />
+        </div>
       </div>
 
       </div>{/* end right column */}

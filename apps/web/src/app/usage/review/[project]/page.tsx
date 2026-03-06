@@ -21,6 +21,27 @@ export default function ReviewPage() {
   const [addAll, setAddAll] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [commitResult, setCommitResult] = useState<any>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  const generateMessage = async () => {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(project)}/git/suggest`, {
+        method: 'POST',
+      });
+      const result = await res.json();
+      if (result.message) {
+        setCommitMsg(result.message);
+      } else {
+        setGenerateError(result.error || 'Failed to generate');
+      }
+    } catch (err) {
+      setGenerateError(String(err));
+    }
+    setGenerating(false);
+  };
 
   const doCommit = async () => {
     if (!commitMsg.trim()) return;
@@ -133,17 +154,35 @@ export default function ReviewPage() {
           {/* Commit form — hero action */}
           {data.isDirty && (
             <div className="border-2 border-[var(--color-accent)] rounded-lg p-5 bg-[var(--color-surface)]">
-              <textarea
-                value={commitMsg}
-                onChange={(e) => setCommitMsg(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doCommit(); }
-                }}
-                placeholder="Commit message... (Ctrl+Enter to commit)"
-                rows={3}
-                className="w-full px-3 py-2 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y font-mono"
-                disabled={committing}
-              />
+              <div className="relative">
+                <textarea
+                  value={commitMsg}
+                  onChange={(e) => setCommitMsg(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doCommit(); }
+                  }}
+                  placeholder="Commit message... (Ctrl+Enter to commit)"
+                  rows={3}
+                  className="w-full px-3 py-2 pr-24 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y font-mono"
+                  disabled={committing || generating}
+                />
+                <button
+                  onClick={generateMessage}
+                  disabled={generating || committing}
+                  className="absolute top-2 right-2 px-3 py-1 text-xs font-bold bg-[var(--color-surface-hover)] text-[var(--color-foreground)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 cursor-pointer"
+                  title="Generate commit message from diff using LLM"
+                >
+                  {generating ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+              {generateError && (
+                <div className="mt-2 text-xs text-[var(--color-error)]">
+                  {generateError}
+                  {generateError.includes('No LLM API key') && (
+                    <> — <Link href="/settings" className="underline">Configure in Settings</Link></>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between mt-3">
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2 text-sm text-[var(--color-muted)] cursor-pointer">
