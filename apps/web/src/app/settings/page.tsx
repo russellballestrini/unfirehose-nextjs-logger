@@ -528,17 +528,17 @@ const MESH_PROVIDERS = [
 
 const DEFAULT_REGIONS = [
   { key: 'us-east', label: 'US East', electricityKwh: '0.31' },
-  { key: 'us-west', label: 'US West', electricityKwh: '0.18' },
-  { key: 'us-midwest', label: 'US Midwest', electricityKwh: '0.14' },
-  { key: 'us-south', label: 'US South', electricityKwh: '0.12' },
-  { key: 'eu-west', label: 'EU West', electricityKwh: '0.35' },
-  { key: 'eu-central', label: 'EU Central', electricityKwh: '0.38' },
-  { key: 'eu-north', label: 'EU North', electricityKwh: '0.25' },
-  { key: 'ap-east', label: 'AP East (Japan/Korea)', electricityKwh: '0.28' },
-  { key: 'ap-south', label: 'AP South (India)', electricityKwh: '0.08' },
-  { key: 'ap-southeast', label: 'AP Southeast', electricityKwh: '0.15' },
-  { key: 'sa-east', label: 'SA East (Brazil)', electricityKwh: '0.16' },
-  { key: 'oc', label: 'Oceania (Australia)', electricityKwh: '0.30' },
+  { key: 'us-west', label: 'US West', electricityKwh: '0.28' },
+  { key: 'us-midwest', label: 'US Midwest', electricityKwh: '0.24' },
+  { key: 'us-south', label: 'US South', electricityKwh: '0.22' },
+  { key: 'eu-west', label: 'EU West', electricityKwh: '0.45' },
+  { key: 'eu-central', label: 'EU Central', electricityKwh: '0.48' },
+  { key: 'eu-north', label: 'EU North', electricityKwh: '0.35' },
+  { key: 'ap-east', label: 'AP East (Japan/Korea)', electricityKwh: '0.38' },
+  { key: 'ap-south', label: 'AP South (India)', electricityKwh: '0.18' },
+  { key: 'ap-southeast', label: 'AP Southeast', electricityKwh: '0.25' },
+  { key: 'sa-east', label: 'SA East (Brazil)', electricityKwh: '0.26' },
+  { key: 'oc', label: 'Oceania (Australia)', electricityKwh: '0.40' },
 ];
 
 function GeoRegionOverrides({ settings, saveSetting }: {
