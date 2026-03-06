@@ -26,8 +26,8 @@ async function resolveRepoPath(projectName: string): Promise<string | null> {
   }
 }
 
-const DEFAULT_ENDPOINT = 'https://uncloseai.com/v1/chat/completions';
-const DEFAULT_MODEL = 'deepseek-r1:32b';
+const DEFAULT_ENDPOINT = 'https://hermes.ai.unturf.com/v1/chat/completions';
+const DEFAULT_MODEL = 'adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic';
 
 const SYSTEM_PROMPT = `You are a commit message generator. Given a git diff, write a concise, professional commit message.
 
@@ -54,7 +54,9 @@ export async function POST(
   const apiKey = settings.llm_commit_api_key || '';
   const model = settings.llm_commit_model || DEFAULT_MODEL;
 
-  if (!apiKey && !endpoint.includes('localhost') && !endpoint.includes('127.0.0.1')) {
+  // Only require API key for non-internal endpoints
+  const isInternal = endpoint.includes('localhost') || endpoint.includes('127.0.0.1') || endpoint.includes('.unturf.com');
+  if (!apiKey && !isInternal) {
     return NextResponse.json({
       error: 'No LLM API key configured. Set llm_commit_endpoint, llm_commit_api_key, and llm_commit_model in Settings.',
     }, { status: 400 });
