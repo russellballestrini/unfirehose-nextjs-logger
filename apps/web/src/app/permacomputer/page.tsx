@@ -28,6 +28,151 @@ interface SshHost {
   forwardAgent?: string;
 }
 
+interface NodeEcon {
+  ispCostMonthly: number;       // default $110
+  electricityCostKwh: number;   // $/kWh, default 0.12
+  location: string;             // "us-east-1", "home-boston", "eu-west-1"
+  provider: string;             // "home", "aws", "gcp", "azure", "hetzner", "ovh", "colo", etc.
+  linkMbps: number;             // uplink speed
+  lat: number;                  // latitude
+  lon: number;                  // longitude
+  notes: string;
+}
+
+const DEFAULT_ECON: NodeEcon = {
+  ispCostMonthly: 110,
+  electricityCostKwh: 0.12,
+  location: '',
+  provider: 'home',
+  linkMbps: 100,
+  lat: 0,
+  lon: 0,
+  notes: '',
+};
+
+const PROVIDERS = [
+  { value: 'home', label: 'Home ISP' },
+  { value: 'colo', label: 'Colocation' },
+  { value: 'aws', label: 'AWS' },
+  { value: 'gcp', label: 'Google Cloud' },
+  { value: 'azure', label: 'Azure' },
+  { value: 'hetzner', label: 'Hetzner' },
+  { value: 'ovh', label: 'OVH' },
+  { value: 'digitalocean', label: 'DigitalOcean' },
+  { value: 'vultr', label: 'Vultr' },
+  { value: 'linode', label: 'Linode/Akamai' },
+  { value: 'oracle', label: 'Oracle Cloud' },
+  { value: 'scaleway', label: 'Scaleway' },
+  { value: 'unsandbox', label: 'unsandbox.com' },
+  { value: 'other', label: 'Other' },
+];
+
+const PRESET_LOCATIONS: { value: string; label: string; lat: number; lon: number }[] = [
+  // AWS-style regions
+  { value: 'us-east-1', label: 'US East (Virginia)', lat: 39.0, lon: -77.5 },
+  { value: 'us-east-2', label: 'US East (Ohio)', lat: 40.4, lon: -82.9 },
+  { value: 'us-west-1', label: 'US West (N. California)', lat: 37.4, lon: -121.9 },
+  { value: 'us-west-2', label: 'US West (Oregon)', lat: 45.6, lon: -121.2 },
+  { value: 'eu-west-1', label: 'EU West (Ireland)', lat: 53.3, lon: -6.3 },
+  { value: 'eu-west-2', label: 'EU West (London)', lat: 51.5, lon: -0.1 },
+  { value: 'eu-central-1', label: 'EU Central (Frankfurt)', lat: 50.1, lon: 8.7 },
+  { value: 'ap-southeast-1', label: 'AP Southeast (Singapore)', lat: 1.3, lon: 103.9 },
+  { value: 'ap-northeast-1', label: 'AP Northeast (Tokyo)', lat: 35.7, lon: 139.7 },
+  { value: 'ap-south-1', label: 'AP South (Mumbai)', lat: 19.1, lon: 72.9 },
+  { value: 'sa-east-1', label: 'SA East (Sao Paulo)', lat: -23.5, lon: -46.6 },
+  // Common home locations
+  { value: 'home-northeast-us', label: 'Home: NE US', lat: 42.4, lon: -71.1 },
+  { value: 'home-southeast-us', label: 'Home: SE US', lat: 33.7, lon: -84.4 },
+  { value: 'home-midwest-us', label: 'Home: Midwest US', lat: 41.9, lon: -87.6 },
+  { value: 'home-southwest-us', label: 'Home: SW US', lat: 33.4, lon: -112.0 },
+  { value: 'home-northwest-us', label: 'Home: NW US', lat: 47.6, lon: -122.3 },
+  { value: 'home-uk', label: 'Home: UK', lat: 51.5, lon: -0.1 },
+  { value: 'home-germany', label: 'Home: Germany', lat: 52.5, lon: 13.4 },
+  { value: 'home-japan', label: 'Home: Japan', lat: 35.7, lon: 139.7 },
+  { value: 'home-australia', label: 'Home: Australia', lat: -33.9, lon: 151.2 },
+];
+
+function nodeEconKey(hostname: string): string {
+  return `mesh_node_econ_${hostname.replace(/[^a-zA-Z0-9]/g, '_')}`;
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function computeMeshScore(nodes: { hostname: string; econ: NodeEcon; meshNode?: any }[]): {
+  totalScore: number;
+  totalMonthlyCost: number;
+  avgDistance: number;
+  geoDiversityBonus: number;
+  ispDiversityBonus: number;
+  nodeScores: { hostname: string; score: number; distanceScore: number; efficiencyScore: number }[];
+} {
+  const configured = nodes.filter(n => n.econ.lat !== 0 || n.econ.lon !== 0);
+  if (configured.length === 0) return { totalScore: 0, totalMonthlyCost: 0, avgDistance: 0, geoDiversityBonus: 0, ispDiversityBonus: 0, nodeScores: [] };
+
+  // Total monthly cost
+  const totalMonthlyCost = nodes.reduce((s, n) => s + n.econ.ispCostMonthly, 0);
+
+  // Pairwise distances
+  let totalDist = 0;
+  let pairCount = 0;
+  for (let i = 0; i < configured.length; i++) {
+    for (let j = i + 1; j < configured.length; j++) {
+      totalDist += haversineKm(configured[i].econ.lat, configured[i].econ.lon, configured[j].econ.lat, configured[j].econ.lon);
+      pairCount++;
+    }
+  }
+  const avgDistance = pairCount > 0 ? Math.round(totalDist / pairCount) : 0;
+
+  // Geographic diversity: count distinct continents (rough)
+  const continents = new Set(configured.map(n => {
+    const { lat, lon } = n.econ;
+    if (lat > 10 && lon < -30) return 'NA';
+    if (lat < -10 && lon < -30) return 'SA';
+    if (lat > 35 && lon > -30 && lon < 60) return 'EU';
+    if (lat < 35 && lon > 20 && lon < 60) return 'AF';
+    if (lon >= 60) return 'AS';
+    if (lat < -10 && lon > 100) return 'OC';
+    return 'OTHER';
+  }));
+  const geoDiversityBonus = Math.max(0, (continents.size - 1) * 20); // +20% per extra continent
+
+  // ISP diversity
+  const providers = new Set(nodes.map(n => n.econ.provider));
+  const ispDiversityBonus = Math.max(0, (providers.size - 1) * 10);
+
+  // Per-node scores
+  const nodeScores = configured.map(n => {
+    // Distance score: average distance to all other nodes * link speed factor
+    let distScore = 0;
+    for (const other of configured) {
+      if (other.hostname === n.hostname) continue;
+      const d = haversineKm(n.econ.lat, n.econ.lon, other.econ.lat, other.econ.lon);
+      const linkFactor = Math.min(n.econ.linkMbps, other.econ.linkMbps) / 100; // normalize to 100Mbps baseline
+      distScore += d * linkFactor;
+    }
+    distScore = configured.length > 1 ? distScore / (configured.length - 1) : 0;
+
+    // Efficiency: lower watts per core is better (inverse)
+    const watts = n.meshNode?.powerWatts ?? 0;
+    const cores = n.meshNode?.cpuCores ?? 1;
+    const wattsPerCore = watts > 0 ? watts / cores : 20; // default estimate
+    const efficiencyScore = Math.round(100 / wattsPerCore); // higher is better
+
+    const score = Math.round(distScore * 0.5 + efficiencyScore * 0.3 + n.econ.linkMbps * 0.2);
+    return { hostname: n.hostname, score, distanceScore: Math.round(distScore), efficiencyScore };
+  });
+
+  const totalScore = nodeScores.reduce((s, n) => s + n.score, 0) + geoDiversityBonus + ispDiversityBonus;
+
+  return { totalScore, totalMonthlyCost, avgDistance, geoDiversityBonus, ispDiversityBonus, nodeScores };
+}
+
 // ============================================================
 // Main Page
 // ============================================================
@@ -35,11 +180,26 @@ interface SshHost {
 export default function PermacomputerPage() {
   const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
   const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[] }>('/api/ssh-config', fetcher);
+  const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   const hosts = sshData?.hosts ?? [];
   const meshNodes: any[] = mesh?.nodes ?? [];
   const reachable = meshNodes.filter((n: any) => n.reachable);
+
+  // Load per-node economics from settings
+  const getNodeEcon = useCallback((hostname: string): NodeEcon => {
+    const raw = settings?.[nodeEconKey(hostname)];
+    if (!raw) return { ...DEFAULT_ECON };
+    try { return { ...DEFAULT_ECON, ...JSON.parse(raw) }; } catch { return { ...DEFAULT_ECON }; }
+  }, [settings]);
+
+  const saveNodeEcon = useCallback(async (hostname: string, econ: NodeEcon) => {
+    const key = nodeEconKey(hostname);
+    const value = JSON.stringify(econ);
+    mutateSettings((prev: any) => ({ ...prev, [key]: value }), { revalidate: false });
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key, value }) });
+  }, [mutateSettings]);
 
   // Build combined node list: mesh nodes enriched with SSH config
   const allNodes = useMemo(() => {
@@ -82,6 +242,9 @@ export default function PermacomputerPage() {
       {/* Mesh Summary Bar */}
       {mesh?.summary && <MeshSummaryBar summary={mesh.summary} />}
 
+      {/* Mesh Economics */}
+      <MeshEconomicsPanel allNodes={allNodes} meshNodes={meshNodes} getNodeEcon={getNodeEcon} />
+
       {/* Node Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {allNodes.map(({ meshNode, sshHost, key }) => (
@@ -89,6 +252,7 @@ export default function PermacomputerPage() {
             key={key}
             node={meshNode}
             sshHost={sshHost}
+            econ={getNodeEcon(key)}
             isSelected={selectedNode === key}
             onSelect={() => setSelectedNode(selectedNode === key ? null : key)}
           />
@@ -106,6 +270,8 @@ export default function PermacomputerPage() {
           keys={sshData?.keys ?? []}
           mutateSsh={mutateSsh}
           mutateMesh={mutateMesh}
+          econ={getNodeEcon(selectedNode)}
+          onSaveEcon={(econ) => saveNodeEcon(selectedNode, econ)}
         />
       )}
 
@@ -173,8 +339,8 @@ function MiniStat({ label, value, accent }: { label: string; value: string | num
 // Node Card (compact, clickable)
 // ============================================================
 
-function NodeCard({ node, sshHost, isSelected, onSelect }: {
-  node: any; sshHost?: SshHost; isSelected: boolean; onSelect: () => void;
+function NodeCard({ node, sshHost, econ, isSelected, onSelect }: {
+  node: any; sshHost?: SshHost; econ: NodeEcon; isSelected: boolean; onSelect: () => void;
 }) {
   const reachable = node?.reachable;
   const name = sshHost?.name ?? node?.hostname ?? '?';
@@ -222,10 +388,13 @@ function NodeCard({ node, sshHost, isSelected, onSelect }: {
           </div>
 
           {/* Stats row */}
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
+          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
             <span>{cpuCores} cores</span>
             {swap > 0 && <span className="text-yellow-400">swap {swap}G</span>}
             {node.uptime && <span>up {node.uptime}</span>}
+            {econ.location && <span className="text-[var(--color-accent)]/70">{econ.location}</span>}
+            {econ.provider !== 'home' && <span>{PROVIDERS.find(p => p.value === econ.provider)?.label ?? econ.provider}</span>}
+            <span className="ml-auto">${econ.ispCostMonthly}/mo</span>
           </div>
         </>
       ) : (
@@ -296,7 +465,7 @@ function AddNodeButton({ hosts, keys, mutate }: { hosts: SshHost[]; keys: string
 // Node Detail Panel (expanded view with deep probe data)
 // ============================================================
 
-function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh, mutateMesh }: {
+function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh, mutateMesh, econ, onSaveEcon }: {
   hostname: string;
   sshHost?: SshHost;
   meshNode?: any;
@@ -304,6 +473,8 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
   keys: string[];
   mutateSsh: () => void;
   mutateMesh: () => void;
+  econ: NodeEcon;
+  onSaveEcon: (econ: NodeEcon) => void;
 }) {
   const probeHost = sshHost?.hostname ?? sshHost?.name ?? hostname;
   const { data: detail, isLoading, mutate: mutateDetail } = useSWR(
@@ -314,7 +485,7 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<SshHost>(sshHost ?? { name: hostname });
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'processes' | 'gpu' | 'disk' | 'network' | 'sessions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'processes' | 'gpu' | 'disk' | 'network' | 'sessions' | 'economics'>('overview');
 
   const refresh = () => mutateDetail();
 
@@ -334,6 +505,7 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
     { id: 'disk' as const, label: 'Disk', icon: '■' },
     { id: 'network' as const, label: 'Network', icon: '◎' },
     { id: 'sessions' as const, label: 'Sessions', icon: '≡' },
+    { id: 'economics' as const, label: 'Economics', icon: '¤' },
   ].filter(t => !t.hide);
 
   return (
@@ -399,6 +571,7 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
         {detail?.reachable && activeTab === 'disk' && <DiskTab detail={detail} />}
         {detail?.reachable && activeTab === 'network' && <NetworkTab detail={detail} />}
         {detail?.reachable && activeTab === 'sessions' && <SessionsTab detail={detail} />}
+        {activeTab === 'economics' && <EconomicsTab hostname={hostname} econ={econ} onSave={onSaveEcon} meshNode={meshNode} />}
       </div>
     </div>
   );
@@ -838,6 +1011,363 @@ function SessionsTab({ detail }: { detail: any }) {
 
       {tmux.length === 0 && screen.length === 0 && docker.length === 0 && (
         <div className="text-base text-[var(--color-muted)]">No active sessions or containers.</div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Mesh Economics Panel
+// ============================================================
+
+function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon }: {
+  allNodes: { meshNode: any; sshHost?: SshHost; key: string }[];
+  meshNodes: any[];
+  getNodeEcon: (hostname: string) => NodeEcon;
+}) {
+  const econNodes = useMemo(() =>
+    allNodes.map(n => ({
+      hostname: n.key,
+      econ: getNodeEcon(n.key),
+      meshNode: n.meshNode,
+    })),
+    [allNodes, getNodeEcon]
+  );
+
+  const score = useMemo(() => computeMeshScore(econNodes), [econNodes]);
+  const configuredCount = econNodes.filter(n => n.econ.location).length;
+
+  if (allNodes.length === 0) return null;
+
+  // Aggregate by provider
+  const byProvider = useMemo(() => {
+    const map = new Map<string, { count: number; cost: number }>();
+    for (const n of econNodes) {
+      const p = n.econ.provider;
+      const cur = map.get(p) ?? { count: 0, cost: 0 };
+      map.set(p, { count: cur.count + 1, cost: cur.cost + n.econ.ispCostMonthly });
+    }
+    return [...map.entries()].sort((a, b) => b[1].cost - a[1].cost);
+  }, [econNodes]);
+
+  // Aggregate by location
+  const byLocation = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const n of econNodes) {
+      const loc = n.econ.location || 'unconfigured';
+      map.set(loc, (map.get(loc) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [econNodes]);
+
+  return (
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-[var(--color-muted)]">Mesh Economics</h3>
+        {configuredCount < allNodes.length && (
+          <span className="text-xs text-yellow-400">
+            {allNodes.length - configuredCount} node{allNodes.length - configuredCount !== 1 ? 's' : ''} unconfigured — click a node → Economics tab
+          </span>
+        )}
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">Monthly Cost</div>
+          <div className="text-base font-bold font-mono">${score.totalMonthlyCost}/mo</div>
+        </div>
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">Cost/Node</div>
+          <div className="text-base font-bold font-mono">
+            ${allNodes.length > 0 ? Math.round(score.totalMonthlyCost / allNodes.length) : 0}/mo
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">Avg Distance</div>
+          <div className="text-base font-bold font-mono">
+            {score.avgDistance > 0 ? `${score.avgDistance.toLocaleString()} km` : 'n/a'}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">Geo Diversity</div>
+          <div className={`text-base font-bold ${score.geoDiversityBonus > 0 ? 'text-green-400' : ''}`}>
+            +{score.geoDiversityBonus}%
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">Mesh Score</div>
+          <div className="text-base font-bold text-[var(--color-accent)]">{score.totalScore}</div>
+        </div>
+      </div>
+
+      {/* Provider + Location breakdown */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* By provider */}
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <div className="text-xs text-[var(--color-muted)] mb-2">By Provider</div>
+          <div className="space-y-1.5">
+            {byProvider.map(([prov, { count, cost }]) => {
+              const label = PROVIDERS.find(p => p.value === prov)?.label ?? prov;
+              const pct = score.totalMonthlyCost > 0 ? Math.round((cost / score.totalMonthlyCost) * 100) : 0;
+              return (
+                <div key={prov} className="flex items-center gap-2">
+                  <span className="text-xs w-28 truncate">{label}</span>
+                  <div className="flex-1 h-1.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs font-mono w-16 text-right">${cost}/mo</span>
+                  <span className="text-[10px] text-[var(--color-muted)] w-6">{count}x</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* By location */}
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <div className="text-xs text-[var(--color-muted)] mb-2">By Location</div>
+          <div className="space-y-1.5">
+            {byLocation.map(([loc, count]) => (
+              <div key={loc} className="flex items-center gap-2">
+                <span className={`text-xs flex-1 truncate ${loc === 'unconfigured' ? 'text-[var(--color-muted)] italic' : ''}`}>{loc}</span>
+                <span className="text-xs font-mono">{count} node{count !== 1 ? 's' : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Node scores */}
+      {score.nodeScores.length > 0 && (
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <div className="text-xs text-[var(--color-muted)] mb-2">Node Scores (higher = better mesh contribution)</div>
+          <div className="space-y-1">
+            {score.nodeScores.sort((a, b) => b.score - a.score).map(ns => {
+              const maxScore = Math.max(...score.nodeScores.map(s => s.score), 1);
+              return (
+                <div key={ns.hostname} className="flex items-center gap-2">
+                  <span className="text-xs font-mono w-32 truncate">{ns.hostname}</span>
+                  <div className="flex-1 h-1.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${(ns.score / maxScore) * 100}%` }} />
+                  </div>
+                  <span className="text-xs font-mono w-8 text-right">{ns.score}</span>
+                  <span className="text-[10px] text-[var(--color-muted)]">dist:{ns.distanceScore} eff:{ns.efficiencyScore}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Economics Tab (per-node)
+// ============================================================
+
+function EconomicsTab({ hostname, econ, onSave, meshNode }: {
+  hostname: string; econ: NodeEcon; onSave: (e: NodeEcon) => void; meshNode?: any;
+}) {
+  const [form, setForm] = useState<NodeEcon>(econ);
+  const [saved, setSaved] = useState(false);
+  const { data: rates } = useSWR(
+    form.ispCostMonthly > 0 ? '/api/mesh/rates' : null,
+    fetcher,
+    { refreshInterval: 0 }
+  );
+
+  const save = () => {
+    onSave(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const setLocation = (loc: string) => {
+    const preset = PRESET_LOCATIONS.find(p => p.value === loc);
+    if (preset) {
+      setForm({ ...form, location: loc, lat: preset.lat, lon: preset.lon });
+    } else {
+      setForm({ ...form, location: loc });
+    }
+  };
+
+  // Power cost estimate
+  const watts = meshNode?.powerWatts ?? 0;
+  const gpuWatts = meshNode?.gpuPowerWatts ?? 0;
+  const totalWatts = watts + gpuWatts;
+  const monthlyKwh = totalWatts > 0 ? (totalWatts * 24 * 30.44) / 1000 : 0;
+  const monthlyPowerCost = monthlyKwh * form.electricityCostKwh;
+  const totalMonthlyCost = form.ispCostMonthly + monthlyPowerCost;
+
+  return (
+    <div className="space-y-5">
+      {/* Cost inputs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">ISP / Egress Cost ($/mo)</label>
+          <input type="number" value={form.ispCostMonthly} onChange={e => setForm({ ...form, ispCostMonthly: parseFloat(e.target.value) || 0 })}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" />
+        </div>
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Electricity ($/kWh)</label>
+          <input type="number" step="0.01" value={form.electricityCostKwh} onChange={e => setForm({ ...form, electricityCostKwh: parseFloat(e.target.value) || 0 })}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" />
+        </div>
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Link Speed (Mbps)</label>
+          <input type="number" value={form.linkMbps} onChange={e => setForm({ ...form, linkMbps: parseFloat(e.target.value) || 0 })}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" />
+        </div>
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Provider</label>
+          <select value={form.provider} onChange={e => setForm({ ...form, provider: e.target.value })}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base">
+            {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Location */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="md:col-span-2">
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Location</label>
+          <div className="flex gap-2">
+            <select value={PRESET_LOCATIONS.find(p => p.value === form.location) ? form.location : '__custom__'}
+              onChange={e => { if (e.target.value !== '__custom__') setLocation(e.target.value); }}
+              className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base">
+              <option value="__custom__">Custom location...</option>
+              {PRESET_LOCATIONS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+            <input type="text" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })}
+              placeholder="e.g. us-east-1 or home-boston"
+              className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-xs font-mono" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Latitude</label>
+          <input type="number" step="0.1" value={form.lat} onChange={e => setForm({ ...form, lat: parseFloat(e.target.value) || 0 })}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" />
+        </div>
+        <div>
+          <label className="text-xs text-[var(--color-muted)] block mb-1">Longitude</label>
+          <input type="number" step="0.1" value={form.lon} onChange={e => setForm({ ...form, lon: parseFloat(e.target.value) || 0 })}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono" />
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div>
+        <label className="text-xs text-[var(--color-muted)] block mb-1">Notes</label>
+        <input type="text" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
+          placeholder="e.g. Comcast 1Gbps, basement rack, UPS battery backup"
+          className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base" />
+      </div>
+
+      {/* Save */}
+      <div className="flex items-center gap-3">
+        <button onClick={save}
+          className="px-4 py-1.5 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors cursor-pointer">
+          Save Economics
+        </button>
+        {saved && <span className="text-xs text-green-400 font-bold">Saved</span>}
+      </div>
+
+      {/* Cost breakdown */}
+      <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-4 space-y-3">
+        <div className="text-xs text-[var(--color-muted)] mb-2">Monthly Cost Breakdown</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-xs text-[var(--color-muted)]">ISP / Egress</div>
+            <div className="text-base font-mono font-bold">${form.ispCostMonthly.toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-[var(--color-muted)]">Power ({totalWatts}W × 730h)</div>
+            <div className="text-base font-mono font-bold">${monthlyPowerCost.toFixed(2)}</div>
+            <div className="text-[10px] text-[var(--color-muted)]">{monthlyKwh.toFixed(1)} kWh @ ${form.electricityCostKwh}/kWh</div>
+          </div>
+          <div>
+            <div className="text-xs text-[var(--color-muted)]">Total Monthly</div>
+            <div className="text-base font-mono font-bold text-[var(--color-accent)]">${totalMonthlyCost.toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-[var(--color-muted)]">Annual</div>
+            <div className="text-base font-mono font-bold">${(totalMonthlyCost * 12).toFixed(0)}</div>
+          </div>
+        </div>
+
+        {/* Cost per unit */}
+        {meshNode && (
+          <div className="border-t border-[var(--color-border)] pt-3 grid grid-cols-3 gap-4">
+            <div>
+              <div className="text-xs text-[var(--color-muted)]">$/core/mo</div>
+              <div className="text-sm font-mono">${meshNode.cpuCores ? (totalMonthlyCost / meshNode.cpuCores).toFixed(2) : 'n/a'}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--color-muted)]">$/GB RAM/mo</div>
+              <div className="text-sm font-mono">${meshNode.memTotalGB ? (totalMonthlyCost / meshNode.memTotalGB).toFixed(2) : 'n/a'}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--color-muted)]">$/watt/mo</div>
+              <div className="text-sm font-mono">${totalWatts > 0 ? (totalMonthlyCost / totalWatts).toFixed(2) : 'n/a'}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Currency conversions */}
+        {rates && (
+          <div className="border-t border-[var(--color-border)] pt-3">
+            <div className="text-xs text-[var(--color-muted)] mb-2">Currency Conversions (monthly)</div>
+            <div className="flex flex-wrap gap-3">
+              {Object.entries(rates.fiat ?? {}).map(([cur, rate]: [string, any]) => (
+                <div key={cur} className="text-xs font-mono">
+                  <span className="text-[var(--color-muted)]">{cur}</span>{' '}
+                  <span>{(totalMonthlyCost * (rate as number)).toFixed(2)}</span>
+                </div>
+              ))}
+              {Object.entries(rates.crypto ?? {}).map(([cur, rate]: [string, any]) => (
+                <div key={cur} className="text-xs font-mono">
+                  <span className="text-[var(--color-accent)]">{cur}</span>{' '}
+                  <span>{(totalMonthlyCost * (rate as number)).toFixed(6)}</span>
+                </div>
+              ))}
+            </div>
+            {rates.source && <div className="text-[10px] text-[var(--color-muted)] mt-1">via {rates.source} — {rates.updatedAt}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Comparison to cloud */}
+      {meshNode && (
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-4 space-y-2">
+          <div className="text-xs text-[var(--color-muted)] mb-2">Cloud Comparison (equivalent specs)</div>
+          {(() => {
+            const cores = meshNode.cpuCores ?? 0;
+            const ram = meshNode.memTotalGB ?? 0;
+            // Rough cloud equivalents
+            const comparisons = [
+              { name: 'AWS EC2 (m7i)', monthlyCost: cores * 18 + ram * 2.5 },
+              { name: 'GCP (n2-standard)', monthlyCost: cores * 16 + ram * 2.1 },
+              { name: 'Azure (D-series v5)', monthlyCost: cores * 17 + ram * 2.3 },
+              { name: 'Hetzner (dedicated)', monthlyCost: cores * 5 + ram * 1.2 },
+              { name: 'OVH (Rise)', monthlyCost: cores * 4 + ram * 1.0 },
+            ];
+            return comparisons.map(c => {
+              const savings = c.monthlyCost - totalMonthlyCost;
+              const savingsPct = c.monthlyCost > 0 ? Math.round((savings / c.monthlyCost) * 100) : 0;
+              return (
+                <div key={c.name} className="flex items-center gap-3">
+                  <span className="text-xs w-40">{c.name}</span>
+                  <span className="text-xs font-mono w-20">${c.monthlyCost.toFixed(0)}/mo</span>
+                  <span className={`text-xs font-bold ${savings > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {savings > 0 ? `save $${savings.toFixed(0)} (${savingsPct}%)` : `+$${Math.abs(savings).toFixed(0)} more`}
+                  </span>
+                </div>
+              );
+            });
+          })()}
+        </div>
       )}
     </div>
   );
