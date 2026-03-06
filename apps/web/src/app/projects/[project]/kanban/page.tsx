@@ -31,9 +31,9 @@ interface Todo {
 const TICKET_THRESHOLD = 15;
 
 const STATUS_COLUMNS = [
-  { key: 'pending', label: 'Pending', color: 'var(--color-muted)', icon: '○' },
-  { key: 'in_progress', label: 'In Progress', color: '#fbbf24', icon: '◉' },
-  { key: 'completed', label: 'Completed', color: '#10b981', icon: '●' },
+  { key: 'pending', label: 'Pending', color: '#fbbf24', icon: '○' },
+  { key: 'in_progress', label: 'In Progress', color: '#60a5fa', icon: '◉' },
+  { key: 'completed', label: 'Completed', color: '#22c55e', icon: '●' },
 ] as const;
 
 const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
@@ -462,15 +462,15 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
         }
         ${isDragging ? ''
           : needsTicket ? 'border-yellow-400/40 bg-yellow-400/[0.03]'
-          : isActive ? 'border-[var(--color-accent)]/50 shadow-[0_0_12px_var(--color-accent)] shadow-lg'
+          : isActive ? 'border-blue-400/50 shadow-[0_0_12px_#60a5fa] shadow-lg'
           : 'border-[var(--color-border)] shadow-md hover:border-[var(--color-muted)]'
         }
       `}
     >
       {isActive && (
         <div className="flex items-center gap-1.5 mb-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
-          <span className="text-xs font-bold text-[var(--color-accent)]">RUNNING</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+          <span className="text-xs font-bold text-blue-400">RUNNING</span>
         </div>
       )}
 

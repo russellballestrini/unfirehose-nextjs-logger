@@ -298,8 +298,8 @@ export default function ProjectPage({
                 {full.todos.map((t: any) => (
                   <div key={t.id} className="flex items-center gap-2 text-sm">
                     <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: t.status === 'in_progress' ? '#fbbf24' : 'var(--color-muted)' }}
+                      className={`w-2 h-2 rounded-full shrink-0${t.status === 'in_progress' ? ' animate-pulse' : ''}`}
+                      style={{ backgroundColor: t.status === 'pending' ? '#fbbf24' : t.status === 'in_progress' ? '#60a5fa' : '#22c55e' }}
                     />
                     <span className="flex-1 truncate">{t.content}</span>
                     <span className="text-xs text-[var(--color-muted)] shrink-0">
