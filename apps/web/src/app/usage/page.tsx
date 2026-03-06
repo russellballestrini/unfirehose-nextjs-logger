@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { formatTokens, formatRelativeTime } from '@unfirehose/core/format';
 import { PageContext } from '@unfirehose/ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unfirehose/ui/TimeRangeSelect';
+import { useCurrency } from '@unfirehose/ui/useCurrency';
 import {
   AreaChart,
   Area,
@@ -111,7 +112,8 @@ export default function UsageMonitorPage() {
     fetcher,
     { refreshInterval: 30000 }
   );
-  const [activeTab, setActiveTab] = useState<'model' | 'infra'>('model');
+  const [activeTab, setActiveTab] = useState<'model' | 'infra' | 'thresholds'>('model');
+  const currency = useCurrency();
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const { data: projectDetail } = useSWR(
     expandedProject ? `/api/projects/activity?project=${encodeURIComponent(expandedProject)}` : null,
@@ -238,6 +240,7 @@ export default function UsageMonitorPage() {
         {([
           { id: 'model' as const, label: 'Model Usage', icon: '¤' },
           { id: 'infra' as const, label: 'Infrastructure', icon: '⚡' },
+          { id: 'thresholds' as const, label: 'Thresholds', icon: '⚠' },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -415,7 +418,7 @@ export default function UsageMonitorPage() {
                     <span>{p.session_count} sessions</span>
                     <span>{p.active_days}d active</span>
                     <span>{formatTokens(p.total_output)} out</span>
-                    <span className="text-[var(--color-accent)]">${p.cost_estimate.toLocaleString()}</span>
+                    <span className="text-[var(--color-accent)]">{currency.format(p.cost_estimate)}</span>
                   </div>
 
                   {/* Last activity */}
@@ -626,14 +629,14 @@ export default function UsageMonitorPage() {
                     const watts = (n.powerWatts ?? estimateWatts(n.cpuCores, n.loadAvg[0])) + (n.gpuPowerWatts ?? 0);
                     return sum + (watts * 24 * 30 / 1000) * getKwhRate(n.hostname);
                   }, 0);
-                return <span className="text-[var(--color-accent)]">~${totalCost.toFixed(0)}/mo elec</span>;
+                return <span className="text-[var(--color-accent)]">~{currency.format(totalCost)}/mo elec</span>;
               })()}
               <span className="text-[var(--color-muted)]">{mesh.summary?.totalPowerWatts ?? 0}W total</span>
             </div>
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(mesh.nodes?.length ?? 1, 3)}, 1fr)` }}>
             {mesh.nodes?.map((node: any) => (
-              <MeshNodeCard key={node.hostname} node={node} kwhRate={getKwhRate(node.hostname)} onRateChange={saveKwhRate} />
+              <MeshNodeCard key={node.hostname} node={node} kwhRate={getKwhRate(node.hostname)} onRateChange={saveKwhRate} formatCost={currency.format} />
             ))}
           </div>
         </div>
@@ -712,8 +715,8 @@ export default function UsageMonitorPage() {
                 />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                 <Tooltip
-                  labelFormatter={(t: string) => t}
-                  formatter={(v: number, name: string) => [`${v}W`, name]}
+                  labelFormatter={(t) => String(t)}
+                  formatter={(v, name) => [`${v}W`, name]}
                   contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
                 />
                 <Legend />
@@ -743,8 +746,8 @@ export default function UsageMonitorPage() {
                 />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
                 <Tooltip
-                  labelFormatter={(t: string) => t}
-                  formatter={(v: number, name: string) => [typeof v === 'number' ? v.toFixed(1) : v, name]}
+                  labelFormatter={(t) => String(t)}
+                  formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]}
                   contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
                 />
                 <Legend />
@@ -771,8 +774,8 @@ export default function UsageMonitorPage() {
                 />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                 <Tooltip
-                  labelFormatter={(t: string) => t}
-                  formatter={(v: number, name: string) => [`${v}GB`, name]}
+                  labelFormatter={(t) => String(t)}
+                  formatter={(v, name) => [`${v}GB`, name]}
                   contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
                 />
                 <Legend />
@@ -814,7 +817,7 @@ function estimateWatts(cores: number, loadAvg1: number): number {
   return cores * (idleWattsPerCore + utilization * (loadedWattsPerCore - idleWattsPerCore));
 }
 
-function MeshNodeCard({ node, kwhRate, onRateChange }: { node: any; kwhRate: number; onRateChange: (hostname: string, rate: number) => void }) {
+function MeshNodeCard({ node, kwhRate, onRateChange, formatCost }: { node: any; kwhRate: number; onRateChange: (hostname: string, rate: number) => void; formatCost: (usd: number) => string }) {
   if (!node.reachable) {
     return (
       <div className="rounded border border-[var(--color-border)] p-3 opacity-40">
@@ -905,7 +908,7 @@ function MeshNodeCard({ node, kwhRate, onRateChange }: { node: any; kwhRate: num
                   [{sourceLabel}]
                 </span>
               </span>
-              <span className="text-[var(--color-accent)] font-bold">${costPerMonth.toFixed(0)}/mo</span>
+              <span className="text-[var(--color-accent)] font-bold">{formatCost(costPerMonth)}/mo</span>
             </div>
             <div className="flex items-center gap-1.5 mt-1">
               <span className="text-[10px] text-[var(--color-muted)]">$</span>

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unfirehose/ui/PageContext';
+import { AVAILABLE_CURRENCIES } from '@unfirehose/ui/useCurrency';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -71,6 +72,7 @@ const SETTINGS_KEYS = {
   meshDefaultLinkMbps: 'mesh_default_link_mbps',
   meshCurrencyOracle: 'mesh_currency_oracle',
   meshGeoipAuto: 'mesh_geoip_auto',
+  displayCurrency: 'display_currency',
 };
 
 export default function SettingsPage() {
@@ -321,6 +323,17 @@ export default function SettingsPage() {
               Currency Oracle
             </span>
           </label>
+        </div>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Display Currency</label>
+          <select
+            value={settings?.[SETTINGS_KEYS.displayCurrency] ?? 'USD'}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+            onChange={(e) => saveSetting(SETTINGS_KEYS.displayCurrency, e.target.value)}
+          >
+            {AVAILABLE_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+          </select>
         </div>
 
         {/* Geo-region overrides */}

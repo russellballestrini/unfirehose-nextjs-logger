@@ -9,7 +9,8 @@
     "./SessionPopover": "./components/SessionPopover.tsx",
     "./ThemeProvider": "./components/ThemeProvider.tsx",
     "./layout/Sidebar": "./components/layout/Sidebar.tsx",
-    "./viewer/MessageBlock": "./components/viewer/MessageBlock.tsx"
+    "./viewer/MessageBlock": "./components/viewer/MessageBlock.tsx",
+    "./useCurrency": "./components/useCurrency.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",
