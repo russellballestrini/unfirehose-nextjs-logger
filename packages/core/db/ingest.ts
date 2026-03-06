@@ -1898,3 +1898,63 @@ export function getUserPromptsInWindow(windowStart: string, windowEnd: string) {
     display_name: string;
   }>;
 }
+
+export interface CloudIngestResult {
+  accepted: number;
+  errors: number;
+}
+
+export function ingestJsonlLines(
+  db: ReturnType<typeof getDb>,
+  lines: string[],
+  projectName: string,
+  sessionUuid: string
+): CloudIngestResult {
+  const result: CloudIngestResult = { accepted: 0, errors: 0 };
+
+  const projectId = getOrCreateProject(db, projectName, projectName);
+  const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
+    harness: 'cloud-ingest',
+  });
+
+  const batchInsert = db.transaction((batch: string[]) => {
+    for (const line of batch) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line);
+        const messageId = insertMessage(db, sessionId, entry);
+        if (messageId === null) {
+          result.errors++;
+          continue;
+        }
+        result.accepted++;
+
+        const content =
+          entry.message?.content ??
+          (entry.type === 'user' && typeof entry.message?.content === 'string'
+            ? [{ type: 'text', text: entry.message.content }]
+            : []);
+        if (Array.isArray(content)) {
+          insertContentBlocks(db, messageId, content);
+        }
+
+        const usage = entry.message?.usage;
+        if (usage && entry.timestamp) {
+          updateUsageMinutes(db, projectId, entry.timestamp, {
+            inputTokens: usage.input_tokens ?? 0,
+            outputTokens: usage.output_tokens ?? 0,
+            cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+            cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+          });
+        }
+
+        extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
+      } catch {
+        result.errors++;
+      }
+    }
+  });
+
+  batchInsert(lines);
+  return result;
+}

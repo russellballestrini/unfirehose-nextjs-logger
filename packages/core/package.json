@@ -24,7 +24,12 @@
     "./pii": "./pii.ts",
     "./session-name": "./session-name.ts",
     "./uuidv7": "./uuidv7.ts",
-    "./mesh": "./mesh.ts"
+    "./mesh": "./mesh.ts",
+    "./db/control": "./db/control.ts",
+    "./db/api-keys": "./db/api-keys.ts",
+    "./db/tenant": "./db/tenant.ts",
+    "./tiers": "./tiers.ts",
+    "./auth": "./auth.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2"

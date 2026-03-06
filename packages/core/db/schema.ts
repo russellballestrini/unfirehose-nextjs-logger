@@ -7,6 +7,9 @@ const DB_PATH = path.join(homedir(), '.claude', 'unfirehose.db');
 let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
+  if (process.env.MULTI_TENANT === 'true') {
+    throw new Error('Use getTenantDb() in multi-tenant mode');
+  }
   if (_db) return _db;
 
   _db = new Database(DB_PATH);
@@ -16,6 +19,10 @@ export function getDb(): Database.Database {
 
   migrate(_db);
   return _db;
+}
+
+export function migrateTenantDb(db: Database.Database) {
+  migrate(db);
 }
 
 function migrate(db: Database.Database) {
