@@ -512,7 +512,7 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
 
   return (
     <Link
-      href={`/permacomputer/${encodeURIComponent(probeHost)}`}
+      href={`/usage/node/${encodeURIComponent(probeHost)}`}
       className={`text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block`}
     >
       {/* Header row */}
