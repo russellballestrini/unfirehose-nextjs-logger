@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unfirehose/ui/PageContext';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -74,7 +75,22 @@ const BOOT_STRATEGIES = [
   { value: 'round-robin', label: 'Round Robin', desc: 'Rotate across available mesh nodes' },
 ];
 
+const TABS = [
+  { id: 'settings', label: 'Settings', icon: '⚙' },
+  { id: 'bootstrap', label: 'Bootstrap', icon: '⚡' },
+] as const;
+
+type TabId = typeof TABS[number]['id'];
+
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const activeTab = (searchParams.get('tab') as TabId) || 'settings';
+
+  const setTab = (tab: TabId) => {
+    router.replace(`/settings?tab=${tab}`, { scroll: false });
+  };
+
   const { data: settings, mutate } = useSWR('/api/settings', fetcher);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -152,7 +168,22 @@ export default function SettingsPage() {
         }}
       />
 
-      <h2 className="text-lg font-bold">Settings</h2>
+      <div className="flex items-center gap-1">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setTab(tab.id)}
+            className={`px-4 py-2 text-base font-bold rounded-t border transition-colors cursor-pointer ${
+              activeTab === tab.id
+                ? 'border-[var(--color-border)] border-b-transparent bg-[var(--color-surface)] text-[var(--color-foreground)]'
+                : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+            }`}
+          >
+            <span className={activeTab === tab.id ? 'text-[var(--color-accent)]' : 'text-[var(--color-border)]'}>{tab.icon}</span>
+            <span className="ml-2">{tab.label}</span>
+          </button>
+        ))}
+      </div>
 
       {toast && (
         <div className="fixed top-4 right-4 bg-[var(--color-accent)] text-black px-4 py-2 rounded text-base font-bold z-50">
@@ -160,6 +191,9 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {activeTab === 'bootstrap' && <BootstrapTab />}
+
+      {activeTab === 'settings' && <>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* Left column */}
       <div className="space-y-6">
@@ -228,38 +262,6 @@ export default function SettingsPage() {
           </button>
         </div>
         <HexColorPicker value={accentColor} settingKey={SETTINGS_KEYS.accentColor} />
-      </div>
-
-      {/* Scrobble */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-[var(--color-muted)]">Scrobble</h3>
-            <p className="text-base text-[var(--color-muted)] mt-1">
-              Broadcast your coding activity to your unfirehose timeline. Like last.fm but for building software.
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-base shrink-0">
-            <input
-              type="checkbox"
-              checked={scrobbleEnabled}
-              className="accent-[var(--color-accent)]"
-              onChange={(e) =>
-                saveSetting(SETTINGS_KEYS.scrobbleEnabled, String(e.target.checked))
-              }
-            />
-            <span className={scrobbleEnabled ? 'text-[var(--color-accent)] font-bold' : 'text-[var(--color-muted)]'}>
-              {scrobbleEnabled ? 'Live' : 'Off'}
-            </span>
-          </label>
-        </div>
-
-        {scrobbleEnabled && (
-          <div className="text-base text-[var(--color-muted)] space-y-1">
-            <div>Scrobbling: project names, session starts, tool usage, model info</div>
-            <div>Not scrobbling: prompt content, thinking blocks, file contents</div>
-          </div>
-        )}
       </div>
 
       {/* Compute / Boot */}
@@ -386,13 +388,6 @@ export default function SettingsPage() {
             <div className="text-base font-bold text-[var(--color-muted)]">Hoses</div>
             <div className="grid grid-cols-2 gap-2">
               <HoseToggle
-                label="Scrobble Out"
-                desc="Your coding activity → feed"
-                settingKey="unfirehose_hose_scrobble"
-                settings={settings}
-                onSave={saveSetting}
-              />
-              <HoseToggle
                 label="Social Timeline"
                 desc="Posts, status, blogs from network"
                 settingKey="unfirehose_hose_social"
@@ -427,6 +422,7 @@ export default function SettingsPage() {
       {saving && (
         <div className="text-base text-[var(--color-muted)]">Saving...</div>
       )}
+      </>}
     </div>
   );
 }
@@ -760,6 +756,11 @@ function BootstrapPanel() {
 
         {result && (
           <div className="text-base text-green-400 font-mono">
+            {result.bootstrapped?.length > 0 && (
+              <span className="text-yellow-400 mr-2">
+                [bootstrapped: {result.bootstrapped.join(', ')}]
+              </span>
+            )}
             {result.multiplexer} session: {result.tmuxSession}
             {result.host !== 'localhost' && ` on ${result.host}`}
             <span className="text-[var(--color-muted)] ml-2">
@@ -869,6 +870,417 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
           background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
         }}
       />
+    </div>
+  );
+}
+
+// --- Bootstrap Tab ---
+
+interface SshHost {
+  name: string;
+  hostname?: string;
+  port?: string;
+  user?: string;
+  identityFile?: string;
+  forwardAgent?: string;
+}
+
+function BootstrapTab() {
+  const { data, mutate } = useSWR<{ hosts: SshHost[]; keys: string[] }>('/api/ssh-config', fetcher, { refreshInterval: 0 });
+  const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
+
+  const [editing, setEditing] = useState<string | null>(null); // host name being edited, or '__new__'
+  const [form, setForm] = useState<SshHost>({ name: '' });
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, 'ok' | 'fail' | 'testing'>>({});
+
+  const hosts = data?.hosts ?? [];
+  const keys = data?.keys ?? [];
+  const meshNodes: any[] = mesh?.nodes ?? [];
+
+  const getMeshNode = (hostName: string) =>
+    meshNodes.find((n: any) => n.hostname === hostName || n.hostname === hosts.find(h => h.name === hostName)?.hostname);
+
+  const startEdit = (host: SshHost) => {
+    setEditing(host.name);
+    setForm({ ...host });
+  };
+
+  const startNew = () => {
+    setEditing('__new__');
+    setForm({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' });
+  };
+
+  const cancel = () => {
+    setEditing(null);
+    setForm({ name: '' });
+  };
+
+  const saveHost = async () => {
+    if (!form.name) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ssh-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        mutate();
+        mutateMesh();
+        setEditing(null);
+        setForm({ name: '' });
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteHost = async (name: string) => {
+    const res = await fetch('/api/ssh-config', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (res.ok) {
+      mutate();
+      mutateMesh();
+      setDeleting(null);
+    }
+  };
+
+  const testHost = async (name: string) => {
+    setTesting(name);
+    setTestResults(prev => ({ ...prev, [name]: 'testing' }));
+    try {
+      const res = await fetch(`/api/mesh`);
+      const meshData = await res.json();
+      const host = hosts.find(h => h.name === name);
+      const node = meshData.nodes?.find((n: any) =>
+        n.hostname === name || n.hostname === host?.hostname
+      );
+      setTestResults(prev => ({ ...prev, [name]: node?.reachable ? 'ok' : 'fail' }));
+    } catch {
+      setTestResults(prev => ({ ...prev, [name]: 'fail' }));
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Node overview */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-[var(--color-muted)]">SSH Nodes</h3>
+          <div className="flex items-center gap-3">
+            <span className="text-base text-[var(--color-muted)]">
+              {hosts.length} host{hosts.length !== 1 ? 's' : ''} in ~/.ssh/config
+            </span>
+            <button
+              onClick={startNew}
+              disabled={editing !== null}
+              className="px-3 py-1.5 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              + Add Node
+            </button>
+          </div>
+        </div>
+
+        {/* New host form */}
+        {editing === '__new__' && (
+          <HostForm
+            form={form}
+            setForm={setForm}
+            keys={keys}
+            onSave={saveHost}
+            onCancel={cancel}
+            saving={saving}
+            isNew
+          />
+        )}
+
+        {/* Host list */}
+        {hosts.length === 0 && editing !== '__new__' && (
+          <p className="text-base text-[var(--color-muted)]">No SSH hosts configured. Add a node to get started.</p>
+        )}
+
+        <div className="space-y-2">
+          {hosts.map(host => {
+            const node = getMeshNode(host.name);
+            const isEditing = editing === host.name;
+            const isDeleting = deleting === host.name;
+            const testStatus = testResults[host.name];
+
+            if (isEditing) {
+              return (
+                <HostForm
+                  key={host.name}
+                  form={form}
+                  setForm={setForm}
+                  keys={keys}
+                  onSave={saveHost}
+                  onCancel={cancel}
+                  saving={saving}
+                />
+              );
+            }
+
+            return (
+              <div
+                key={host.name}
+                className="bg-[var(--color-background)] rounded border border-[var(--color-border)] px-4 py-3 flex items-center gap-4"
+              >
+                {/* Status dot */}
+                <span className={`text-base ${node?.reachable ? 'text-green-400' : 'text-[var(--color-muted)]'}`}>
+                  {node?.reachable ? '●' : '○'}
+                </span>
+
+                {/* Name + hostname */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-bold font-mono">{host.name}</span>
+                    {host.hostname && host.hostname !== host.name && (
+                      <span className="text-base text-[var(--color-muted)] font-mono">{host.hostname}</span>
+                    )}
+                    {host.port && host.port !== '22' && (
+                      <span className="text-base text-[var(--color-muted)]">:{host.port}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-base text-[var(--color-muted)]">
+                    {host.user && <span>user: {host.user}</span>}
+                    {host.identityFile && <span>key: {host.identityFile.replace(/.*\//, '')}</span>}
+                    {host.forwardAgent === 'yes' && <span>agent fwd</span>}
+                  </div>
+                </div>
+
+                {/* Mesh stats */}
+                {node?.reachable && (
+                  <div className="text-base text-[var(--color-muted)] text-right shrink-0">
+                    {node.claudeProcesses !== undefined && (
+                      <div>{node.claudeProcesses} claude{node.claudeProcesses !== 1 ? 's' : ''}</div>
+                    )}
+                    {node.loadAvg && (
+                      <div>load {node.loadAvg[0]}</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Test result */}
+                {testStatus && testStatus !== 'testing' && (
+                  <span className={`text-base font-bold ${testStatus === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                    {testStatus === 'ok' ? 'reachable' : 'unreachable'}
+                  </span>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => testHost(host.name)}
+                    disabled={testing === host.name}
+                    className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {testing === host.name ? 'testing...' : 'test'}
+                  </button>
+                  <button
+                    onClick={() => startEdit(host)}
+                    disabled={editing !== null}
+                    className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    edit
+                  </button>
+                  {isDeleting ? (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => deleteHost(host.name)}
+                        className="text-base text-red-400 hover:text-red-300 cursor-pointer"
+                      >
+                        confirm
+                      </button>
+                      <button
+                        onClick={() => setDeleting(null)}
+                        className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
+                      >
+                        cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleting(host.name)}
+                      disabled={editing !== null}
+                      className="text-base text-[var(--color-muted)] hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Available SSH Keys */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+        <h3 className="text-base font-bold text-[var(--color-muted)]">SSH Keys</h3>
+        {keys.length === 0 ? (
+          <p className="text-base text-[var(--color-muted)]">No SSH keys found in ~/.ssh/</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {keys.map(k => (
+              <span
+                key={k}
+                className="px-3 py-1 text-base font-mono rounded border border-[var(--color-border)] bg-[var(--color-background)]"
+              >
+                {k}
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="text-base text-[var(--color-muted)]">
+          To add a key to a remote node: <code className="font-mono text-[var(--color-foreground)]">ssh-copy-id -i ~/.ssh/KEY user@host</code>
+        </p>
+      </div>
+
+      {/* Mesh Summary */}
+      {mesh?.summary && (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+          <h3 className="text-base font-bold text-[var(--color-muted)]">Mesh Summary</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Stat label="Nodes" value={`${mesh.summary.reachableNodes}/${mesh.summary.totalNodes}`} />
+            <Stat label="Claudes" value={mesh.summary.totalClaudes} />
+            <Stat label="Cores" value={mesh.summary.totalCores} />
+            <Stat label="Memory" value={`${mesh.summary.totalMemUsedGB}/${mesh.summary.totalMemGB} GB`} />
+            <Stat label="Status" value={mesh.summary.reachableNodes === mesh.summary.totalNodes ? 'all green' : 'degraded'} accent={mesh.summary.reachableNodes === mesh.summary.totalNodes} />
+          </div>
+        </div>
+      )}
+
+      {/* Bootstrap Harness */}
+      <BootstrapPanel />
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
+  return (
+    <div>
+      <div className="text-base text-[var(--color-muted)]">{label}</div>
+      <div className={`text-base font-bold ${accent ? 'text-[var(--color-accent)]' : ''}`}>{value}</div>
+    </div>
+  );
+}
+
+function HostForm({
+  form,
+  setForm,
+  keys,
+  onSave,
+  onCancel,
+  saving,
+  isNew,
+}: {
+  form: SshHost;
+  setForm: (f: SshHost) => void;
+  keys: string[];
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+  isNew?: boolean;
+}) {
+  return (
+    <div className="bg-[var(--color-background)] rounded border border-[var(--color-accent)]/30 p-4 space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Host Alias</label>
+          <input
+            type="text"
+            value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })}
+            placeholder="e.g. cammy"
+            disabled={!isNew}
+            className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono disabled:opacity-50"
+          />
+        </div>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">HostName</label>
+          <input
+            type="text"
+            value={form.hostname ?? ''}
+            onChange={e => setForm({ ...form, hostname: e.target.value })}
+            placeholder="e.g. cammy.foxhop.net"
+            className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Port</label>
+          <input
+            type="text"
+            value={form.port ?? ''}
+            onChange={e => setForm({ ...form, port: e.target.value })}
+            placeholder="22"
+            className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">User</label>
+          <input
+            type="text"
+            value={form.user ?? ''}
+            onChange={e => setForm({ ...form, user: e.target.value })}
+            placeholder="e.g. fox"
+            className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Identity File</label>
+          <select
+            value={form.identityFile ?? ''}
+            onChange={e => setForm({ ...form, identityFile: e.target.value })}
+            className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          >
+            <option value="">default</option>
+            {keys.map(k => (
+              <option key={k} value={`~/.ssh/${k}`}>~/.ssh/{k}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Forward Agent</label>
+          <div className="flex gap-2 mt-0.5">
+            {['yes', 'no'].map(v => (
+              <button
+                key={v}
+                onClick={() => setForm({ ...form, forwardAgent: v })}
+                className={`flex-1 px-3 py-1.5 text-base rounded border transition-colors cursor-pointer ${
+                  form.forwardAgent === v
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-bold'
+                    : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onSave}
+          disabled={saving || !form.name}
+          className="px-4 py-1.5 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 cursor-pointer"
+        >
+          {saving ? 'Saving...' : isNew ? 'Add Host' : 'Save'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-4 py-1.5 text-base rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
