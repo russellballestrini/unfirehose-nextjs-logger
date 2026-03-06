@@ -18,7 +18,7 @@ const AGENT_SYSTEM_PROMPT = `You are a deployed agent. Follow these rules:
 - Check docs/tickets/ for related ticket files. Update ticket status when work is complete.
 - Update relevant docs when your changes affect them.
 - Never force push. If something is unclear or risky, skip it.
-- When all work is complete, signal finished: curl -X POST localhost:3000/api/boot/finished -H 'Content-Type: application/json' -d '{"tmuxSession": "'$UNFIREHOSE_TMUX_SESSION'", "tmuxWindow": "'$UNFIREHOSE_TMUX_WINDOW'"}'`;
+- When all work is complete, output the exact text UNEOF as your final message. This signals the orchestrator to retire this session.`;
 
 function exec(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {

@@ -1,6 +1,7 @@
 import { readdir, readFile, stat, mkdir, appendFile } from 'fs/promises';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
+import { execFile } from 'child_process';
 import path from 'path';
 import { homedir } from 'os';
 import { getDb } from './schema';
@@ -14,6 +15,34 @@ import { uuidv7 } from '../uuidv7';
 import type { SessionsIndex } from '../types';
 
 const CANONICAL_ROOT = path.join(homedir(), '.unfirehose', 'canonical');
+
+// Poison pill: when an agent emits UNEOF, the orchestrator culls its deployment
+export const AGENT_FINISHED_TOKEN = 'UNEOF';
+
+function tmuxSendKeys(target: string, keys: string): void {
+  execFile('tmux', ['send-keys', '-t', target, keys, 'Enter'], { timeout: 3000 }, () => {});
+}
+
+/**
+ * Cull deployments for projects where UNEOF was detected during ingestion.
+ * Sends /exit to each deployment's tmux window.
+ */
+function cullUneofDeployments(db: ReturnType<typeof getDb>, projectIds: Set<number>) {
+  const deployments = db.prepare(`
+    SELECT id, tmux_session, tmux_window, project_id
+    FROM agent_deployments
+    WHERE status = 'running' AND project_id IN (${[...projectIds].map(() => '?').join(',')})
+  `).all(...projectIds) as any[];
+
+  for (const d of deployments) {
+    const target = d.tmux_window ? `${d.tmux_session}:${d.tmux_window}` : d.tmux_session;
+    console.log(`[uneof] Culling deployment ${d.id} — sending /exit to ${target}`);
+    tmuxSendKeys(target, '/exit');
+    db.prepare(
+      "UPDATE agent_deployments SET status = 'completed', stopped_at = datetime('now') WHERE id = ?"
+    ).run(d.id);
+  }
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1007,6 +1036,9 @@ export async function ingestAll(): Promise<IngestResult> {
     alertsTriggered: 0,
   };
 
+  // Track projects where UNEOF was detected — cull after ingestion completes
+  const uneofProjects = new Set<number>();
+
   const projectDirs = await readdir(claudePaths.projects).catch(() => []);
 
   for (const dir of projectDirs) {
@@ -1096,6 +1128,7 @@ export async function ingestAll(): Promise<IngestResult> {
 
       // Track delegation info discovered during ingestion
       let detectedDelegatedFrom: string | null = null;
+      let detectedUneof = false;
 
       // Batch insert in a transaction for speed
       const batchInsert = db.transaction(
@@ -1117,6 +1150,17 @@ export async function ingestAll(): Promise<IngestResult> {
                   const parentMatch = textContent.match(/UNFIREHOSE_PARENT_SESSION[=: ]+([a-f0-9-]{36})/i);
                   if (parentMatch) {
                     detectedDelegatedFrom = parentMatch[1];
+                  }
+                }
+              }
+
+              // Detect UNEOF poison pill in assistant output
+              if (!detectedUneof && entry.type === 'assistant' && entry.message?.content) {
+                const blocks = Array.isArray(entry.message.content) ? entry.message.content : [];
+                for (const b of blocks) {
+                  if (b.type === 'text' && typeof b.text === 'string' && b.text.includes(AGENT_FINISHED_TOKEN)) {
+                    detectedUneof = true;
+                    break;
                   }
                 }
               }
@@ -1173,6 +1217,11 @@ export async function ingestAll(): Promise<IngestResult> {
         db.prepare(
           'UPDATE sessions SET delegated_from = ?, is_sidechain = 1 WHERE session_uuid = ? AND delegated_from IS NULL'
         ).run(detectedDelegatedFrom, meta.sessionId);
+      }
+
+      // UNEOF: agent signalled completion — queue cull for this project
+      if (detectedUneof) {
+        uneofProjects.add(projectId);
       }
 
       // Update ingestion offset
@@ -1336,6 +1385,11 @@ export async function ingestAll(): Promise<IngestResult> {
 
   // Check alert thresholds
   result.alertsTriggered = checkThresholds(db);
+
+  // Fire UNEOF cull for any projects where agent signalled completion
+  if (uneofProjects.size > 0) {
+    cullUneofDeployments(db, uneofProjects);
+  }
 
   return result;
 }
