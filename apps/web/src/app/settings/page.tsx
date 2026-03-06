@@ -140,7 +140,7 @@ export default function SettingsPage() {
   const selectedPlanData = PLANS.find((p) => p.value === currentPlan);
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6">
       <PageContext
         pageType="settings"
         summary={`Settings. Plan: ${currentPlan || 'not set'}. Handle: ${handle || 'not set'}. Scrobble: ${scrobbleEnabled ? 'on' : 'off'}.`}
@@ -421,6 +421,9 @@ export default function SettingsPage() {
       </div>{/* end right column */}
       </div>{/* end two-column grid */}
 
+      {/* Bootstrap Harness — full width */}
+      <BootstrapPanel />
+
       {saving && (
         <div className="text-base text-[var(--color-muted)]">Saving...</div>
       )}
@@ -557,6 +560,215 @@ function ComputeSettings({
           {nodes.filter((n: { reachable: boolean }) => n.reachable).length} of {nodes.length} mesh nodes reachable
         </div>
       )}
+    </div>
+  );
+}
+
+const HARNESSES = [
+  { value: 'claude', label: 'Claude Code', cmd: 'claude' },
+  { value: 'custom', label: 'Custom Command', cmd: '' },
+];
+
+function BootstrapPanel() {
+  const { data: mesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
+  const { data: projects } = useSWR('/api/projects', fetcher);
+  const [host, setHost] = useState('localhost');
+  const [harness, setHarness] = useState('claude');
+  const [customCmd, setCustomCmd] = useState('');
+  const [projectPath, setProjectPath] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [multiplexer, setMultiplexer] = useState<'tmux' | 'screen'>('tmux');
+  const [yolo, setYolo] = useState(true);
+  const [prompt, setPrompt] = useState('');
+  const [booting, setBooting] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const meshNodes: any[] = mesh?.nodes ?? [];
+  const reachableNodes = meshNodes.filter((n: any) => n.reachable);
+  const projectList: any[] = projects ?? [];
+
+  const handleBoot = useCallback(async () => {
+    if (!projectPath) return;
+    setBooting(true);
+    setResult(null);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/boot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath,
+          projectName,
+          host: host === 'localhost' ? undefined : host,
+          yolo: harness === 'claude' ? yolo : false,
+          prompt: prompt.trim() || undefined,
+          harness: harness === 'custom' ? customCmd : 'claude',
+          preferMultiplexer: multiplexer,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResult(data);
+      } else {
+        setError(data.error || 'Boot failed');
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBooting(false);
+    }
+  }, [projectPath, projectName, host, harness, yolo, prompt, customCmd, multiplexer]);
+
+  return (
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+      <h3 className="text-base font-bold text-[var(--color-muted)]">Bootstrap Harness</h3>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Host</label>
+          <select
+            value={host}
+            onChange={e => setHost(e.target.value)}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          >
+            <option value="localhost">localhost</option>
+            {reachableNodes
+              .filter((n: any) => n.hostname !== meshNodes[0]?.hostname)
+              .map((n: any) => (
+                <option key={n.hostname} value={n.hostname}>
+                  {n.hostname} ({n.claudeProcesses ?? 0} claudes)
+                </option>
+              ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Harness</label>
+          <select
+            value={harness}
+            onChange={e => setHarness(e.target.value)}
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
+          >
+            {HARNESSES.map(h => (
+              <option key={h.value} value={h.value}>{h.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Multiplexer</label>
+          <div className="flex gap-2">
+            {(['tmux', 'screen'] as const).map(mux => (
+              <button
+                key={mux}
+                onClick={() => setMultiplexer(mux)}
+                className={`flex-1 px-3 py-1.5 text-base rounded border transition-colors cursor-pointer ${
+                  multiplexer === mux
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-bold'
+                    : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+                }`}
+              >
+                {mux}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Mode</label>
+          <button
+            onClick={() => setYolo(!yolo)}
+            disabled={harness !== 'claude'}
+            className={`w-full px-3 py-1.5 text-base rounded border transition-colors cursor-pointer disabled:opacity-30 ${
+              yolo && harness === 'claude'
+                ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-bold'
+                : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+            }`}
+          >
+            {yolo ? 'YOLO (skip perms)' : 'Interactive'}
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-base text-[var(--color-muted)] block mb-1">Project</label>
+        <div className="flex gap-2">
+          <select
+            value={projectPath}
+            onChange={e => {
+              setProjectPath(e.target.value);
+              const proj = projectList.find((p: any) => p.originalPath === e.target.value);
+              setProjectName(proj?.name ?? '');
+            }}
+            className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          >
+            <option value="">select project...</option>
+            {projectList.map((p: any) => (
+              <option key={p.name} value={p.originalPath || ''}>
+                {p.displayName || p.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={projectPath}
+            onChange={e => { setProjectPath(e.target.value); setProjectName(''); }}
+            placeholder="or enter path: /home/fox/git/..."
+            className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-base text-[var(--color-muted)] block mb-1">Initial Prompt (optional)</label>
+        <input
+          type="text"
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          placeholder="e.g. fix the failing tests"
+          className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base"
+          onKeyDown={e => { if (e.key === 'Enter' && projectPath) handleBoot(); }}
+        />
+      </div>
+
+      {harness === 'custom' && (
+        <div>
+          <label className="text-base text-[var(--color-muted)] block mb-1">Command</label>
+          <input
+            type="text"
+            value={customCmd}
+            onChange={e => setCustomCmd(e.target.value)}
+            placeholder="e.g. python train.py"
+            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
+          />
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleBoot}
+          disabled={booting || !projectPath}
+          className="px-6 py-2 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 cursor-pointer"
+        >
+          {booting ? 'Bootstrapping...' : `Boot ${harness === 'claude' ? 'Claude' : 'Harness'} on ${host}`}
+        </button>
+
+        {result && (
+          <div className="text-base text-green-400 font-mono">
+            {result.multiplexer} session: {result.tmuxSession}
+            {result.host !== 'localhost' && ` on ${result.host}`}
+            <span className="text-[var(--color-muted)] ml-2">
+              {result.command}
+            </span>
+          </div>
+        )}
+
+        {error && (
+          <div className="text-base text-red-400">{error}</div>
+        )}
+      </div>
     </div>
   );
 }
