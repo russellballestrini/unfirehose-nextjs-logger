@@ -965,7 +965,9 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
       <div className="rounded border border-[var(--color-border)] p-3 opacity-40">
         <div className="flex items-center gap-2 mb-2">
           <span className="w-2 h-2 rounded-full bg-[var(--color-error)]" />
-          <span className="font-bold text-sm">{node.hostname}</span>
+          <Link href={`/usage/node/${encodeURIComponent(node.hostname)}`} className="font-bold text-sm hover:text-[var(--color-accent)]">
+            {node.hostname}
+          </Link>
           <span className="text-xs text-[var(--color-error)] ml-auto">{node.error || 'Unreachable'}</span>
         </div>
       </div>
@@ -982,7 +984,9 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
-        <span className="font-bold text-sm">{node.hostname}</span>
+        <Link href={`/usage/node/${encodeURIComponent(node.hostname)}`} className="font-bold text-sm hover:text-[var(--color-accent)] transition-colors">
+          {node.hostname}
+        </Link>
         <span className="text-xs text-[var(--color-muted)] ml-auto">up {node.uptime}</span>
       </div>
 

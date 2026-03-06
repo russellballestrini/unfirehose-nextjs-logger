@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import useSWR from 'swr';
+import Link from 'next/link';
 import { PageContext } from '@unfirehose/ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -298,8 +299,6 @@ export default function PermacomputerPage() {
     fetcher,
     { refreshInterval: 0, revalidateOnFocus: false }
   );
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-
   const hosts = sshData?.hosts ?? [];
   const meshNodes: any[] = mesh?.nodes ?? [];
   const reachable = meshNodes.filter((n: any) => n.reachable);
@@ -422,29 +421,10 @@ export default function PermacomputerPage() {
             econ={getNodeEcon(key)}
             geoip={getNodeGeoIP(key)}
             egressGroups={egressGroups}
-            isSelected={selectedNode === key}
-            onSelect={() => setSelectedNode(selectedNode === key ? null : key)}
           />
         ))}
         <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} mutate={() => { mutateSsh(); mutateMesh(); }} />
       </div>
-
-      {/* Node Detail Panel */}
-      {selectedNode && (
-        <NodeDetailPanel
-          hostname={selectedNode}
-          sshHost={hosts.find(h => h.name === selectedNode || h.hostname === selectedNode)}
-          meshNode={meshNodes.find((n: any) => n.hostname === selectedNode)}
-          onClose={() => setSelectedNode(null)}
-          keys={sshData?.keys ?? []}
-          mutateSsh={mutateSsh}
-          mutateMesh={mutateMesh}
-          econ={getNodeEcon(selectedNode)}
-          onSaveEcon={(econ) => saveNodeEcon(selectedNode, econ)}
-          geoip={getNodeGeoIP(selectedNode)}
-          settings={settings}
-        />
-      )}
 
       {/* Unsandbox */}
       <UnsandboxPanel />
@@ -514,8 +494,8 @@ function MiniStat({ label, value, accent }: { label: string; value: string | num
 // Node Card (compact, clickable)
 // ============================================================
 
-function NodeCard({ node, sshHost, econ, geoip, egressGroups, isSelected, onSelect }: {
-  node: any; sshHost?: SshHost; econ: NodeEcon; geoip?: any; egressGroups?: Map<string, string[]>; isSelected: boolean; onSelect: () => void;
+function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
+  node: any; sshHost?: SshHost; econ: NodeEcon; geoip?: any; egressGroups?: Map<string, string[]>;
 }) {
   const reachable = node?.reachable;
   const name = sshHost?.name ?? node?.hostname ?? '?';
@@ -528,15 +508,12 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, isSelected, onSele
   const loadPct = cpuCores > 0 ? Math.min(100, Math.round((load1 / cpuCores) * 100)) : 0;
   const claudes = node?.claudeProcesses ?? 0;
   const swap = node?.swapUsedGB ?? 0;
+  const probeHost = sshHost?.hostname ?? sshHost?.name ?? node?.hostname ?? name;
 
   return (
-    <button
-      onClick={onSelect}
-      className={`text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 ${
-        isSelected
-          ? 'border-[var(--color-accent)] shadow-[0_0_12px_rgba(var(--accent-rgb,212,0,0),0.3)]'
-          : 'border-[var(--color-border)]'
-      }`}
+    <Link
+      href={`/permacomputer/${encodeURIComponent(probeHost)}`}
+      className={`text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block`}
     >
       {/* Header row */}
       <div className="flex items-center gap-2 mb-3">
@@ -606,7 +583,7 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, isSelected, onSele
           )}
         </div>
       )}
-    </button>
+    </Link>
   );
 }
 
