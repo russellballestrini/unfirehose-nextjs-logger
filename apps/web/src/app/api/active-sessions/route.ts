@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDb();
     const minutes = Math.max(1, parseInt(request.nextUrl.searchParams.get('minutes') ?? '10'));
+    // Generate cutoff as ISO string to match DB timestamp format
+    const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
 
     const sessions = db.prepare(`
       SELECT
@@ -15,21 +17,20 @@ export async function GET(request: NextRequest) {
         s.display_name,
         s.first_prompt,
         s.git_branch,
-        COALESCE(s.last_message_at, s.updated_at) as updated_at,
+        (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) as updated_at,
         s.created_at,
         p.name as project_name,
         p.display_name as project_display,
         p.path as project_path,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count,
-        (SELECT SUM(m.input_tokens + m.output_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= datetime('now', '-' || ? || ' minutes')) as recent_tokens,
+        (SELECT SUM(m.input_tokens + m.output_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_tokens,
         (SELECT m.model FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL ORDER BY m.timestamp DESC LIMIT 1) as last_model
       FROM sessions s
       JOIN projects p ON s.project_id = p.id
-      WHERE COALESCE(s.last_message_at, s.updated_at) >= datetime('now', '-' || ? || ' minutes')
+      WHERE (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) >= ?
         AND (s.status IS NULL OR s.status = 'active')
-        AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)
-      ORDER BY COALESCE(s.last_message_at, s.updated_at) DESC
-    `).all(minutes, minutes) as any[];
+      ORDER BY updated_at DESC
+    `).all(cutoff, cutoff) as any[];
 
     return NextResponse.json({
       sessions: sessions.map(s => ({
