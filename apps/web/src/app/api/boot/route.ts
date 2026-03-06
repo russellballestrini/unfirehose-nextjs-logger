@@ -216,6 +216,9 @@ async function bootTmux(opts: BootOpts) {
     'bash', '-l',
   ], { timeout: 5000 });
 
+  // Wait for bash to initialize in the new tmux session
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
   const envPrefix = opts.parentSessionUuid
     ? `export UNFIREHOSE_PARENT_SESSION=${opts.parentSessionUuid} && `
     : '';
@@ -308,6 +311,9 @@ async function bootRemote(host: string, opts: BootOpts) {
   // Create tmux session on remote
   const tmuxCreate = `tmux new-session -d -s '${opts.sessionName}' -c '${opts.projectPath}' bash -l`;
   await exec(sshBase[0], [...sshBase.slice(1), tmuxCreate], { timeout: 15000 });
+
+  // Wait for bash to initialize in the remote tmux session
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
   // Send the claude command
   const tmuxSend = `tmux send-keys -t '${opts.sessionName}' '${fullCmd.replace(/'/g, "'\\''")}' Enter`;
