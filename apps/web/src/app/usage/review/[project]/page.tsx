@@ -178,7 +178,7 @@ export default function ReviewPage() {
               {generateError && (
                 <div className="mt-2 text-xs text-[var(--color-error)]">
                   {generateError}
-                  {generateError.includes('No LLM API key') && (
+                  {(generateError.includes('No LLM provider') || generateError.includes('Configure')) && (
                     <> — <Link href="/settings" className="underline">Configure in Settings</Link></>
                   )}
                 </div>

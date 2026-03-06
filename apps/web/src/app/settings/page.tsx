@@ -138,11 +138,10 @@ export default function SettingsPage() {
     ? activity.reduce((s: number, p: { user_messages?: number }) => s + (p.user_messages ?? 0), 0)
     : 0;
 
-  // LLM commit message generation (defaults to hermes — internal, no key needed)
-  const llmEndpoint = settings?.llm_commit_endpoint ?? 'https://hermes.ai.unturf.com/v1/chat/completions';
+  // LLM commit message generation
+  const llmEndpoint = settings?.llm_commit_endpoint ?? '';
   const llmApiKey = settings?.llm_commit_api_key ?? '';
-  const llmModel = settings?.llm_commit_model ?? 'adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic';
-  const hasLlmOverrides = !!settings?.llm_commit_endpoint || !!settings?.llm_commit_api_key || !!settings?.llm_commit_model;
+  const llmModel = settings?.llm_commit_model ?? '';
 
   // Mesh defaults
   const meshDefaultIspCost = settings?.[SETTINGS_KEYS.meshDefaultIspCost] ?? '110';
@@ -483,12 +482,11 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* LLM — commit message generation (hidden by default) */}
-      <LlmSettings
+      {/* LLM Providers */}
+      <LlmProviders
         endpoint={llmEndpoint}
         apiKey={llmApiKey}
         model={llmModel}
-        hasOverrides={hasLlmOverrides}
         onSave={saveSetting}
       />
 
@@ -710,86 +708,124 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
   );
 }
 
-function LlmSettings({
+function LlmProviders({
   endpoint,
   apiKey,
   model,
-  hasOverrides,
   onSave,
 }: {
   endpoint: string;
   apiKey: string;
   model: string;
-  hasOverrides: boolean;
   onSave: (key: string, value: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(hasOverrides);
+  const { data: providerData } = useSWR('/api/llm/providers', fetcher);
+  const detected = providerData?.providers ?? [];
+  const hasCustom = !!endpoint || !!apiKey;
+  const [showCustom, setShowCustom] = useState(hasCustom);
 
   return (
-    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-base font-bold text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer flex items-center gap-2 w-full text-left"
-      >
-        <span>{expanded ? '▾' : '▸'}</span>
-        <span>LLM — Commit Messages</span>
-        {!hasOverrides && (
-          <span className="text-xs font-normal text-[var(--color-accent)] ml-auto">hermes (default)</span>
-        )}
-        {hasOverrides && (
-          <span className="text-xs font-normal text-yellow-400 ml-auto">custom</span>
-        )}
-      </button>
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+      <h3 className="text-base font-bold text-[var(--color-muted)]">LLM Providers</h3>
+      <p className="text-base text-[var(--color-muted)]">
+        Used for generating commit messages from diffs. Auto-detects OAuth tokens on the filesystem,
+        or add your own OpenAI-compatible endpoint.
+      </p>
 
-      {expanded && (
-        <div className="space-y-4 pt-1">
-          <p className="text-base text-[var(--color-muted)]">
-            OpenAI-compatible endpoint for auto-generating commit messages from diffs.
-            Defaults to Hermes (internal, no key needed). Override with any provider:
-            OpenAI, Anthropic proxy, ollama, groq, together, etc.
-          </p>
-
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Endpoint</label>
-            <input
-              type="url"
-              defaultValue={endpoint}
-              placeholder="https://hermes.ai.unturf.com/v1/chat/completions"
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== endpoint) onSave('llm_commit_endpoint', e.target.value);
-              }}
-            />
-          </div>
-
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">API Key</label>
-            <input
-              type="password"
-              defaultValue={apiKey}
-              placeholder="sk-..."
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== apiKey) onSave('llm_commit_api_key', e.target.value);
-              }}
-            />
-            <span className="text-xs text-[var(--color-muted)]">Not needed for hermes, localhost, or .unturf.com endpoints</span>
-          </div>
-
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Model</label>
-            <input
-              type="text"
-              defaultValue={model}
-              placeholder="adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic"
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== model) onSave('llm_commit_model', e.target.value);
-              }}
-            />
-          </div>
+      {/* Auto-detected providers */}
+      {detected.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Auto-detected</div>
+          {detected.filter((p: any) => p.source === 'filesystem').map((p: any) => (
+            <div
+              key={p.id}
+              className={`rounded border p-3 ${
+                p.ready
+                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                  : 'border-[var(--color-border)] opacity-60'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${p.ready ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-error)]'}`} />
+                <span className="text-base font-bold">{p.name}</span>
+                <span className="text-xs text-[var(--color-muted)] ml-auto font-mono">{p.model}</span>
+              </div>
+              {p.detail && (
+                <div className="text-xs text-[var(--color-muted)] mt-1">{p.detail}</div>
+              )}
+            </div>
+          ))}
         </div>
       )}
+
+      {detected.length === 0 && !hasCustom && (
+        <div className="text-base text-[var(--color-muted)] py-2">
+          No providers detected. Sign in to Claude Code Max, or add a custom endpoint below.
+        </div>
+      )}
+
+      {/* Custom provider */}
+      <div>
+        {!showCustom ? (
+          <button
+            onClick={() => setShowCustom(true)}
+            className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer"
+          >
+            + Add custom provider
+          </button>
+        ) : (
+          <div className="space-y-3 border border-[var(--color-border)] rounded p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Custom Provider</span>
+              {!hasCustom && (
+                <button
+                  onClick={() => setShowCustom(false)}
+                  className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Endpoint</label>
+              <input
+                type="url"
+                defaultValue={endpoint}
+                placeholder="https://api.openai.com/v1/chat/completions"
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                onBlur={(e) => {
+                  if (e.target.value !== endpoint) onSave('llm_commit_endpoint', e.target.value);
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">API Key</label>
+              <input
+                type="password"
+                defaultValue={apiKey}
+                placeholder="sk-..."
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                onBlur={(e) => {
+                  if (e.target.value !== apiKey) onSave('llm_commit_api_key', e.target.value);
+                }}
+              />
+              <span className="text-xs text-[var(--color-muted)]">Not needed for localhost endpoints</span>
+            </div>
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Model</label>
+              <input
+                type="text"
+                defaultValue={model}
+                placeholder="gpt-4o-mini"
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                onBlur={(e) => {
+                  if (e.target.value !== model) onSave('llm_commit_model', e.target.value);
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

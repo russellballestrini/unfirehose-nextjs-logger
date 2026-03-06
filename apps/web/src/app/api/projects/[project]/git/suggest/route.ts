@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
+import { homedir } from 'os';
+import { join } from 'path';
 import { getAllSettings } from '@unfirehose/core/db/ingest';
 import { claudePaths } from '@unfirehose/core/claude-paths';
 import type { SessionsIndex } from '@unfirehose/core/types';
@@ -26,8 +28,70 @@ async function resolveRepoPath(projectName: string): Promise<string | null> {
   }
 }
 
-const DEFAULT_ENDPOINT = 'https://hermes.ai.unturf.com/v1/chat/completions';
-const DEFAULT_MODEL = 'adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic';
+// Auto-detect Claude Max OAuth token from filesystem
+async function getClaudeMaxToken(): Promise<{ accessToken: string; expiresAt: number } | null> {
+  try {
+    const credPath = join(homedir(), '.claude', '.credentials.json');
+    const raw = await readFile(credPath, 'utf-8');
+    const creds = JSON.parse(raw);
+    const oauth = creds?.claudeAiOauth;
+    if (oauth?.accessToken && oauth?.expiresAt > Date.now()) {
+      return { accessToken: oauth.accessToken, expiresAt: oauth.expiresAt };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+interface LlmProvider {
+  type: 'anthropic' | 'openai-compatible';
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  source: string; // 'claude-max' | 'settings' | etc
+}
+
+async function resolveProvider(settings: Record<string, string>): Promise<LlmProvider | null> {
+  // 1. User-configured provider takes priority
+  if (settings.llm_commit_endpoint) {
+    const apiKey = settings.llm_commit_api_key || '';
+    const isLocal = settings.llm_commit_endpoint.includes('localhost') || settings.llm_commit_endpoint.includes('127.0.0.1');
+    if (!apiKey && !isLocal) return null;
+    return {
+      type: 'openai-compatible',
+      endpoint: settings.llm_commit_endpoint,
+      apiKey,
+      model: settings.llm_commit_model || 'gpt-4o-mini',
+      source: 'settings',
+    };
+  }
+
+  // 2. Auto-detect Claude Max OAuth token
+  const claude = await getClaudeMaxToken();
+  if (claude) {
+    return {
+      type: 'anthropic',
+      endpoint: 'https://api.anthropic.com/v1/messages',
+      apiKey: claude.accessToken,
+      model: settings.llm_commit_model || 'claude-haiku-4-5-20251001',
+      source: 'claude-max',
+    };
+  }
+
+  // 3. User has an API key but no endpoint (assume OpenAI)
+  if (settings.llm_commit_api_key) {
+    return {
+      type: 'openai-compatible',
+      endpoint: 'https://api.openai.com/v1/chat/completions',
+      apiKey: settings.llm_commit_api_key,
+      model: settings.llm_commit_model || 'gpt-4o-mini',
+      source: 'settings',
+    };
+  }
+
+  return null;
+}
 
 const SYSTEM_PROMPT = `You are a commit message generator. Given a git diff, write a concise, professional commit message.
 
@@ -38,6 +102,62 @@ Rules:
 - No quotes, no markdown, no prefixes like "feat:" unless the repo uses conventional commits
 - No attribution lines
 - Just the raw commit message text, nothing else`;
+
+async function callAnthropic(provider: LlmProvider, userContent: string): Promise<string> {
+  const res = await fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': provider.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      max_tokens: 300,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userContent }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Anthropic API returned ${res.status}: ${errText.slice(0, 500)}`);
+  }
+
+  const data = await res.json();
+  const text = data.content?.[0]?.text?.trim();
+  if (!text) throw new Error('Anthropic returned empty response');
+  return text;
+}
+
+async function callOpenAI(provider: LlmProvider, userContent: string): Promise<string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+
+  const res = await fetch(provider.endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: provider.model,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+      max_tokens: 300,
+      temperature: 0.3,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`LLM API returned ${res.status}: ${errText.slice(0, 500)}`);
+  }
+
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error('LLM returned empty response');
+  return text;
+}
 
 export async function POST(
   request: NextRequest,
@@ -50,76 +170,34 @@ export async function POST(
   }
 
   const settings = getAllSettings() as Record<string, string>;
-  const endpoint = settings.llm_commit_endpoint || DEFAULT_ENDPOINT;
-  const apiKey = settings.llm_commit_api_key || '';
-  const model = settings.llm_commit_model || DEFAULT_MODEL;
+  const provider = await resolveProvider(settings);
 
-  // Only require API key for non-internal endpoints
-  const isInternal = endpoint.includes('localhost') || endpoint.includes('127.0.0.1') || endpoint.includes('.unturf.com');
-  if (!apiKey && !isInternal) {
+  if (!provider) {
     return NextResponse.json({
-      error: 'No LLM API key configured. Set llm_commit_endpoint, llm_commit_api_key, and llm_commit_model in Settings.',
+      error: 'No LLM provider available. Configure one in Settings, or sign in to Claude Code Max.',
+      providers: [],
     }, { status: 400 });
   }
 
   try {
-    // Get the diff
     const diff = await gitExec(repoPath, ['diff', 'HEAD']);
     if (!diff.trim()) {
       return NextResponse.json({ error: 'No changes to describe' }, { status: 400 });
     }
 
-    // Truncate diff if too large (keep first ~8k chars to stay within context)
     const maxDiffLen = 8000;
     const truncatedDiff = diff.length > maxDiffLen
       ? diff.slice(0, maxDiffLen) + `\n\n... (diff truncated, ${diff.length - maxDiffLen} more characters)`
       : diff;
 
-    // Also get the file list for context
     const statusRaw = await gitExec(repoPath, ['status', '--porcelain']);
-
     const userContent = `Files changed:\n${statusRaw}\n\nDiff:\n${truncatedDiff}`;
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    }
+    const message = provider.type === 'anthropic'
+      ? await callAnthropic(provider, userContent)
+      : await callOpenAI(provider, userContent);
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userContent },
-        ],
-        max_tokens: 300,
-        temperature: 0.3,
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return NextResponse.json({
-        error: `LLM API returned ${res.status}`,
-        detail: errText.slice(0, 500),
-      }, { status: 502 });
-    }
-
-    const data = await res.json();
-    const message = data.choices?.[0]?.message?.content?.trim();
-
-    if (!message) {
-      return NextResponse.json({
-        error: 'LLM returned empty response',
-        detail: JSON.stringify(data).slice(0, 500),
-      }, { status: 502 });
-    }
-
-    return NextResponse.json({ message });
+    return NextResponse.json({ message, provider: provider.source });
   } catch (err) {
     return NextResponse.json({ error: 'Failed to generate commit message', detail: String(err) }, { status: 500 });
   }
