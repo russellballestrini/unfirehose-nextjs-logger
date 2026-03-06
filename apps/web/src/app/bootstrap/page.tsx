@@ -13,12 +13,12 @@ const HARNESSES = [
   {
     id: 'claude-code',
     name: 'Claude Code',
-    desc: 'Anthropic CLI for Claude — agentic coding in the terminal',
+    desc: 'Anthropic CLI for Claude — agentic coding in the terminal. Supports API key or OAuth2 (Max plan)',
     repo: 'https://github.com/anthropics/claude-code',
     install: 'npm install -g @anthropic-ai/claude-code',
     run: 'claude',
-    requiresKey: 'ANTHROPIC_API_KEY',
     tags: ['ml', 'coding', 'cli'],
+    authModes: ['oauth2', 'api-key'] as const,
   },
   {
     id: 'open-code',
@@ -114,6 +114,7 @@ export default function BootstrapPage() {
   const [filter, setFilter] = useState('');
   const [selectedHost, setSelectedHost] = useState('localhost');
   const [statuses, setStatuses] = useState<Record<string, BootStatus>>({});
+  const [authModes, setAuthModes] = useState<Record<string, string>>({});
 
   // Build host list: localhost + SSH config hosts + mesh nodes
   const hosts: { name: string; status?: string }[] = [{ name: 'localhost', status: 'local' }];
@@ -139,20 +140,33 @@ export default function BootstrapPage() {
   const bootHarness = useCallback(async (harness: typeof HARNESSES[0]) => {
     setStatuses(prev => ({ ...prev, [harness.id]: { state: 'booting' } }));
     try {
-      // Determine project path based on repo
       const repoName = harness.repo.split('/').pop()?.replace('.git', '') ?? harness.id;
-      const projectPath = `${process.env.HOME || '/home/' + (process.env.USER || 'user')}/git/${repoName}`;
+      const projectPath = `~/git/${repoName}`;
+      const authMode = authModes[harness.id] ?? (harness.authModes?.[0] || '');
+
+      // Build the run command with auth mode flags
+      let runCmd = harness.run;
+      if (harness.id === 'claude-code' && authMode === 'oauth2') {
+        runCmd = 'claude --use-oauth';
+      }
+
+      // Build the harness command — clone if needed, install, run
+      let harnessCmd: string;
+      if (harness.install.startsWith('git clone')) {
+        harnessCmd = `bash -lc "if [ ! -d ~/git/${repoName} ]; then mkdir -p ~/git && cd ~/git && git clone '${harness.repo}'; fi && cd ~/git/${repoName} && ${runCmd}"`;
+      } else {
+        harnessCmd = `bash -lc "${harness.install} && mkdir -p ~/git/${repoName} && cd ~/git/${repoName} && ${runCmd}"`;
+      }
 
       const res = await fetch('/api/boot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectPath,
-          harness: harness.install.startsWith('git clone')
-            ? `bash -c "if [ ! -d '${projectPath}' ]; then mkdir -p ~/git && cd ~/git && git clone '${harness.repo}'; fi && cd '${projectPath}' && ${harness.run}"`
-            : `bash -c "${harness.install} && mkdir -p ~/git/${repoName} && cd ~/git/${repoName} && ${harness.run}"`,
+          harness: harnessCmd,
           host: selectedHost,
           projectName: repoName,
+          bootstrap: true,
         }),
       });
       const data = await res.json();
@@ -164,7 +178,7 @@ export default function BootstrapPage() {
     } catch (err) {
       setStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: String(err) } }));
     }
-  }, [selectedHost]);
+  }, [selectedHost, authModes]);
 
   const filtered = filter
     ? HARNESSES.filter(h =>
@@ -242,6 +256,25 @@ export default function BootstrapPage() {
                   <div className="text-yellow-500/80">requires: {h.requiresKey}</div>
                 )}
               </div>
+
+              {h.authModes && h.authModes.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[var(--color-muted)]">auth:</span>
+                  {h.authModes.map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setAuthModes(prev => ({ ...prev, [h.id]: mode }))}
+                      className={`text-xs px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                        (authModes[h.id] ?? h.authModes[0]) === mode
+                          ? 'bg-[var(--color-accent)] text-black font-bold'
+                          : 'bg-[var(--color-background)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+                      }`}
+                    >
+                      {mode === 'oauth2' ? 'OAuth2 (Max)' : 'API Key'}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="flex items-center gap-2 pt-1">
                 <button

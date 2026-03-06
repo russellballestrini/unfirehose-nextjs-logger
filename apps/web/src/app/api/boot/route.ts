@@ -3,7 +3,7 @@ import { execFile } from 'child_process';
 import { stat } from 'fs/promises';
 import { writeFile, unlink } from 'fs/promises';
 import path from 'path';
-import { tmpdir, platform } from 'os';
+import { tmpdir, platform, homedir } from 'os';
 import { getSetting } from '@unfirehose/core/db/ingest';
 import { getDb } from '@unfirehose/core/db/schema';
 import { discoverNodes } from '@unfirehose/core/mesh';
@@ -52,7 +52,14 @@ function resolveBootHost(requestedHost?: string): string {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { projectPath, sessionId, yolo, prompt, parentSessionUuid, host: requestedHost, todoIds, projectName, harness, preferMultiplexer } = body;
+  const { projectPath: rawProjectPath, sessionId, yolo, prompt, parentSessionUuid, host: requestedHost, todoIds, projectName, harness, preferMultiplexer, bootstrap } = body;
+
+  // Resolve projectPath — support ~ expansion and bootstrap mode
+  const homePath = homedir();
+  let projectPath = rawProjectPath;
+  if (typeof projectPath === 'string' && projectPath.startsWith('~/')) {
+    projectPath = path.join(homePath, projectPath.slice(2));
+  }
 
   // Validate projectPath
   if (!projectPath || typeof projectPath !== 'string') {
@@ -68,12 +75,22 @@ export async function POST(request: NextRequest) {
   const isRemote = host !== 'localhost';
 
   // Validate path exists (local only — remote paths are trusted)
+  // In bootstrap mode, create the directory if it doesn't exist
   if (!isRemote) {
     try {
       const s = await stat(projectPath);
       if (!s.isDirectory()) throw new Error('Not a directory');
     } catch {
-      return NextResponse.json({ error: `Invalid project path: ${projectPath}` }, { status: 400 });
+      if (bootstrap) {
+        try {
+          const { mkdir } = await import('fs/promises');
+          await mkdir(projectPath, { recursive: true });
+        } catch (mkdirErr) {
+          return NextResponse.json({ error: `Failed to create directory: ${projectPath}`, detail: String(mkdirErr) }, { status: 500 });
+        }
+      } else {
+        return NextResponse.json({ error: `Invalid project path: ${projectPath}` }, { status: 400 });
+      }
     }
   }
 
