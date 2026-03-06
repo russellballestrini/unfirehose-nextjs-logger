@@ -120,6 +120,54 @@ body {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* Power-up explosion */
+@keyframes powerup-particle {
+  0% { transform: translate(0, 0) scale(1.5); opacity: 1; }
+  60% { opacity: 1; }
+  100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+}
+@keyframes powerup-particle-slow {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.8; }
+  40% { opacity: 0.9; }
+  100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+}
+@keyframes powerup-spark {
+  0% { transform: translate(0, 0) rotate(var(--rot)) scaleX(1); opacity: 1; }
+  100% { transform: translate(var(--sx), var(--sy)) rotate(var(--rot)) scaleX(0.3); opacity: 0; }
+}
+@keyframes powerup-shockwave {
+  0% { width: 0; height: 0; border-width: 3px; opacity: 1; }
+  100% { width: 200px; height: 200px; border-width: 1px; opacity: 0; }
+}
+@keyframes powerup-flash {
+  0% { width: 40px; height: 40px; opacity: 1; }
+  30% { width: 60px; height: 60px; opacity: 0.8; }
+  100% { width: 10px; height: 10px; opacity: 0; }
+}
+.powerup-particle { animation: powerup-particle 0.6s ease-out forwards; }
+.powerup-particle-slow { animation: powerup-particle-slow 0.9s ease-out forwards; }
+.powerup-spark { width: 2px; height: 8px; border-radius: 1px; animation: powerup-spark 0.7s ease-out forwards; }
+.powerup-shockwave { border: 3px solid; border-style: solid; animation: powerup-shockwave 0.6s ease-out forwards; }
+.powerup-flash { animation: powerup-flash 0.4s ease-out forwards; filter: blur(8px); }
+
+/* Capacitor flash (power-down) */
+@keyframes capacitor-core {
+  0% { width: 20px; height: 20px; opacity: 1; box-shadow: 0 0 40px 20px #fff, 0 0 80px 40px rgba(255,255,255,0.5); }
+  30% { width: 30px; height: 30px; opacity: 1; }
+  100% { width: 4px; height: 4px; opacity: 0; box-shadow: none; }
+}
+@keyframes capacitor-ring {
+  0% { width: 0; height: 0; border-width: 4px; opacity: 1; }
+  100% { width: 160px; height: 160px; border-width: 1px; opacity: 0; }
+}
+@keyframes capacitor-screen {
+  0% { background: rgba(255,255,255,0.3); }
+  100% { background: rgba(255,255,255,0); }
+}
+.capacitor-core { background: #fff; animation: capacitor-core 0.35s ease-out forwards; }
+.capacitor-ring { border: 4px solid rgba(255,255,255,0.7); animation: capacitor-ring 0.4s ease-out forwards; }
+.capacitor-screen { animation: capacitor-screen 0.25s ease-out forwards; }
 @keyframes column-pulse {
   0%, 100% { background-color: transparent; }
   50% { background-color: color-mix(in srgb, var(--color-accent) 5%, transparent); }

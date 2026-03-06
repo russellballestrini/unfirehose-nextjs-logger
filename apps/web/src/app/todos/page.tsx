@@ -55,31 +55,93 @@ const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
 
 const TIME_PRESETS = [5, 10, 15, 30, 60, 120];
 
-// Particle burst on card drop
-function ParticleBurst({ x, y, color }: { x: number; y: number; color: string }) {
-  const particles = Array.from({ length: 12 }, (_, i) => {
-    const angle = (i / 12) * Math.PI * 2;
-    const dist = 40 + Math.random() * 30;
-    const size = 4 + Math.random() * 4;
-    return { angle, dist, size, delay: Math.random() * 0.1 };
+// Power-up explosion: massive multi-ring particle burst with sparks and shockwave
+function PowerUpBurst({ x, y, color }: { x: number; y: number; color: string }) {
+  // Inner ring — fast, tight
+  const inner = Array.from({ length: 16 }, (_, i) => {
+    const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
+    return { angle, dist: 30 + Math.random() * 25, size: 5 + Math.random() * 5, delay: Math.random() * 0.05 };
+  });
+  // Outer ring — slower, wider
+  const outer = Array.from({ length: 24 }, (_, i) => {
+    const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
+    return { angle, dist: 70 + Math.random() * 60, size: 3 + Math.random() * 4, delay: 0.05 + Math.random() * 0.1 };
+  });
+  // Sparks — long trails
+  const sparks = Array.from({ length: 10 }, () => {
+    const angle = Math.random() * Math.PI * 2;
+    return { angle, dist: 100 + Math.random() * 80, delay: Math.random() * 0.08 };
   });
 
   return (
     <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
+      {/* Shockwave ring */}
+      <div className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full powerup-shockwave" style={{ borderColor: color }} />
+      {/* Central flash */}
+      <div className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full powerup-flash" style={{ backgroundColor: color }} />
+      {/* Inner particles */}
+      {inner.map((p, i) => (
+        <div key={`i${i}`} className="absolute rounded-full powerup-particle" style={{
+          width: p.size, height: p.size, backgroundColor: color,
+          left: -p.size / 2, top: -p.size / 2,
+          '--px': `${Math.cos(p.angle) * p.dist}px`, '--py': `${Math.sin(p.angle) * p.dist}px`,
+          animationDelay: `${p.delay}s`,
+        } as React.CSSProperties} />
+      ))}
+      {/* Outer particles */}
+      {outer.map((p, i) => (
+        <div key={`o${i}`} className="absolute rounded-full powerup-particle-slow" style={{
+          width: p.size, height: p.size, backgroundColor: color,
+          left: -p.size / 2, top: -p.size / 2,
+          '--px': `${Math.cos(p.angle) * p.dist}px`, '--py': `${Math.sin(p.angle) * p.dist}px`,
+          animationDelay: `${p.delay}s`,
+        } as React.CSSProperties} />
+      ))}
+      {/* Sparks — elongated streaks */}
+      {sparks.map((s, i) => (
+        <div key={`s${i}`} className="absolute powerup-spark" style={{
+          backgroundColor: color,
+          '--sx': `${Math.cos(s.angle) * s.dist}px`, '--sy': `${Math.sin(s.angle) * s.dist}px`,
+          '--rot': `${s.angle}rad`,
+          animationDelay: `${s.delay}s`,
+        } as React.CSSProperties} />
+      ))}
+    </div>
+  );
+}
+
+// Power-down flash: capacitor discharge — intense white flash then gone
+function CapacitorFlash({ x, y }: { x: number; y: number }) {
+  return (
+    <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
+      {/* Bright core flash */}
+      <div className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full capacitor-core" />
+      {/* Expanding ring */}
+      <div className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full capacitor-ring" />
+      {/* Screen flash overlay */}
+      <div className="fixed inset-0 capacitor-screen" />
+    </div>
+  );
+}
+
+// Route to the right effect based on target column
+function ParticleBurst({ x, y, color, targetStatus }: { x: number; y: number; color: string; targetStatus: string }) {
+  if (targetStatus === 'in_progress') return <PowerUpBurst x={x} y={y} color={color} />;
+  if (targetStatus === 'completed') return <CapacitorFlash x={x} y={y} />;
+  // Fallback: small burst for pending
+  const particles = Array.from({ length: 8 }, (_, i) => {
+    const angle = (i / 8) * Math.PI * 2;
+    return { angle, dist: 30 + Math.random() * 20, size: 3 + Math.random() * 3, delay: Math.random() * 0.1 };
+  });
+  return (
+    <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
       {particles.map((p, i) => (
-        <div
-          key={i}
-          className="absolute rounded-full"
-          style={{
-            width: p.size,
-            height: p.size,
-            backgroundColor: color,
-            left: -p.size / 2,
-            top: -p.size / 2,
-            animation: `burst-particle 0.5s ease-out ${p.delay}s forwards`,
-            transform: `translate(${Math.cos(p.angle) * p.dist}px, ${Math.sin(p.angle) * p.dist}px) scale(0)`,
-          }}
-        />
+        <div key={i} className="absolute rounded-full powerup-particle" style={{
+          width: p.size, height: p.size, backgroundColor: color,
+          left: -p.size / 2, top: -p.size / 2,
+          '--px': `${Math.cos(p.angle) * p.dist}px`, '--py': `${Math.sin(p.angle) * p.dist}px`,
+          animationDelay: `${p.delay}s`,
+        } as React.CSSProperties} />
       ))}
     </div>
   );
@@ -101,7 +163,7 @@ export default function TodosPage() {
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [landedCardId, setLandedCardId] = useState<number | null>(null);
   const [pulsedColumn, setPulsedColumn] = useState<string | null>(null);
-  const [burst, setBurst] = useState<{ x: number; y: number; color: string } | null>(null);
+  const [burst, setBurst] = useState<{ x: number; y: number; color: string; targetStatus: string } | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number>(-1);
 
   const fetchTodos = useCallback((showLoading = true) => {
@@ -257,9 +319,9 @@ export default function TodosPage() {
 
     // Burst effect at drop point
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
-    const burstColor = targetStatus === 'in_progress' ? accent : targetStatus === 'completed' ? '#22c55e' : '#a1a1aa';
-    setBurst({ x: e.clientX, y: e.clientY, color: burstColor });
-    setTimeout(() => setBurst(null), 600);
+    const burstColor = targetStatus === 'in_progress' ? accent : targetStatus === 'completed' ? '#ffffff' : '#a1a1aa';
+    setBurst({ x: e.clientX, y: e.clientY, color: burstColor, targetStatus });
+    setTimeout(() => setBurst(null), targetStatus === 'in_progress' ? 1000 : 600);
 
     // Landing animation
     setLandedCardId(todo.id);
@@ -291,7 +353,7 @@ export default function TodosPage() {
       />
 
       {/* Particle burst overlay */}
-      {burst && <ParticleBurst x={burst.x} y={burst.y} color={burst.color} />}
+      {burst && <ParticleBurst x={burst.x} y={burst.y} color={burst.color} targetStatus={burst.targetStatus} />}
 
       <div className="flex items-center gap-4 mb-4">
         <h1 className="text-xl font-bold">Todos</h1>
