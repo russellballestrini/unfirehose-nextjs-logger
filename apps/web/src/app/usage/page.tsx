@@ -129,6 +129,7 @@ export default function UsageMonitorPage() {
     { refreshInterval: 30000 }
   );
   const [activeTab, setActiveTab] = useState<'model' | 'infra' | 'thresholds'>('model');
+  const [chartHostname, setChartHostname] = useState<string>('all');
   const currency = useCurrency();
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const { data: projectDetail } = useSWR(
@@ -722,36 +723,131 @@ export default function UsageMonitorPage() {
       )}
 
       {/* Mesh Time-Series Charts */}
-      {meshHistory?.timeline?.length > 0 && (
+      {meshHistory?.timeline?.length > 0 && (() => {
+        const hostnames: string[] = meshHistory.hostnames ?? [];
+        const NODE_COLORS = ['#22c55e', '#f97316', '#a78bfa', '#60a5fa', '#f43f5e', '#facc15', '#2dd4bf', '#e879f9'];
+        const isPerNode = chartHostname === 'per-node' && hostnames.length > 1;
+        const isSingleNode = chartHostname !== 'all' && chartHostname !== 'per-node';
+
+        // Enrich timeline with per-node flattened keys and electricity cost
+        const chartData = meshHistory.timeline.map((t: any) => {
+          const point: any = { ...t };
+          // Electricity cost: watts → $/hour
+          point.elecCostPerHour = Math.round((t.totalWatts / 1000) * DEFAULT_KWH_RATE * 100) / 100;
+          // Single-node filter
+          if (isSingleNode && t.nodes?.[chartHostname]) {
+            const n = t.nodes[chartHostname];
+            point.totalWatts = n.watts;
+            point.cpuWatts = n.watts; // no CPU/GPU split per-node in current data
+            point.gpuWatts = 0;
+            point.totalLoad = n.load;
+            point.totalCores = n.cores;
+            point.memUsedGB = n.memUsed;
+            point.claudes = n.claudes;
+            point.elecCostPerHour = Math.round((n.watts / 1000) * getKwhRate(chartHostname) * 100) / 100;
+          }
+          // Per-node breakout keys
+          if (isPerNode && t.nodes) {
+            for (const h of hostnames) {
+              point[`watts_${h}`] = t.nodes[h]?.watts ?? 0;
+              point[`load_${h}`] = t.nodes[h]?.load ?? 0;
+              point[`mem_${h}`] = t.nodes[h]?.memUsed ?? 0;
+              point[`claudes_${h}`] = t.nodes[h]?.claudes ?? 0;
+            }
+          }
+          return point;
+        });
+        const last = chartData[chartData.length - 1];
+        const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
+        const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: (t: string) => t.slice(11, 16) };
+
+        return (
         <div className="space-y-4">
+          {/* Hostname filter */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Filter</span>
+            <select
+              value={chartHostname}
+              onChange={(e) => setChartHostname(e.target.value)}
+              className="bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm"
+            >
+              <option value="all">All Nodes (aggregate)</option>
+              <option value="per-node">Per-Node Breakout</option>
+              {hostnames.map((h: string) => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Claude Processes */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              Active Claudes
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {last?.claudes ?? 0} current
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
+                {isPerNode ? (<>
+                  <Legend />
+                  {hostnames.map((h, i) => (
+                    <Area key={h} type="stepAfter" dataKey={`claudes_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="claudes" dot={false} />
+                  ))}
+                </>) : (
+                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
+                )}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
           {/* Power Wattage */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
               Compute Wattage
               <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {meshHistory.timeline[meshHistory.timeline.length - 1]?.totalWatts ?? 0}W current
+                {last?.totalWatts ?? 0}W current
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={meshHistory.timeline}>
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fill: '#71717a', fontSize: 12 }}
-                  tickFormatter={(t: string) => t.slice(11, 16)}
-                />
+              <LineChart data={chartData}>
+                <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                <Tooltip
-                  labelFormatter={(t) => String(t)}
-                  formatter={(v, name) => [`${v}W`, name]}
-                  contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
-                />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
                 <Legend />
-                <Line type="monotone" dataKey="totalWatts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
-                {meshHistory.timeline.some((t: any) => t.gpuWatts > 0) && (
-                  <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} />
-                )}
+                {isPerNode ? (
+                  hostnames.map((h, i) => (
+                    <Line key={h} type="monotone" dataKey={`watts_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} strokeWidth={1.5} dot={false} />
+                  ))
+                ) : (<>
+                  <Line type="monotone" dataKey="totalWatts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
+                  {chartData.some((t: any) => t.gpuWatts > 0) && (
+                    <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} />
+                  )}
+                </>)}
               </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Electricity Cost */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              Electricity Cost
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {currency.format(last?.elecCostPerHour ?? 0)}/hr &middot; ~{currency.format((last?.elecCostPerHour ?? 0) * 24 * 30)}/mo
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
+                <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
 
@@ -760,25 +856,23 @@ export default function UsageMonitorPage() {
             <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
               CPU Load
               <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {meshHistory.timeline[meshHistory.timeline.length - 1]?.totalLoad ?? 0} / {meshHistory.timeline[meshHistory.timeline.length - 1]?.totalCores ?? 0} cores
+                {last?.totalLoad ?? 0} / {last?.totalCores ?? 0} cores
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={meshHistory.timeline}>
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fill: '#71717a', fontSize: 12 }}
-                  tickFormatter={(t: string) => t.slice(11, 16)}
-                />
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                <Tooltip
-                  labelFormatter={(t) => String(t)}
-                  formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]}
-                  contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
-                />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
                 <Legend />
-                <Area type="monotone" dataKey="totalCores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                <Area type="monotone" dataKey="totalLoad" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
+                {isPerNode ? (
+                  hostnames.map((h, i) => (
+                    <Area key={h} type="monotone" dataKey={`load_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="load" dot={false} />
+                  ))
+                ) : (<>
+                  <Area type="monotone" dataKey="totalCores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
+                  <Area type="monotone" dataKey="totalLoad" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
+                </>)}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -788,30 +882,29 @@ export default function UsageMonitorPage() {
             <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
               Memory Usage
               <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {meshHistory.timeline[meshHistory.timeline.length - 1]?.memUsedGB ?? 0} / {meshHistory.timeline[meshHistory.timeline.length - 1]?.memTotalGB ?? 0} GB
+                {last?.memUsedGB ?? 0} / {last?.memTotalGB ?? 0} GB
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={meshHistory.timeline}>
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fill: '#71717a', fontSize: 12 }}
-                  tickFormatter={(t: string) => t.slice(11, 16)}
-                />
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                <Tooltip
-                  labelFormatter={(t) => String(t)}
-                  formatter={(v, name) => [`${v}GB`, name]}
-                  contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 }}
-                />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
                 <Legend />
-                <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} />
+                {isPerNode ? (
+                  hostnames.map((h, i) => (
+                    <Area key={h} type="monotone" dataKey={`mem_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="mem" dot={false} />
+                  ))
+                ) : (<>
+                  <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
+                  <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} />
+                </>)}
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       </>)}
 
