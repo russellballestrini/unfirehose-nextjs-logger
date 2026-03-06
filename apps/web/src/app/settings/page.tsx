@@ -575,6 +575,7 @@ function BootstrapPanel() {
   const [host, setHost] = useState('localhost');
   const [harness, setHarness] = useState('claude');
   const [customCmd, setCustomCmd] = useState('');
+  const [selectedProject, setSelectedProject] = useState('');
   const [projectPath, setProjectPath] = useState('');
   const [projectName, setProjectName] = useState('');
   const [multiplexer, setMultiplexer] = useState<'tmux' | 'screen'>('tmux');
@@ -696,17 +697,19 @@ function BootstrapPanel() {
         <label className="text-base text-[var(--color-muted)] block mb-1">Project</label>
         <div className="flex gap-2">
           <select
-            value={projectPath}
+            value={selectedProject}
             onChange={e => {
-              setProjectPath(e.target.value);
-              const proj = projectList.find((p: any) => p.path === e.target.value);
+              const name = e.target.value;
+              setSelectedProject(name);
+              const proj = projectList.find((p: any) => p.name === name);
+              setProjectPath(proj?.path ?? '');
               setProjectName(proj?.name ?? '');
             }}
             className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
           >
             <option value="">select project...</option>
             {projectList.map((p: any) => (
-              <option key={p.name} value={p.path || ''}>
+              <option key={p.name} value={p.name}>
                 {p.displayName || p.name}
               </option>
             ))}
@@ -714,7 +717,7 @@ function BootstrapPanel() {
           <input
             type="text"
             value={projectPath}
-            onChange={e => { setProjectPath(e.target.value); setProjectName(''); }}
+            onChange={e => { setProjectPath(e.target.value); setSelectedProject(''); setProjectName(''); }}
             placeholder="or enter path: /home/fox/git/..."
             className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
           />
