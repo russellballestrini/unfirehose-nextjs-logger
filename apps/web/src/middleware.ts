@@ -120,6 +120,9 @@ export function middleware(request: NextRequest) {
   }
 
   // Check session cookie
+  if (!AUTH_SECRET) {
+    return NextResponse.json({ error: 'AUTH_SECRET not configured' }, { status: 500 });
+  }
   const sessionCookie = request.cookies.get('unfh_session')?.value;
   if (!sessionCookie) {
     const loginUrl = new URL('/login', request.url);

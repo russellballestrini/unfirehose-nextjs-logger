@@ -235,6 +235,16 @@ In cloud mode, `getDb()` becomes `getTenantDb(accountId)` — all existing API r
 - [ ] Team usage aggregation (per sub-key breakdown)
 - [ ] Data export/delete (GDPR)
 
+## Required env vars (cloud mode)
+
+```bash
+MULTI_TENANT=true                    # Enable cloud mode
+AUTH_SECRET=<random-64-chars>        # Signs JWT session cookies
+UNFIREHOSE_WEBHOOK_SECRET=<shared>   # HMAC key shared with unsandbox.com
+CONTROL_DB_PATH=/data/control.db     # Control plane DB (default)
+TENANT_DB_DIR=/data/tenants          # Per-tenant DBs (default)
+```
+
 ## Open questions
 
 1. **Domain:** `api.unfirehose.org` (already in webhook config) vs `unfirehose.com`?

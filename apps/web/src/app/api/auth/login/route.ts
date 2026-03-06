@@ -5,6 +5,12 @@ import { validateApiKey } from '@unfirehose/core/db/api-keys';
 const AUTH_SECRET = process.env.AUTH_SECRET ?? '';
 const THIRTY_DAYS = 30 * 24 * 60 * 60;
 
+function ensureSecret() {
+  if (!AUTH_SECRET) {
+    throw new Error('AUTH_SECRET env var is required in multi-tenant mode');
+  }
+}
+
 function base64url(str: string): string {
   return Buffer.from(str).toString('base64url');
 }
@@ -29,6 +35,8 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
+
+  ensureSecret();
 
   const { key } = body;
   if (!key || typeof key !== 'string') {
