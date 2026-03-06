@@ -30,9 +30,9 @@ Then ask fox what the mission is.
 
 ## Architecture
 
-Next.js 15 App Router + TypeScript + Tailwind v4 + better-sqlite3. Reads Claude Code JSONL from `~/.claude/`, ingests into SQLite at `~/.claude/unfirehose.db`. Dashboard at `localhost:3000`.
+Turborepo monorepo: `apps/web` (Next.js 15 App Router), `packages/core` (DB, ingestion, adapters), `packages/ui`, `packages/config`. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.claude/unfirehose.db`. Dashboard at `localhost:3000`.
 
-Key pages: Live, Active, Dashboard, Projects, Todos, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Settings.
+Key pages: Live, Active, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Graph Explorer, Schema, Settings, Blog.
 
 ## Todo System
 

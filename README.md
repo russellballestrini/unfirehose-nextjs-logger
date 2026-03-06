@@ -33,8 +33,11 @@ Time-range filtered overview (1h to 28d) with:
 - Model usage donut with per-model cost breakdown
 - Dual UTC/local time display on all hour axes
 
+### Active Sessions
+Shows currently running agent sessions with real-time status, project context, and quick actions.
+
 ### Live Tailing
-SSE-powered real-time view of active sessions. Watch your agents work as they stream responses, make tool calls, and think.
+SSE-powered real-time view of active sessions. Watch your agents work as they stream responses, make tool calls, and think. Doom-scrollable feed design.
 
 ### Usage Monitor
 Operational monitoring with:
@@ -62,14 +65,29 @@ Deep token breakdown by model with:
 - Tool call frequency analysis
 - Content block type distribution
 
+### Todos / Kanban
+Cross-session todo tracking extracted from all harness JSONL. Drag-and-drop kanban board with particle effects, inline editing, time estimates, and agent boot on card drop. Grouped by project with triage workflow.
+
+### Graph Explorer
+4-view DOT/SVG graph visualization of session relationships, project dependencies, and todo graphs. Raw `.dot` download support.
+
+### Schema Browser
+Browse the unfirehose/1.0 spec and harness adapter documentation directly in the dashboard.
+
 ### All Logs
 Raw JSONL log browser with filtering and search. When you need to see exactly what happened.
+
+### Agent Deployment
+Boot Claude Code agents from the UI into tmux sessions. Mega deploy for fleet management — spawn, status, and cull. Auto-cull when all assigned todos complete. UNEOF poison pill detection for agent lifecycle management.
+
+### Permacomputer Mesh
+Mesh status view showing compute nodes, per-node resource tracking, and fleet overview.
 
 ### Blog / Microblog
 Built-in jsonblog.org compatible posting system. Write status updates, link external sources, export as `blah.json`. Pulls profile data from JSON Resume if available.
 
 ### Settings
-Configure alert thresholds, display preferences, and integration settings.
+Configure alert thresholds, display preferences, compute settings, and integration settings.
 
 ## Stack
 
@@ -83,8 +101,9 @@ Configure alert thresholds, display preferences, and integration settings.
 | Data fetching | SWR with auto-refresh |
 | Real-time | Server-Sent Events (SSE) |
 | File watching | `fs.watch` on JSONL files for auto-ingest |
+| Monorepo | Turborepo (`apps/web`, `packages/core`, `packages/ui`, `packages/config`) |
 
-~11K lines of TypeScript across 42 commits. No external services. No API keys. No Docker. Just `npm install && npm run dev`.
+~22K lines of TypeScript across 165 commits. No external services. No API keys. No Docker. Just `npm install && npm run dev`.
 
 ## Quickstart
 
@@ -109,18 +128,23 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
 
 ```
 ~/.claude/projects/          JSONL session files (source of truth)
+~/.fetch/sessions/           Fetch session files
+~/.uncloseai/sessions/       uncloseai session files
         │
         ▼
   [file watcher]             fs.watch on active JSONL files
         │
         ▼
+  packages/core              Ingestion, adapters, DB schema, todo extraction
+        │
+        ▼
   ~/.claude/unfirehose.db   SQLite (normalized: projects → sessions → messages → content_blocks)
         │
         ▼
-  Next.js API routes         20+ endpoints serving dashboard, usage, projects, sessions, tokens, alerts
+  apps/web API routes        40+ endpoints serving dashboard, usage, projects, sessions, tokens, alerts, boot, mesh
         │
         ▼
-  React frontend             SWR auto-refresh, SSE live tailing, Recharts visualization
+  apps/web frontend          SWR auto-refresh, SSE live tailing, Recharts visualization
 ```
 
 ### Database Schema
@@ -129,8 +153,12 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
 - **sessions** — one row per session UUID, with git branch snapshot
 - **messages** — every JSONL entry (user, assistant, system) with token usage
 - **content_blocks** — normalized from message content arrays (text, thinking, tool_use, tool_result)
+- **todos** — cross-session task tracking with UUIDv7 identity
+- **todo_events** — audit log of todo status changes
 - **usage_minutes** — pre-aggregated per-minute token rollups for fast spike detection
 - **alerts** — triggered alert log with acknowledgment tracking
+- **agent_deployments** — tmux agent session tracking for fleet management
+- **project_visibility** — scrobble visibility per project (public/unlisted/private)
 - **ingest_offsets** — byte offset per file for incremental ingestion
 
 Deduplication via `UNIQUE INDEX ON messages(message_uuid) WHERE NOT NULL` and `INSERT OR IGNORE`.
@@ -156,13 +184,43 @@ Shows equivalent API cost even on Max plan ($200/mo). Uses 2026 Anthropic API ra
 | `GET /api/projects` | Project list with metadata |
 | `GET /api/projects/activity` | 30-day agent standup with git-correlated prompts |
 | `GET /api/projects/metadata` | Git info, remotes, commits, CLAUDE.md |
+| `GET /api/projects/:project/sessions` | Sessions for a specific project |
+| `GET /api/projects/:project/full` | Full project data dump |
+| `POST /api/projects/:project/visibility` | Set scrobble visibility |
 | `GET /api/sessions/:id` | Full session replay data |
+| `GET /api/sessions/:id/thinking` | Thinking blocks for a session |
+| `POST /api/sessions/:id/inject` | Inject a message into a session |
+| `POST /api/sessions/close` | Close stale sessions |
+| `GET /api/sessions/stale` | Find stale sessions |
+| `GET /api/active-sessions` | Currently active sessions |
 | `GET /api/live` | SSE stream for real-time tailing |
 | `GET /api/alerts` | Alert history and thresholds |
+| `PATCH /api/alerts/:id` | Acknowledge an alert |
 | `GET /api/thinking` | Thinking block search |
 | `GET /api/logs` | Raw JSONL log browser |
 | `POST /api/ingest` | Trigger manual re-ingestion |
+| `GET /api/todos` | List/filter todos |
+| `POST /api/todos` | Create a todo |
+| `PATCH /api/todos` | Update a todo |
+| `PATCH /api/todos/bulk` | Bulk update todos |
+| `GET /api/todos/summary` | Counts, stale, by-project breakdown |
+| `GET /api/todos/pending` | Active todos with search and filters |
+| `GET /api/todos/stale` | Todos not touched in N days |
+| `GET /api/todos/triage` | Triage recommendations |
+| `GET /api/todos/graph` | Todo dependency graph |
+| `POST /api/boot` | Boot agent in tmux session |
+| `POST /api/boot/mega` | Fleet deploy: spawn agents across projects |
+| `POST /api/boot/finished` | Agent signals completion |
+| `GET /api/mesh` | Permacomputer mesh status |
+| `GET /api/graph` | DOT/SVG graph generation |
+| `GET /api/schema` | Serve unfirehose/1.0 spec docs |
+| `GET /api/triage` | Triage analysis |
+| `GET /api/scrobble/preview` | Scrobble data preview with auto-detection |
+| `GET /api/settings` | App settings |
+| `PATCH /api/settings` | Update settings |
+| `GET /api/blog` | Blog posts |
 | `GET /api/blog/blah.json` | jsonblog.org feed export |
+| `GET /api/blog/resume` | JSON Resume data |
 
 ## Who This Is For
 
@@ -187,7 +245,7 @@ AGPL-3.0-only
 
 ## Origin
 
-Built in ~48 hours by humans and agents working together. 42 commits from first `create-next-app` to full observability platform. The code speaks for itself.
+Built by humans and agents working together. 165 commits from first `create-next-app` to full observability platform. The code speaks for itself.
 
 ---
 
