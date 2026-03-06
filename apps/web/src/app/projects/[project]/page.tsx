@@ -120,7 +120,7 @@ export default function ProjectPage({
           body: JSON.stringify({
             projectPath: data.originalPath,
             projectName: decodedProject,
-            yolo,
+            yolo: true,
             prompt: newTask.trim(),
           }),
         });
