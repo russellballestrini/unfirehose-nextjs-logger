@@ -456,12 +456,46 @@ async function ensureRemoteTools(sshBase: string[], host: string): Promise<{ boo
   return { bootstrapped };
 }
 
+// Sync Claude credentials to remote host via scp
+async function syncClaudeCredentials(host: string): Promise<boolean> {
+  const credFile = path.join(homedir(), '.claude', '.credentials.json');
+  const settingsFile = path.join(homedir(), '.claude', 'settings.json');
+  const settingsLocalFile = path.join(homedir(), '.claude', 'settings.local.json');
+
+  try {
+    await stat(credFile);
+  } catch {
+    return false; // no local credentials to sync
+  }
+
+  const sshOpts = ['-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no'];
+
+  // Ensure ~/.claude exists on remote
+  await exec('ssh', [...sshOpts, host, 'mkdir -p ~/.claude'], { timeout: 10000 });
+
+  // scp credentials
+  await exec('scp', [...sshOpts, credFile, `${host}:~/.claude/.credentials.json`], { timeout: 15000 });
+
+  // Also sync settings if they exist (non-fatal)
+  for (const f of [settingsFile, settingsLocalFile]) {
+    try {
+      await stat(f);
+      await exec('scp', [...sshOpts, f, `${host}:~/.claude/${path.basename(f)}`], { timeout: 10000 });
+    } catch { /* non-fatal */ }
+  }
+
+  return true;
+}
+
 async function bootRemote(host: string, opts: BootOpts) {
   // -A enables agent forwarding so git on remote can use local SSH keys
   const sshBase = ['ssh', '-A', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no', host];
 
   // Bootstrap: install tmux, node, and claude if missing
   const { bootstrapped } = await ensureRemoteTools(sshBase, host);
+
+  // Sync Claude credentials to remote
+  await syncClaudeCredentials(host);
 
   // Ensure project repo exists on remote — clone if missing
   await ensureRemoteRepo(sshBase, opts.projectPath);
