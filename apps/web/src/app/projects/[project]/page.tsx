@@ -82,10 +82,12 @@ export default function ProjectPage({
 
   // Mesh nodes for target dropdown
   const { data: mesh } = useSWR('/api/mesh', fetcher, { revalidateOnFocus: false });
+  const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { revalidateOnFocus: false });
   const meshNodes: { hostname: string; reachable: boolean }[] = mesh?.nodes ?? [];
   const targets = [
     { value: 'localhost', label: 'localhost' },
     ...meshNodes.filter(n => n.reachable && n.hostname !== mesh?.localHostname).map(n => ({ value: n.hostname, label: n.hostname })),
+    ...(unsandboxStatus?.connected ? [{ value: 'unsandbox', label: 'unsandbox.com' }] : []),
   ];
 
   // Core data

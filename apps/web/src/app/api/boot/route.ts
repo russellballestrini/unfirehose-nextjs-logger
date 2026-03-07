@@ -4,6 +4,7 @@ import { stat } from 'fs/promises';
 import { writeFile, unlink } from 'fs/promises';
 import path from 'path';
 import { tmpdir, platform, homedir } from 'os';
+import { createHmac } from 'crypto';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
@@ -72,7 +73,13 @@ export async function POST(request: NextRequest) {
   }
 
   const host = resolveBootHost(requestedHost);
-  const isRemote = host !== 'localhost';
+  const isUnsandbox = host === 'unsandbox';
+  const isRemote = host !== 'localhost' && !isUnsandbox;
+
+  // Unsandbox boot — route through unsandbox API
+  if (isUnsandbox) {
+    return bootUnsandbox(body, projectPath);
+  }
 
   // Validate path exists (local only — remote paths are trusted)
   // In bootstrap mode, create the directory if it doesn't exist
@@ -636,4 +643,146 @@ async function bootWindows(opts: BootOpts) {
     host: 'localhost',
     command: `Window: ${opts.sessionName}`,
   });
+}
+
+// ---- Unsandbox boot ----
+
+const UNSANDBOX_API_BASE = 'https://api.unsandbox.com';
+
+function unsandboxSign(secretKey: string, method: string, apiPath: string, body: string): { timestamp: string; signature: string } {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const message = `${timestamp}:${method}:${apiPath}:${body}`;
+  const signature = createHmac('sha256', secretKey).update(message).digest('hex');
+  return { timestamp, signature };
+}
+
+function unsandboxHeaders(publicKey: string, secretKey: string, method: string, apiPath: string, body: string = ''): Record<string, string> {
+  const { timestamp, signature } = unsandboxSign(secretKey, method, apiPath, body);
+  return {
+    'Authorization': `Bearer ${publicKey}`,
+    'X-Timestamp': timestamp,
+    'X-Signature': signature,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function bootUnsandbox(body: any, projectPath: string) {
+  const publicKey = getSetting('unsandbox_public_key');
+  const secretKey = getSetting('unsandbox_secret_key');
+  if (!publicKey || !secretKey) {
+    return NextResponse.json({ error: 'No unsandbox API keys configured', detail: 'Add keys in Permacomputer settings.' }, { status: 400 });
+  }
+
+  const { prompt, yolo, harness: harnessName, projectName } = body;
+
+  // Get the git remote URL from the local project so we can clone it on unsandbox
+  let repoUrl: string | null = null;
+  try {
+    repoUrl = await getLocalGitRemote(projectPath);
+  } catch { /* no git remote */ }
+
+  // 1. Create a session on unsandbox
+  const sessionPath = '/sessions';
+  const sessionPayload = JSON.stringify({
+    image: 'ubuntu:24.04',
+    network_mode: 'semitrusted',
+  });
+  const sessionHeaders = unsandboxHeaders(publicKey, secretKey, 'POST', sessionPath, sessionPayload);
+
+  let session: any;
+  try {
+    const res = await fetch(`${UNSANDBOX_API_BASE}${sessionPath}`, {
+      method: 'POST', headers: sessionHeaders, body: sessionPayload,
+      signal: AbortSignal.timeout(30000),
+    });
+    session = await res.json();
+    if (!res.ok) {
+      return NextResponse.json({ error: session.error || 'Failed to create unsandbox session' }, { status: 500 });
+    }
+  } catch (err) {
+    return NextResponse.json({ error: `Unsandbox session creation failed: ${err}` }, { status: 500 });
+  }
+
+  const sessionId = session.session_id || session.id;
+
+  // 2. Bootstrap the session: install tools, clone repo, run harness
+  const repoName = path.basename(projectPath);
+  const workDir = `/workspace/${repoName}`;
+
+  const setupParts = [
+    '#!/bin/bash',
+    'set -e',
+    // Install essentials
+    'apt-get update -qq && apt-get install -y -qq git curl nodejs npm python3 python3-pip >/dev/null 2>&1',
+  ];
+
+  // Clone repo if we have a URL
+  if (repoUrl) {
+    setupParts.push(`git clone '${repoUrl}' '${workDir}' 2>&1 || (mkdir -p '${workDir}')`);
+  } else {
+    setupParts.push(`mkdir -p '${workDir}'`);
+  }
+
+  setupParts.push(`cd '${workDir}'`);
+
+  // Install harness
+  const resolvedHarness = harnessName || 'claude';
+  if (resolvedHarness === 'claude') {
+    setupParts.push('npm install -g @anthropic-ai/claude-code >/dev/null 2>&1');
+  }
+
+  // Build the harness command
+  let harnessCmd = resolvedHarness === 'claude' ? 'claude' : resolvedHarness;
+  if (resolvedHarness === 'claude') {
+    if (yolo) harnessCmd += ' --dangerously-skip-permissions';
+    if (yolo) {
+      const escaped = AGENT_SYSTEM_PROMPT.replace(/'/g, "'\\''");
+      harnessCmd += ` --append-system-prompt '${escaped}'`;
+    }
+    if (prompt) {
+      const escaped = prompt.replace(/'/g, "'\\''");
+      harnessCmd += ` '${escaped}'`;
+    }
+  }
+
+  setupParts.push(harnessCmd);
+
+  const setupScript = setupParts.join('\n');
+  const execPath = `/sessions/${sessionId}/execute`;
+  const execPayload = JSON.stringify({ command: setupScript });
+  const execHeaders = unsandboxHeaders(publicKey, secretKey, 'POST', execPath, execPayload);
+
+  try {
+    // Fire and forget — the session runs in background, we don't wait for claude to finish
+    fetch(`${UNSANDBOX_API_BASE}${execPath}`, {
+      method: 'POST', headers: execHeaders, body: execPayload,
+      signal: AbortSignal.timeout(300000),
+    }).catch(() => {});
+
+    // Register deployment
+    if (projectName) {
+      try {
+        const db = getDb();
+        const proj = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: number } | undefined;
+        if (proj) {
+          db.prepare(`
+            INSERT INTO agent_deployments (tmux_session, tmux_window, project_id, todo_ids, status, started_at)
+            VALUES (?, ?, ?, ?, 'running', datetime('now'))
+          `).run(`unsandbox-${sessionId}`, 'main', proj.id, JSON.stringify(body.todoIds ?? []));
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    return NextResponse.json({
+      success: true,
+      tmuxSession: `unsandbox-${sessionId}`,
+      tmuxWindow: 'main',
+      multiplexer: 'unsandbox',
+      host: 'unsandbox',
+      sessionId,
+      command: `unsandbox session ${sessionId}`,
+    });
+  } catch (err) {
+    return NextResponse.json({ error: `Unsandbox harness boot failed: ${err}` }, { status: 500 });
+  }
 }
