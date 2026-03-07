@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { claudePaths } from '@unfirehose/core/claude-paths';
+import { getSetting } from '@unfirehose/core/db/ingest';
 import type { SessionsIndex } from '@unfirehose/core/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -82,7 +83,13 @@ export async function POST(
 
   try {
     const body = await request.json();
-    const { message, addAll } = body;
+    const { message, addAll, action } = body;
+
+    // Push-only action
+    if (action === 'push') {
+      const pushOut = await gitExec(repoPath, ['push'], 30000);
+      return NextResponse.json({ success: true, pushed: true, output: pushOut.trim() });
+    }
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return NextResponse.json({ error: 'Commit message required' }, { status: 400 });
@@ -108,9 +115,24 @@ export async function POST(
     // Get the new commit info
     const newCommit = await gitExec(repoPath, ['log', '--oneline', '-1']);
 
+    // Auto-push if setting enabled (default: true)
+    const autoPush = getSetting('git_auto_push') !== 'false';
+    let pushed = false;
+    let pushError: string | undefined;
+    if (autoPush) {
+      try {
+        await gitExec(repoPath, ['push'], 30000);
+        pushed = true;
+      } catch (err: any) {
+        pushError = String(err.message || err);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       commit: newCommit.trim(),
+      pushed,
+      pushError,
     });
   } catch (err) {
     return NextResponse.json({ error: 'Commit failed', detail: String(err) }, { status: 500 });

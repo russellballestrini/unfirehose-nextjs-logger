@@ -482,6 +482,21 @@ export default function SettingsPage() {
         )}
       </div>
 
+      {/* Git */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+        <h3 className="text-base font-bold text-[var(--color-muted)]">Git</h3>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={(settings?.git_auto_push ?? 'true') !== 'false'}
+            onChange={(e) => saveSetting('git_auto_push', e.target.checked ? 'true' : 'false')}
+            className="accent-[var(--color-accent)]"
+          />
+          <span className="text-sm">Auto-push after commit</span>
+          <span className="text-xs text-[var(--color-muted)]">When committing from the app, automatically push to remote</span>
+        </label>
+      </div>
+
       {/* LLM Providers */}
       <LlmProviders
         endpoint={llmEndpoint}

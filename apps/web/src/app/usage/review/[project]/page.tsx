@@ -211,10 +211,35 @@ export default function ReviewPage() {
                     ? 'bg-green-500/10 text-green-400 border border-green-500/30'
                     : 'bg-red-500/10 text-red-400 border border-red-500/30'
                 }`}>
-                  {commitResult.success
-                    ? `Committed: ${commitResult.commit}`
-                    : `Error: ${commitResult.error} ${commitResult.detail ?? ''}`
-                  }
+                  {commitResult.success ? (
+                    <div className="space-y-1">
+                      <div>Committed: {commitResult.commit}</div>
+                      {commitResult.pushed && <div className="text-xs opacity-80">Pushed to remote</div>}
+                      {commitResult.pushError && <div className="text-xs text-yellow-400">Push failed: {commitResult.pushError}</div>}
+                      {!commitResult.pushed && !commitResult.pushError && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/projects/${encodeURIComponent(project)}/git`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ action: 'push' }),
+                              });
+                              const r = await res.json();
+                              setCommitResult({ ...commitResult, pushed: r.success, pushError: r.error });
+                            } catch (err) {
+                              setCommitResult({ ...commitResult, pushError: String(err) });
+                            }
+                          }}
+                          className="text-xs px-2 py-0.5 rounded bg-green-500/20 hover:bg-green-500/30 transition-colors cursor-pointer font-bold"
+                        >
+                          Push Now
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    `Error: ${commitResult.error} ${commitResult.detail ?? ''}`
+                  )}
                 </div>
               )}
             </div>
