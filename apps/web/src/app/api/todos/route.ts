@@ -3,6 +3,9 @@ import { getDb } from '@unfirehose/core/db/schema';
 import { uuidv7 } from '@unfirehose/core/uuidv7';
 import { recordTriage } from '@unfirehose/core/db/triage';
 import { execFile } from 'child_process';
+import { readFile, stat } from 'fs/promises';
+import { claudePaths } from '@unfirehose/core/claude-paths';
+import type { SessionsIndex } from '@unfirehose/core/types';
 
 function execAsync(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -14,6 +17,38 @@ function execAsync(cmd: string, args: string[], opts: { timeout: number }): Prom
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+async function resolveProjectPath(projectName: string): Promise<string> {
+  // Try sessions index first
+  try {
+    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
+    const index: SessionsIndex = JSON.parse(raw);
+    if (index.originalPath) return index.originalPath;
+  } catch { /* no index */ }
+
+  // Fall back to deriving from encoded name
+  const parts = projectName.replace(/^-/, '').split('-');
+  const gitIdx = parts.lastIndexOf('git');
+  if (gitIdx < 0 || gitIdx >= parts.length - 1) return '';
+  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
+  const projectParts = parts.slice(gitIdx + 1);
+
+  const dashJoined = prefix + '/' + projectParts.join('-');
+  try { if ((await stat(dashJoined)).isDirectory()) return dashJoined; } catch {}
+
+  // Try replacing dashes with dots for domain-style names (www-makepostsell-com → www.makepostsell.com)
+  const tlds = ['com', 'net', 'org', 'io', 'dev', 'ai', 'app'];
+  const last = projectParts[projectParts.length - 1];
+  if (projectParts.length >= 2 && tlds.includes(last)) {
+    // Try all dots: www.makepostsell.com
+    const allDots = prefix + '/' + projectParts.join('.');
+    try { if ((await stat(allDots)).isDirectory()) return allDots; } catch {}
+    // Try only last dash as dot: www-makepostsell.com
+    const lastDot = prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + last;
+    try { if ((await stat(lastDot)).isDirectory()) return lastDot; } catch {}
+  }
+  return '';
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -205,7 +240,7 @@ export async function GET(request: NextRequest) {
         byProject[todo.project_name] = {
           project: todo.project_name,
           display: todo.project_display,
-          projectPath: todo.project_path ?? null,
+          projectPath: todo.project_path || null,
           todos: [],
         };
       }
@@ -238,9 +273,17 @@ export async function GET(request: NextRequest) {
       FROM todos
     `).get() as any;
 
+    // Resolve missing project paths from sessions index / filesystem
+    const groups = Object.values(byProject);
+    await Promise.all(groups.map(async (g) => {
+      if (!g.projectPath) {
+        g.projectPath = await resolveProjectPath(g.project) || null;
+      }
+    }));
+
     return NextResponse.json({
       todos,
-      byProject: Object.values(byProject),
+      byProject: groups,
       counts: {
         pending: counts?.pending ?? 0,
         inProgress: counts?.in_progress ?? 0,
