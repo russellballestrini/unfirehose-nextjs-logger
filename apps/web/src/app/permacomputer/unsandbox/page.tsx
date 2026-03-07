@@ -319,10 +319,10 @@ export default function UnsandboxNodePage() {
           </div>
         </div>
         <p className="text-xs text-[var(--color-muted)]">
-          Run a command on unsandbox (one-shot, fresh container).
+          Ephemeral sandbox &mdash; container runs your command then self-destructs. No cleanup, no lingering sessions, no cost beyond rate limit.
           {network === 'zerotrust'
             ? <span className="text-yellow-400 ml-1">⚠ no network access</span>
-            : <span className="text-[var(--color-muted)] ml-1">&middot; egress via proxy</span>}
+            : <span className="ml-1">&middot; egress via proxy</span>}
         </p>
         <div className="flex gap-2">
           <input
