@@ -8,7 +8,7 @@ import Link from 'next/link';
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
-const TABS = ['Overview', 'Services', 'Sessions', 'Terminal'] as const;
+const TABS = ['Overview', 'Bootstrap', 'Services', 'Sessions', 'Terminal'] as const;
 type Tab = (typeof TABS)[number];
 
 const UNFIREHOSE_BOOTSTRAP = `#!/bin/bash
@@ -23,6 +23,27 @@ npm install
 npm run build --filter=web
 cd apps/web
 PORT=3000 node .next/standalone/server.js`.trim();
+
+const HARNESSES = [
+  { id: 'claude-code', name: 'Claude Code', desc: 'Anthropic CLI for Claude — agentic coding in the terminal', install: 'npm install -g @anthropic-ai/claude-code', verify: 'claude --version', tags: ['ml', 'coding'], },
+  { id: 'gemini-cli', name: 'Gemini CLI', desc: 'Google CLI for Gemini — agentic coding similar to Claude Code', install: 'npm install -g @anthropic-ai/claude-code', verify: 'gemini --version', requiresKey: 'GOOGLE_API_KEY', tags: ['ml', 'coding'], },
+  { id: 'openai-codex', name: 'OpenAI Codex CLI', desc: 'OpenAI CLI coding agent — GPT-4 powered terminal assistant', install: 'npm install -g @openai/codex', verify: 'codex --version', requiresKey: 'OPENAI_API_KEY', tags: ['ml', 'coding'], },
+  { id: 'open-code', name: 'Open Code', desc: 'Open source alternative to Claude Code — multi-provider', install: 'npm install -g opencode-ai', verify: 'opencode --version', requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding'], },
+  { id: 'aider', name: 'Aider', desc: 'ML pair programming in the terminal — many models', install: 'pip install aider-chat', verify: 'aider --version', requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding'], },
+  { id: 'agnt', name: 'agnt', desc: 'Minimal terminal coding agent — lightweight alternative to Claude Code', install: 'npm install -g agnt', verify: 'agnt --version', requiresKey: 'ANTHROPIC_API_KEY', tags: ['ml', 'coding'], },
+  { id: 'cursor', name: 'Cursor', desc: 'ML-first code editor — fork of VS Code with built-in chat and autocomplete', install: 'curl -fsSL https://www.cursor.com/download/linux -o cursor.appimage && chmod +x cursor.appimage', verify: 'ls cursor.appimage', tags: ['ml', 'coding'], },
+  { id: 'continue-dev', name: 'Continue', desc: 'Open source ML code assistant — VS Code and JetBrains extension', install: 'pip install continue-sdk', verify: 'pip show continue-sdk', tags: ['ml', 'coding'], },
+  { id: 'ollama', name: 'Ollama', desc: 'Run open source LLMs locally — llama, mistral, codellama', install: 'curl -fsSL https://ollama.com/install.sh | sh', verify: 'ollama --version', tags: ['ml', 'local'], },
+  { id: 'llama-cpp', name: 'llama.cpp', desc: 'Bare-metal LLM inference in C/C++ — GGUF models, CPU and GPU', install: 'git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp && make -j', verify: 'ls llama.cpp/llama-cli', tags: ['ml', 'local'], },
+  { id: 'vllm', name: 'vLLM', desc: 'High-throughput LLM serving engine — PagedAttention, continuous batching', install: 'pip install vllm', verify: 'python -c "import vllm; print(vllm.__version__)"', tags: ['ml', 'gpu'], },
+  { id: 'text-generation-webui', name: 'text-generation-webui', desc: 'Gradio web UI for LLMs — supports GGUF, GPTQ, AWQ, EXL2, llama.cpp, Transformers', install: 'git clone https://github.com/oobabooga/text-generation-webui && cd text-generation-webui && pip install -r requirements.txt', verify: 'ls text-generation-webui/server.py', tags: ['ml', 'web'], },
+  { id: 'open-webui', name: 'Open WebUI', desc: 'Self-hosted ChatGPT-like interface for Ollama and OpenAI APIs', install: 'pip install open-webui', verify: 'open-webui --version', tags: ['ml', 'web'], },
+  { id: 'hermes-agent', name: 'Hermes Agent', desc: 'Autonomous agent framework — tool use, memory, planning with local or cloud LLMs', install: 'pip install hermes-agent', verify: 'pip show hermes-agent', tags: ['ml', 'agent'], },
+  { id: 'fetch', name: 'Fetch', desc: 'HTTP harness for ML APIs — structured logging and replay', install: 'pip install fetch-cli', verify: 'fetch --version', tags: ['ml', 'api'], },
+  { id: 'uncloseai-cli', name: 'uncloseai-cli', desc: 'ReAct agent harness, microgpt, voxsplit — ML from seed on Unclose', install: 'pip install -r requirements.txt', verify: 'python -c "import uncloseai"', tags: ['ml', 'agent'], },
+];
+
+type BootStatus = { state: 'idle' } | { state: 'verifying'; output?: string } | { state: 'success'; version: string } | { state: 'error'; detail: string };
 
 function Bar({ pct, color }: { pct: number; color: string }) {
   return (
@@ -71,6 +92,8 @@ export default function UnsandboxNodePage() {
   const [network, setNetwork] = useState<'semitrusted' | 'zerotrust'>('semitrusted');
 
   const [killingSession, setKillingSession] = useState<string | null>(null);
+  const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
+  const [bootFilter, setBootFilter] = useState('');
 
   const serviceList: any[] = services?.services ?? [];
   const sessionList: any[] = sessions?.sessions ?? [];
@@ -166,6 +189,40 @@ export default function UnsandboxNodePage() {
       mutateServices();
     } catch { /* ignore */ }
   }, [mutateServices]);
+
+  const bootHarness = useCallback(async (harness: typeof HARNESSES[0]) => {
+    setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'verifying' } }));
+    try {
+      // Install + verify via unsandbox execute (ephemeral container with network)
+      const script = `#!/bin/bash
+set -e
+# Ensure basic tools
+which node >/dev/null 2>&1 || which python3 >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq nodejs npm python3 python3-pip git curl >/dev/null 2>&1)
+which npm >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq npm >/dev/null 2>&1)
+which pip >/dev/null 2>&1 || which pip3 >/dev/null 2>&1 || true
+# Install
+${harness.install} 2>&1
+# Verify
+echo "---VERIFY---"
+${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
+      const res = await fetch('/api/unsandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'execute', language: 'bash', code: script, network: 'semitrusted' }),
+      });
+      const data = await res.json();
+      const stdout = data.stdout || data.output || '';
+      const verifyIdx = stdout.indexOf('---VERIFY---');
+      const verifyOutput = verifyIdx >= 0 ? stdout.slice(verifyIdx + 12).trim() : stdout.trim();
+      if (verifyOutput.includes('VERIFY_FAILED') || data.exit_code !== 0) {
+        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: verifyOutput || data.stderr || 'Install/verify failed' } }));
+      } else {
+        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'success', version: verifyOutput.split('\n')[0] } }));
+      }
+    } catch (err) {
+      setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: String(err) } }));
+    }
+  }, []);
 
   if (!status) return <div className="p-6 text-[var(--color-muted)]">Loading...</div>;
 
@@ -385,6 +442,77 @@ export default function UnsandboxNodePage() {
               {probing ? 'Probing...' : 'Re-probe system'}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ===== BOOTSTRAP TAB ===== */}
+      {activeTab === 'Bootstrap' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-sm text-[var(--color-muted)]">
+              target: <span className="font-mono text-[var(--color-foreground)]">unsandbox</span>
+              <span className="ml-2 text-xs opacity-60">(each install runs in an ephemeral container with semitrusted network)</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Filter..."
+              value={bootFilter}
+              onChange={(e) => setBootFilter(e.target.value)}
+              className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 w-32"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {HARNESSES
+              .filter(h => !bootFilter || h.name.toLowerCase().includes(bootFilter.toLowerCase()) || h.tags.some(t => t.includes(bootFilter.toLowerCase())))
+              .map(h => {
+              const bStatus = bootStatuses[h.id] ?? { state: 'idle' };
+              return (
+                <div
+                  key={h.id}
+                  className={`rounded border p-3 space-y-2 ${
+                    bStatus.state === 'success' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
+                    : bStatus.state === 'error' ? 'border-[var(--color-error)] bg-red-950/20'
+                    : 'border-[var(--color-border)] bg-[var(--color-background)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold">{h.name}</span>
+                    <div className="flex gap-1">
+                      {h.tags.slice(0, 2).map(t => (
+                        <span key={t} className="text-[10px] px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
+                  <div className="text-[10px] text-[var(--color-muted)] font-mono space-y-0.5">
+                    <div className="truncate">install: {h.install}</div>
+                    <div className="truncate">verify: {h.verify}</div>
+                    {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => bootHarness(h)}
+                      disabled={bStatus.state === 'verifying'}
+                      className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
+                    >
+                      {bStatus.state === 'verifying' ? 'Installing...' : bStatus.state === 'success' ? 'Re-verify' : 'Verify & Install'}
+                    </button>
+                    {bStatus.state === 'success' && (
+                      <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-60">{bStatus.version}</span>
+                    )}
+                    {bStatus.state === 'error' && (
+                      <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{bStatus.detail}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-[var(--color-muted)] mt-3">
+            Each install runs in an ephemeral unsandbox container. The container self-destructs after verification.
+            For persistent harnesses, deploy via the Services tab.
+          </p>
         </div>
       )}
 
