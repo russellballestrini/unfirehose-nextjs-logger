@@ -60,72 +60,44 @@ const HARNESSES = [
   {
     id: 'claude-code', name: 'Claude Code',
     desc: 'Anthropic CLI for Claude — agentic coding in the terminal',
-    repo: 'https://github.com/anthropics/claude-code',
-    install: 'npm install -g @anthropic-ai/claude-code', run: 'claude',
+    install: 'npm install -g @anthropic-ai/claude-code',
+    verify: 'claude --version',
     tags: ['ml', 'coding', 'cli'],
   },
   {
     id: 'open-code', name: 'Open Code',
     desc: 'Open source alternative to Claude Code — multi-provider',
-    repo: 'https://github.com/nicepkg/opencode',
-    install: 'npm install -g opencode-ai', run: 'opencode',
+    install: 'npm install -g opencode-ai',
+    verify: 'opencode --version',
     requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding', 'cli'],
   },
   {
     id: 'aider', name: 'Aider',
     desc: 'ML pair programming in the terminal — many models',
-    repo: 'https://github.com/paul-gauthier/aider',
-    install: 'pip install aider-chat', run: 'aider',
+    install: 'pip install aider-chat',
+    verify: 'aider --version',
     requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding', 'python'],
   },
   {
     id: 'ollama', name: 'Ollama',
     desc: 'Run open source LLMs locally — llama, mistral, codellama',
-    repo: 'https://github.com/ollama/ollama',
-    install: 'curl -fsSL https://ollama.com/install.sh | sh', run: 'ollama serve',
+    install: 'curl -fsSL https://ollama.com/install.sh | sh',
+    verify: 'ollama --version',
     tags: ['ml', 'local', 'inference'],
   },
   {
     id: 'open-webui', name: 'Open WebUI',
     desc: 'Self-hosted ChatGPT-like interface for Ollama and OpenAI APIs',
-    repo: 'https://github.com/open-webui/open-webui',
-    install: 'pip install open-webui', run: 'open-webui serve',
+    install: 'pip install open-webui',
+    verify: 'open-webui --version',
     tags: ['ml', 'web', 'self-hosted'],
   },
   {
     id: 'uncloseai-cli', name: 'uncloseai-cli',
     desc: 'ReAct agent harness, microgpt, voxsplit — ML from seed on Unclose',
-    repo: 'ssh://git@git.unturf.com:2222/engineering/unturf/uncloseai-cli.git',
-    install: 'pip install -r requirements.txt', run: 'python uncloseai-cli.py',
+    install: 'pip install -r requirements.txt',
+    verify: 'python -c "import uncloseai"',
     tags: ['ml', 'agent', 'python'],
-  },
-  {
-    id: 'llama-cpp', name: 'llama.cpp',
-    desc: 'LLM inference in C/C++ — run GGUF models on CPU or GPU',
-    repo: 'https://github.com/ggerganov/llama.cpp',
-    install: 'git clone && make -j', run: './llama-server -m model.gguf',
-    tags: ['ml', 'local', 'inference'],
-  },
-  {
-    id: 'vllm', name: 'vLLM',
-    desc: 'High-throughput LLM serving — PagedAttention, continuous batching',
-    repo: 'https://github.com/vllm-project/vllm',
-    install: 'pip install vllm', run: 'vllm serve',
-    requiresKey: 'GPU recommended', tags: ['ml', 'serving', 'gpu'],
-  },
-  {
-    id: 'text-generation-webui', name: 'text-generation-webui',
-    desc: 'Gradio web UI for running large language models — oobabooga',
-    repo: 'https://github.com/oobabooga/text-generation-webui',
-    install: 'git clone && ./start_linux.sh', run: './start_linux.sh',
-    tags: ['ml', 'web', 'self-hosted'],
-  },
-  {
-    id: 'uri2png', name: 'uri2png',
-    desc: 'Screenshot service — render any URL to PNG via headless browser',
-    repo: 'https://github.com/nicholasgasior/uri2png',
-    install: 'git clone && docker compose up -d', run: 'docker compose up -d',
-    tags: ['service', 'screenshot', 'docker'],
   },
 ];
 
@@ -345,13 +317,15 @@ export default function NodeDetailPage() {
               <span className="text-sm text-[var(--color-muted)]">/mo total</span>
             </div>
             <div className="text-sm text-[var(--color-muted)]">
-              {systemWatts.toFixed(0)}W sys{gpuWatts > 0 && <> + {gpuWatts.toFixed(0)}W gpu</>}
+              {systemWatts.toFixed(0)}W sys
+              {gpuWatts > 0 && <> + {gpuWatts.toFixed(0)}W gpu</>}
               {' = '}{totalWatts.toFixed(0)}W
               {' '}
               <span className={`text-[10px] ${wattsOverride ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
                 [{wattsOverride ? 'override' : node.powerSource ?? 'n/a'}
-                {!wattsOverride && node.cpuTdpWatts && ` ${node.cpuTdpWatts}W tdp`}]
+                {!wattsOverride && node.cpuTdpWatts && ` ${node.cpuTdpWatts}W`}]
               </span>
+              {gpuWatts > 0 && <span className="text-[10px] text-green-400"> [gpu nvidia-smi]</span>}
             </div>
             <div className="text-sm text-[var(--color-muted)]">
               {kwhPerMonth.toFixed(1)} kWh/mo &middot; ${elecPerMonth.toFixed(0)} elec &middot; ${ispCost.toFixed(0)} isp

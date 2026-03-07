@@ -1051,17 +1051,21 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
         const kwhPerMonth = (totalWatts * 24 * 30) / 1000;
         const elecPerMonth = kwhPerMonth * kwhRate;
         const totalPerMonth = elecPerMonth + ispCost;
-        const sourceLabel = wattsOverride ? 'override' : node.powerSource === 'rapl' ? 'rapl' : node.powerSource === 'tdp' ? `tdp${node.cpuTdpWatts ? ' ' + node.cpuTdpWatts + 'W' : ''}` : 'n/a';
+        const cpuSourceLabel = wattsOverride ? 'override' : node.powerSource === 'rapl' ? 'rapl' : node.powerSource === 'tdp' ? `tdp ${node.cpuTdpWatts ?? '?'}W` : 'n/a';
         return (
           <div className="mt-2 pt-2 border-t border-[var(--color-border)]">
             <div className="flex justify-between text-xs text-[var(--color-muted)]">
               <span>
                 {systemWatts.toFixed(0)}W sys
                 {gpuWatts > 0 && <> + {gpuWatts.toFixed(0)}W gpu</>}
+                {' = '}{totalWatts.toFixed(0)}W
                 {' '}
                 <span className={`text-[10px] ${wattsOverride ? 'text-yellow-400' : node.powerSource ? 'text-[var(--color-accent)]' : 'opacity-60'}`}>
-                  [{sourceLabel}]
+                  [{cpuSourceLabel}]
                 </span>
+                {gpuWatts > 0 && (
+                  <span className="text-[10px] text-green-400"> [gpu nvidia-smi]</span>
+                )}
               </span>
               <span className="text-[var(--color-accent)] font-bold">{formatCost(totalPerMonth)}/mo</span>
             </div>
