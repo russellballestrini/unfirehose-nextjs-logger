@@ -461,6 +461,7 @@ async function syncClaudeCredentials(host: string): Promise<boolean> {
   const credFile = path.join(homedir(), '.claude', '.credentials.json');
   const settingsFile = path.join(homedir(), '.claude', 'settings.json');
   const settingsLocalFile = path.join(homedir(), '.claude', 'settings.local.json');
+  const claudeJson = path.join(homedir(), '.claude.json');
 
   try {
     await stat(credFile);
@@ -475,6 +476,12 @@ async function syncClaudeCredentials(host: string): Promise<boolean> {
 
   // scp credentials
   await exec('scp', [...sshOpts, credFile, `${host}:~/.claude/.credentials.json`], { timeout: 15000 });
+
+  // Sync ~/.claude.json (onboarding state, oauth account) — non-fatal
+  try {
+    await stat(claudeJson);
+    await exec('scp', [...sshOpts, claudeJson, `${host}:~/.claude.json`], { timeout: 10000 });
+  } catch { /* non-fatal */ }
 
   // Also sync settings if they exist (non-fatal)
   for (const f of [settingsFile, settingsLocalFile]) {
