@@ -3,11 +3,88 @@
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 const DEFAULT_KWH_RATE = 0.31;
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+const HARNESSES = [
+  {
+    id: 'claude-code', name: 'Claude Code',
+    desc: 'Anthropic CLI for Claude — agentic coding in the terminal',
+    repo: 'https://github.com/anthropics/claude-code',
+    install: 'npm install -g @anthropic-ai/claude-code', run: 'claude',
+    tags: ['ml', 'coding', 'cli'], authModes: ['oauth2', 'api-key'] as const,
+  },
+  {
+    id: 'open-code', name: 'Open Code',
+    desc: 'Open source alternative to Claude Code — multi-provider',
+    repo: 'https://github.com/nicepkg/opencode',
+    install: 'npm install -g opencode-ai', run: 'opencode',
+    requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding', 'cli'],
+  },
+  {
+    id: 'aider', name: 'Aider',
+    desc: 'ML pair programming in the terminal — many models',
+    repo: 'https://github.com/paul-gauthier/aider',
+    install: 'pip install aider-chat', run: 'aider',
+    requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding', 'python'],
+  },
+  {
+    id: 'ollama', name: 'Ollama',
+    desc: 'Run open source LLMs locally — llama, mistral, codellama',
+    repo: 'https://github.com/ollama/ollama',
+    install: 'curl -fsSL https://ollama.com/install.sh | sh', run: 'ollama serve',
+    tags: ['ml', 'local', 'inference'],
+  },
+  {
+    id: 'open-webui', name: 'Open WebUI',
+    desc: 'Self-hosted ChatGPT-like interface for Ollama and OpenAI APIs',
+    repo: 'https://github.com/open-webui/open-webui',
+    install: 'pip install open-webui', run: 'open-webui serve',
+    tags: ['ml', 'web', 'self-hosted'],
+  },
+  {
+    id: 'uncloseai-cli', name: 'uncloseai-cli',
+    desc: 'ReAct agent harness, microgpt, voxsplit — ML from seed on Unclose',
+    repo: 'ssh://git@git.unturf.com:2222/engineering/unturf/uncloseai-cli.git',
+    install: 'pip install -r requirements.txt', run: 'python uncloseai-cli.py',
+    tags: ['ml', 'agent', 'python'],
+  },
+  {
+    id: 'llama-cpp', name: 'llama.cpp',
+    desc: 'LLM inference in C/C++ — run GGUF models on CPU or GPU',
+    repo: 'https://github.com/ggerganov/llama.cpp',
+    install: 'git clone && make -j', run: './llama-server -m model.gguf',
+    tags: ['ml', 'local', 'inference'],
+  },
+  {
+    id: 'vllm', name: 'vLLM',
+    desc: 'High-throughput LLM serving — PagedAttention, continuous batching',
+    repo: 'https://github.com/vllm-project/vllm',
+    install: 'pip install vllm', run: 'vllm serve',
+    requiresKey: 'GPU recommended', tags: ['ml', 'serving', 'gpu'],
+  },
+  {
+    id: 'text-generation-webui', name: 'text-generation-webui',
+    desc: 'Gradio web UI for running large language models — oobabooga',
+    repo: 'https://github.com/oobabooga/text-generation-webui',
+    install: 'git clone && ./start_linux.sh', run: './start_linux.sh',
+    tags: ['ml', 'web', 'self-hosted'],
+  },
+  {
+    id: 'uri2png', name: 'uri2png',
+    desc: 'Screenshot service — render any URL to PNG via headless browser',
+    repo: 'https://github.com/nicholasgasior/uri2png',
+    install: 'git clone && docker compose up -d', run: 'docker compose up -d',
+    tags: ['service', 'screenshot', 'docker'],
+  },
+];
+
+type BootStatus = { state: 'idle' } | { state: 'booting' } | { state: 'success'; detail: any } | { state: 'error'; detail: string };
 
 export default function NodeDetailPage() {
   const { hostname } = useParams<{ hostname: string }>();
@@ -26,6 +103,47 @@ export default function NodeDetailPage() {
   const [ispCost, setIspCost] = useState(0);
   const [diskOverride, setDiskOverride] = useState<number | undefined>();
   const [wattsOverride, setWattsOverride] = useState<number | undefined>();
+
+  // Bootstrap harness state
+  const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
+  const [authModes, setAuthModes] = useState<Record<string, string>>({});
+  const [bootFilter, setBootFilter] = useState('');
+
+  // Determine the SSH host to use for booting (localhost if this is the local machine)
+  const isLocal = mesh?.localHostname === host || host === 'localhost';
+  const bootHost = isLocal ? 'localhost' : host;
+
+  const bootHarness = useCallback(async (harness: typeof HARNESSES[0]) => {
+    setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'booting' } }));
+    try {
+      const repoName = harness.repo.split('/').pop()?.replace('.git', '') ?? harness.id;
+      const projectPath = `~/git/${repoName}`;
+      const authMode = authModes[harness.id] ?? ((harness as any).authModes?.[0] || '');
+      let runCmd = harness.run;
+      if (harness.id === 'claude-code' && authMode === 'oauth2') runCmd = 'claude --use-oauth';
+
+      let harnessCmd: string;
+      if (harness.install.startsWith('git clone')) {
+        harnessCmd = `bash -lc "if [ ! -d ~/git/${repoName} ]; then mkdir -p ~/git && cd ~/git && git clone '${harness.repo}'; fi && cd ~/git/${repoName} && ${runCmd}"`;
+      } else {
+        harnessCmd = `bash -lc "${harness.install} && mkdir -p ~/git/${repoName} && cd ~/git/${repoName} && ${runCmd}"`;
+      }
+
+      const res = await fetch('/api/boot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath, harness: harnessCmd, host: bootHost, projectName: repoName, bootstrap: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'success', detail: data } }));
+      } else {
+        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: data.error || 'Unknown error' } }));
+      }
+    } catch (err) {
+      setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: String(err) } }));
+    }
+  }, [bootHost, authModes]);
 
   useEffect(() => {
     if (!settings) return;
@@ -338,11 +456,103 @@ export default function NodeDetailPage() {
           )}
         </div>
       </div>
+
+      {/* ===== BOOTSTRAP HARNESSES ===== */}
+      <div className="mt-6">
+        <Section title={
+          <div className="flex items-center justify-between">
+            <span>Bootstrap Harnesses <span className="text-xs font-normal text-[var(--color-muted)]">target: {bootHost}</span></span>
+            <input
+              type="text"
+              placeholder="Filter..."
+              value={bootFilter}
+              onChange={(e) => setBootFilter(e.target.value)}
+              className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 w-32 font-normal"
+            />
+          </div>
+        }>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {HARNESSES
+              .filter(h => !bootFilter || h.name.toLowerCase().includes(bootFilter.toLowerCase()) || h.tags.some(t => t.includes(bootFilter.toLowerCase())))
+              .map(h => {
+              const status = bootStatuses[h.id] ?? { state: 'idle' };
+              return (
+                <div
+                  key={h.id}
+                  className={`rounded border p-3 space-y-2 ${
+                    status.state === 'success' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
+                    : status.state === 'error' ? 'border-[var(--color-error)] bg-red-950/20'
+                    : 'border-[var(--color-border)] bg-[var(--color-background)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold">{h.name}</span>
+                    <div className="flex gap-1">
+                      {h.tags.slice(0, 2).map(t => (
+                        <span key={t} className="text-[10px] px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
+                  <div className="text-[10px] text-[var(--color-muted)] font-mono space-y-0.5">
+                    <div className="truncate">$ {h.install}</div>
+                    <div className="truncate">$ {h.run}</div>
+                    {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
+                  </div>
+
+                  {(h as any).authModes?.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-[var(--color-muted)]">auth:</span>
+                      {(h as any).authModes.map((mode: string) => (
+                        <button
+                          key={mode}
+                          onClick={() => setAuthModes(prev => ({ ...prev, [h.id]: mode }))}
+                          className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
+                            (authModes[h.id] ?? (h as any).authModes[0]) === mode
+                              ? 'bg-[var(--color-accent)] text-black font-bold'
+                              : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
+                          }`}
+                        >
+                          {mode === 'oauth2' ? 'OAuth2 (Max)' : 'API Key'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => bootHarness(h)}
+                      disabled={status.state === 'booting'}
+                      className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
+                    >
+                      {status.state === 'booting' ? 'Booting...' : status.state === 'success' ? 'Boot Again' : 'Boot'}
+                    </button>
+                    <a href={h.repo} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
+                      repo
+                    </a>
+                    {status.state === 'success' && (
+                      <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-40">{status.detail.command}</span>
+                    )}
+                    {status.state === 'error' && (
+                      <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{status.detail}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-[var(--color-muted)] mt-3">
+            Bootstraps into ~/git/ on {bootHost}. Uses tmux for session management.
+            {!isLocal && ' Requires SSH key access.'}
+          </p>
+        </Section>
+      </div>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string | React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
       <h3 className="text-sm font-bold text-[var(--color-muted)] mb-3">{title}</h3>
