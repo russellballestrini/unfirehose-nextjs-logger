@@ -48,7 +48,7 @@ export function Sidebar() {
     <aside className="w-72 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col sticky top-0 h-screen overflow-y-auto">
       <div className="px-6 py-8 border-b border-[var(--color-border)]">
         <Link href="/" className="block">
-          <h1 className="font-black leading-none whitespace-nowrap" style={{ fontSize: '3.2rem', letterSpacing: '-0.06em' }}>
+          <h1 className="font-black leading-none whitespace-nowrap" style={{ fontSize: '2.8rem', letterSpacing: '-0.06em' }}>
             <span className="text-[var(--color-foreground)]">un</span><span className="text-[var(--color-accent)]">firehose</span>
           </h1>
           <p className="text-base text-[var(--color-muted)] mt-3 tracking-wide uppercase font-bold">nextjs logger</p>
