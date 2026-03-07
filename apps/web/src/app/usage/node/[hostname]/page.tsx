@@ -129,7 +129,7 @@ const HARNESSES = [
   },
 ];
 
-type BootStatus = { state: 'idle' } | { state: 'booting' } | { state: 'success'; detail: any } | { state: 'error'; detail: string };
+type BootStatus = { state: 'idle' } | { state: 'booting'; expectedSession?: string } | { state: 'success'; detail: any } | { state: 'error'; detail: string };
 
 const TABS = ['Overview', 'Harnesses', 'Processes', 'Bootstrap', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
@@ -235,9 +235,11 @@ export default function NodeDetailPage() {
   };
 
   const bootHarness = useCallback(async (harness: typeof HARNESSES[0]) => {
-    setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'booting' } }));
+    const repoName = harness.repo.split('/').pop()?.replace('.git', '') ?? harness.id;
+    setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'booting', expectedSession: repoName } }));
+    // Immediately switch to Harnesses tab so user sees the booting indicator
+    setActiveTab('Harnesses');
     try {
-      const repoName = harness.repo.split('/').pop()?.replace('.git', '') ?? harness.id;
       const projectPath = `~/git/${repoName}`;
       const runCmd = harness.run;
 
@@ -519,75 +521,91 @@ export default function NodeDetailPage() {
         // Combine tmux sessions from probe (remote) and local tmux API
         const probeSessions: any[] = probe?.sessions?.tmux ?? [];
         const localSessions: string[] = isLocal ? (tmuxData?.sessions ?? []) : [];
-        // Merge — local API has the definitive list for local nodes
         const sessions: any[] = isLocal
           ? localSessions.map(s => ({ name: s }))
           : probeSessions;
 
+        // Booting entries that aren't yet in the sessions list
+        const bootingEntries = Object.entries(bootStatuses)
+          .filter(([, s]) => s.state === 'booting' && (s as any).expectedSession)
+          .map(([id, s]) => ({ name: (s as any).expectedSession, booting: true, harnessId: id }))
+          .filter(b => !sessions.some(s => s.name === b.name));
+
+        const allEntries = [...bootingEntries, ...sessions];
+
         return (
           <div className="space-y-4">
-            {sessions.length === 0 && (
+            {allEntries.length === 0 && (
               <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
-                No tmux sessions running on {host}.
+                No tmux sessions running on {host}. Boot a harness from the Bootstrap tab.
               </div>
             )}
 
             <div className="grid grid-cols-1 gap-3">
-              {sessions.map(s => (
-                <div
-                  key={s.name}
-                  className={`bg-[var(--color-surface)] rounded border p-4 ${
-                    previewSession === s.name ? 'border-[var(--color-accent)]' : 'border-[var(--color-border)]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                      <span className="font-bold font-mono text-sm">{s.name}</span>
-                      {s.windows && (
-                        <span className="text-xs text-[var(--color-muted)]">({s.windows} windows)</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isLocal && (
-                        <>
-                          <button
-                            onClick={() => setPreviewSession(previewSession === s.name ? null : s.name)}
-                            className="text-xs px-2 py-1 rounded bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] transition-colors cursor-pointer font-mono"
-                          >
-                            {previewSession === s.name ? 'Close Preview' : 'Preview'}
-                          </button>
+              {allEntries.map(s => {
+                const isBooting = s.booting;
+                const isActive = previewSession === s.name;
+                const canPreview = isLocal && !isBooting;
+
+                return (
+                  <div
+                    key={s.name}
+                    onClick={() => canPreview && setPreviewSession(isActive ? null : s.name)}
+                    className={`bg-[var(--color-surface)] rounded border p-4 transition-colors ${
+                      isBooting ? 'border-yellow-500/50 bg-yellow-500/5' :
+                      isActive ? 'border-[var(--color-accent)]' :
+                      'border-[var(--color-border)] hover:border-[var(--color-accent)]/50'
+                    } ${canPreview ? 'cursor-pointer' : ''}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isBooting ? (
+                          <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                        )}
+                        <span className="font-bold font-mono text-sm">{s.name}</span>
+                        {isBooting && (
+                          <span className="text-xs text-yellow-400 animate-pulse">bootstrapping...</span>
+                        )}
+                        {s.windows && (
+                          <span className="text-xs text-[var(--color-muted)]">({s.windows} windows)</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        {isLocal && !isBooting && (
                           <Link
                             href={`/tmux/${encodeURIComponent(s.name)}`}
                             className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-[var(--color-background)] font-bold hover:opacity-90 transition-opacity"
                           >
                             Full View
                           </Link>
-                        </>
-                      )}
-                      {!isLocal && (
-                        <span className="text-xs text-[var(--color-muted)] font-mono">
-                          ssh {host} -t tmux attach -t {s.name}
-                        </span>
-                      )}
+                        )}
+                        {!isLocal && !isBooting && (
+                          <span className="text-xs text-[var(--color-muted)] font-mono">
+                            ssh {host} -t tmux attach -t {s.name}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Inline preview */}
-                  {previewSession === s.name && isLocal && (
-                    <pre
-                      ref={previewRef}
-                      className="mt-3 bg-[#0d0d0d] rounded border border-[var(--color-border)] p-3 overflow-auto max-h-[50vh] font-mono text-xs leading-relaxed text-[#d4d4d4] whitespace-pre"
-                      dangerouslySetInnerHTML={{ __html: previewContent ? ansiToHtml(previewContent) : 'Connecting...' }}
-                    />
-                  )}
-                </div>
-              ))}
+                    {/* Inline preview — shown when card is clicked */}
+                    {isActive && isLocal && (
+                      <pre
+                        ref={previewRef}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-3 bg-[#0d0d0d] rounded border border-[var(--color-border)] p-3 overflow-auto max-h-[60vh] font-mono text-xs leading-relaxed text-[#d4d4d4] whitespace-pre"
+                        dangerouslySetInnerHTML={{ __html: previewContent ? ansiToHtml(previewContent) : 'Connecting...' }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            {sessions.length > 0 && (
+            {allEntries.length > 0 && !allEntries.some(s => s.booting) && (
               <p className="text-xs text-[var(--color-muted)]">
-                {isLocal ? 'Local tmux sessions — click Preview for live tail or Full View for the terminal viewer.' : `Remote sessions on ${host} — attach via SSH.`}
+                {isLocal ? 'Click a session to preview live output. Full View opens the terminal viewer.' : `Remote sessions on ${host} — attach via SSH.`}
               </p>
             )}
           </div>
