@@ -62,7 +62,7 @@ const HARNESSES = [
     desc: 'Anthropic CLI for Claude — agentic coding in the terminal',
     repo: 'https://github.com/anthropics/claude-code',
     install: 'npm install -g @anthropic-ai/claude-code', run: 'claude',
-    tags: ['ml', 'coding', 'cli'], authModes: ['oauth2', 'api-key'] as const,
+    tags: ['ml', 'coding', 'cli'],
   },
   {
     id: 'open-code', name: 'Open Code',
@@ -177,7 +177,6 @@ export default function NodeDetailPage() {
 
   // Bootstrap harness state
   const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
-  const [authModes, setAuthModes] = useState<Record<string, string>>({});
   const [bootFilter, setBootFilter] = useState('');
   // Harness preview state
   const [previewSession, setPreviewSession] = useState<string | null>(null);
@@ -230,9 +229,7 @@ export default function NodeDetailPage() {
     try {
       const repoName = harness.repo.split('/').pop()?.replace('.git', '') ?? harness.id;
       const projectPath = `~/git/${repoName}`;
-      const authMode = authModes[harness.id] ?? ((harness as any).authModes?.[0] || '');
-      let runCmd = harness.run;
-      if (harness.id === 'claude-code' && authMode === 'oauth2') runCmd = 'claude --use-oauth';
+      const runCmd = harness.run;
 
       let harnessCmd: string;
       if (harness.install.startsWith('git clone')) {
@@ -260,7 +257,7 @@ export default function NodeDetailPage() {
     } catch (err) {
       setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: String(err) } }));
     }
-  }, [bootHost, authModes]);
+  }, [bootHost]);
 
   useEffect(() => {
     if (!settings) return;
@@ -680,25 +677,6 @@ export default function NodeDetailPage() {
                     <div className="truncate">$ {h.run}</div>
                     {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
                   </div>
-
-                  {(h as any).authModes?.length > 1 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-[var(--color-muted)]">auth:</span>
-                      {(h as any).authModes.map((mode: string) => (
-                        <button
-                          key={mode}
-                          onClick={() => setAuthModes(prev => ({ ...prev, [h.id]: mode }))}
-                          className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
-                            (authModes[h.id] ?? (h as any).authModes[0]) === mode
-                              ? 'bg-[var(--color-accent)] text-black font-bold'
-                              : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
-                          }`}
-                        >
-                          {mode === 'oauth2' ? 'OAuth2 (Max)' : 'API Key'}
-                        </button>
-                      ))}
-                    </div>
-                  )}
 
                   <div className="flex items-center gap-2">
                     <button
