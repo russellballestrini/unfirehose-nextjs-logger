@@ -45,14 +45,13 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-80 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col sticky top-0 h-screen overflow-y-auto">
-      <div className="px-5 py-8 border-b border-[var(--color-border)]">
+    <aside className="w-96 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col sticky top-0 h-screen overflow-y-auto">
+      <div className="px-6 py-8 border-b border-[var(--color-border)]">
         <Link href="/" className="block">
-          <h1 className="text-[5rem] font-black tracking-[-0.07em] leading-[0.85] overflow-hidden">
-            <span className="text-[var(--color-foreground)]">un</span><span className="text-[var(--color-accent)]">fire</span><br/>
-            <span className="text-[var(--color-accent)]">hose</span>
+          <h1 className="text-7xl font-black tracking-[-0.07em] leading-none whitespace-nowrap">
+            <span className="text-[var(--color-foreground)]">un</span><span className="text-[var(--color-accent)]">firehose</span>
           </h1>
-          <p className="text-sm text-[var(--color-muted)] mt-3 tracking-wide uppercase font-bold">nextjs logger</p>
+          <p className="text-base text-[var(--color-muted)] mt-3 tracking-wide uppercase font-bold">nextjs logger</p>
         </Link>
       </div>
       <nav className="flex-1 p-2">
