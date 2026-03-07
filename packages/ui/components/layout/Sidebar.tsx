@@ -26,15 +26,13 @@ const NAV_ITEMS: NavItem[] = [
   // Analyze — deep dives
   { separator: 'analyze' },
   { href: '/thinking', label: 'Thinking', icon: '◎' },
-  { href: '/logs', label: 'All Logs', icon: '≡' },
   { href: '/tokens', label: 'Tokens', icon: '¤' },
   { href: '/usage', label: 'Usage', icon: '△' },
+  { href: '/logs', label: 'All Logs', icon: '≡' },
   // Configure
   { separator: 'configure' },
   { href: '/scrobble', label: 'Scrobble', icon: '♪' },
   { href: '/permacomputer', label: 'Permacomputer', icon: '▣' },
-  { href: '/bootstrap', label: 'Bootstrap', icon: '⚡' },
-
   { href: '/schema', label: 'Schema', icon: '{' },
   { href: '/styleguide', label: 'Styleguide', icon: '◐' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
