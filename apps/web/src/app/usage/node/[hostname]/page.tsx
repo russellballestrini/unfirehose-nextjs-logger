@@ -101,7 +101,7 @@ const HARNESSES = [
   },
 ];
 
-type BootStatus = { state: 'idle' } | { state: 'booting'; expectedSession?: string } | { state: 'success'; detail: any } | { state: 'error'; detail: string };
+type BootStatus = { state: 'idle' } | { state: 'verifying' } | { state: 'success'; version: string; steps: any[] } | { state: 'error'; detail: string; steps?: any[] };
 
 const TABS = ['Overview', 'Harnesses', 'Processes', 'Bootstrap', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
@@ -216,36 +216,23 @@ export default function NodeDetailPage() {
   };
 
   const bootHarness = useCallback(async (harness: typeof HARNESSES[0]) => {
-    const repoName = harness.repo.split('/').pop()?.replace('.git', '') ?? harness.id;
-    setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'booting', expectedSession: repoName } }));
-    // Immediately switch to Harnesses tab so user sees the booting indicator
-    setActiveTab('Harnesses');
+    setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'verifying' } }));
     try {
-      const projectPath = `~/git/${repoName}`;
-      const runCmd = harness.run;
-
-      let harnessCmd: string;
-      if (harness.install.startsWith('git clone')) {
-        harnessCmd = `bash -lc "if [ ! -d ~/git/${repoName} ]; then mkdir -p ~/git && cd ~/git && git clone '${harness.repo}'; fi && cd ~/git/${repoName} && ${runCmd}"`;
-      } else {
-        harnessCmd = `bash -lc "${harness.install} && mkdir -p ~/git/${repoName} && cd ~/git/${repoName} && ${runCmd}"`;
-      }
-
-      const res = await fetch('/api/boot', {
+      const res = await fetch('/api/harness/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath, harness: harnessCmd, host: bootHost, projectName: repoName, bootstrap: true }),
+        body: JSON.stringify({
+          host: bootHost,
+          install: harness.install,
+          verify: harness.verify,
+          id: harness.id,
+        }),
       });
       const data = await res.json();
       if (data.success) {
-        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'success', detail: data } }));
-        // Switch to Harnesses tab and start previewing the tmux session
-        if (data.tmuxSession) {
-          setActiveTab('Harnesses');
-          setPreviewSession(data.tmuxSession);
-        }
+        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'success', version: data.version, steps: data.steps } }));
       } else {
-        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: data.error || 'Unknown error' } }));
+        setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: data.error || 'Verification failed', steps: data.steps } }));
       }
     } catch (err) {
       setBootStatuses(prev => ({ ...prev, [harness.id]: { state: 'error', detail: String(err) } }));
@@ -508,55 +495,39 @@ export default function NodeDetailPage() {
           ? localSessions.map(s => ({ name: s }))
           : probeSessions;
 
-        // Booting entries that aren't yet in the sessions list
-        const bootingEntries = Object.entries(bootStatuses)
-          .filter(([, s]) => s.state === 'booting' && (s as any).expectedSession)
-          .map(([id, s]) => ({ name: (s as any).expectedSession, booting: true, harnessId: id }))
-          .filter(b => !sessions.some(s => s.name === b.name));
-
-        const allEntries = [...bootingEntries, ...sessions];
+        const allEntries = sessions;
 
         return (
           <div className="space-y-4">
             {allEntries.length === 0 && (
               <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
-                No tmux sessions running on {host}. Boot a harness from the Bootstrap tab.
+                No tmux sessions running on {host}.
               </div>
             )}
 
             <div className="grid grid-cols-1 gap-3">
               {allEntries.map(s => {
-                const isBooting = s.booting;
                 const isActive = previewSession === s.name;
-                const canPreview = !isBooting;
 
                 return (
                   <div
                     key={s.name}
-                    onClick={() => canPreview && setPreviewSession(isActive ? null : s.name)}
-                    className={`bg-[var(--color-surface)] rounded border p-4 transition-colors ${
-                      isBooting ? 'border-yellow-500/50 bg-yellow-500/5' :
+                    onClick={() => setPreviewSession(isActive ? null : s.name)}
+                    className={`bg-[var(--color-surface)] rounded border p-4 transition-colors cursor-pointer ${
                       isActive ? 'border-[var(--color-accent)]' :
                       'border-[var(--color-border)] hover:border-[var(--color-accent)]/50'
-                    } ${canPreview ? 'cursor-pointer' : ''}`}
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {isBooting ? (
-                          <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                        )}
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                         <span className="font-bold font-mono text-sm">{s.name}</span>
-                        {isBooting && (
-                          <span className="text-xs text-yellow-400 animate-pulse">bootstrapping...</span>
-                        )}
                         {s.windows && (
                           <span className="text-xs text-[var(--color-muted)]">({s.windows} windows)</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        {isLocal && !isBooting && (
+                        {isLocal && (
                           <Link
                             href={`/tmux/${encodeURIComponent(s.name)}`}
                             className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-[var(--color-background)] font-bold hover:opacity-90 transition-opacity"
@@ -564,7 +535,7 @@ export default function NodeDetailPage() {
                             Full View
                           </Link>
                         )}
-                        {!isLocal && !isBooting && (
+                        {!isLocal && (
                           <>
                             <Link
                               href={`/tmux/${encodeURIComponent(s.name)}?host=${encodeURIComponent(host)}`}
@@ -594,9 +565,9 @@ export default function NodeDetailPage() {
               })}
             </div>
 
-            {allEntries.length > 0 && !allEntries.some(s => s.booting) && (
+            {allEntries.length > 0 && (
               <p className="text-xs text-[var(--color-muted)]">
-                Click a session to preview live output. {isLocal ? 'Full View' : 'Watch'} opens the terminal viewer.
+                Click a session to preview live output. {isLocal ? 'Full View' : 'Watch'} opens the interactive terminal viewer.
               </p>
             )}
           </div>
@@ -692,25 +663,21 @@ export default function NodeDetailPage() {
                   </div>
                   <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
                   <div className="text-[10px] text-[var(--color-muted)] font-mono space-y-0.5">
-                    <div className="truncate">$ {h.install}</div>
-                    <div className="truncate">$ {h.run}</div>
+                    <div className="truncate">install: {h.install}</div>
+                    <div className="truncate">verify: {h.verify}</div>
                     {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
                   </div>
 
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => bootHarness(h)}
-                      disabled={status.state === 'booting'}
+                      disabled={status.state === 'verifying'}
                       className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
                     >
-                      {status.state === 'booting' ? 'Booting...' : status.state === 'success' ? 'Boot Again' : 'Boot'}
+                      {status.state === 'verifying' ? 'Verifying...' : status.state === 'success' ? 'Re-verify' : 'Verify & Install'}
                     </button>
-                    <a href={h.repo} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
-                      repo
-                    </a>
                     {status.state === 'success' && (
-                      <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-40">{status.detail.command}</span>
+                      <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-60">{status.version}</span>
                     )}
                     {status.state === 'error' && (
                       <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{status.detail}</span>
@@ -721,7 +688,7 @@ export default function NodeDetailPage() {
             })}
           </div>
           <p className="text-xs text-[var(--color-muted)] mt-3">
-            Bootstraps into ~/git/ on {bootHost}. Uses tmux for session management.
+            Installs and verifies harnesses on {bootHost}. For claude-code, also syncs OAuth credentials.
             {!isLocal && ' Requires SSH key access.'}
           </p>
         </div>
