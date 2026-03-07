@@ -129,6 +129,73 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (action === 'probe') {
+    // Run a system probe on unsandbox to get CPU, memory, GPU, etc.
+    const probeScript = `#!/bin/bash
+set -e
+echo "---JSON---"
+CORES=$(nproc 2>/dev/null || echo 0)
+CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo "unknown")
+MEM_TOTAL=$(awk '/MemTotal/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+MEM_AVAIL=$(awk '/MemAvailable/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+MEM_USED=$(echo "$MEM_TOTAL $MEM_AVAIL" | awk '{printf "%.2f", $1-$2}')
+SWAP_TOTAL=$(awk '/SwapTotal/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+SWAP_FREE=$(awk '/SwapFree/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+SWAP_USED=$(echo "$SWAP_TOTAL $SWAP_FREE" | awk '{printf "%.2f", $1-$2}')
+LOAD=$(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}' || echo "0 0 0")
+LOAD1=$(echo $LOAD | awk '{print $1}')
+LOAD5=$(echo $LOAD | awk '{print $2}')
+LOAD15=$(echo $LOAD | awk '{print $3}')
+UPTIME=$(uptime -p 2>/dev/null | sed 's/^up //' || echo "unknown")
+GPU_MODEL=""
+GPU_MEM_MB=0
+GPU_POWER_W=0
+if command -v nvidia-smi &>/dev/null; then
+  GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "")
+  GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
+  GPU_POWER_W=$(nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
+fi
+cat <<ENDJSON
+{
+  "cpuCores": $CORES,
+  "cpuModel": "$CPU_MODEL",
+  "memTotalGB": $MEM_TOTAL,
+  "memUsedGB": $MEM_USED,
+  "memAvailableGB": $MEM_AVAIL,
+  "swapTotalGB": $SWAP_TOTAL,
+  "swapUsedGB": $SWAP_USED,
+  "loadAvg": [$LOAD1, $LOAD5, $LOAD15],
+  "uptime": "$UPTIME",
+  "gpuModel": "$GPU_MODEL",
+  "gpuMemTotalMB": $GPU_MEM_MB,
+  "gpuPowerWatts": $GPU_POWER_W
+}
+ENDJSON`;
+    const path = '/execute';
+    const payload = JSON.stringify({
+      language: 'bash',
+      code: probeScript,
+      network_mode: 'zerotrust',
+    });
+    try {
+      const data = await apiPost(publicKey, secretKey, path, payload, 30000);
+      // Parse the JSON from stdout
+      const stdout: string = data.stdout || data.output || '';
+      const jsonMatch = stdout.match(/---JSON---\s*([\s\S]*)/);
+      if (jsonMatch) {
+        try {
+          const probe = JSON.parse(jsonMatch[1].trim());
+          return NextResponse.json({ probe, raw: data });
+        } catch {
+          return NextResponse.json({ error: 'Failed to parse probe output', raw: stdout });
+        }
+      }
+      return NextResponse.json({ error: 'No probe data in output', raw: stdout });
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 500 });
+    }
+  }
+
   if (action === 'execute') {
     // Run code on unsandbox
     const { language, code, network } = body;

@@ -604,6 +604,33 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
 function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) {
   const hasService = !!service;
   const running = hasService && (service.status === 'running' || service.status === 'active');
+  const { data: probeData } = useSWR(
+    status?.connected ? 'unsandbox-probe' : null,
+    async () => {
+      const res = await fetch('/api/unsandbox', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'probe' }),
+      });
+      return res.json();
+    },
+    { refreshInterval: 120000, revalidateOnFocus: false }
+  );
+  const probe = probeData?.probe;
+  const cpuCores = probe?.cpuCores ?? 0;
+  const memTotal = probe?.memTotalGB ?? 0;
+  const memUsed = probe?.memUsedGB ?? 0;
+  const memPct = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
+  const load1 = probe?.loadAvg?.[0] ?? 0;
+  const loadPct = cpuCores > 0 ? Math.min(100, Math.round((load1 / cpuCores) * 100)) : 0;
+  const swap = probe?.swapUsedGB ?? 0;
+  const gpuModel = probe?.gpuModel;
+  const gpuMemMB = probe?.gpuMemTotalMB ?? 0;
+  const gpuW = probe?.gpuPowerWatts ?? 0;
+
+  // Estimate wattage (cloud container — TDP-style: ~5W per core at load + memory + GPU)
+  const estimatedWatts = cpuCores > 0
+    ? Math.round(cpuCores * 5 * Math.max(0.2, load1 / cpuCores) + memTotal * 0.4 + gpuW)
+    : 0;
 
   return (
     <Link
@@ -612,8 +639,8 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
     >
       {/* Header row */}
       <div className="flex items-center gap-2 mb-3">
-        <span className={`text-sm ${running ? 'text-green-400' : hasService ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
-          {running ? '●' : hasService ? '◐' : '○'}
+        <span className={`text-sm ${running || probe ? 'text-green-400' : hasService ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
+          {running || probe ? '●' : hasService ? '◐' : '○'}
         </span>
         <span className="text-base font-bold font-mono truncate">unsandbox</span>
         <span className="text-xs text-[var(--color-muted)] font-mono">cloud</span>
@@ -622,7 +649,44 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
         </span>
       </div>
 
-      {hasService ? (
+      {probe ? (
+        <>
+          {/* Mini gauges — same as SSH nodes */}
+          <div className="space-y-2 mb-3">
+            <MiniGauge label="CPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
+            <MiniGauge label="MEM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
+          </div>
+
+          {/* Stats row */}
+          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
+            <span>{cpuCores} cores</span>
+            {swap > 0 && <span className="text-yellow-400">swap {swap}G</span>}
+            {probe.uptime && probe.uptime !== 'unknown' && <span>up {probe.uptime}</span>}
+            <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
+            {probe.cpuModel && probe.cpuModel !== 'unknown' && (
+              <span className="truncate max-w-[150px]">{probe.cpuModel}</span>
+            )}
+          </div>
+          {/* GPU row */}
+          {gpuModel && (
+            <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1">
+              <span className="text-purple-400">GPU</span>
+              <span className="truncate max-w-[180px]">{gpuModel}</span>
+              {gpuMemMB > 0 && <span>{Math.round(gpuMemMB / 1024)}GB</span>}
+              {gpuW > 0 && <span>{Math.round(gpuW)}W</span>}
+            </div>
+          )}
+          {/* Power + tier row */}
+          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
+            {estimatedWatts > 0 && <span>{estimatedWatts}W <span className="opacity-60">[est]</span></span>}
+            {status.rateLimit && <span>{status.rateLimit} rpm</span>}
+            {status.maxSessions && <span>{status.maxSessions} sess</span>}
+            <span className="ml-auto font-bold text-[var(--color-foreground)]">
+              {status.tier <= 1 ? 'free' : `tier ${status.tier}`}
+            </span>
+          </div>
+        </>
+      ) : hasService ? (
         <>
           <div className="space-y-1.5 mb-3">
             <div className="flex items-center gap-2 text-xs">
@@ -639,13 +703,6 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
             {status.rateLimit && <span>{status.rateLimit} rpm</span>}
             {status.maxSessions && <span>{status.maxSessions} session{status.maxSessions !== 1 ? 's' : ''}</span>}
             <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
-            {status.burst && <span>burst {status.burst}</span>}
-          </div>
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
-            <span>ephemeral compute</span>
-            <span className="ml-auto font-bold text-[var(--color-foreground)]">
-              {status.tier <= 1 ? 'free' : `tier ${status.tier}`}
-            </span>
           </div>
         </>
       ) : (
