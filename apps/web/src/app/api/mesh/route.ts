@@ -389,6 +389,24 @@ function calcSystemWatts(opts: {
   return round(opts.isLaptop ? subtotal : subtotal / 0.9);
 }
 
+/**
+ * Calculate non-CPU system power: RAM, disks, baseline, PSU loss.
+ * Used when RAPL provides CPU watts but we still need the rest.
+ */
+function calcNonCpuWatts(opts: {
+  memTotalGB: number; spinningDisks: number; ssdCount: number;
+  isServer: boolean; isLaptop: boolean;
+}): number {
+  const dimmSize = opts.isServer ? 32 : 8;
+  const wattsPerDimm = opts.isLaptop ? 2 : 3;
+  const ramWatts = Math.ceil(opts.memTotalGB / dimmSize) * wattsPerDimm;
+  const hddWatts = opts.spinningDisks * 8;
+  const ssdWatts = opts.ssdCount * 3;
+  const baselineWatts = opts.isLaptop ? 5 : (opts.isServer ? 25 : 15);
+  const subtotal = ramWatts + hddWatts + ssdWatts + baselineWatts;
+  return round(opts.isLaptop ? subtotal : subtotal / 0.9);
+}
+
 function getLocalStats(): MeshNode {
   try {
     let hostname = execSync('hostname', { encoding: 'utf-8' }).trim();
@@ -451,7 +469,8 @@ function getLocalStats(): MeshNode {
     let powerSource: MeshNode['powerSource'];
 
     if (raplWatts !== null) {
-      powerWatts = raplWatts;
+      // RAPL = CPU package only — add RAM, disks, baseline, PSU loss
+      powerWatts = raplWatts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
       powerSource = 'rapl';
     } else if (cpuTdpWatts !== null) {
       powerWatts = calcSystemWatts({
@@ -560,9 +579,10 @@ function getRemoteStats(host: string): MeshNode {
           delta1 = parts[3] - parts[1];
           if (delta1 < 0) delta1 += 2 ** 32;
         }
-        const watts = round((delta0 + delta1) / (0.1 * 1e6));
-        if (watts > 0 && watts < 10000) { // sanity check
-          powerWatts = watts;
+        const cpuWatts = round((delta0 + delta1) / (0.1 * 1e6));
+        if (cpuWatts > 0 && cpuWatts < 10000) { // sanity check
+          // RAPL = CPU package only — add RAM, disks, baseline, PSU loss
+          powerWatts = cpuWatts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
           powerSource = 'rapl';
         }
       }
