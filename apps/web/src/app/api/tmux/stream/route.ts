@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
           clearInterval(interval);
           try { controller.close(); } catch {}
         }
-      }, 500);
+      }, pollMs);
 
       // Clean up after 30 minutes max
       setTimeout(() => { alive = false; clearInterval(interval); try { controller.close(); } catch {} }, 30 * 60 * 1000);
@@ -125,4 +125,59 @@ export async function GET(request: NextRequest) {
       'Connection': 'keep-alive',
     },
   });
+}
+
+// POST /api/tmux/stream — send keys to a tmux session
+function sendKeys(session: string, keys: string, host?: string): Promise<void> {
+  const { cmd, args } = sshPrefix(host);
+  return new Promise((resolve, reject) => {
+    execFile(cmd, [...args, 'send-keys', '-t', session, '-l', keys], { timeout: host ? 10000 : 3000 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sendSpecialKey(session: string, key: string, host?: string): Promise<void> {
+  const { cmd, args } = sshPrefix(host);
+  return new Promise((resolve, reject) => {
+    execFile(cmd, [...args, 'send-keys', '-t', session, key], { timeout: host ? 10000 : 3000 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { session, keys, special, host } = body;
+    if (!session || typeof session !== 'string') {
+      return Response.json({ error: 'session required' }, { status: 400 });
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(session)) {
+      return Response.json({ error: 'invalid session name' }, { status: 400 });
+    }
+
+    if (special && typeof special === 'string') {
+      // Named keys: Enter, C-c, Escape, Up, Down, Left, Right, Tab, BSpace, etc.
+      const allowed = ['Enter', 'Escape', 'Tab', 'BSpace', 'DC', 'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', 'C-c', 'C-d', 'C-z', 'C-l', 'C-a', 'C-e', 'C-k', 'C-u', 'C-w', 'C-r', 'C-p', 'C-n', 'C-b', 'C-f'];
+      if (!allowed.includes(special)) {
+        return Response.json({ error: 'key not allowed' }, { status: 400 });
+      }
+      await sendSpecialKey(session, special, host);
+    } else if (keys && typeof keys === 'string') {
+      // Limit literal input length
+      if (keys.length > 4096) {
+        return Response.json({ error: 'input too long' }, { status: 400 });
+      }
+      await sendKeys(session, keys, host);
+    } else {
+      return Response.json({ error: 'keys or special required' }, { status: 400 });
+    }
+
+    return Response.json({ ok: true });
+  } catch (err) {
+    return Response.json({ error: String(err) }, { status: 500 });
+  }
 }

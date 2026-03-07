@@ -112,6 +112,55 @@ export default function TmuxViewerPage() {
     return () => es.close();
   }, [connectSSE]);
 
+  // Interactive mode
+  const [interactive, setInteractive] = useState(false);
+  const sendingRef = useRef(false);
+
+  const sendKeys = useCallback(async (payload: { keys?: string; special?: string }) => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    try {
+      await fetch('/api/tmux/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: decodeURIComponent(session), host, ...payload }),
+      });
+    } catch { /* best effort */ }
+    sendingRef.current = false;
+  }, [session, host]);
+
+  // Keyboard handler for interactive mode
+  useEffect(() => {
+    if (!interactive) return;
+    const SPECIAL_MAP: Record<string, string> = {
+      Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'BSpace',
+      Delete: 'DC', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left',
+      ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+    };
+    const CTRL_MAP: Record<string, string> = {
+      c: 'C-c', d: 'C-d', z: 'C-z', l: 'C-l', a: 'C-a', e: 'C-e',
+      k: 'C-k', u: 'C-u', w: 'C-w', r: 'C-r', p: 'C-p', n: 'C-n',
+      b: 'C-b', f: 'C-f',
+    };
+    const handler = (e: KeyboardEvent) => {
+      // Don't capture if user is in an input/select/textarea
+      if ((e.target as HTMLElement)?.closest('input, textarea, select')) return;
+
+      if (e.ctrlKey && CTRL_MAP[e.key]) {
+        e.preventDefault();
+        sendKeys({ special: CTRL_MAP[e.key] });
+      } else if (SPECIAL_MAP[e.key]) {
+        e.preventDefault();
+        sendKeys({ special: SPECIAL_MAP[e.key] });
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        sendKeys({ keys: e.key });
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [interactive, sendKeys]);
+
   // Handle scroll — disable auto-scroll when user scrolls up
   const handleScroll = () => {
     if (!termRef.current) return;
@@ -130,6 +179,16 @@ export default function TmuxViewerPage() {
         {host && <span className="text-xs text-[var(--color-muted)] font-mono">@{host}</span>}
         <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
         <span className="text-xs text-[var(--color-muted)]">{connected ? 'live' : 'reconnecting...'}</span>
+        <button
+          onClick={() => setInteractive(!interactive)}
+          className={`ml-auto px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors ${
+            interactive
+              ? 'bg-green-500 text-black'
+              : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
+          }`}
+        >
+          {interactive ? '⌨ Interactive' : '⌨ Read-only'}
+        </button>
       </div>
 
       {/* Window tabs */}
@@ -154,10 +213,18 @@ export default function TmuxViewerPage() {
       {/* Terminal */}
       <pre
         ref={termRef}
+        tabIndex={0}
         onScroll={handleScroll}
-        className="flex-1 bg-[#0d0d0d] rounded-lg border border-[var(--color-border)] p-4 overflow-auto font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre"
+        className={`flex-1 bg-[#0d0d0d] rounded-lg border p-4 overflow-auto font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none ${
+          interactive ? 'border-green-500/50 cursor-text' : 'border-[var(--color-border)]'
+        }`}
         dangerouslySetInnerHTML={{ __html: ansiToHtml(content) }}
       />
+      {interactive && (
+        <div className="text-xs text-[var(--color-muted)] mt-1">
+          Keystrokes are sent to tmux. Ctrl+C, arrows, Enter, Tab, Escape all work. Click the terminal first to focus.
+        </div>
+      )}
     </div>
   );
 }
