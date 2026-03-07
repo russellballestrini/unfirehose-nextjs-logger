@@ -294,6 +294,14 @@ export default function PermacomputerPage() {
   const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
   const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[] }>('/api/ssh-config', fetcher);
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
+  const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 60000 });
+  const { data: unsandboxServices } = useSWR(
+    unsandboxStatus?.connected ? '/api/unsandbox?action=services' : null,
+    fetcher, { refreshInterval: 60000 }
+  );
+  const unsandboxService = (unsandboxServices?.services ?? []).find(
+    (s: any) => s.name?.includes('unfirehose') || s.name?.includes('firehose')
+  );
   const geoipEnabled = settings?.mesh_geoip_auto !== 'false';
   const { data: geoipData, isLoading: geoipLoading } = useSWR(
     geoipEnabled ? '/api/mesh/geoip' : null,
@@ -400,8 +408,8 @@ export default function PermacomputerPage() {
     <div className="space-y-6">
       <PageContext
         pageType="permacomputer"
-        summary={`Permacomputer. ${allNodes.length} nodes, ${reachable.length} reachable, ${mesh?.summary?.totalClaudes ?? 0} claudes.`}
-        metrics={{ nodes: allNodes.length, reachable: reachable.length, claudes: mesh?.summary?.totalClaudes ?? 0 }}
+        summary={`Permacomputer. ${allNodes.length + (unsandboxStatus?.connected ? 1 : 0)} nodes, ${reachable.length + (unsandboxService ? 1 : 0)} reachable, ${mesh?.summary?.totalClaudes ?? 0} claudes.`}
+        metrics={{ nodes: allNodes.length + (unsandboxStatus?.connected ? 1 : 0), reachable: reachable.length + (unsandboxService ? 1 : 0), claudes: mesh?.summary?.totalClaudes ?? 0 }}
       />
 
       <div>
@@ -430,6 +438,9 @@ export default function PermacomputerPage() {
             egressGroups={egressGroups}
           />
         ))}
+        {unsandboxStatus?.connected && (
+          <UnsandboxNodeCard status={unsandboxStatus} service={unsandboxService} />
+        )}
       </div>
 
       {/* Unsandbox */}
@@ -584,6 +595,63 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
               {sshHost.port && sshHost.port !== '22' && <span>port: {sshHost.port}</span>}
             </div>
           )}
+        </div>
+      )}
+    </Link>
+  );
+}
+
+function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) {
+  const hasService = !!service;
+  const running = hasService && (service.status === 'running' || service.status === 'active');
+
+  return (
+    <Link
+      href="/permacomputer/unsandbox"
+      className="text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block"
+    >
+      {/* Header row */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`text-sm ${running ? 'text-green-400' : hasService ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
+          {running ? '●' : hasService ? '◐' : '○'}
+        </span>
+        <span className="text-base font-bold font-mono truncate">unsandbox</span>
+        <span className="text-xs text-[var(--color-muted)] font-mono">cloud</span>
+        <span className="ml-auto text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
+          tier {status.tier}
+        </span>
+      </div>
+
+      {hasService ? (
+        <>
+          <div className="space-y-1.5 mb-3">
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`font-bold ${running ? 'text-green-400' : 'text-yellow-400'}`}>
+                {service.status ?? 'deployed'}
+              </span>
+              <span className="text-[var(--color-muted)]">{service.name}</span>
+            </div>
+            {service.domain && (
+              <div className="text-xs text-[var(--color-muted)] font-mono truncate">{service.domain}</div>
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
+            {status.rateLimit && <span>{status.rateLimit} rpm</span>}
+            {status.maxSessions && <span>{status.maxSessions} session{status.maxSessions !== 1 ? 's' : ''}</span>}
+            <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
+            {status.burst && <span>burst {status.burst}</span>}
+          </div>
+          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
+            <span>ephemeral compute</span>
+            <span className="ml-auto font-bold text-[var(--color-foreground)]">
+              {status.tier <= 1 ? 'free' : `tier ${status.tier}`}
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="text-xs text-[var(--color-muted)]">
+          <span className="text-green-400">connected</span> — no unfirehose service deployed yet
+          <div className="mt-1.5 text-[var(--color-accent)]">click to set up →</div>
         </div>
       )}
     </Link>
