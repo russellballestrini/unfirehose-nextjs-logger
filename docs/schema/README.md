@@ -34,6 +34,12 @@ Native format documentation and field mapping for each harness:
 | [Cursor](./harnesses/cursor.md) | Multi-provider | Researched | Adapter: planned |
 | [Continue.dev](./harnesses/continue-dev.md) | Multi-provider | Researched | Adapter: planned |
 | [Hermes Agent](./harnesses/hermes-agent.md) | Local (Hermes) | Documented | Adapter: planned |
+| [Open Code](./harnesses/opencode.md) | Multi-provider | Researched | Adapter: planned |
+| [Ollama](./harnesses/ollama.md) | Local | Researched | Adapter: planned |
+| [Open WebUI](./harnesses/open-webui.md) | Multi-provider | Researched | Adapter: planned |
+| [llama.cpp](./harnesses/llama-cpp.md) | Local | Researched | Adapter: planned |
+| [vLLM](./harnesses/vllm.md) | Local/self-hosted | Researched | Adapter: planned |
+| [text-generation-webui](./harnesses/text-generation-webui.md) | Local | Researched | Adapter: planned |
 | [agnt](./harnesses/agnt.md) | Multi-provider | Native target | Ships with unfirehose/1.0 |
 
 ## API Field Maps
@@ -59,6 +65,12 @@ Provider API → unfirehose canonical field mappings:
 | Aider | Markdown | No | No (human-readable only) | Yes |
 | Cursor | SQLite (proprietary) | Semi | Requires extraction | No |
 | Continue.dev | JSON + JSONL export | Yes | Yes | Yes |
+| Open Code | JSON | Yes | Yes | Yes |
+| Ollama | None (server only) | N/A | N/A (no persistence) | Yes |
+| Open WebUI | SQLite (JSON blobs) | Semi | Yes | Yes |
+| llama.cpp | None (server only) | N/A | N/A (no persistence) | Yes |
+| vLLM | None (Prometheus/OTEL) | N/A | N/A (metrics only) | Yes |
+| text-generation-webui | JSON (paired arrays) | Partial | Yes | Yes |
 | Vercel AI SDK | TypeScript types | N/A (in-memory) | N/A (no persistence) | Yes |
 | OpenAI Agents SDK | Trace/Span | Yes | Via exporters | Yes |
 | Google ADK | In-memory sessions | Yes | Via session services | Yes |
