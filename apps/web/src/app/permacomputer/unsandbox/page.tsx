@@ -231,6 +231,17 @@ export default function UnsandboxNodePage() {
               https://{unfirehoseService.domain}
             </div>
           )}
+          {unfirehoseService.state === 'running' && (
+            <div className="border-t border-green-500/20 pt-3 mt-1 space-y-2">
+              <div className="text-sm text-green-400 font-bold">Node is ready for work.</div>
+              <p className="text-xs text-[var(--color-muted)]">
+                This node can run agent harnesses on cloud compute. Assign tasks from the{' '}
+                <Link href="/projects" className="text-[var(--color-accent)] hover:underline">Projects</Link> page
+                or queue todos from{' '}
+                <Link href="/todos" className="text-[var(--color-accent)] hover:underline">Todos</Link>.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
