@@ -43,7 +43,7 @@ export default function UnsandboxNodePage() {
   const [cmd, setCmd] = useState('');
   const [cmdResult, setCmdResult] = useState<any>(null);
   const [cmdRunning, setCmdRunning] = useState(false);
-  const [network, setNetwork] = useState<'semitrusted' | 'zero_trust'>('semitrusted');
+  const [network, setNetwork] = useState<'semitrusted' | 'zerotrust'>('semitrusted');
 
   const [killingSession, setKillingSession] = useState<string | null>(null);
 
@@ -177,7 +177,7 @@ export default function UnsandboxNodePage() {
             >
               {deploying ? 'Deploying...' : 'Deploy unfirehose'}
             </button>
-            <span className="text-xs text-[var(--color-muted)]">port 3000 &middot; {network === 'zero_trust' ? 'zero trust (no network)' : 'semitrusted (egress proxy)'}</span>
+            <span className="text-xs text-[var(--color-muted)]">port 3000 &middot; {network === 'zerotrust' ? 'zero trust (no network)' : 'semitrusted (egress proxy)'}</span>
           </div>
           {deployResult && (
             <div className="text-sm text-green-400 font-mono bg-[var(--color-background)] rounded p-3 border border-green-500/30">
@@ -303,7 +303,7 @@ export default function UnsandboxNodePage() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide">Terminal</h2>
           <div className="flex items-center gap-2">
-            {(['semitrusted', 'zero_trust'] as const).map(mode => (
+            {(['semitrusted', 'zerotrust'] as const).map(mode => (
               <button
                 key={mode}
                 onClick={() => setNetwork(mode)}
@@ -320,7 +320,7 @@ export default function UnsandboxNodePage() {
         </div>
         <p className="text-xs text-[var(--color-muted)]">
           Run a command on unsandbox (one-shot, fresh container).
-          {network === 'zero_trust'
+          {network === 'zerotrust'
             ? <span className="text-yellow-400 ml-1">⚠ no network access</span>
             : <span className="text-[var(--color-muted)] ml-1">&middot; egress via proxy</span>}
         </p>

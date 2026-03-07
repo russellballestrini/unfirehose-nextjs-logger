@@ -90,10 +90,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       connected: true,
       tier: data.tier,
-      rateLimit: data.rate_limit,
-      maxSessions: data.max_sessions,
+      rateLimit: data.rate_limit ?? data.rate_per_minute,
+      maxSessions: data.concurrency ?? data.max_sessions,
       expiresAt: data.expires_at,
-      network: data.network_mode,
+      expiresAtHuman: data.valid_for_human ?? data.time_remaining,
+      burst: data.burst,
     });
   } catch (err) {
     return NextResponse.json({ connected: false, error: String(err) });
