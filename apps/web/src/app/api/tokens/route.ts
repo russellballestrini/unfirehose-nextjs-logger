@@ -109,6 +109,60 @@ export async function GET(request: NextRequest) {
     // Daily token usage from stats cache (line chart data)
     const dailyModelTokens = stats.dailyModelTokens ?? [];
 
+    // Harness breakdown (JOIN sessions for harness field)
+    const harnessBreakdown = db.prepare(`
+      SELECT COALESCE(s.harness, 'unknown') as harness,
+             SUM(m.input_tokens) as input_tokens,
+             SUM(m.output_tokens) as output_tokens,
+             SUM(m.cache_read_tokens) as cache_read_tokens,
+             SUM(m.cache_creation_tokens) as cache_creation_tokens
+      FROM messages m
+      JOIN sessions s ON s.id = m.session_id
+      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      GROUP BY harness
+      ORDER BY input_tokens DESC
+    `).all(...dateParams) as Array<{
+      harness: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_creation_tokens: number;
+    }>;
+
+    const harnessData = harnessBreakdown.map((h) => {
+      const total = h.input_tokens + h.output_tokens + h.cache_read_tokens + h.cache_creation_tokens;
+      return {
+        harness: h.harness,
+        inputTokens: h.input_tokens,
+        outputTokens: h.output_tokens,
+        cacheReadTokens: h.cache_read_tokens,
+        cacheCreationTokens: h.cache_creation_tokens,
+        totalTokens: total,
+      };
+    });
+
+    // Harness × model cross-breakdown
+    const harnessModelBreakdown = db.prepare(`
+      SELECT COALESCE(s.harness, 'unknown') as harness,
+             m.model,
+             SUM(m.input_tokens) as input_tokens,
+             SUM(m.output_tokens) as output_tokens,
+             SUM(m.cache_read_tokens) as cache_read_tokens,
+             SUM(m.cache_creation_tokens) as cache_creation_tokens
+      FROM messages m
+      JOIN sessions s ON s.id = m.session_id
+      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      GROUP BY harness, m.model
+      ORDER BY harness, input_tokens DESC
+    `).all(...dateParams) as Array<{
+      harness: string;
+      model: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_creation_tokens: number;
+    }>;
+
     // Content block type breakdown
     const blockTypes = dateFilter
       ? db.prepare(`
@@ -139,6 +193,8 @@ export async function GET(request: NextRequest) {
       dailyActivity: stats.dailyActivity,
       dailyModelTokens,
       blockTypes,
+      harnessData,
+      harnessModelBreakdown,
     });
   } catch (err) {
     return NextResponse.json(

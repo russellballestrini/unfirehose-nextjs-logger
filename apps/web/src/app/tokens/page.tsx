@@ -25,6 +25,19 @@ import {
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 
+const HARNESS_COLORS: Record<string, string> = {
+  'claude-code': '#a78bfa',
+  'fetch': '#60a5fa',
+  'uncloseai': '#fbbf24',
+  'hermes': '#10b981',
+  'agnt': '#f472b6',
+  'unknown': '#6b7280',
+};
+
+function getHarnessColor(harness: string): string {
+  return HARNESS_COLORS[harness] ?? '#6b7280';
+}
+
 const MODEL_COLORS: Record<string, string> = {
   'claude-opus-4-6': '#a78bfa',
   'claude-opus-4-5-20251101': '#818cf8',
@@ -93,6 +106,8 @@ export default function TokensPage() {
     toolsByModel,
     dailyActivity,
     blockTypes,
+    harnessData,
+    harnessModelBreakdown,
   } = data;
 
   // Data for token type pie chart
@@ -356,6 +371,145 @@ export default function TokensPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Row: Harness breakdown */}
+      {harnessData && harnessData.length > 0 && (
+        <div className="grid grid-cols-3 gap-4">
+          {/* Tokens by Harness donut */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
+              Tokens by Harness
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={harnessData.filter((h: any) => h.totalTokens > 0).map((h: any) => ({
+                    name: h.harness,
+                    value: h.totalTokens,
+                    color: getHarnessColor(h.harness),
+                  }))}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={35}
+                  outerRadius={75}
+                  strokeWidth={0}
+                >
+                  {harnessData.filter((h: any) => h.totalTokens > 0).map((h: any, i: number) => (
+                    <Cell key={i} fill={getHarnessColor(h.harness)} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
+                <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Harness × Model stacked bar */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 col-span-2">
+            <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
+              Harness × Model Breakdown
+            </h3>
+            {(() => {
+              // Build stacked bar data: one row per harness, columns for each model
+              const harnesses = [...new Set((harnessModelBreakdown ?? []).map((r: any) => r.harness))];
+              const models = [...new Set((harnessModelBreakdown ?? []).map((r: any) => r.model))];
+              const barData = harnesses.map((h: string) => {
+                const row: any = { harness: h };
+                for (const m of models) {
+                  const match = (harnessModelBreakdown ?? []).find((r: any) => r.harness === h && r.model === m);
+                  if (match) {
+                    row[m] = match.input_tokens + match.output_tokens + match.cache_read_tokens + match.cache_creation_tokens;
+                  }
+                }
+                return row;
+              });
+              return (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={barData} layout="vertical" margin={{ left: 10 }}>
+                    <XAxis
+                      type="number"
+                      tick={{ fill: '#71717a', fontSize: 16 }}
+                      tickFormatter={(v: number) => formatTokens(v)}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="harness"
+                      tick={{ fill: '#a1a1aa', fontSize: 16 }}
+                      width={100}
+                      interval={0}
+                    />
+                    <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
+                    <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
+                    {models.map((m: string) => (
+                      <Bar
+                        key={m}
+                        dataKey={m}
+                        name={shortModel(m)}
+                        stackId="a"
+                        fill={getModelColor(m)}
+                      />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Harness breakdown table */}
+      {harnessData && harnessData.length > 0 && (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+            Per-Harness Breakdown
+          </h3>
+          <table className="w-full text-base">
+            <thead>
+              <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
+                <th className="pb-2">Harness</th>
+                <th className="pb-2 text-right">Input</th>
+                <th className="pb-2 text-right">Output</th>
+                <th className="pb-2 text-right">Cache Read</th>
+                <th className="pb-2 text-right">Cache Write</th>
+                <th className="pb-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {harnessData
+                .filter((h: any) => h.totalTokens > 0)
+                .sort((a: any, b: any) => b.totalTokens - a.totalTokens)
+                .map((h: any) => (
+                  <tr key={h.harness} className="border-b border-[var(--color-border)]">
+                    <td className="py-2 flex items-center gap-2">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ background: getHarnessColor(h.harness) }}
+                      />
+                      {h.harness}
+                    </td>
+                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
+                      {formatTokens(h.inputTokens)}
+                    </td>
+                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
+                      {formatTokens(h.outputTokens)}
+                    </td>
+                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                      {formatTokens(h.cacheReadTokens)}
+                    </td>
+                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
+                      {formatTokens(h.cacheCreationTokens)}
+                    </td>
+                    <td className="py-2 text-right font-bold">
+                      {formatTokens(h.totalTokens)}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Row: Tool calls pie + Tool calls bar */}
       <div className="grid grid-cols-2 gap-4">
