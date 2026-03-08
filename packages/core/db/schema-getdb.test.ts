@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // Mock better-sqlite3 to create in-memory DB instead of file-backed
-vi.mock('better-sqlite3', async (importOriginal) => {
-  const original = await importOriginal<typeof import('better-sqlite3')>();
-  // Must be a class (constructable) since schema.ts does `new Database(path)`
-  class MockDatabase extends original.default {
-    constructor(..._args: ConstructorParameters<typeof original.default>) {
+vi.mock('better-sqlite3', async () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Database = require('better-sqlite3');
+  class MockDatabase extends Database {
+    constructor() {
       super(':memory:');
     }
   }
