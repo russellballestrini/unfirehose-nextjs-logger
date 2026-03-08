@@ -156,6 +156,35 @@ digraph database {
     </TABLE>
   >]
 
+  mesh_snapshots [fillcolor="#1a2a3a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>mesh_snapshots</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">timestamp</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">hostname</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">cpu_cores</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">load_avg_1/5/15</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">mem_total_gb</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">mem_used_gb</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">power_watts</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">gpu_power_watts</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">gpu_util</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">gpu_mem_used_mb</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">gpu_mem_total_mb</TD><TD ALIGN="LEFT">REAL</TD></TR>
+    <TR><TD ALIGN="LEFT">power_source</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">claude_processes</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    </TABLE>
+  >]
+
+  settings [fillcolor="#1a1a3a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>settings</B></TD></TR>
+    <TR><TD ALIGN="LEFT">key</TD><TD ALIGN="LEFT">TEXT PK</TD></TR>
+    <TR><TD ALIGN="LEFT">value</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">updated_at</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    </TABLE>
+  >]
+
   // Relationships
   projects -> sessions [label="1:N" headlabel="" taillabel=""]
   sessions -> messages [label="1:N"]

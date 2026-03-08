@@ -21,6 +21,7 @@ describe('Sidebar', () => {
     render(<Sidebar />);
     expect(screen.getByText('Live')).toBeTruthy();
     expect(screen.getByText('Active')).toBeTruthy();
+    expect(screen.getByText('Terminals')).toBeTruthy();
     expect(screen.getByText('Dashboard')).toBeTruthy();
     expect(screen.getByText('Projects')).toBeTruthy();
     expect(screen.getByText('Todos')).toBeTruthy();
@@ -29,7 +30,8 @@ describe('Sidebar', () => {
     expect(screen.getByText('All Logs')).toBeTruthy();
     expect(screen.getByText('Tokens')).toBeTruthy();
     expect(screen.getByText('Usage')).toBeTruthy();
-    expect(screen.getByText('Keys')).toBeTruthy();
+    expect(screen.getByText('Scrobble')).toBeTruthy();
+    expect(screen.getByText('Permacomputer')).toBeTruthy();
     expect(screen.getByText('Schema')).toBeTruthy();
     expect(screen.getByText('Styleguide')).toBeTruthy();
     expect(screen.getByText('Settings')).toBeTruthy();

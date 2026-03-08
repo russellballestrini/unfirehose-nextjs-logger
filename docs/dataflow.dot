@@ -13,6 +13,8 @@ digraph dataflow {
     fontcolor="#999999"
 
     claude_code [label="Claude Code CLI\nagent sessions" fillcolor="#3a3a1a" shape=hexagon]
+    ssh_nodes [label="SSH Mesh Nodes\ncammy, blanka, ..." fillcolor="#3a3a1a" shape=hexagon]
+    mesh_llm [label="Mesh LLM\nQwen 3 Coder\nHermes 3" fillcolor="#3a3a1a" shape=hexagon]
   }
 
   // Raw files
@@ -24,6 +26,7 @@ digraph dataflow {
 
     jsonl_files [label="*.jsonl\nper session\nappend-only" fillcolor="#2a2a4a"]
     index_files [label="sessions-index.json\nper project\nClaude manages" fillcolor="#2a2a4a"]
+    cred_files [label=".credentials.json\nOAuth token" fillcolor="#2a2a4a"]
   }
 
   // Two read paths
@@ -50,7 +53,19 @@ digraph dataflow {
   }
 
   // Storage
-  sqlite [label="SQLite\nWAL mode\n~253MB" fillcolor="#2a2a4a" shape=cylinder]
+  sqlite [label="SQLite\nWAL mode\nmesh_snapshots\nsettings" fillcolor="#2a2a4a" shape=cylinder]
+
+  // Browser vault
+  subgraph cluster_vault {
+    label="Browser Vault (Zero-Knowledge)"
+    style=dashed
+    color="#663333"
+    fontcolor="#cc6666"
+
+    vault_store [label="localStorage\nAES-GCM encrypted\nPBKDF2 600k iter" fillcolor="#3a1a1a" shape=cylinder]
+    vault_gate [label="VaultGate\npassword on first open\nsession auto-restore" fillcolor="#3a2a2a"]
+    vault_keys [label="BYOK API Keys\nper-provider\nnever on server" fillcolor="#3a2a2a"]
+  }
 
   // Outputs
   subgraph cluster_output {
@@ -75,35 +90,38 @@ digraph dataflow {
     todo_normalize [label="normalize todo\nstatus + metadata" fillcolor="#1a3a3a"]
   }
 
-  // Scrobble detection
-  subgraph cluster_scrobble {
-    label="Scrobble Detection"
-    style=dashed
-    color="#663366"
-    fontcolor="#996699"
-
-    git_remote [label="git remote -v\nparse forge URL" fillcolor="#3a2a3a"]
-    forge_verify [label="forge API\nverify repo exists" fillcolor="#3a2a3a"]
-    vis_store [label="project_visibility\nauto_detected flag" fillcolor="#3a2a3a"]
-  }
-
-  // Manual todo injection
-  subgraph cluster_inject {
-    label="Manual Todo Injection"
+  // LLM commit flow
+  subgraph cluster_llm {
+    label="LLM Commit Messages"
     style=dashed
     color="#336633"
     fontcolor="#669966"
 
-    todo_ui [label="Todo UI\nform input" fillcolor="#1a3a2a"]
-    todo_api [label="POST /api/todos\nvalidate + insert" fillcolor="#1a3a2a"]
+    git_suggest [label="/api/projects/[p]/git/suggest\nPOST — generate message" fillcolor="#1a3a2a"]
+    resolve_provider [label="resolveProvider()\n1. vault BYOK\n2. Claude Max OAuth\n3. Qwen mesh\n4. Hermes mesh" fillcolor="#2a3a2a"]
   }
+
+  // Mesh monitoring
+  subgraph cluster_mesh {
+    label="Mesh Monitoring"
+    style=dashed
+    color="#333366"
+    fontcolor="#666699"
+
+    mesh_probe [label="SSH probes\nCPU, RAM, GPU\npower (RAPL + nvidia-smi)" fillcolor="#1a2a3a"]
+    mesh_snapshot [label="mesh_snapshots\ntime-series INSERT\nper-node" fillcolor="#1a2a3a"]
+  }
+
+  // Manual todo injection
+  todo_ui [label="Todo UI\nform input" fillcolor="#1a3a2a"]
+  todo_api [label="POST /api/todos\nvalidate + insert" fillcolor="#1a3a2a"]
 
   // Storage
   todos_table [label="todos table\n+ todo_events" fillcolor="#1a3a3a" shape=cylinder]
   vis_table [label="project_visibility\ntable" fillcolor="#3a2a3a" shape=cylinder]
 
   // Browser
-  browser [label="React SPA\nuseSWR\nEventSource" fillcolor="#2a1a3a" shape=component]
+  browser [label="React SPA\nVaultShell wrapper\nuseSWR + EventSource" fillcolor="#2a1a3a" shape=component]
 
   // Flow
   claude_code -> jsonl_files [label="append\nper turn"]
@@ -130,14 +148,25 @@ digraph dataflow {
   dedup -> tool_use_scan [label="content_blocks\nwith tool_use"]
   tool_use_scan -> todo_normalize -> todos_table
 
-  // Scrobble detection flow
-  claude_code -> git_remote [label="project\npath"]
-  git_remote -> forge_verify [label="forge URL"]
-  forge_verify -> vis_store -> vis_table
-
   // Manual todo injection flow
   browser -> todo_ui [label="user\ninput"]
   todo_ui -> todo_api -> todos_table
+
+  // Vault flow
+  browser -> vault_gate [label="password\nprompt"]
+  vault_gate -> vault_store [label="PBKDF2\nderive key"]
+  vault_store -> vault_keys [label="AES-GCM\ndecrypt"]
+  vault_keys -> git_suggest [label="x-vault-api-key\nheader (per-request)" color="#663333"]
+
+  // LLM flow
+  cred_files -> resolve_provider [label="OAuth\ntoken" style=dashed]
+  vault_keys -> resolve_provider [label="BYOK\nkey" style=dashed color="#663333"]
+  mesh_llm -> resolve_provider [label="fallback\nno key needed" style=dashed]
+  resolve_provider -> git_suggest
+
+  // Mesh flow
+  ssh_nodes -> mesh_probe [label="SSH\ncommands"]
+  mesh_probe -> mesh_snapshot -> sqlite
 
   // New tables -> API -> browser
   todos_table -> rest [label="GET /api/todos"]

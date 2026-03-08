@@ -15,6 +15,7 @@ digraph architecture {
     jsonl [label="*.jsonl\nsession files\n(3GB+)" fillcolor="#2a2a4a"]
     sessions_idx [label="sessions-index.json\nper project" fillcolor="#2a2a4a"]
     history [label="history.jsonl" fillcolor="#2a2a4a"]
+    claude_creds [label=".credentials.json\nOAuth token\n(Claude Max)" fillcolor="#2a2a4a"]
   }
 
   // Ingestion layer
@@ -36,12 +37,53 @@ digraph architecture {
     color="#444466"
     fontcolor="#999999"
 
-    db [label="better-sqlite3\nprojects | sessions | messages\ncontent_blocks | usage_minutes\nalerts | alert_thresholds\ningest_offsets" fillcolor="#2a2a4a" shape=cylinder]
+    db [label="better-sqlite3\nprojects | sessions | messages\ncontent_blocks | usage_minutes\nalerts | todos | settings\nmesh_snapshots" fillcolor="#2a2a4a" shape=cylinder]
+  }
+
+  // Browser-side vault
+  subgraph cluster_vault {
+    label="Browser Vault\n@unturf/unfirehose-ui (npm)"
+    style=dashed
+    color="#663333"
+    fontcolor="#cc6666"
+
+    vault [label="AES-GCM 256-bit\nPBKDF2 600k iter\nlocalStorage" fillcolor="#3a1a1a" shape=cylinder]
+    vault_gate [label="VaultGate\npassword gate\nsession auto-unlock" fillcolor="#3a2a2a"]
+    vault_ctx [label="VaultProvider\nReact context\nuseVault() hook" fillcolor="#3a2a2a"]
+  }
+
+  // LLM Providers
+  subgraph cluster_llm {
+    label="LLM Provider Chain"
+    style=dashed
+    color="#336633"
+    fontcolor="#669966"
+
+    llm_resolve [label="resolveProvider()\nfallback chain" fillcolor="#1a3a2a"]
+    llm_vault [label="1. Vault BYOK key\n(browser-side)" fillcolor="#2a3a2a"]
+    llm_claude [label="2. Claude Max\nOAuth token" fillcolor="#2a3a2a"]
+    llm_qwen [label="3. Qwen 3 Coder\nqwen.ai.unturf.com" fillcolor="#2a3a2a"]
+    llm_hermes [label="4. Hermes 3\nhermes.ai.unturf.com" fillcolor="#2a3a2a"]
+  }
+
+  // Mesh / Permacomputer
+  subgraph cluster_mesh {
+    label="Mesh Infrastructure"
+    style=dashed
+    color="#333366"
+    fontcolor="#666699"
+
+    api_mesh [label="/api/mesh\nSSH probes\nRAPL + nvidia-smi" fillcolor="#1a2a3a"]
+    api_mesh_history [label="/api/mesh/history\ntime-series\nGPU + power" fillcolor="#1a2a3a"]
+    api_mesh_node [label="/api/mesh/node\ndeep probe" fillcolor="#1a2a3a"]
+    api_boot [label="/api/boot\ntmux harness\ncredential sync" fillcolor="#1a2a3a"]
+    api_tmux [label="/api/tmux/stream\nSSE capture\nkeystroke POST" fillcolor="#3a2a1a"]
+    ssh_nodes [label="SSH Nodes\ncammy, blanka, ...\n~/.ssh/config" fillcolor="#2a2a4a" shape=hexagon]
   }
 
   // API layer
   subgraph cluster_api {
-    label="Next.js API Routes\n@unturf/unfirehose-web"
+    label="Next.js API Routes\napps/web"
     style=dashed
     color="#444466"
     fontcolor="#999999"
@@ -56,9 +98,11 @@ digraph architecture {
     api_stats [label="/api/stats\naggregated metrics" fillcolor="#1a2a3a"]
     api_live [label="/api/live\nSSE stream" fillcolor="#3a2a1a"]
     api_todos [label="/api/todos\nGET/POST/PATCH\nkanban + inject" fillcolor="#1a3a3a"]
-    api_scrobble [label="/api/scrobble/preview\nGET visibility check" fillcolor="#1a3a3a"]
-    api_proj_vis [label="/api/projects/{name}/visibility\nPOST set visibility" fillcolor="#1a3a3a"]
+    api_scrobble [label="/api/scrobble\npayload + preview" fillcolor="#1a3a3a"]
     api_active [label="/api/active-sessions\nGET active list" fillcolor="#1a3a3a"]
+    api_git_suggest [label="/api/projects/[p]/git/suggest\nLLM commit messages" fillcolor="#1a3a2a"]
+    api_llm_providers [label="/api/llm/providers\nauto-detect providers" fillcolor="#1a3a2a"]
+    api_settings [label="/api/settings\nGET/POST/DELETE" fillcolor="#1a2a3a"]
   }
 
   // Frontend
@@ -74,17 +118,21 @@ digraph architecture {
     pg_thinking [label="/thinking\nstream browser" fillcolor="#2a1a3a"]
     pg_logs [label="/logs\nraw log viewer" fillcolor="#2a1a3a"]
     pg_tokens [label="/tokens\nmodel breakdown" fillcolor="#2a1a3a"]
-    pg_usage [label="/usage\nmonitor + alerts" fillcolor="#2a1a3a"]
+    pg_usage [label="/usage\nmonitor + infra\nGPU charts" fillcolor="#2a1a3a"]
     pg_live [label="/live\nreal-time tail" fillcolor="#2a1a3a"]
-    pg_todos [label="/todos\nkanban + by-project\ntask injection" fillcolor="#2a1a3a"]
-    pg_scrobble [label="/scrobble\nvisibility controls\nauto-detection" fillcolor="#2a1a3a"]
-    pg_active [label="/active\nactive sessions list" fillcolor="#2a1a3a"]
+    pg_todos [label="/todos\nkanban + by-project" fillcolor="#2a1a3a"]
+    pg_scrobble [label="/scrobble\nvisibility controls" fillcolor="#2a1a3a"]
+    pg_active [label="/active\nactive sessions" fillcolor="#2a1a3a"]
+    pg_permacomputer [label="/permacomputer\nmesh overview\nbootstrap panel" fillcolor="#2a1a3a"]
+    pg_tmux [label="/tmux/[session]\nterminal viewer\ninteractive" fillcolor="#2a1a3a"]
+    pg_settings [label="/settings\ntabs: General, Appearance\nMesh, Connection, API Keys" fillcolor="#2a1a3a"]
+    pg_review [label="/usage/review/[p]\ngit review + commit" fillcolor="#2a1a3a"]
   }
 
   // Shared component
   page_context [label="PageContext\nreverse RAG\n(uncloseai.js)" fillcolor="#3a3a1a" shape=component]
 
-  // Data flows
+  // Data flows — ingestion
   jsonl -> ingest_fn [label="stream\nreadline"]
   sessions_idx -> ingest_fn [label="session\nmeta"]
   ingest_api -> ingest_fn
@@ -99,16 +147,39 @@ digraph architecture {
   jsonl -> api_sessions [label="streamJsonl()" style=dashed]
   sessions_idx -> api_projects [label="session\nindex" style=dashed]
 
+  // Claude creds
+  claude_creds -> llm_claude [label="OAuth\ntoken" style=dashed]
+
   // DB reads
-  db -> api_usage [label="usage_minutes\nalerts"]
-  db -> api_alerts [label="alerts\nthresholds"]
-  db -> api_tokens [label="messages\ntoken sums"]
-  db -> api_stats [label="aggregates"]
-  db -> api_projects [label="project\nactivity" style=dotted]
-  db -> api_todos [label="todos\ntodo_events"]
-  db -> api_active [label="sessions\nactivity"]
-  db -> api_scrobble [label="project_visibility"]
-  db -> api_proj_vis [label="project_visibility"]
+  db -> api_usage
+  db -> api_alerts
+  db -> api_tokens
+  db -> api_stats
+  db -> api_projects [style=dotted]
+  db -> api_todos
+  db -> api_active
+  db -> api_scrobble
+  db -> api_settings
+  db -> api_mesh_history
+
+  // Vault flows
+  vault_gate -> vault_ctx [label="password\ngate"]
+  vault_ctx -> vault [label="encrypt/\ndecrypt"]
+  vault_ctx -> pg_settings [label="useVault()\nkey storage" style=dashed color="#663333"]
+  vault_ctx -> pg_review [label="x-vault-api-key\nheader" style=dashed color="#663333"]
+
+  // LLM provider chain
+  llm_vault -> llm_resolve
+  llm_claude -> llm_resolve
+  llm_qwen -> llm_resolve
+  llm_hermes -> llm_resolve
+  llm_resolve -> api_git_suggest
+
+  // Mesh flows
+  ssh_nodes -> api_mesh [label="SSH\nprobes"]
+  ssh_nodes -> api_mesh_node [label="deep\nprobe"]
+  ssh_nodes -> api_tmux [label="tmux\ncapture"]
+  api_mesh -> api_mesh_history [label="snapshot\nINSERT"]
 
   // Page -> API
   pg_dash -> api_stats
@@ -119,11 +190,17 @@ digraph architecture {
   pg_tokens -> api_tokens
   pg_usage -> api_usage
   pg_usage -> api_alerts
+  pg_usage -> api_mesh_history
   pg_live -> api_live
   pg_todos -> api_todos
   pg_scrobble -> api_scrobble
-  pg_scrobble -> api_proj_vis
   pg_active -> api_active
+  pg_permacomputer -> api_mesh
+  pg_permacomputer -> api_boot
+  pg_tmux -> api_tmux
+  pg_settings -> api_settings
+  pg_settings -> api_llm_providers
+  pg_review -> api_git_suggest
 
   // PageContext on every page
   pg_dash -> page_context [style=dotted color="#666633"]

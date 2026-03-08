@@ -6,7 +6,8 @@ digraph pages {
   edge [color="#666688" fontcolor="#999999" fontsize=8]
 
   // Layout
-  sidebar [label="Sidebar\nnavigation\n11 routes" fillcolor="#2a2a4a" shape=component]
+  sidebar [label="Sidebar\nnavigation\n16 routes" fillcolor="#2a2a4a" shape=component]
+  vault_gate [label="VaultGate\npassword gate\nwraps entire app" fillcolor="#3a1a1a" shape=component]
 
   // Pages
   subgraph cluster_pages {
@@ -17,18 +18,25 @@ digraph pages {
 
     dash [label="/\nDashboard\naggregated stats\nchart overview" fillcolor="#2a1a3a"]
     live [label="/live\nLive Tail\nSSE real-time\nhot sessions" fillcolor="#3a2a1a"]
-    projects [label="/projects\nProject Grid\n47 projects\ncost + activity" fillcolor="#1a3a2a"]
+    projects [label="/projects\nProject Grid\n47+ projects\ncost + activity" fillcolor="#1a3a2a"]
     project_detail [label="/projects/[p]\nSession List\nper project" fillcolor="#1a3a2a"]
     session [label="/projects/[p]/[s]\nSession Viewer\nfull message replay" fillcolor="#1a3a2a"]
     thinking [label="/thinking\nThinking Stream\n1k/10k per page\ncross-project" fillcolor="#2a1a3a"]
     logs [label="/logs\nAll Logs\nraw JSONL" fillcolor="#1a2a3a"]
     tokens [label="/tokens\nToken Stats\nmodel breakdown" fillcolor="#1a2a3a"]
-    usage [label="/usage\nUsage Monitor\ntimeline + alerts\nper-project cost" fillcolor="#3a1a2a"]
+    usage [label="/usage\nUsage Monitor\ntimeline + alerts\ninfra + GPU charts" fillcolor="#3a1a2a"]
     alert [label="/usage/alert/[id]\nAlert Drill-down\ntimeline + prompts\nthinking blocks" fillcolor="#3a1a1a"]
+    review [label="/usage/review/[p]\nGit Review\nLLM commit messages\nvault key passthrough" fillcolor="#1a3a2a"]
     styleguide [label="/styleguide\nComponent Ref\ncolor tokens" fillcolor="#1a1a3a"]
     todos [label="/todos\nTodo Kanban\nby-project view\ntask injection" fillcolor="#1a3a3a"]
-    scrobble [label="/scrobble\nVisibility Controls\nauto-detection\npreview" fillcolor="#1a3a3a"]
+    scrobble [label="/scrobble\nVisibility Controls\nauto-detection\npayload preview" fillcolor="#1a3a3a"]
     active [label="/active\nActive Sessions\nlive session list" fillcolor="#1a3a3a"]
+    permacomputer [label="/permacomputer\nMesh Overview\nnode cards + economics\nbootstrap panel" fillcolor="#1a2a3a"]
+    unsandbox [label="/permacomputer/unsandbox\nCloud Compute\nunsandbox.com" fillcolor="#1a2a3a"]
+    node_detail [label="/usage/node/[h]\nNode Detail\nSystem/Harnesses/Procs" fillcolor="#1a2a3a"]
+    tmux_viewer [label="/tmux/[session]\nTerminal Viewer\ninteractive keystrokes\nSSE capture" fillcolor="#3a2a1a"]
+    terminals [label="/tmux\nTerminals List\nlocal + remote" fillcolor="#1a2a3a"]
+    settings [label="/settings\nGeneral | Appearance\nMesh | Connection\nAPI Keys (vault)" fillcolor="#2a1a3a"]
   }
 
   // API dependencies
@@ -53,14 +61,27 @@ digraph pages {
     a_alert [label="/api/alerts/[id]" fillcolor="#1a2a3a"]
     a_ingest [label="/api/ingest (POST)" fillcolor="#1a3a2a"]
     a_todos [label="/api/todos\nGET/POST/PATCH" fillcolor="#1a3a3a"]
-    a_scrobble [label="/api/scrobble/preview" fillcolor="#1a3a3a"]
-    a_proj_vis [label="/api/projects/{name}/visibility\nPOST" fillcolor="#1a3a3a"]
+    a_scrobble [label="/api/scrobble" fillcolor="#1a3a3a"]
     a_active [label="/api/active-sessions" fillcolor="#1a3a3a"]
+    a_mesh [label="/api/mesh" fillcolor="#1a2a3a"]
+    a_mesh_hist [label="/api/mesh/history" fillcolor="#1a2a3a"]
+    a_mesh_node [label="/api/mesh/node" fillcolor="#1a2a3a"]
+    a_boot [label="/api/boot" fillcolor="#1a2a3a"]
+    a_tmux [label="/api/tmux/stream" fillcolor="#3a2a1a"]
+    a_settings [label="/api/settings" fillcolor="#1a2a3a"]
+    a_llm [label="/api/llm/providers" fillcolor="#1a3a2a"]
+    a_git_suggest [label="/api/projects/[p]/git/suggest" fillcolor="#1a3a2a"]
+    a_unsandbox [label="/api/unsandbox" fillcolor="#1a2a3a"]
   }
+
+  // VaultGate wraps everything
+  vault_gate -> sidebar [label="unlocked\nthen render"]
 
   // Sidebar -> pages
   sidebar -> dash
   sidebar -> live
+  sidebar -> active
+  sidebar -> terminals
   sidebar -> projects
   sidebar -> thinking
   sidebar -> logs
@@ -69,12 +90,18 @@ digraph pages {
   sidebar -> styleguide
   sidebar -> todos
   sidebar -> scrobble
-  sidebar -> active
+  sidebar -> permacomputer
+  sidebar -> settings
 
   // Page navigation
   projects -> project_detail [label="click\nproject"]
   project_detail -> session [label="click\nsession"]
+  project_detail -> review [label="git\nreview"]
   usage -> alert [label="click\nalert"]
+  permacomputer -> unsandbox [label="click\nunsandbox"]
+  permacomputer -> node_detail [label="click\nnode"]
+  node_detail -> tmux_viewer [label="watch\nsession"]
+  terminals -> tmux_viewer [label="click\nsession"]
 
   // Page -> API
   dash -> a_stats
@@ -88,13 +115,20 @@ digraph pages {
   tokens -> a_tokens
   usage -> a_usage
   usage -> a_alerts
+  usage -> a_mesh_hist
   alert -> a_alert
-
-  // New page -> API
+  review -> a_git_suggest
   todos -> a_todos
   scrobble -> a_scrobble
-  scrobble -> a_proj_vis
   active -> a_active
+  permacomputer -> a_mesh
+  permacomputer -> a_boot
+  unsandbox -> a_unsandbox
+  node_detail -> a_mesh_node
+  tmux_viewer -> a_tmux
+  settings -> a_settings
+  settings -> a_llm
+  terminals -> a_tmux
 
   // Detail panel APIs
   projects -> a_proj_meta [style=dashed label="expand\ncard"]
