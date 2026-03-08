@@ -69,7 +69,15 @@ export default function ProjectPage({
 }) {
   const { project } = use(params);
   const decodedProject = decodeURIComponent(project);
-  const [tab, setTab] = useState<TabKey>('overview');
+  const TAB_KEYS = TABS.map(t => t.key);
+  const [tab, setTabRaw] = useState<TabKey>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.slice(1) as TabKey;
+      if (TAB_KEYS.includes(hash)) return hash;
+    }
+    return 'overview';
+  });
+  const setTab = (t: TabKey) => { setTabRaw(t); window.location.hash = t; };
   const [yolo, setYolo] = useState(true);
   const [booting, setBooting] = useState(false);
   const [bootResult, setBootResult] = useState<string | null>(null);

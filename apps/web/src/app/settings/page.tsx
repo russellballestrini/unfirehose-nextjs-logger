@@ -155,7 +155,14 @@ export default function SettingsPage() {
 
   const TABS = ['General', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];
-  const [activeTab, setActiveTab] = useState<SettingsTab>('General');
+  const [activeTab, setActiveTabRaw] = useState<SettingsTab>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.slice(1);
+      if (TABS.includes(hash as SettingsTab)) return hash as SettingsTab;
+    }
+    return 'General';
+  });
+  const setActiveTab = (tab: SettingsTab) => { setActiveTabRaw(tab); window.location.hash = tab; };
   const vault = useVault();
 
   return (

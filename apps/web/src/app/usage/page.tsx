@@ -166,7 +166,16 @@ export default function UsageMonitorPage() {
     fetcher,
     { refreshInterval: 30000 }
   );
-  const [activeTab, setActiveTab] = useState<'model' | 'infra' | 'thresholds'>('model');
+  const usageTabs = ['model', 'infra', 'thresholds'] as const;
+  type UsageTab = (typeof usageTabs)[number];
+  const [activeTab, setActiveTabRaw] = useState<UsageTab>(() => {
+    if (typeof globalThis !== 'undefined' && globalThis.location) {
+      const hash = globalThis.location.hash.slice(1) as UsageTab;
+      if (usageTabs.includes(hash)) return hash;
+    }
+    return 'model';
+  });
+  const setActiveTab = (tab: UsageTab) => { setActiveTabRaw(tab); globalThis.location.hash = tab; };
   const [chartHostname, setChartHostname] = useState<string>('all');
   const currency = useCurrency();
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
