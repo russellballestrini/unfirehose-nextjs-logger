@@ -61,5 +61,25 @@ export async function GET() {
     });
   }
 
+  // 3. Auto-detect Qwen 3 Coder on the mesh (no keys needed)
+  try {
+    const res = await fetch('https://qwen.ai.unturf.com/v1/models', { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data = await res.json();
+      const model = data?.data?.[0]?.id;
+      if (model) {
+        providers.push({
+          id: 'qwen-mesh',
+          name: 'Qwen 3 Coder (mesh)',
+          source: 'filesystem',
+          type: 'openai-compatible',
+          model,
+          ready: true,
+          detail: 'https://qwen.ai.unturf.com — local mesh inference, no API key',
+        });
+      }
+    }
+  } catch { /* mesh unreachable */ }
+
   return NextResponse.json({ providers });
 }

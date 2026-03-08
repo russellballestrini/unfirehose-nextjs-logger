@@ -38,7 +38,6 @@ const HARNESSES = [
   { id: 'vllm', name: 'vLLM', desc: 'High-throughput LLM serving engine — PagedAttention, continuous batching', install: 'pip install vllm', verify: 'python -c "import vllm; print(vllm.__version__)"', tags: ['ml', 'gpu'], },
   { id: 'text-generation-webui', name: 'text-generation-webui', desc: 'Gradio web UI for LLMs — supports GGUF, GPTQ, AWQ, EXL2, llama.cpp, Transformers', install: 'git clone https://github.com/oobabooga/text-generation-webui && cd text-generation-webui && pip install -r requirements.txt', verify: 'ls text-generation-webui/server.py', tags: ['ml', 'web'], },
   { id: 'open-webui', name: 'Open WebUI', desc: 'Self-hosted ChatGPT-like interface for Ollama and OpenAI APIs', install: 'pip install open-webui', verify: 'open-webui --version', tags: ['ml', 'web'], },
-  { id: 'qwen3-coder', name: 'Qwen 3 Coder', desc: 'Local code model via Ollama — no API key, reviews code, generates prompts, writes scripts', install: 'curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen3-coder:8b', verify: 'ollama list | grep qwen3-coder', tags: ['ml', 'local', 'coding'], },
   { id: 'hermes-agent', name: 'Hermes Agent', desc: 'Autonomous agent framework — tool use, memory, planning with local or cloud LLMs', install: 'pip install hermes-agent', verify: 'pip show hermes-agent', tags: ['ml', 'agent'], },
   { id: 'fetch', name: 'Fetch', desc: 'HTTP harness for ML APIs — structured logging and replay', install: 'pip install fetch-cli', verify: 'fetch --version', tags: ['ml', 'api'], },
   { id: 'uncloseai-cli', name: 'uncloseai-cli', desc: 'ReAct agent harness, microgpt, voxsplit — ML from seed on Unclose', install: 'pip install -r requirements.txt', verify: 'python -c "import uncloseai"', tags: ['ml', 'agent'], },
@@ -904,50 +903,6 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
             </div>
           </div>
 
-          {/* ML-Powered Workflows — local inference, no API keys required */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-[var(--color-muted)]">ML-Powered Workflows</h3>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">local inference</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">no API key</span>
-            </div>
-            <p className="text-xs text-[var(--color-muted)]">
-              These workflows use <span className="text-purple-400 font-bold">Qwen 3 Coder</span> via Ollama for local inference &mdash; no API keys needed.
-              Use them standalone or as a planner that generates prompts for Claude Code.
-            </p>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <ExampleCard
-                title="Qwen 3 code review"
-                desc="Clone a repo and use Qwen 3 Coder to review code, find defects, and suggest fixes &mdash; entirely local."
-                command={`curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen3-coder:8b && git clone https://github.com/you/repo /workspace && cd /workspace && find src -name '*.ts' -exec cat {} + | ollama run qwen3-coder:8b "Review this codebase. List defects, security issues, and improvements. Be specific with file paths and line numbers."`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Qwen 3 generates Claude prompt"
-                desc="Qwen 3 analyzes your repo and crafts an epic prompt for Claude Code &mdash; local planning, cloud execution."
-                command={`curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen3-coder:8b && git clone https://github.com/you/repo /workspace && cd /workspace && ANALYSIS=$(find . -name '*.ts' -o -name '*.py' -o -name '*.js' | head -50 | xargs head -30 | ollama run qwen3-coder:8b "/no_think You are a senior engineer. Analyze this codebase and write a detailed prompt for Claude Code that will improve it. Cover: architecture issues, missing tests, security gaps, performance. Output ONLY the prompt text, nothing else.") && echo "--- Generated prompt ---" && echo "$ANALYSIS" && npm install -g @anthropic-ai/claude-code && claude --dangerously-skip-permissions "$ANALYSIS"`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Qwen 3 bootstrap script"
-                desc="Qwen 3 reads your repo and generates a custom CI/CD bootstrap script, then runs it."
-                command={`curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen3-coder:8b && git clone https://github.com/you/repo /workspace && cd /workspace && SCRIPT=$(cat package.json README.md 2>/dev/null | head -200 | ollama run qwen3-coder:8b "/no_think Read this project config. Write a bash script that: 1) installs all deps, 2) runs lint+typecheck+tests, 3) builds for production. Output ONLY the bash script, starting with #!/bin/bash") && echo "$SCRIPT" > /tmp/bootstrap.sh && chmod +x /tmp/bootstrap.sh && bash /tmp/bootstrap.sh`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Local chat on your code"
-                desc="Interactive Qwen 3 Coder session against your codebase &mdash; no keys, no cloud, no telemetry."
-                command={`curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen3-coder:8b && git clone https://github.com/you/repo /workspace && cd /workspace && echo "--- Codebase loaded. Starting chat. ---" && ollama run qwen3-coder:8b "You are working in /workspace. The user will ask about this codebase. Start by listing the project structure and key files."`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-            </div>
-          </div>
-
           {/* Tips */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
             <h3 className="text-sm font-bold text-[var(--color-muted)]">Tips</h3>
@@ -957,7 +912,6 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
               <li>Each execution is ephemeral &mdash; the container is destroyed after your command finishes</li>
               <li>For persistent work, use <span className="text-[var(--color-foreground)]">Sessions</span> tab to create long-lived containers</li>
               <li>Chain commands with <span className="font-mono text-[var(--color-foreground)]">&&</span> &mdash; the whole pipeline runs in a single container</li>
-              <li><span className="text-purple-400">No API key?</span> The ML-Powered Workflows above use <span className="font-mono text-[var(--color-foreground)]">Qwen 3 Coder</span> via Ollama &mdash; fully local, no account needed</li>
               <li>Set <span className="font-mono text-[var(--color-foreground)]">ANTHROPIC_API_KEY</span> in your command to use Claude Code: <span className="font-mono text-xs">export ANTHROPIC_API_KEY=sk-ant-... && claude &quot;your prompt&quot;</span></li>
               <li>Git push requires auth &mdash; use <span className="font-mono text-xs">git clone https://TOKEN@github.com/you/repo</span> or configure SSH keys in the session</li>
             </ul>
