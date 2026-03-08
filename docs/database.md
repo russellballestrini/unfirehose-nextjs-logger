@@ -22,6 +22,7 @@ Schema defined in `packages/core/db/schema.ts`.
 | alerts | 15 | Usage spike alerts |
 | alert_thresholds | 7 | Configurable threshold rules |
 | settings | 3 | Key-value app config |
+| todo_attachments | 0 | File attachments on todos, content-addressed by SHA-256 |
 | posts | 0 | Blog posts (jsonblog.org schema) |
 
 ## Entity Relationships
@@ -33,7 +34,8 @@ projects (47)
 │   │   ├── content_blocks (150K)   message_id → messages.id
 │   │   └── pii_replacements (25K)  message_id → messages.id
 │   └── todos (1.3K)           session_id → sessions.id (nullable)
-│       └── todo_events (2.7K) todo_id → todos.id
+│       ├── todo_events (2.7K) todo_id → todos.id
+│       └── todo_attachments (0) todo_id → todos.id
 ├── todos (1.3K)               project_id → projects.id
 ├── usage_minutes (14K)        project_id → projects.id (nullable)
 ├── agent_deployments (25)     project_id → projects.id
@@ -52,6 +54,7 @@ projects (47)
 | todos | session_id | sessions | id | yes |
 | todo_events | todo_id | todos | id | no |
 | todo_events | message_id | messages | id | yes |
+| todo_attachments | todo_id | todos | id | no |
 | usage_minutes | project_id | projects | id | yes |
 | agent_deployments | project_id | projects | id | no |
 | project_visibility | project_id | projects | id | no (PK) |
@@ -165,6 +168,20 @@ Audit log of todo status changes.
 | message_id | INTEGER FK | → messages.id (nullable) |
 | event_at | TEXT | datetime default now |
 
+### todo_attachments
+
+File attachments on todos. Content-addressed by SHA-256 hash.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER PK | autoincrement |
+| todo_id | INTEGER FK | → todos.id |
+| filename | TEXT | Original filename |
+| mime_type | TEXT | MIME type |
+| size_bytes | INTEGER | File size in bytes |
+| hash | TEXT | SHA-256 of file content |
+| created_at | TEXT | ISO timestamp |
+
 ### usage_minutes
 
 Pre-computed per-minute token rollups for spike detection. Composite PK on `(minute, project_id)`.
@@ -224,7 +241,7 @@ Configurable threshold rules. UNIQUE on `(window_minutes, metric)`.
 
 ## Indexes
 
-### Current Indexes (20 total)
+### Current Indexes (22 total)
 
 #### messages (6 indexes — heaviest table)
 
@@ -265,6 +282,8 @@ Configurable threshold rules. UNIQUE on `(window_minutes, metric)`.
 | Index | Table | Columns | Used By |
 |---|---|---|---|
 | `idx_todo_events_todo` | todo_events | `todo_id` | Todo history lookup |
+| `idx_todo_attachments_todo` | todo_attachments | `todo_id` | Attachment lookup by todo |
+| `idx_todo_attachments_hash` | todo_attachments | `hash` | Content-addressed dedup |
 | `idx_usage_minutes_minute` | usage_minutes | `minute` | Time-window aggregations |
 | `idx_alerts_triggered` | alerts | `triggered_at` | Recent alerts queries |
 | `idx_agent_deployments_status` | agent_deployments | `status` | Active deployment lookup |

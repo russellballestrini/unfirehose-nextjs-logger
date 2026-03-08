@@ -145,6 +145,19 @@ digraph database {
     </TABLE>
   >]
 
+  todo_attachments [fillcolor="#2a3a2a" label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+    <TR><TD COLSPAN="2"><B>todo_attachments</B></TD></TR>
+    <TR><TD ALIGN="LEFT">id</TD><TD ALIGN="LEFT">INTEGER PK</TD></TR>
+    <TR><TD ALIGN="LEFT">todo_id</TD><TD ALIGN="LEFT">FK todos</TD></TR>
+    <TR><TD ALIGN="LEFT">filename</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">mime_type</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    <TR><TD ALIGN="LEFT">size_bytes</TD><TD ALIGN="LEFT">INTEGER</TD></TR>
+    <TR><TD ALIGN="LEFT">hash</TD><TD ALIGN="LEFT">TEXT (SHA-256)</TD></TR>
+    <TR><TD ALIGN="LEFT">created_at</TD><TD ALIGN="LEFT">TEXT</TD></TR>
+    </TABLE>
+  >]
+
   project_visibility [fillcolor="#3a2a3a" label=<
     <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
     <TR><TD COLSPAN="2"><B>project_visibility</B></TD></TR>
@@ -193,6 +206,7 @@ digraph database {
   projects -> todos [label="1:N"]
   sessions -> todos [label="1:N"]
   todos -> todo_events [label="1:N"]
+  todos -> todo_attachments [label="1:N"]
   projects -> project_visibility [label="1:1"]
 
   // Threshold -> Alert (conceptual)
