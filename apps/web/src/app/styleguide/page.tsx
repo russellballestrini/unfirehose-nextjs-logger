@@ -958,6 +958,46 @@ Response:
           </div>
         </div>
       </Section>
+
+      {/* Vault Gate */}
+      <Section title="Vault Gate — Lock Screen">
+        <div className="rounded-xl border border-[var(--color-border)] overflow-hidden relative" style={{ height: 520 }}>
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-background)]">
+            {/* Glow */}
+            <div className="absolute w-[400px] h-[400px] rounded-full opacity-15 blur-[100px] pointer-events-none" style={{ background: 'radial-gradient(circle, var(--color-accent) 0%, transparent 70%)', animation: 'vaultPulse 4s ease-in-out infinite' }} />
+            <style>{`
+              @keyframes vaultPulse { 0%, 100% { transform: scale(1); opacity: 0.12; } 50% { transform: scale(1.15); opacity: 0.2; } }
+            `}</style>
+            <div className="w-full max-w-md space-y-6 p-8 relative z-10">
+              <div className="text-center">
+                <h1 className="font-black leading-none" style={{ fontSize: '3.5rem', letterSpacing: '-0.06em', WebkitTextStroke: '0.5px currentColor' }}>
+                  <span className="text-[var(--color-foreground)]">un</span>
+                  <span className="text-[var(--color-accent)]">firehose</span>
+                </h1>
+                <p className="text-sm text-[var(--color-muted)] mt-2 tracking-widest uppercase">Permacomputer Dashboard</p>
+              </div>
+              <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-8 space-y-5" style={{ boxShadow: '0 0 60px rgba(239, 68, 68, 0.08), 0 25px 50px rgba(0,0,0,0.5)' }}>
+                <div className="text-center space-y-3">
+                  <div className="text-5xl">{'\u{1F510}'}</div>
+                  <h2 className="text-xl font-bold">Create your vault</h2>
+                  <p className="text-sm text-[var(--color-muted)]">Choose a password to encrypt your API keys locally. Keys never leave your browser.</p>
+                </div>
+                <input
+                  type="password"
+                  readOnly
+                  placeholder="Choose a password (8+ chars)"
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg px-4 py-3 text-base focus:outline-none"
+                />
+                <button className="w-full px-6 py-3 text-base font-bold text-[var(--color-background)] rounded-lg cursor-default" style={{ background: 'linear-gradient(135deg, var(--color-accent), #ff6b6b)', boxShadow: '0 4px 20px rgba(239, 68, 68, 0.3)' }}>
+                  Create Vault
+                </button>
+                <p className="text-xs text-[var(--color-muted)] text-center">No recovery if you forget this password.</p>
+                <div className="text-xs text-[var(--color-muted)] text-center">Skip — use without saving keys</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
     </div>
   );
 }
