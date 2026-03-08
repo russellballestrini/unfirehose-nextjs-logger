@@ -153,6 +153,11 @@ export default function SettingsPage() {
 
   const selectedPlanData = PLANS.find((p) => p.value === currentPlan);
 
+  const TABS = ['General', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
+  type SettingsTab = (typeof TABS)[number];
+  const [activeTab, setActiveTab] = useState<SettingsTab>('General');
+  const vault = useVault();
+
   return (
     <div className="space-y-6">
       <PageContext
@@ -172,334 +177,366 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {/* Left column */}
-      <div className="space-y-6">
-
-      {/* Profile */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Profile</h3>
-
-        <div>
-          <label className="text-base text-[var(--color-muted)] block mb-1">Display Name</label>
-          <input
-            type="text"
-            defaultValue={displayName}
-            placeholder={systemUser}
-            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
-            onBlur={(e) => {
-              if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
-            }}
-          />
-        </div>
-        <div>
-          <label className="text-base text-[var(--color-muted)] block mb-1">Handle</label>
-          <div className="flex items-center">
-            <span className="text-[var(--color-muted)] text-base mr-1">@</span>
-            <input
-              type="text"
-              defaultValue={handle}
-              placeholder={systemUser}
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
-              }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-base text-[var(--color-muted)] block mb-1">Bio</label>
-          <textarea
-            defaultValue={bio}
-            placeholder="building things with machines"
-            rows={2}
-            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base resize-none"
-            onBlur={(e) => {
-              if (e.target.value !== bio) saveSetting(SETTINGS_KEYS.bio, e.target.value);
-            }}
-          />
-        </div>
-
-        {projectCount > 0 && (
-          <div className="text-base text-[var(--color-muted)]">
-            {projectCount} projects — {totalPrompts.toLocaleString()} prompts (30d)
-          </div>
-        )}
-      </div>
-
-      {/* Accent Color + Theme */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-[var(--color-border)]">
+        {TABS.map(tab => (
           <button
-            onClick={toggleTheme}
-            className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer -mb-px ${
+              activeTab === tab
+                ? 'border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]'
+                : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+            }`}
           >
-            {lightMode ? 'Light Mode' : 'Dark Mode'}
+            {tab === 'API Keys' && !vault.unlocked ? '\u{1F510} ' : ''}{tab}
           </button>
-        </div>
-        <HexColorPicker value={accentColor} settingKey={SETTINGS_KEYS.accentColor} />
+        ))}
       </div>
 
-      {/* Data & Storage */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
-        <div className="text-base text-[var(--color-muted)] space-y-1">
-          <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
-          <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
+      {/* ===== GENERAL TAB ===== */}
+      {activeTab === 'General' && (
+        <div className="space-y-6 max-w-2xl">
+          {/* Profile */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">Profile</h3>
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Display Name</label>
+              <input
+                type="text"
+                defaultValue={displayName}
+                placeholder={systemUser}
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+                onBlur={(e) => {
+                  if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Handle</label>
+              <div className="flex items-center">
+                <span className="text-[var(--color-muted)] text-base mr-1">@</span>
+                <input
+                  type="text"
+                  defaultValue={handle}
+                  placeholder={systemUser}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                  onBlur={(e) => {
+                    if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-base text-[var(--color-muted)] block mb-1">Bio</label>
+              <textarea
+                defaultValue={bio}
+                placeholder="building things with machines"
+                rows={2}
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base resize-none"
+                onBlur={(e) => {
+                  if (e.target.value !== bio) saveSetting(SETTINGS_KEYS.bio, e.target.value);
+                }}
+              />
+            </div>
+            {projectCount > 0 && (
+              <div className="text-base text-[var(--color-muted)]">
+                {projectCount} projects — {totalPrompts.toLocaleString()} prompts (30d)
+              </div>
+            )}
+          </div>
+
+          {/* Plan */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
+            <div className="grid grid-cols-1 gap-2">
+              {PLANS.filter((p) => p.value).map((plan) => (
+                <div
+                  key={plan.value}
+                  onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
+                  className={`rounded border p-3 cursor-pointer transition-colors ${
+                    currentPlan === plan.value
+                      ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                      : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
+                      {plan.label}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {plan.price && plan.price !== '$0' && (
+                        <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
+                      )}
+                      {currentPlan === plan.value && (
+                        <span className="text-base text-[var(--color-accent)] font-bold">current</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                    {plan.features.map((f, i) => (
+                      <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Data & Storage */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
+            <div className="text-base text-[var(--color-muted)] space-y-1">
+              <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
+              <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
+            </div>
+          </div>
+
+          {/* Git */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">Git</h3>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={(settings?.git_auto_push ?? 'true') !== 'false'}
+                onChange={(e) => saveSetting('git_auto_push', e.target.checked ? 'true' : 'false')}
+                className="accent-[var(--color-accent)]"
+              />
+              <span className="text-sm">Auto-push after commit</span>
+              <span className="text-xs text-[var(--color-muted)]">When committing from the app, automatically push to remote</span>
+            </label>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Mesh Defaults */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Mesh Defaults</h3>
-        <p className="text-base text-[var(--color-muted)]">
-          Default values for new nodes. Per-node overrides in Permacomputer → node Economics tab.
-        </p>
+      {/* ===== APPEARANCE TAB ===== */}
+      {activeTab === 'Appearance' && (
+        <div className="space-y-6 max-w-2xl">
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
+              <button
+                onClick={toggleTheme}
+                className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
+              >
+                {lightMode ? 'Light Mode' : 'Dark Mode'}
+              </button>
+            </div>
+            <HexColorPicker value={accentColor} settingKey={SETTINGS_KEYS.accentColor} />
+          </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">ISP Cost ($/mo)</label>
-            <input
-              type="number"
-              defaultValue={meshDefaultIspCost}
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== meshDefaultIspCost) saveSetting(SETTINGS_KEYS.meshDefaultIspCost, e.target.value);
-              }}
-            />
-          </div>
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Electricity ($/kWh)</label>
-            <input
-              type="number"
-              step="0.01"
-              defaultValue={meshDefaultElectricity}
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== meshDefaultElectricity) saveSetting(SETTINGS_KEYS.meshDefaultElectricity, e.target.value);
-              }}
-            />
-          </div>
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Default Provider</label>
-            <select
-              defaultValue={meshDefaultProvider}
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
-              onChange={(e) => saveSetting(SETTINGS_KEYS.meshDefaultProvider, e.target.value)}
-            >
-              {MESH_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Link Speed (Mbps)</label>
-            <input
-              type="number"
-              defaultValue={meshDefaultLinkMbps}
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value !== meshDefaultLinkMbps) saveSetting(SETTINGS_KEYS.meshDefaultLinkMbps, e.target.value);
-              }}
-            />
-          </div>
+          <CurrencyPicker
+            selected={(settings?.[SETTINGS_KEYS.displayCurrency] ?? 'USD').split(',').filter(Boolean)}
+            onChange={(codes) => saveSetting(SETTINGS_KEYS.displayCurrency, codes.join(','))}
+          />
         </div>
+      )}
 
-        <div className="flex items-center gap-6">
-          <label className="flex items-center gap-2 text-base">
-            <input
-              type="checkbox"
-              checked={meshGeoipAuto}
-              className="accent-[var(--color-accent)]"
-              onChange={(e) => saveSetting(SETTINGS_KEYS.meshGeoipAuto, String(e.target.checked))}
-            />
-            <span className={meshGeoipAuto ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
-              Auto GeoIP from egress
-            </span>
-          </label>
-          <label className="flex items-center gap-2 text-base">
-            <input
-              type="checkbox"
-              checked={meshCurrencyOracle}
-              className="accent-[var(--color-accent)]"
-              onChange={(e) => saveSetting(SETTINGS_KEYS.meshCurrencyOracle, String(e.target.checked))}
-            />
-            <span className={meshCurrencyOracle ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
-              Currency Oracle
-            </span>
-          </label>
-        </div>
+      {/* ===== MESH TAB ===== */}
+      {activeTab === 'Mesh' && (
+        <div className="space-y-6 max-w-2xl">
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">Mesh Defaults</h3>
+            <p className="text-base text-[var(--color-muted)]">
+              Default values for new nodes. Per-node overrides in Permacomputer → node Economics tab.
+            </p>
 
-        <CurrencyPicker
-          selected={(settings?.[SETTINGS_KEYS.displayCurrency] ?? 'USD').split(',').filter(Boolean)}
-          onChange={(codes) => saveSetting(SETTINGS_KEYS.displayCurrency, codes.join(','))}
-        />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">ISP Cost ($/mo)</label>
+                <input
+                  type="number"
+                  defaultValue={meshDefaultIspCost}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                  onBlur={(e) => {
+                    if (e.target.value !== meshDefaultIspCost) saveSetting(SETTINGS_KEYS.meshDefaultIspCost, e.target.value);
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Electricity ($/kWh)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  defaultValue={meshDefaultElectricity}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                  onBlur={(e) => {
+                    if (e.target.value !== meshDefaultElectricity) saveSetting(SETTINGS_KEYS.meshDefaultElectricity, e.target.value);
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Default Provider</label>
+                <select
+                  defaultValue={meshDefaultProvider}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+                  onChange={(e) => saveSetting(SETTINGS_KEYS.meshDefaultProvider, e.target.value)}
+                >
+                  {MESH_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Link Speed (Mbps)</label>
+                <input
+                  type="number"
+                  defaultValue={meshDefaultLinkMbps}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                  onBlur={(e) => {
+                    if (e.target.value !== meshDefaultLinkMbps) saveSetting(SETTINGS_KEYS.meshDefaultLinkMbps, e.target.value);
+                  }}
+                />
+              </div>
+            </div>
 
-        {/* Geo-region overrides */}
-        <GeoRegionOverrides settings={settings} saveSetting={saveSetting} />
-      </div>
-
-      </div>{/* end left column */}
-
-      {/* Right column */}
-      <div className="space-y-6">
-
-      {/* Plan */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
-        <div className="grid grid-cols-1 gap-2">
-          {PLANS.filter((p) => p.value).map((plan) => (
-            <div
-              key={plan.value}
-              onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
-              className={`rounded border p-3 cursor-pointer transition-colors ${
-                currentPlan === plan.value
-                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
-                  : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
-                  {plan.label}
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 text-base">
+                <input
+                  type="checkbox"
+                  checked={meshGeoipAuto}
+                  className="accent-[var(--color-accent)]"
+                  onChange={(e) => saveSetting(SETTINGS_KEYS.meshGeoipAuto, String(e.target.checked))}
+                />
+                <span className={meshGeoipAuto ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
+                  Auto GeoIP from egress
                 </span>
-                <div className="flex items-center gap-2">
-                  {plan.price && plan.price !== '$0' && (
-                    <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
-                  )}
-                  {currentPlan === plan.value && (
-                    <span className="text-base text-[var(--color-accent)] font-bold">current</span>
-                  )}
+              </label>
+              <label className="flex items-center gap-2 text-base">
+                <input
+                  type="checkbox"
+                  checked={meshCurrencyOracle}
+                  className="accent-[var(--color-accent)]"
+                  onChange={(e) => saveSetting(SETTINGS_KEYS.meshCurrencyOracle, String(e.target.checked))}
+                />
+                <span className={meshCurrencyOracle ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
+                  Currency Oracle
+                </span>
+              </label>
+            </div>
+
+            <GeoRegionOverrides settings={settings} saveSetting={saveSetting} />
+          </div>
+        </div>
+      )}
+
+      {/* ===== CONNECTION TAB ===== */}
+      {activeTab === 'Connection' && (
+        <div className="space-y-6 max-w-2xl">
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">Connection</h3>
+              <label className="flex items-center gap-2 text-base">
+                <input
+                  type="checkbox"
+                  checked={firehoseEnabled}
+                  className="accent-[var(--color-accent)]"
+                  onChange={(e) =>
+                    saveSetting(SETTINGS_KEYS.firehoseEnabled, String(e.target.checked))
+                  }
+                />
+                <span className={firehoseEnabled ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
+                  {firehoseEnabled ? 'Connected' : 'Disconnected'}
+                </span>
+              </label>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Endpoint</label>
+                <input
+                  type="url"
+                  defaultValue={firehoseEndpoint}
+                  placeholder="https://api.unfirehose.org"
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+                  onBlur={(e) => {
+                    if (e.target.value && e.target.value !== firehoseEndpoint) {
+                      saveSetting(SETTINGS_KEYS.firehoseEndpoint, e.target.value);
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Public Key</label>
+                <input
+                  type="text"
+                  defaultValue={firehosePublicKey}
+                  placeholder="unfh-pk-..."
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                  onBlur={(e) => {
+                    if (e.target.value && e.target.value !== firehosePublicKey) {
+                      saveSetting(SETTINGS_KEYS.firehosePublicKey, e.target.value);
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Secret Key</label>
+                <input
+                  type="password"
+                  defaultValue={firehoseKey}
+                  placeholder="unfh-sk-..."
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                  onBlur={(e) => {
+                    if (e.target.value && e.target.value !== firehoseKey) {
+                      saveSetting(SETTINGS_KEYS.firehoseKey, e.target.value);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            {firehoseEnabled && firehoseKey && (
+              <div className="space-y-2">
+                <div className="text-base font-bold text-[var(--color-muted)]">Hoses</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <HoseToggle
+                    label="Social Timeline"
+                    desc="Posts, status, blogs from network"
+                    settingKey="unfirehose_hose_social"
+                    settings={settings}
+                    onSave={saveSetting}
+                  />
+                  <HoseToggle
+                    label="Project Showcases"
+                    desc="Ship announcements, repo links"
+                    settingKey="unfirehose_hose_projects"
+                    settings={settings}
+                    onSave={saveSetting}
+                  />
+                  <HoseToggle
+                    label="Thinking Stream"
+                    desc="Share reasoning with followers"
+                    settingKey="unfirehose_hose_thinking"
+                    settings={settings}
+                    onSave={saveSetting}
+                  />
                 </div>
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                {plan.features.map((f, i) => (
-                  <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
-                ))}
-              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== API KEYS TAB ===== */}
+      {activeTab === 'API Keys' && (
+        <div className="space-y-6 max-w-2xl">
+          {!vault.unlocked ? (
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-8 text-center space-y-4">
+              <div className="text-4xl">{'\u{1F510}'}</div>
+              <h3 className="text-lg font-bold">Vault Locked</h3>
+              <p className="text-sm text-[var(--color-muted)]">
+                Unlock your vault to view and manage API keys. Keys are encrypted in your browser and never sent to the server.
+              </p>
+              <VaultUnlockInline />
             </div>
-          ))}
+          ) : (
+            <LlmProviders
+              endpoint={llmEndpoint}
+              model={llmModel}
+              onSave={saveSetting}
+            />
+          )}
         </div>
-      </div>
-
-      {/* Connection */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-[var(--color-muted)]">Connection</h3>
-          <label className="flex items-center gap-2 text-base">
-            <input
-              type="checkbox"
-              checked={firehoseEnabled}
-              className="accent-[var(--color-accent)]"
-              onChange={(e) =>
-                saveSetting(SETTINGS_KEYS.firehoseEnabled, String(e.target.checked))
-              }
-            />
-            <span className={firehoseEnabled ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}>
-              {firehoseEnabled ? 'Connected' : 'Disconnected'}
-            </span>
-          </label>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Endpoint</label>
-            <input
-              type="url"
-              defaultValue={firehoseEndpoint}
-              placeholder="https://api.unfirehose.org"
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
-              onBlur={(e) => {
-                if (e.target.value && e.target.value !== firehoseEndpoint) {
-                  saveSetting(SETTINGS_KEYS.firehoseEndpoint, e.target.value);
-                }
-              }}
-            />
-          </div>
-
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Public Key</label>
-            <input
-              type="text"
-              defaultValue={firehosePublicKey}
-              placeholder="unfh-pk-..."
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value && e.target.value !== firehosePublicKey) {
-                  saveSetting(SETTINGS_KEYS.firehosePublicKey, e.target.value);
-                }
-              }}
-            />
-          </div>
-          <div>
-            <label className="text-base text-[var(--color-muted)] block mb-1">Secret Key</label>
-            <input
-              type="password"
-              defaultValue={firehoseKey}
-              placeholder="unfh-sk-..."
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-              onBlur={(e) => {
-                if (e.target.value && e.target.value !== firehoseKey) {
-                  saveSetting(SETTINGS_KEYS.firehoseKey, e.target.value);
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        {firehoseEnabled && firehoseKey && (
-          <div className="space-y-2">
-            <div className="text-base font-bold text-[var(--color-muted)]">Hoses</div>
-            <div className="grid grid-cols-2 gap-2">
-              <HoseToggle
-                label="Social Timeline"
-                desc="Posts, status, blogs from network"
-                settingKey="unfirehose_hose_social"
-                settings={settings}
-                onSave={saveSetting}
-              />
-              <HoseToggle
-                label="Project Showcases"
-                desc="Ship announcements, repo links"
-                settingKey="unfirehose_hose_projects"
-                settings={settings}
-                onSave={saveSetting}
-              />
-              <HoseToggle
-                label="Thinking Stream"
-                desc="Share reasoning with followers"
-                settingKey="unfirehose_hose_thinking"
-                settings={settings}
-                onSave={saveSetting}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Git */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-        <h3 className="text-base font-bold text-[var(--color-muted)]">Git</h3>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={(settings?.git_auto_push ?? 'true') !== 'false'}
-            onChange={(e) => saveSetting('git_auto_push', e.target.checked ? 'true' : 'false')}
-            className="accent-[var(--color-accent)]"
-          />
-          <span className="text-sm">Auto-push after commit</span>
-          <span className="text-xs text-[var(--color-muted)]">When committing from the app, automatically push to remote</span>
-        </label>
-      </div>
-
-      {/* LLM Providers */}
-      <LlmProviders
-        endpoint={llmEndpoint}
-        model={llmModel}
-        onSave={saveSetting}
-      />
-
-      </div>{/* end right column */}
-      </div>{/* end two-column grid */}
+      )}
 
       {saving && (
         <div className="text-base text-[var(--color-muted)]">Saving...</div>
@@ -727,6 +764,55 @@ const PROVIDER_PRESETS = [
   { id: 'custom', name: 'Custom endpoint', endpoint: '', type: 'openai-compatible' as const, placeholder: 'sk-...', defaultModel: '', models: [] },
 ];
 
+function VaultUnlockInline() {
+  const vault = useVault();
+  const [pw, setPw] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const isNew = !vault.exists;
+
+  async function submit() {
+    setError('');
+    if (isNew && pw.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!pw) { setError('Enter a password'); return; }
+    setLoading(true);
+    try {
+      if (isNew) { await vault.create(pw); }
+      else {
+        const ok = await vault.unlock(pw);
+        if (!ok) setError('Wrong password');
+      }
+    } catch { setError('Something went wrong'); }
+    setLoading(false);
+  }
+
+  return (
+    <div className="max-w-xs mx-auto space-y-3">
+      <input
+        type="password"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        placeholder={isNew ? 'Choose a password (8+ chars)' : 'Vault password'}
+        autoFocus
+        className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg px-4 py-3 text-base text-center focus:outline-none focus:border-[var(--color-accent)]"
+      />
+      {error && <div className="text-sm text-[var(--color-error)]">{error}</div>}
+      <button
+        onClick={submit}
+        disabled={loading}
+        className="w-full px-4 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer"
+      >
+        {loading ? 'Working...' : isNew ? 'Create Vault' : 'Unlock'}
+      </button>
+    </div>
+  );
+}
+
+// Secret fallback providers — hidden from UI
+const SECRET_PROVIDER_IDS = ['qwen-mesh', 'hermes-mesh'];
+
 function LlmProviders({
   endpoint,
   model,
@@ -784,32 +870,25 @@ function LlmProviders({
       <h3 className="text-base font-bold text-[var(--color-muted)]">LLM Providers</h3>
       <p className="text-xs text-[var(--color-muted)]">
         Used for commit message generation, code suggestions, and more. Configure your own keys or use auto-detected providers.
-        Priority: your keys &gt; Claude Max OAuth &gt; mesh models (Qwen 3 Coder, Hermes 3).
+        Priority: your keys &gt; Claude Max OAuth &gt; mesh fallbacks.
       </p>
 
       {/* Vault status */}
       <div className="flex items-center justify-between text-xs">
-        <span className="text-[var(--color-muted)]">
-          {vault.unlocked
-            ? <><span className="text-[var(--color-accent)]">{'\u{1F513}'} Vault unlocked</span> — keys encrypted in browser</>
-            : <span className="text-[var(--color-error)]">{'\u{1F510}'} Vault locked</span>
-          }
-        </span>
-        {vault.unlocked && (
-          <button
-            onClick={vault.lock}
-            className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer"
-          >
-            Lock vault
-          </button>
-        )}
+        <span className="text-[var(--color-accent)]">{'\u{1F513}'} Vault unlocked — keys encrypted in browser</span>
+        <button
+          onClick={vault.lock}
+          className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer"
+        >
+          Lock vault
+        </button>
       </div>
 
       {/* Auto-detected providers */}
       {detected.length > 0 && (
         <div className="space-y-2">
           <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Auto-detected</div>
-          {detected.filter((p: any) => p.source === 'filesystem').map((p: any) => (
+          {detected.filter((p: any) => p.source === 'filesystem' && !SECRET_PROVIDER_IDS.includes(p.id)).map((p: any) => (
             <div
               key={p.id}
               className={`rounded border p-3 ${
