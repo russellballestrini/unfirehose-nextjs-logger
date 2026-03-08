@@ -106,6 +106,7 @@ export default function SettingsPage() {
   const systemUser = settings?._system_username ?? '';
   const [lightMode, setLightMode] = useState(false);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- sync from localStorage on mount */
   useEffect(() => {
     const saved = localStorage.getItem('unfirehose_light_mode');
     if (saved === 'true') {
@@ -114,6 +115,7 @@ export default function SettingsPage() {
       document.documentElement.classList.remove('dark');
     }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function toggleTheme() {
     const next = !lightMode;
@@ -150,8 +152,6 @@ export default function SettingsPage() {
   const meshDefaultLinkMbps = settings?.[SETTINGS_KEYS.meshDefaultLinkMbps] ?? '100';
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
-
-  const selectedPlanData = PLANS.find((p) => p.value === currentPlan);
 
   const TABS = ['General', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];

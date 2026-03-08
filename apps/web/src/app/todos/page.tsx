@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
+import { useEffect, useState, useCallback, Fragment } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
@@ -59,23 +59,29 @@ const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
 
 const TIME_PRESETS = [5, 10, 15, 30, 60, 120];
 
+// Pre-computed random particle data (module level to satisfy react-hooks/purity)
+const POWERUP_INNER = Array.from({ length: 16 }, (_, i) => {
+  const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
+  return { angle, dist: 30 + Math.random() * 25, size: 5 + Math.random() * 5, delay: Math.random() * 0.05 };
+});
+const POWERUP_OUTER = Array.from({ length: 24 }, (_, i) => {
+  const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
+  return { angle, dist: 70 + Math.random() * 60, size: 3 + Math.random() * 4, delay: 0.05 + Math.random() * 0.1 };
+});
+const POWERUP_SPARKS = Array.from({ length: 10 }, () => {
+  const angle = Math.random() * Math.PI * 2;
+  return { angle, dist: 100 + Math.random() * 80, delay: Math.random() * 0.08 };
+});
+const PENDING_PARTICLES = Array.from({ length: 8 }, (_, i) => {
+  const angle = (i / 8) * Math.PI * 2;
+  return { angle, dist: 30 + Math.random() * 20, size: 3 + Math.random() * 3, delay: Math.random() * 0.1 };
+});
+
 // Power-up explosion: massive multi-ring particle burst with sparks and shockwave
 function PowerUpBurst({ x, y, color }: { x: number; y: number; color: string }) {
-  // Inner ring — fast, tight
-  const inner = useMemo(() => Array.from({ length: 16 }, (_, i) => {
-    const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
-    return { angle, dist: 30 + Math.random() * 25, size: 5 + Math.random() * 5, delay: Math.random() * 0.05 };
-  }), []);
-  // Outer ring — slower, wider
-  const outer = useMemo(() => Array.from({ length: 24 }, (_, i) => {
-    const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
-    return { angle, dist: 70 + Math.random() * 60, size: 3 + Math.random() * 4, delay: 0.05 + Math.random() * 0.1 };
-  }), []);
-  // Sparks — long trails
-  const sparks = useMemo(() => Array.from({ length: 10 }, () => {
-    const angle = Math.random() * Math.PI * 2;
-    return { angle, dist: 100 + Math.random() * 80, delay: Math.random() * 0.08 };
-  }), []);
+  const inner = POWERUP_INNER;
+  const outer = POWERUP_OUTER;
+  const sparks = POWERUP_SPARKS;
 
   return (
     <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
@@ -133,10 +139,7 @@ function ParticleBurst({ x, y, color, targetStatus }: { x: number; y: number; co
   if (targetStatus === 'in_progress') return <PowerUpBurst x={x} y={y} color={color} />;
   if (targetStatus === 'completed') return <CapacitorFlash x={x} y={y} />;
   // Fallback: small burst for pending
-  const particles = useMemo(() => Array.from({ length: 8 }, (_, i) => {
-    const angle = (i / 8) * Math.PI * 2;
-    return { angle, dist: 30 + Math.random() * 20, size: 3 + Math.random() * 3, delay: Math.random() * 0.1 };
-  }), []);
+  const particles = PENDING_PARTICLES;
   return (
     <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
       {particles.map((p, i) => (

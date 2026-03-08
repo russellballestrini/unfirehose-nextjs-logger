@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useCallback, useEffect, useMemo, Fragment } from 'react';
+import { use, useState, useCallback, useEffect, Fragment } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
@@ -44,13 +44,15 @@ const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
 
 const TIME_PRESETS = [5, 10, 15, 30, 60, 120];
 
+const KANBAN_PARTICLES = Array.from({ length: 12 }, (_, i) => {
+  const angle = (i / 12) * Math.PI * 2;
+  const dist = 40 + Math.random() * 30;
+  const size = 4 + Math.random() * 4;
+  return { angle, dist, size, delay: Math.random() * 0.1 };
+});
+
 function ParticleBurst({ x, y, color }: { x: number; y: number; color: string }) {
-  const particles = useMemo(() => Array.from({ length: 12 }, (_, i) => {
-    const angle = (i / 12) * Math.PI * 2;
-    const dist = 40 + Math.random() * 30;
-    const size = 4 + Math.random() * 4;
-    return { angle, dist, size, delay: Math.random() * 0.1 };
-  }), []);
+  const particles = KANBAN_PARTICLES;
 
   return (
     <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>

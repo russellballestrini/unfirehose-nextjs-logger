@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo, Fragment } from 'react';
+import { useState, useRef, Fragment } from 'react';
 import useSWR from 'swr';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
@@ -197,6 +197,11 @@ function ProgressBar({ value, label }: { value: number; label: string }) {
   );
 }
 
+const BAR_CHART_VALUES = Array.from({ length: 24 }, (_, h) => {
+  const value = Math.sin((h - 14) * 0.3) * 0.5 + 0.5 + Math.random() * 0.2;
+  return { h, value };
+});
+
 export default function StyleguidePage() {
   const [inputVal, setInputVal] = useState('');
   const [numberVal, setNumberVal] = useState(30);
@@ -214,10 +219,7 @@ export default function StyleguidePage() {
 
   const hBarMax = Math.max(...horizontalBarData.map((d) => d.input + d.output), 1);
 
-  const barChartValues = useMemo(() => Array.from({ length: 24 }, (_, h) => {
-    const value = Math.sin((h - 14) * 0.3) * 0.5 + 0.5 + Math.random() * 0.2;
-    return { h, value };
-  }), []);
+  const barChartValues = BAR_CHART_VALUES;
 
   return (
     <div className="space-y-8">

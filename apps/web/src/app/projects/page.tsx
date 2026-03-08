@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ProjectInfo } from '@unturf/unfirehose/types';
@@ -8,7 +7,6 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -113,9 +111,9 @@ function ProjectCard({
   activity?: ProjectActivity;
   rangeDays: number;
 }) {
-  const isActive = useMemo(() => project.latestActivity
-    ? Date.now() - new Date(project.latestActivity).getTime() < 1000 * 60 * 60
-    : false, [project.latestActivity]);
+  const isActive = project.latestActivity
+    ? (Date.now() - new Date(project.latestActivity).getTime() < 1000 * 60 * 60) // eslint-disable-line react-hooks/purity
+    : false;
 
   return (
     <Link

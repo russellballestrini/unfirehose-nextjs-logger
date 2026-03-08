@@ -79,7 +79,7 @@ export default function TmuxViewerPage() {
   const windows: { index: string; name: string; active: boolean }[] = windowsData?.windows ?? [];
 
   const connectSSERef = useRef<() => EventSource>(null);
-  connectSSERef.current = useCallback(() => {
+  connectSSERef.current = useCallback(() => { // eslint-disable-line react-hooks/refs
     const url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
     const es = new EventSource(url);
 

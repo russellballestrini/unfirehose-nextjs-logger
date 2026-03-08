@@ -35,6 +35,7 @@ export default function UsageMonitorPage() {
   const [wattsOverrides, setWattsOverrides] = useState<Record<string, number>>({});
 
   // Load per-node electricity rates and ISP costs from settings
+  /* eslint-disable react-hooks/set-state-in-effect -- sync derived state from settings */
   useEffect(() => {
     if (!settings) return;
     const rates: Record<string, number> = {};
@@ -60,6 +61,7 @@ export default function UsageMonitorPage() {
     setDiskOverrides(disks);
     setWattsOverrides(watts);
   }, [settings]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const getKwhRate = (hostname: string) => kwhRates[hostname] ?? DEFAULT_KWH_RATE;
   const getIspCost = (hostname: string) => ispCosts[hostname] ?? (parseFloat(settings?.mesh_default_isp_cost ?? '0') || 0);
@@ -201,9 +203,11 @@ export default function UsageMonitorPage() {
   }, [mutateTimeline, mutateProjects, mutateAlerts]);
 
   // Auto-ingest on mount (file watcher handles ongoing ingestion server-side)
+  /* eslint-disable react-hooks/set-state-in-effect -- intentional fetch on mount */
   useEffect(() => {
     runIngest();
   }, [runIngest]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const acknowledgeAll = async () => {
     if (!alerts?.length) return;
