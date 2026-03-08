@@ -75,10 +75,10 @@ export function VaultGate({ children }: { children: ReactNode }) {
         <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-8 space-y-6 shadow-2xl" style={{ boxShadow: '0 0 60px rgba(239, 68, 68, 0.08), 0 25px 50px rgba(0,0,0,0.5)' }}>
           <div className="text-center space-y-3">
             <div className="text-5xl">{isNew ? '\u{1F510}' : '\u{1F513}'}</div>
-            <h2 className="text-xl font-bold">
+            <h2 className="text-2xl font-bold">
               {isNew ? 'Create your vault' : 'Unlock vault'}
             </h2>
-            <p className="text-sm text-[var(--color-muted)] max-w-xs mx-auto">
+            <p className="text-base text-[var(--color-muted)] max-w-sm mx-auto">
               {isNew
                 ? 'Choose a password to encrypt your API keys locally. Keys never leave your browser unencrypted.'
                 : 'Enter your vault password to decrypt your saved keys.'}
@@ -93,7 +93,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
               onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
               placeholder={isNew ? 'Choose a password (8+ chars)' : 'Vault password'}
               autoFocus
-              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg px-4 py-3 text-base focus:outline-none focus:border-[var(--color-accent)] focus:shadow-[0_0_20px_rgba(239,68,68,0.15)] transition-all"
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg px-5 py-4 text-lg focus:outline-none focus:border-[var(--color-accent)] focus:shadow-[0_0_20px_rgba(239,68,68,0.15)] transition-all"
             />
           </div>
 
@@ -104,7 +104,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
           <button
             onClick={submit}
             disabled={loading}
-            className="w-full px-6 py-3 text-base font-bold text-[var(--color-background)] rounded-lg hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 cursor-pointer"
+            className="w-full px-6 py-4 text-lg font-bold text-[var(--color-background)] rounded-lg hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 cursor-pointer"
             style={{
               background: loading ? 'var(--color-accent)' : 'linear-gradient(135deg, var(--color-accent), #ff6b6b)',
               boxShadow: '0 4px 20px rgba(239, 68, 68, 0.3)',
@@ -114,7 +114,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
           </button>
 
           {isNew && (
-            <p className="text-xs text-[var(--color-muted)] text-center">
+            <p className="text-sm text-[var(--color-muted)] text-center">
               No recovery if you forget this password. Your encrypted keys will be lost.
             </p>
           )}
@@ -122,7 +122,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
           {/* Skip option */}
           <button
             onClick={() => vault.create(crypto.randomUUID())}
-            className="w-full text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer transition-colors py-1"
+            className="w-full text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer transition-colors py-1"
           >
             Skip — use without saving keys
           </button>
