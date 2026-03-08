@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   if (hostname === 'all') {
     rows = db.prepare(`
       SELECT timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
-             mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, power_source, claude_processes
+             mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes
       FROM mesh_snapshots
       WHERE timestamp > ?
       ORDER BY timestamp ASC
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   } else {
     rows = db.prepare(`
       SELECT timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
-             mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, power_source, claude_processes
+             mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes
       FROM mesh_snapshots
       WHERE timestamp > ? AND hostname = ?
       ORDER BY timestamp ASC
@@ -54,6 +54,10 @@ export async function GET(req: NextRequest) {
         totalMemUsed: 0,
         totalMemTotal: 0,
         totalClaudes: 0,
+        totalGpuUtil: 0,
+        totalGpuMemUsed: 0,
+        totalGpuMemTotal: 0,
+        gpuNodeCount: 0,
         nodeCount: 0,
         nodes: {} as Record<string, any>,
       });
@@ -66,6 +70,12 @@ export async function GET(req: NextRequest) {
     entry.totalMemUsed += r.mem_used_gb ?? 0;
     entry.totalMemTotal += r.mem_total_gb ?? 0;
     entry.totalClaudes += r.claude_processes ?? 0;
+    if (r.gpu_util != null || r.gpu_mem_total_mb > 0) {
+      entry.totalGpuUtil += r.gpu_util ?? 0;
+      entry.totalGpuMemUsed += r.gpu_mem_used_mb ?? 0;
+      entry.totalGpuMemTotal += r.gpu_mem_total_mb ?? 0;
+      entry.gpuNodeCount += 1;
+    }
     entry.nodeCount += 1;
     entry.nodes[r.hostname] = {
       watts: (r.power_watts ?? 0) + (r.gpu_power_watts ?? 0),
@@ -73,6 +83,10 @@ export async function GET(req: NextRequest) {
       cores: r.cpu_cores ?? 0,
       memUsed: r.mem_used_gb ?? 0,
       claudes: r.claude_processes ?? 0,
+      gpuUtil: r.gpu_util ?? undefined,
+      gpuWatts: r.gpu_power_watts ?? 0,
+      gpuMemUsedMB: r.gpu_mem_used_mb ?? 0,
+      gpuMemTotalMB: r.gpu_mem_total_mb ?? 0,
     };
   }
 
@@ -86,6 +100,9 @@ export async function GET(req: NextRequest) {
     totalCores: e.totalCores,
     memUsedGB: Math.round(e.totalMemUsed * 10) / 10,
     memTotalGB: Math.round(e.totalMemTotal * 10) / 10,
+    gpuUtil: e.gpuNodeCount > 0 ? Math.round(e.totalGpuUtil / e.gpuNodeCount * 10) / 10 : 0,
+    gpuMemUsedGB: Math.round(e.totalGpuMemUsed / 1024 * 10) / 10,
+    gpuMemTotalGB: Math.round(e.totalGpuMemTotal / 1024 * 10) / 10,
     claudes: e.totalClaudes,
     nodeCount: e.nodeCount,
     nodes: e.nodes,
@@ -111,8 +128,8 @@ export async function POST(req: NextRequest) {
 
   const insert = db.prepare(`
     INSERT INTO mesh_snapshots (hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
-      mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, power_source, claude_processes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const tx = db.transaction(() => {
@@ -128,6 +145,9 @@ export async function POST(req: NextRequest) {
         n.memUsedGB ?? 0,
         n.powerWatts ?? 0,
         n.gpuPowerWatts ?? 0,
+        n.gpuUtil ?? null,
+        n.gpuMemUsedMB ?? null,
+        n.gpuMemTotalMB ?? null,
         n.powerSource ?? 'estimate',
         n.claudeProcesses ?? 0,
       );

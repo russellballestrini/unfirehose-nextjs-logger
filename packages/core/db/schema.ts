@@ -228,6 +228,9 @@ function migrate(db: Database.Database) {
       mem_used_gb REAL,
       power_watts REAL,
       gpu_power_watts REAL,
+      gpu_util REAL,
+      gpu_mem_used_mb REAL,
+      gpu_mem_total_mb REAL,
       power_source TEXT,
       claude_processes INTEGER DEFAULT 0
     );
@@ -266,6 +269,9 @@ function migrate(db: Database.Database) {
   addColumn('todos', 'estimated_minutes', 'INTEGER');
   addColumn('todos', 'uuid', 'TEXT');
   addColumn('agent_deployments', 'tmux_window', 'TEXT');
+  addColumn('mesh_snapshots', 'gpu_util', 'REAL');
+  addColumn('mesh_snapshots', 'gpu_mem_used_mb', 'REAL');
+  addColumn('mesh_snapshots', 'gpu_mem_total_mb', 'REAL');
 
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }

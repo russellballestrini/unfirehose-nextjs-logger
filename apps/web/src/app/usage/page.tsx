@@ -783,12 +783,15 @@ export default function UsageMonitorPage() {
           if (isSingleNode && t.nodes?.[chartHostname]) {
             const n = t.nodes[chartHostname];
             point.totalWatts = n.watts;
-            point.cpuWatts = n.watts; // no CPU/GPU split per-node in current data
-            point.gpuWatts = 0;
+            point.cpuWatts = n.watts - (n.gpuWatts ?? 0);
+            point.gpuWatts = n.gpuWatts ?? 0;
             point.totalLoad = n.load;
             point.totalCores = n.cores;
             point.memUsedGB = n.memUsed;
             point.claudes = n.claudes;
+            point.gpuUtil = n.gpuUtil ?? 0;
+            point.gpuMemUsedGB = Math.round((n.gpuMemUsedMB ?? 0) / 1024 * 10) / 10;
+            point.gpuMemTotalGB = Math.round((n.gpuMemTotalMB ?? 0) / 1024 * 10) / 10;
             point.elecCostPerHour = Math.round((n.watts / 1000) * getKwhRate(chartHostname) * 100) / 100;
           }
           // Per-node breakout keys
@@ -798,6 +801,8 @@ export default function UsageMonitorPage() {
               point[`load_${h}`] = t.nodes[h]?.load ?? 0;
               point[`mem_${h}`] = t.nodes[h]?.memUsed ?? 0;
               point[`claudes_${h}`] = t.nodes[h]?.claudes ?? 0;
+              point[`gpuUtil_${h}`] = t.nodes[h]?.gpuUtil ?? 0;
+              point[`gpuWatts_${h}`] = t.nodes[h]?.gpuWatts ?? 0;
             }
           }
           return point;
@@ -947,6 +952,82 @@ export default function UsageMonitorPage() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+
+          {/* GPU Utilization */}
+          {chartData.some((t: any) => t.gpuUtil > 0 || t.gpuWatts > 0) && (
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              GPU Utilization
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {last?.gpuUtil ?? 0}%
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+                <Legend />
+                {isPerNode ? (
+                  hostnames.map((h, i) => (
+                    <Area key={h} type="monotone" dataKey={`gpuUtil_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="gpuUtil" dot={false} />
+                  ))
+                ) : (
+                  <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
+                )}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          )}
+
+          {/* GPU Power */}
+          {chartData.some((t: any) => t.gpuWatts > 0) && (
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              GPU Power
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {last?.gpuWatts ?? 0}W
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+                <Legend />
+                {isPerNode ? (
+                  hostnames.map((h, i) => (
+                    <Area key={h} type="monotone" dataKey={`gpuWatts_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="gpuW" dot={false} />
+                  ))
+                ) : (
+                  <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
+                )}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          )}
+
+          {/* GPU Memory */}
+          {chartData.some((t: any) => t.gpuMemTotalGB > 0) && (
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+              GPU Memory
+              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
+                {last?.gpuMemUsedGB ?? 0} / {last?.gpuMemTotalGB ?? 0} GB
+              </span>
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData}>
+                <XAxis {...xAxisProps} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
+                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
+                <Legend />
+                <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
+                <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          )}
         </div>
         );
       })()}
