@@ -1,0 +1,165 @@
+digraph component_states {
+  rankdir=TB
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=box style="filled,rounded" fontname="monospace" fontsize=9 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  // Button States
+  subgraph cluster_button {
+    label="Button States"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    btn_enabled [label="Enabled\nborder-[var(--color-border)]" fillcolor="#1a3a2a"]
+    btn_hover [label="Hover\nborder-[var(--color-accent)]\ntransition 150ms" fillcolor="#2a3a1a"]
+    btn_focus [label="Focused\noutline 1px accent\noffset -1px" fillcolor="#2a3a1a"]
+    btn_active [label="Active\nscale-[0.98]" fillcolor="#3a3a1a"]
+    btn_disabled [label="Disabled\nopacity-50\ncursor-not-allowed" fillcolor="#2a2a4a"]
+
+    btn_enabled -> btn_hover [label="mouseenter"]
+    btn_hover -> btn_enabled [label="mouseleave"]
+    btn_hover -> btn_active [label="mousedown"]
+    btn_active -> btn_hover [label="mouseup"]
+    btn_enabled -> btn_focus [label="tab"]
+    btn_focus -> btn_enabled [label="blur"]
+    btn_focus -> btn_active [label="enter/space"]
+  }
+
+  // Button Variants
+  subgraph cluster_btn_variants {
+    label="Button Variants"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    btn_primary [label="Primary\nbg-accent text-bg\nfont-bold\nhover:opacity-90" fillcolor="#d40000" fontcolor="#fafafa"]
+    btn_secondary [label="Secondary\nbg-surface-hover\nborder\nhover:border-accent" fillcolor="#27272a"]
+    btn_danger [label="Danger\ntext-error border-error\nhover:bg-error\nhover:text-fg" fillcolor="#3a1a1a"]
+    btn_ghost [label="Ghost\nbg-transparent\nhover:border-accent" fillcolor="#1a1a2e"]
+  }
+
+  // Card States
+  subgraph cluster_card {
+    label="Card States"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    card_default [label="Default\nbg-surface\nborder-border\nshadow-none" fillcolor="#18181b"]
+    card_hover [label="Hover\nborder-accent\ntransition-colors" fillcolor="#1a2a3a"]
+    card_selected [label="Selected\nborder-accent\naccent border" fillcolor="#2a1a3a"]
+    card_error [label="Error\nborder-error\ntext-error" fillcolor="#3a1a1a"]
+
+    card_default -> card_hover [label="mouseenter"]
+    card_hover -> card_default [label="mouseleave"]
+    card_hover -> card_selected [label="click"]
+  }
+
+  // Kanban Card Lifecycle
+  subgraph cluster_kanban {
+    label="Kanban Card Lifecycle"
+    style=dashed
+    color="#333366"
+    fontcolor="#666699"
+
+    kan_rest [label="At Rest\nshadow-md\ncursor-grab\naccent 6% tint" fillcolor="#1a2a3a"]
+    kan_grab [label="Grabbing\nscale-[1.03]\nrotate-1\ncursor-grabbing" fillcolor="#2a2a3a"]
+    kan_ghost [label="Ghost (Source)\nopacity-30\nscale-90\nrotate-2" fillcolor="#2a2a4a"]
+    kan_drop_zone [label="Drop Zone\nborder-2 dashed\naccent/10 bg\ntext: Drop to power up" fillcolor="#3a1a2a"]
+    kan_landed [label="Landed\ncard-landed 0.6s\ncard-scale-in 0.35s\nburst particles" fillcolor="#3a2a1a"]
+    kan_active [label="Active / RUNNING\nshadow-lg accent glow\nanimate-pulse dot\nborder accent/50" fillcolor="#3a1a1a"]
+    kan_completed [label="Completed\nline-through\nreduced opacity\nsmaller card" fillcolor="#1a3a2a"]
+
+    kan_rest -> kan_grab [label="dragstart"]
+    kan_grab -> kan_ghost [label="drag moves\n(source slot)"]
+    kan_grab -> kan_drop_zone [label="dragover\n(target column)"]
+    kan_drop_zone -> kan_landed [label="drop\n(valid transition)"]
+    kan_landed -> kan_active [label="pending→active\nagent starts"]
+    kan_active -> kan_completed [label="active→done\nagent finishes"]
+    kan_grab -> kan_rest [label="dragend\n(no drop)"]
+  }
+
+  // Input States
+  subgraph cluster_input {
+    label="Input States"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    input_empty [label="Empty\nbg-background\nborder-border\nplaceholder text" fillcolor="#09090b"]
+    input_filled [label="Filled\ntext-foreground" fillcolor="#09090b"]
+    input_focused [label="Focused\noutline 1px accent\noffset -1px" fillcolor="#1a1a3a"]
+    input_error [label="Error\nborder-error" fillcolor="#3a1a1a"]
+
+    input_empty -> input_focused [label="focus"]
+    input_focused -> input_filled [label="type"]
+    input_filled -> input_focused [label="focus"]
+    input_focused -> input_empty [label="blur\n(empty)"]
+    input_focused -> input_filled [label="blur\n(has value)"]
+  }
+
+  // Message Block States
+  subgraph cluster_message {
+    label="Message Block Indicators"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    msg_user [label="User\nborder-l-2 user\nblue #60a5fa" fillcolor="#1a2a3a"]
+    msg_assistant [label="Assistant\nborder-l-2 accent\nred (tracks accent)" fillcolor="#3a1a1a"]
+    msg_thinking [label="Thinking\nborder-l-2 thinking\npurple #a78bfa" fillcolor="#2a1a3a"]
+    msg_tool [label="Tool\nborder-l-2 tool\namber #fbbf24" fillcolor="#3a2a1a"]
+    msg_system [label="System\nborder-l-2 muted\ngray #a1a1aa" fillcolor="#2a2a4a"]
+  }
+
+  // Theme Toggle
+  subgraph cluster_theme_toggle {
+    label="Theme Toggle"
+    style=dashed
+    color="#663333"
+    fontcolor="#cc6666"
+
+    dark_mode [label="Dark Mode (default)\n:root\nbg #09090b\nfg #fafafa" fillcolor="#09090b" fontcolor="#fafafa"]
+    light_mode [label="Light Mode\n:root.light\nbg #fafafa\nfg #09090b" fillcolor="#fafafa" fontcolor="#09090b"]
+
+    dark_mode -> light_mode [label="toggle\nclassList.add('light')"]
+    light_mode -> dark_mode [label="toggle\nclassList.remove('light')"]
+  }
+
+  // Badge Tiers
+  subgraph cluster_badges {
+    label="Badge Tier System"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    badge_locked [label="Locked\n◇ hollow\nopacity-50\nprogress bar" fillcolor="#2a2a4a"]
+    badge_bronze [label="Bronze\n◆ filled\n#cd7f32" fillcolor="#3a2a1a"]
+    badge_silver [label="Silver\n◆ filled\n#c0c0c0" fillcolor="#2a2a3a"]
+    badge_gold [label="Gold\n◆ filled\n#ffd700" fillcolor="#3a3a1a"]
+    badge_diamond [label="Diamond\n◆ filled\n#b9f2ff" fillcolor="#1a3a3a"]
+
+    badge_locked -> badge_bronze [label="earned"]
+    badge_bronze -> badge_silver [label="tier up"]
+    badge_silver -> badge_gold [label="tier up"]
+    badge_gold -> badge_diamond [label="tier up"]
+  }
+
+  // Vault Gate States
+  subgraph cluster_vault {
+    label="Vault Gate States"
+    style=dashed
+    color="#663333"
+    fontcolor="#cc6666"
+
+    vault_locked [label="Locked\npassword prompt\naccent gradient glow\nPBKDF2 600k iter" fillcolor="#3a1a1a"]
+    vault_unlocked [label="Unlocked\nsession key cached\nVaultProvider active" fillcolor="#1a3a2a"]
+    vault_skipped [label="Skipped\nno vault\nno API keys" fillcolor="#2a2a4a"]
+
+    vault_locked -> vault_unlocked [label="password\nAES-GCM derive"]
+    vault_locked -> vault_skipped [label="skip"]
+    vault_unlocked -> vault_locked [label="session\nexpires"]
+  }
+}

@@ -1,0 +1,212 @@
+digraph design_system {
+  rankdir=TB
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=box style="filled,rounded" fontname="monospace" fontsize=9 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  // Design Tokens
+  subgraph cluster_tokens {
+    label="Design Tokens\nglobals.css @theme inline"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    subgraph cluster_surface {
+      label="Surface Tokens"
+      style=dashed
+      color="#333355"
+      fontcolor="#666688"
+
+      bg [label="--color-background\n#09090b\npage base" fillcolor="#09090b" fontcolor="#fafafa"]
+      surface [label="--color-surface\n#18181b\ncards, panels" fillcolor="#18181b" fontcolor="#fafafa"]
+      surface_hover [label="--color-surface-hover\n#27272a\nhover state" fillcolor="#27272a" fontcolor="#fafafa"]
+    }
+
+    subgraph cluster_semantic {
+      label="Semantic Tokens"
+      style=dashed
+      color="#333355"
+      fontcolor="#666688"
+
+      fg [label="--color-foreground\n#fafafa\nprimary text" fillcolor="#fafafa" fontcolor="#09090b"]
+      muted [label="--color-muted\n#a1a1aa\nsecondary text" fillcolor="#a1a1aa" fontcolor="#09090b"]
+      border [label="--color-border\n#3f3f46\nborders" fillcolor="#3f3f46" fontcolor="#e0e0e0"]
+      error [label="--color-error\n#f87171\nerror state" fillcolor="#f87171" fontcolor="#09090b"]
+    }
+
+    subgraph cluster_role {
+      label="Role Tokens"
+      style=dashed
+      color="#333355"
+      fontcolor="#666688"
+
+      accent [label="--color-accent\n#d40000 (customizable)\nglobal accent" fillcolor="#d40000" fontcolor="#fafafa"]
+      user_c [label="--color-user\n#60a5fa\nuser messages" fillcolor="#60a5fa" fontcolor="#09090b"]
+      assistant_c [label="--color-assistant\ntracks accent\nassistant msgs" fillcolor="#d40000" fontcolor="#fafafa"]
+      thinking_c [label="--color-thinking\n#a78bfa\nthinking blocks" fillcolor="#a78bfa" fontcolor="#09090b"]
+      tool_c [label="--color-tool\n#fbbf24\ntool calls" fillcolor="#fbbf24" fontcolor="#09090b"]
+    }
+  }
+
+  // Typography
+  subgraph cluster_typography {
+    label="Typography\nGeist Mono — monospace only"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    type_2xl [label="text-2xl font-bold\nPage headings" fillcolor="#2a1a3a"]
+    type_lg [label="text-lg font-bold\nSection headings" fillcolor="#2a1a3a"]
+    type_base [label="text-base\nBody text (default)" fillcolor="#2a1a3a"]
+    type_sm [label="text-sm\nSecondary, badges" fillcolor="#2a1a3a"]
+    type_xs [label="text-xs\nLabels, timestamps" fillcolor="#2a1a3a"]
+  }
+
+  // Shape
+  subgraph cluster_shape {
+    label="Shape System"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    rounded [label="rounded (6px)\ncards, inputs, buttons" fillcolor="#1a3a2a"]
+    rounded_lg [label="rounded-lg (8px)\nmodals, panels" fillcolor="#1a3a2a"]
+    rounded_xl [label="rounded-xl (12px)\nkanban, vault, hero" fillcolor="#1a3a2a"]
+    rounded_full [label="rounded-full\npills, status dots" fillcolor="#1a3a2a"]
+  }
+
+  // Elevation
+  subgraph cluster_elevation {
+    label="Elevation (border-based)"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    elev_0 [label="Level 0\nno shadow\nstatic content" fillcolor="#1a2a3a"]
+    elev_1 [label="Level 1\nshadow-md\ncards at rest" fillcolor="#1a2a3a"]
+    elev_2 [label="Level 2\nshadow-lg\nactive items" fillcolor="#1a2a3a"]
+    elev_3 [label="Level 3\nshadow-2xl\ndragged, modals" fillcolor="#1a2a3a"]
+    elev_glow [label="Accent Glow\nshadow-[0_0_12px]\nRUNNING state" fillcolor="#3a1a1a"]
+  }
+
+  // Spacing
+  subgraph cluster_spacing {
+    label="Spacing Scale (4px base)"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    sp_1 [label="gap-1 (4px)\nminimal sep" fillcolor="#2a2a4a"]
+    sp_2 [label="gap-2 (8px)\nstandard gap" fillcolor="#2a2a4a"]
+    sp_3 [label="gap-3 (12px)\ncard padding" fillcolor="#2a2a4a"]
+    sp_4 [label="gap-4 (16px)\ngrid gaps" fillcolor="#2a2a4a"]
+    sp_6 [label="gap-6 (24px)\npage padding" fillcolor="#2a2a4a"]
+    sp_8 [label="gap-8 (32px)\nmajor rhythm" fillcolor="#2a2a4a"]
+  }
+
+  // Motion
+  subgraph cluster_motion {
+    label="Motion & Animation"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    dur_micro [label="150ms ease\nhover, opacity" fillcolor="#3a2a1a"]
+    dur_short [label="200ms ease-out\ncontent reveal" fillcolor="#3a2a1a"]
+    dur_medium [label="350ms ease-out\ncard scale-in" fillcolor="#3a2a1a"]
+    dur_long [label="600ms ease-out\nparticle burst" fillcolor="#3a2a1a"]
+    dur_ambient [label="4000ms loop\nvault pulse" fillcolor="#3a2a1a"]
+  }
+
+  // Components
+  subgraph cluster_components {
+    label="Component Library"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    comp_card [label="Card\nsurface + border\nrounded, p-4" fillcolor="#1a3a3a"]
+    comp_button [label="Buttons\nprimary / secondary\ndanger / disabled" fillcolor="#1a3a3a"]
+    comp_input [label="Inputs\ntext / number\nselect / checkbox" fillcolor="#1a3a3a"]
+    comp_chart [label="Charts\nRecharts + CSS\nbar, pie, area" fillcolor="#1a3a3a"]
+    comp_border [label="Border Indicator\n2-3px left border\nrole-colored" fillcolor="#1a3a3a"]
+    comp_kanban [label="Kanban Card\nrounded-xl, draggable\nparticle burst" fillcolor="#1a3a3a"]
+    comp_progress [label="Progress Bar\ngrid layout\naccent fill" fillcolor="#1a3a3a"]
+    comp_time [label="TimeRangeSelect\nshared dropdown\nlocalStorage" fillcolor="#1a3a3a"]
+    comp_sidebar [label="Sidebar\nUnicode icons\nsection groups" fillcolor="#1a3a3a"]
+    comp_vault [label="Vault Gate\nAES-GCM lock\naccent gradient" fillcolor="#1a3a3a"]
+    comp_badge [label="Badge Card\ntier colors\nprogress bar" fillcolor="#1a3a3a"]
+    comp_heatmap [label="Heatmap\nCSS Grid\ncolor-mix intensity" fillcolor="#1a3a3a"]
+  }
+
+  // Theme switching
+  subgraph cluster_theme {
+    label="Theme System"
+    style=dashed
+    color="#663333"
+    fontcolor="#cc6666"
+
+    theme_provider [label="ThemeProvider\nfetches settings\napplies accent" fillcolor="#3a1a1a" shape=component]
+    theme_dark [label="Dark Mode (default)\n:root" fillcolor="#2a2a4a"]
+    theme_light [label="Light Mode\n:root.light" fillcolor="#fafafa" fontcolor="#09090b"]
+    theme_accent [label="Custom Accent\nvar(--color-accent)\npersists to DB" fillcolor="#3a2a2a"]
+  }
+
+  // Responsive
+  subgraph cluster_responsive {
+    label="Responsive Grid\nmobile-first, CSS Grid only"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    bp_mobile [label="< 768px\n1 column\nsidebar hidden" fillcolor="#2a2a4a"]
+    bp_md [label="md (768px)\n2-3 columns\nsidebar visible" fillcolor="#2a2a4a"]
+    bp_lg [label="lg (1024px)\n3-4 columns\nfull dashboard" fillcolor="#2a2a4a"]
+    bp_xl [label="xl (1280px)\n4+ columns\nwide monitor" fillcolor="#2a2a4a"]
+  }
+
+  // Token → Component flows
+  accent -> comp_button [label="fill color"]
+  accent -> comp_kanban [label="glow, burst"]
+  accent -> comp_chart [label="primary metric"]
+  accent -> comp_border [label="assistant border"]
+  accent -> theme_accent [label="customizable"]
+
+  user_c -> comp_border [label="user border"]
+  thinking_c -> comp_border [label="thinking border"]
+  tool_c -> comp_border [label="tool border"]
+
+  surface -> comp_card [label="background"]
+  border -> comp_card [label="border"]
+  border -> comp_input [label="border"]
+
+  muted -> type_base [label="secondary text" style=dashed]
+  fg -> type_base [label="primary text" style=dashed]
+
+  // Theme → Tokens
+  theme_provider -> accent [label="setProperty" color="#663333"]
+  theme_provider -> theme_dark [style=dashed]
+  theme_provider -> theme_light [style=dashed]
+
+  // Elevation → Components
+  elev_1 -> comp_kanban [label="at rest" style=dashed]
+  elev_2 -> comp_kanban [label="active" style=dashed]
+  elev_glow -> comp_kanban [label="RUNNING" style=dashed]
+
+  // Shape → Components
+  rounded -> comp_card [style=dashed]
+  rounded -> comp_button [style=dashed]
+  rounded -> comp_input [style=dashed]
+  rounded_xl -> comp_kanban [style=dashed]
+  rounded_xl -> comp_vault [style=dashed]
+
+  // Motion → Components
+  dur_long -> comp_kanban [label="card-landed" style=dashed]
+  dur_micro -> comp_button [label="hover" style=dashed]
+  dur_ambient -> comp_vault [label="pulse glow" style=dashed]
+
+  // Responsive → Components
+  bp_md -> comp_sidebar [label="shows/hides"]
+  bp_lg -> comp_chart [label="2-col grid"]
+}
