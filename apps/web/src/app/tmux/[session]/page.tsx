@@ -65,11 +65,14 @@ export default function TmuxViewerPage() {
   const session = params.session as string;
   const host = searchParams.get('host') ?? undefined;
   const hostParam = host ? `&host=${encodeURIComponent(host)}` : '';
-  const [content, setContent] = useState('Connecting...');
   const [connected, setConnected] = useState(false);
   const [activeWindow, setActiveWindow] = useState<string | undefined>(undefined);
   const termRef = useRef<HTMLPreElement>(null);
   const autoScrollRef = useRef(true);
+  // rAF-gated rendering: buffer incoming content, only paint once per frame
+  const pendingContentRef = useRef<string | null>(null);
+  const lastRenderedRef = useRef('');
+  const rafIdRef = useRef<number>(0);
 
   const { data: windowsData } = useSWR(
     `/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`,
@@ -86,10 +89,23 @@ export default function TmuxViewerPage() {
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        setContent(data);
         setConnected(true);
-        if (autoScrollRef.current && termRef.current) {
-          termRef.current.scrollTop = termRef.current.scrollHeight;
+        // Buffer content — only render on next animation frame
+        pendingContentRef.current = data;
+        if (!rafIdRef.current) {
+          rafIdRef.current = requestAnimationFrame(() => {
+            rafIdRef.current = 0;
+            const raw = pendingContentRef.current;
+            if (raw !== null && raw !== lastRenderedRef.current) {
+              lastRenderedRef.current = raw;
+              if (termRef.current) {
+                termRef.current.innerHTML = ansiToHtml(raw);
+                if (autoScrollRef.current) {
+                  termRef.current.scrollTop = termRef.current.scrollHeight;
+                }
+              }
+            }
+          });
         }
       } catch { /* skip */ }
     };
@@ -105,8 +121,15 @@ export default function TmuxViewerPage() {
   }, [session, activeWindow, hostParam]);
 
   useEffect(() => {
+    // Set initial text
+    if (termRef.current && !termRef.current.textContent) {
+      termRef.current.textContent = 'Connecting...';
+    }
     const es = connectSSERef.current!();
-    return () => es.close();
+    return () => {
+      es.close();
+      if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = 0; }
+    };
   }, [session, activeWindow, hostParam]);
 
   // Interactive mode
@@ -254,7 +277,6 @@ export default function TmuxViewerPage() {
         className={`flex-1 bg-[#0d0d0d] rounded-lg border p-4 overflow-auto font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none ${
           interactive ? 'border-green-500/50 cursor-text' : 'border-[var(--color-border)]'
         }`}
-        dangerouslySetInnerHTML={{ __html: ansiToHtml(content) }}
       />
       {interactive && (
         <div className="text-xs text-[var(--color-muted)] mt-1">

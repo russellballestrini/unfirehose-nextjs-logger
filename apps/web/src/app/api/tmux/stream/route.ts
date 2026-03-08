@@ -11,8 +11,9 @@ function sshPrefix(host?: string): { cmd: string; args: string[] } {
 function capturePane(session: string, window?: string, host?: string): Promise<string> {
   const target = window ? `${session}:${window}` : session;
   const { cmd, args } = sshPrefix(host);
+  const isLocal = !host || host === 'localhost';
   return new Promise((resolve, reject) => {
-    execFile(cmd, [...args, 'capture-pane', '-p', '-t', target, '-e'], { timeout: host ? 10000 : 3000, maxBuffer: 1024 * 256 }, (err, stdout) => {
+    execFile(cmd, [...args, 'capture-pane', '-p', '-t', target, '-e'], { timeout: isLocal ? 1000 : 10000, maxBuffer: 1024 * 256 }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout);
     });
@@ -95,10 +96,14 @@ export async function GET(request: NextRequest) {
         return;
       }
 
-      // Poll — remote is slower so use 500ms interval, local is 150ms
-      const pollMs = host && host !== 'localhost' ? 500 : 150;
+      // Poll — local at 33ms (~30fps), remote at 300ms
+      const isLocal = !host || host === 'localhost';
+      const pollMs = isLocal ? 33 : 300;
+      let polling = false;
       const interval = setInterval(async () => {
         if (!alive) { clearInterval(interval); controller.close(); return; }
+        if (polling) return; // skip if previous capture still in flight
+        polling = true;
         try {
           const content = await capturePane(session, window, host);
           if (content !== lastContent) {
@@ -110,6 +115,7 @@ export async function GET(request: NextRequest) {
           clearInterval(interval);
           try { controller.close(); } catch {}
         }
+        polling = false;
       }, pollMs);
 
       // Clean up after 30 minutes max
