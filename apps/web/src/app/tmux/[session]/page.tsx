@@ -300,7 +300,7 @@ export default function TmuxViewerPage() {
         ref={termRef}
         tabIndex={0}
         onScroll={handleScroll}
-        className={`flex-1 bg-[#0d0d0d] rounded-lg border p-4 overflow-auto font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none ${
+        className={`flex-1 bg-[#0d0d0d] rounded-lg border p-4 overflow-hidden font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none ${
           interactive ? 'border-green-500/50 cursor-text' : 'border-[var(--color-border)]'
         }`}
       />
