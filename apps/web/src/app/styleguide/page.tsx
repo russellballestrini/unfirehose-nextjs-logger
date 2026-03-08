@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, Fragment } from 'react';
+import { useState, useRef, useMemo, Fragment } from 'react';
 import useSWR from 'swr';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
@@ -213,6 +213,11 @@ export default function StyleguidePage() {
   }
 
   const hBarMax = Math.max(...horizontalBarData.map((d) => d.input + d.output), 1);
+
+  const barChartValues = useMemo(() => Array.from({ length: 24 }, (_, h) => {
+    const value = Math.sin((h - 14) * 0.3) * 0.5 + 0.5 + Math.random() * 0.2;
+    return { h, value };
+  }), []);
 
   return (
     <div className="space-y-8">
@@ -908,9 +913,7 @@ Response:
           <h4 className="text-sm font-bold text-[var(--color-muted)]">CSS BarChart — hour of day, daily cost (no recharts)</h4>
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <div className="flex items-end gap-px h-24">
-              {Array.from({ length: 24 }, (_, h) => {
-                const value = Math.sin((h - 14) * 0.3) * 0.5 + 0.5 + Math.random() * 0.2;
-                return (
+              {barChartValues.map(({ h, value }) => (
                   <div key={h} className="flex-1 flex flex-col items-center justify-end h-full">
                     <div
                       className="w-full rounded-t-sm min-h-px"
@@ -922,8 +925,7 @@ Response:
                     />
                     <div className="text-[8px] text-[var(--color-muted)] mt-0.5">{h % 3 === 0 ? h : ''}</div>
                   </div>
-                );
-              })}
+                ))}
             </div>
           </div>
         </div>

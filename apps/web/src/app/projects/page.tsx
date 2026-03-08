@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ProjectInfo } from '@unturf/unfirehose/types';
@@ -112,9 +113,9 @@ function ProjectCard({
   activity?: ProjectActivity;
   rangeDays: number;
 }) {
-  const isActive = project.latestActivity
+  const isActive = useMemo(() => project.latestActivity
     ? Date.now() - new Date(project.latestActivity).getTime() < 1000 * 60 * 60
-    : false;
+    : false, [project.latestActivity]);
 
   return (
     <Link

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
@@ -62,20 +62,20 @@ const TIME_PRESETS = [5, 10, 15, 30, 60, 120];
 // Power-up explosion: massive multi-ring particle burst with sparks and shockwave
 function PowerUpBurst({ x, y, color }: { x: number; y: number; color: string }) {
   // Inner ring — fast, tight
-  const inner = Array.from({ length: 16 }, (_, i) => {
+  const inner = useMemo(() => Array.from({ length: 16 }, (_, i) => {
     const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
     return { angle, dist: 30 + Math.random() * 25, size: 5 + Math.random() * 5, delay: Math.random() * 0.05 };
-  });
+  }), []);
   // Outer ring — slower, wider
-  const outer = Array.from({ length: 24 }, (_, i) => {
+  const outer = useMemo(() => Array.from({ length: 24 }, (_, i) => {
     const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
     return { angle, dist: 70 + Math.random() * 60, size: 3 + Math.random() * 4, delay: 0.05 + Math.random() * 0.1 };
-  });
+  }), []);
   // Sparks — long trails
-  const sparks = Array.from({ length: 10 }, () => {
+  const sparks = useMemo(() => Array.from({ length: 10 }, () => {
     const angle = Math.random() * Math.PI * 2;
     return { angle, dist: 100 + Math.random() * 80, delay: Math.random() * 0.08 };
-  });
+  }), []);
 
   return (
     <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
@@ -133,10 +133,10 @@ function ParticleBurst({ x, y, color, targetStatus }: { x: number; y: number; co
   if (targetStatus === 'in_progress') return <PowerUpBurst x={x} y={y} color={color} />;
   if (targetStatus === 'completed') return <CapacitorFlash x={x} y={y} />;
   // Fallback: small burst for pending
-  const particles = Array.from({ length: 8 }, (_, i) => {
+  const particles = useMemo(() => Array.from({ length: 8 }, (_, i) => {
     const angle = (i / 8) * Math.PI * 2;
     return { angle, dist: 30 + Math.random() * 20, size: 3 + Math.random() * 3, delay: Math.random() * 0.1 };
-  });
+  }), []);
   return (
     <div className="pointer-events-none fixed z-50" style={{ left: x, top: y }}>
       {particles.map((p, i) => (
@@ -190,6 +190,7 @@ export default function TodosPage() {
       .finally(() => setLoading(false));
   }, [filter]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetching on mount
   useEffect(() => { fetchTodos(true); }, [fetchTodos]);
 
   const updateTodo = useCallback(async (id: number, updates: { estimatedMinutes?: number; status?: string; content?: string }) => {
