@@ -829,6 +829,8 @@ export default function UsageMonitorPage() {
             </select>
           </div>
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
           {/* Claude Processes */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
@@ -1028,6 +1030,8 @@ export default function UsageMonitorPage() {
             </ResponsiveContainer>
           </div>
           )}
+
+          </div>{/* end grid */}
         </div>
         );
       })()}
