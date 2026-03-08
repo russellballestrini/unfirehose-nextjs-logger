@@ -48,6 +48,10 @@ export async function GET(
     try {
       const raw = await readFile(claudePaths.sessionsIndex(project), 'utf-8');
       index = JSON.parse(raw);
+      // Backfill originalPath if missing from index
+      if (!index.originalPath) {
+        index.originalPath = await resolveProjectPath(project);
+      }
     } catch {
       // No index — build from JSONL filenames + enrich from DB
       const files = await readdir(claudePaths.projectDir(project));
