@@ -38,6 +38,7 @@ digraph architecture {
     fontcolor="#999999"
 
     db [label="better-sqlite3\nprojects | sessions | messages\ncontent_blocks | usage_minutes\nalerts | todos | settings\nmesh_snapshots" fillcolor="#2a2a4a" shape=cylinder]
+    attachments_store [label="~/.unfirehose/attachments/\ncontent-addressed\nSHA-256 filenames" fillcolor="#2a2a4a" shape=folder]
   }
 
   // Browser-side vault
@@ -97,7 +98,7 @@ digraph architecture {
     api_alerts [label="/api/alerts\nthreshold breaches" fillcolor="#1a2a3a"]
     api_stats [label="/api/stats\naggregated metrics" fillcolor="#1a2a3a"]
     api_live [label="/api/live\nSSE stream" fillcolor="#3a2a1a"]
-    api_todos [label="/api/todos\nGET/POST/PATCH\nkanban + inject" fillcolor="#1a3a3a"]
+    api_todos [label="/api/todos\nGET/POST/PATCH\nkanban + inject\nattachments" fillcolor="#1a3a3a"]
     api_scrobble [label="/api/scrobble\npayload + preview" fillcolor="#1a3a3a"]
     api_active [label="/api/active-sessions\nGET active list" fillcolor="#1a3a3a"]
     api_git_suggest [label="/api/projects/[p]/git/suggest\nLLM commit messages" fillcolor="#1a3a2a"]
@@ -157,6 +158,7 @@ digraph architecture {
   db -> api_stats
   db -> api_projects [style=dotted]
   db -> api_todos
+  api_todos -> attachments_store [label="file\nupload/serve"]
   db -> api_active
   db -> api_scrobble
   db -> api_settings

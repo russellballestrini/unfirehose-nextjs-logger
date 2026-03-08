@@ -116,6 +116,10 @@ digraph dataflow {
   todo_ui [label="Todo UI\nform input" fillcolor="#1a3a2a"]
   todo_api [label="POST /api/todos\nvalidate + insert" fillcolor="#1a3a2a"]
 
+  // Attachment upload
+  attach_api [label="/api/todos/attachments\nPOST/GET/DELETE" fillcolor="#1a3a3a"]
+  attach_store [label="~/.unfirehose/attachments/\nSHA-256 content-addressed" fillcolor="#2a2a4a" shape=folder]
+
   // Storage
   todos_table [label="todos table\n+ todo_events" fillcolor="#1a3a3a" shape=cylinder]
   vis_table [label="project_visibility\ntable" fillcolor="#3a2a3a" shape=cylinder]
@@ -151,6 +155,11 @@ digraph dataflow {
   // Manual todo injection flow
   browser -> todo_ui [label="user\ninput"]
   todo_ui -> todo_api -> todos_table
+
+  // Attachment upload flow
+  browser -> attach_api [label="drag-drop\nupload"]
+  attach_api -> attach_store [label="SHA-256\nwrite"]
+  attach_api -> todos_table [label="todo_attachments\nINSERT"]
 
   // Vault flow
   browser -> vault_gate [label="password\nprompt"]

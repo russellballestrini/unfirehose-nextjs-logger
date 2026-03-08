@@ -110,7 +110,7 @@ The bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:
 
 ## Todo System
 
-Cross-session todos are extracted from all harness JSONL (Claude Code, Fetch, uncloseai) during ingestion. 1300+ todos across 22 projects.
+Cross-session todos are extracted from all harness JSONL (Claude Code, Fetch, uncloseai) during ingestion. 1300+ todos across 22 projects. Todos support file attachments stored at `~/.unfirehose/attachments/{sha256}` (content-addressed, max 10MB per file).
 
 ### API (localhost:3000)
 
@@ -146,6 +146,18 @@ curl -X PATCH localhost:3000/api/todos \
 curl -X PATCH localhost:3000/api/todos/bulk \
   -H 'Content-Type: application/json' \
   -d '{"ids": [1,2,3], "status": "completed"}'
+
+# Upload attachment to a todo
+curl -X POST localhost:3000/api/todos/attachments \
+  -F 'todoId=123' -F 'files=@screenshot.png'
+
+# List attachments
+curl -s "localhost:3000/api/todos/attachments?todoId=123"
+
+# Delete attachment
+curl -X DELETE localhost:3000/api/todos/attachments \
+  -H 'Content-Type: application/json' \
+  -d '{"id": 456}'
 ```
 
 ### Ticket threshold

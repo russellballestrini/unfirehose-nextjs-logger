@@ -40,6 +40,22 @@ Audit trail for status changes.
 | new_status | TEXT | new status |
 | event_at | TEXT | timestamp of change |
 
+### `todo_attachments`
+
+File attachments for todos. Content-addressed by SHA-256.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER | primary key |
+| todo_id | FK | links to todos |
+| filename | TEXT | original filename |
+| mime_type | TEXT | MIME type (e.g. `image/png`) |
+| size_bytes | INTEGER | file size in bytes |
+| hash | TEXT | SHA-256 content hash (unique) |
+| created_at | TEXT | upload timestamp |
+
+UNIQUE constraint on `hash` for content-addressed dedup.
+
 ## API Endpoints
 
 ### `GET /api/todos`
@@ -60,7 +76,7 @@ Returns:
 }
 ```
 
-Groups by project, includes session links, capped at 500.
+Groups by project, includes session links, capped at 500. Each todo includes an `attachments[]` array.
 
 ### `POST /api/todos`
 
@@ -81,6 +97,28 @@ Update a todo.
 ```
 
 Sets `completed_at` when status becomes `completed`.
+
+### `POST /api/todos/attachments`
+
+Upload files to a todo. Accepts multipart FormData with `todoId` field and one or more `files`. Max 10MB per file. Files are content-addressed by SHA-256 — duplicate uploads are deduped.
+
+### `GET /api/todos/attachments?todoId=N`
+
+List attachments for a todo. Returns array of `{ id, filename, mimeType, sizeBytes, hash, createdAt }`.
+
+### `GET /api/todos/attachments/{hash}`
+
+Serve a file by its SHA-256 hash. Returns the file with appropriate `Content-Type`. Immutable cache headers.
+
+### `DELETE /api/todos/attachments`
+
+Remove an attachment.
+
+```json
+{ "id": 123 }
+```
+
+Cleans orphaned files from disk when no other todos reference the same hash.
 
 ## UI
 

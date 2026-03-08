@@ -18,6 +18,9 @@ Cross-session work items extracted from agent tool calls or created manually.
   "sourceSessionId": "4e0f77f7-...",
   "blockedBy": ["todo:019506b2-..."],
   "estimatedMinutes": 30,
+  "attachments": [
+    { "filename": "screenshot.png", "mimeType": "image/png", "sizeBytes": 48210, "hash": "e3b0c44298fc..." }
+  ],
   "createdAt": "2026-03-05T10:42:45.161Z",
   "updatedAt": "2026-03-05T12:00:00.000Z",
   "completedAt": null
@@ -38,6 +41,11 @@ Cross-session work items extracted from agent tool calls or created manually.
 | `sourceSessionId` | string | no | Session that created it |
 | `blockedBy` | array | no | References to blocking items |
 | `estimatedMinutes` | number | no | Time estimate |
+| `attachments` | Attachment[] | [] | File attachments (image, docs) |
+| `attachments[].filename` | string | yes | Original filename |
+| `attachments[].mimeType` | string | yes | MIME type (e.g. `image/png`) |
+| `attachments[].sizeBytes` | number | yes | File size in bytes |
+| `attachments[].hash` | string | yes | SHA-256 content hash |
 | `createdAt` | ISO 8601 | yes | Creation time |
 | `updatedAt` | ISO 8601 | yes | Last modification time |
 | `completedAt` | ISO 8601 | no | When completed |
@@ -123,6 +131,21 @@ curl -X DELETE localhost:3000/api/todos \
   -H 'Content-Type: application/json' \
   -d '{"id": 123}'
 
+# Upload attachment (multipart, max 10MB per file)
+curl -X POST localhost:3000/api/todos/attachments \
+  -F "todoId=123" -F "files=@screenshot.png"
+
+# List attachments for a todo
+curl "localhost:3000/api/todos/attachments?todoId=123"
+
+# Serve file by hash (immutable cache)
+curl "localhost:3000/api/todos/attachments/e3b0c44298fc..."
+
+# Remove attachment (cleans orphaned files from disk)
+curl -X DELETE localhost:3000/api/todos/attachments \
+  -H 'Content-Type: application/json' \
+  -d '{"id": 456}'
+
 # Bulk operations
 curl -X PATCH localhost:3000/api/todos/bulk \
   -H 'Content-Type: application/json' \
@@ -141,3 +164,8 @@ curl -X PATCH localhost:3000/api/todos/bulk \
 | `activeForm` | `active_form` | todos |
 | `source` | `source` | todos |
 | `estimatedMinutes` | `estimated_minutes` | todos |
+| `attachments` | (joined) | todo_attachments |
+| `attachments[].filename` | `filename` | todo_attachments |
+| `attachments[].mimeType` | `mime_type` | todo_attachments |
+| `attachments[].sizeBytes` | `size_bytes` | todo_attachments |
+| `attachments[].hash` | `hash` (UNIQUE) | todo_attachments |
