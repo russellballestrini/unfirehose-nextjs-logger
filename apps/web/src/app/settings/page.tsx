@@ -717,6 +717,17 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
   );
 }
 
+const PROVIDER_PRESETS = [
+  { id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com/v1/messages', type: 'anthropic' as const, placeholder: 'sk-ant-...', defaultModel: 'claude-haiku-4-5-20251001', models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'] },
+  { id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1/chat/completions', type: 'openai-compatible' as const, placeholder: 'sk-...', defaultModel: 'gpt-4o-mini', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1-mini', 'o3-mini'] },
+  { id: 'google', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', type: 'openai-compatible' as const, placeholder: 'AIza...', defaultModel: 'gemini-2.5-flash', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+  { id: 'groq', name: 'Groq', endpoint: 'https://api.groq.com/openai/v1/chat/completions', type: 'openai-compatible' as const, placeholder: 'gsk_...', defaultModel: 'llama-3.3-70b-versatile', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'] },
+  { id: 'together', name: 'Together', endpoint: 'https://api.together.xyz/v1/chat/completions', type: 'openai-compatible' as const, placeholder: 'tok_...', defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', models: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen2.5-Coder-32B-Instruct'] },
+  { id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1/chat/completions', type: 'openai-compatible' as const, placeholder: 'sk-...', defaultModel: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'] },
+  { id: 'ollama', name: 'Ollama (local)', endpoint: 'http://localhost:11434/v1/chat/completions', type: 'openai-compatible' as const, placeholder: '', defaultModel: 'llama3.1:8b', models: [] },
+  { id: 'custom', name: 'Custom endpoint', endpoint: '', type: 'openai-compatible' as const, placeholder: 'sk-...', defaultModel: '', models: [] },
+];
+
 function LlmProviders({
   endpoint,
   apiKey,
@@ -730,15 +741,48 @@ function LlmProviders({
 }) {
   const { data: providerData } = useSWR('/api/llm/providers', fetcher);
   const detected = providerData?.providers ?? [];
-  const hasCustom = !!endpoint || !!apiKey;
-  const [showCustom, setShowCustom] = useState(hasCustom);
+
+  // Determine which preset matches current config
+  const activePreset = PROVIDER_PRESETS.find(p => p.endpoint && endpoint === p.endpoint)?.id
+    ?? (endpoint ? 'custom' : '');
+  const [selectedPreset, setSelectedPreset] = useState(activePreset);
+  const [editEndpoint, setEditEndpoint] = useState(endpoint);
+  const [editKey, setEditKey] = useState(apiKey);
+  const [editModel, setEditModel] = useState(model);
+
+  function selectPreset(presetId: string) {
+    setSelectedPreset(presetId);
+    const preset = PROVIDER_PRESETS.find(p => p.id === presetId);
+    if (!preset) return;
+    if (preset.endpoint) {
+      setEditEndpoint(preset.endpoint);
+      onSave('llm_commit_endpoint', preset.endpoint);
+    }
+    if (preset.defaultModel && !editModel) {
+      setEditModel(preset.defaultModel);
+      onSave('llm_commit_model', preset.defaultModel);
+    }
+  }
+
+  function clearProvider() {
+    setSelectedPreset('');
+    setEditEndpoint('');
+    setEditKey('');
+    setEditModel('');
+    onSave('llm_commit_endpoint', '');
+    onSave('llm_commit_api_key', '');
+    onSave('llm_commit_model', '');
+  }
+
+  const currentPreset = PROVIDER_PRESETS.find(p => p.id === selectedPreset);
+  const isLocal = editEndpoint.includes('localhost') || editEndpoint.includes('127.0.0.1');
 
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
       <h3 className="text-base font-bold text-[var(--color-muted)]">LLM Providers</h3>
-      <p className="text-base text-[var(--color-muted)]">
-        Used for generating commit messages from diffs. Auto-detects OAuth tokens on the filesystem,
-        or add your own OpenAI-compatible endpoint.
+      <p className="text-xs text-[var(--color-muted)]">
+        Used for commit message generation, code suggestions, and more. Configure your own keys or use auto-detected providers.
+        Priority: your keys &gt; Claude Max OAuth &gt; mesh models (Qwen 3 Coder, Hermes 3).
       </p>
 
       {/* Auto-detected providers */}
@@ -750,88 +794,111 @@ function LlmProviders({
               key={p.id}
               className={`rounded border p-3 ${
                 p.ready
-                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                  ? 'border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5'
                   : 'border-[var(--color-border)] opacity-60'
               }`}
             >
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${p.ready ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-error)]'}`} />
-                <span className="text-base font-bold">{p.name}</span>
-                <span className="text-xs text-[var(--color-muted)] ml-auto font-mono">{p.model}</span>
+                <span className="text-sm font-bold">{p.name}</span>
+                <span className="text-[10px] text-[var(--color-muted)] ml-auto font-mono">{p.model}</span>
               </div>
               {p.detail && (
-                <div className="text-xs text-[var(--color-muted)] mt-1">{p.detail}</div>
+                <div className="text-[10px] text-[var(--color-muted)] mt-1">{p.detail}</div>
               )}
             </div>
           ))}
         </div>
       )}
 
-      {detected.length === 0 && !hasCustom && (
-        <div className="text-base text-[var(--color-muted)] py-2">
-          No providers detected. Sign in to Claude Code Max, or add a custom endpoint below.
+      {/* Provider picker */}
+      <div className="space-y-3">
+        <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Bring your own keys</div>
+        <div className="grid grid-cols-4 gap-2">
+          {PROVIDER_PRESETS.map(p => (
+            <button
+              key={p.id}
+              onClick={() => selectPreset(p.id)}
+              className={`px-2 py-1.5 text-xs rounded border cursor-pointer transition-colors ${
+                selectedPreset === p.id
+                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-foreground)] font-bold'
+                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-accent)]/30'
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
         </div>
-      )}
 
-      {/* Custom provider */}
-      <div>
-        {!showCustom ? (
-          <button
-            onClick={() => setShowCustom(true)}
-            className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer"
-          >
-            + Add custom provider
-          </button>
-        ) : (
+        {selectedPreset && currentPreset && (
           <div className="space-y-3 border border-[var(--color-border)] rounded p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Custom Provider</span>
-              {!hasCustom && (
-                <button
-                  onClick={() => setShowCustom(false)}
-                  className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
+              <span className="text-xs font-bold text-[var(--color-muted)]">{currentPreset.name}</span>
+              <button onClick={clearProvider} className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer">
+                Clear
+              </button>
+            </div>
+
+            {/* Endpoint — editable for custom, read-only for presets */}
+            {selectedPreset === 'custom' ? (
+              <div>
+                <label className="text-xs text-[var(--color-muted)] block mb-1">Endpoint</label>
+                <input
+                  type="url"
+                  value={editEndpoint}
+                  onChange={(e) => setEditEndpoint(e.target.value)}
+                  placeholder="https://your-api.com/v1/chat/completions"
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm font-mono"
+                  onBlur={() => onSave('llm_commit_endpoint', editEndpoint)}
+                />
+              </div>
+            ) : (
+              <div className="text-[10px] font-mono text-[var(--color-muted)] truncate">{currentPreset.endpoint}</div>
+            )}
+
+            {/* API Key */}
+            {!isLocal && (
+              <div>
+                <label className="text-xs text-[var(--color-muted)] block mb-1">API Key</label>
+                <input
+                  type="password"
+                  value={editKey}
+                  onChange={(e) => setEditKey(e.target.value)}
+                  placeholder={currentPreset.placeholder || 'sk-...'}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm font-mono"
+                  onBlur={() => onSave('llm_commit_api_key', editKey)}
+                />
+              </div>
+            )}
+
+            {/* Model */}
+            <div>
+              <label className="text-xs text-[var(--color-muted)] block mb-1">Model</label>
+              {currentPreset.models.length > 0 ? (
+                <select
+                  value={editModel || currentPreset.defaultModel}
+                  onChange={(e) => { setEditModel(e.target.value); onSave('llm_commit_model', e.target.value); }}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm font-mono"
                 >
-                  Cancel
-                </button>
+                  {currentPreset.models.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={editModel}
+                  onChange={(e) => setEditModel(e.target.value)}
+                  placeholder={currentPreset.defaultModel || 'model-name'}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm font-mono"
+                  onBlur={() => onSave('llm_commit_model', editModel)}
+                />
               )}
             </div>
-            <div>
-              <label className="text-base text-[var(--color-muted)] block mb-1">Endpoint</label>
-              <input
-                type="url"
-                defaultValue={endpoint}
-                placeholder="https://api.openai.com/v1/chat/completions"
-                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-                onBlur={(e) => {
-                  if (e.target.value !== endpoint) onSave('llm_commit_endpoint', e.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <label className="text-base text-[var(--color-muted)] block mb-1">API Key</label>
-              <input
-                type="password"
-                defaultValue={apiKey}
-                placeholder="sk-..."
-                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-                onBlur={(e) => {
-                  if (e.target.value !== apiKey) onSave('llm_commit_api_key', e.target.value);
-                }}
-              />
-              <span className="text-xs text-[var(--color-muted)]">Not needed for localhost endpoints</span>
-            </div>
-            <div>
-              <label className="text-base text-[var(--color-muted)] block mb-1">Model</label>
-              <input
-                type="text"
-                defaultValue={model}
-                placeholder="gpt-4o-mini"
-                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-                onBlur={(e) => {
-                  if (e.target.value !== model) onSave('llm_commit_model', e.target.value);
-                }}
-              />
-            </div>
+
+            {isLocal && (
+              <div className="text-[10px] text-[var(--color-muted)]">No API key needed for local endpoints</div>
+            )}
           </div>
         )}
       </div>
