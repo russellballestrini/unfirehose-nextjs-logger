@@ -1008,7 +1008,6 @@ function LlmProviders({
 }
 
 function CurrencyPicker({ selected, onChange }: { selected: string[]; onChange: (codes: string[]) => void }) {
-  const [expanded, setExpanded] = useState(false);
   const groups = new Map<string, typeof AVAILABLE_CURRENCIES>();
   for (const c of AVAILABLE_CURRENCIES) {
     const g = (c as any).group || 'Other';
@@ -1018,7 +1017,6 @@ function CurrencyPicker({ selected, onChange }: { selected: string[]; onChange: 
 
   const toggle = (code: string) => {
     if (selected.includes(code)) {
-      // Don't allow deselecting last currency
       if (selected.length === 1) return;
       onChange(selected.filter(c => c !== code));
     } else {
@@ -1027,29 +1025,19 @@ function CurrencyPicker({ selected, onChange }: { selected: string[]; onChange: 
   };
 
   return (
-    <div>
-      <label className="text-base text-[var(--color-muted)] block mb-1">Display Currencies</label>
-      <div className="flex flex-wrap gap-1 mb-2">
-        {selected.map(code => {
-          const c = AVAILABLE_CURRENCIES.find(x => x.code === code);
-          return (
-            <span key={code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent)]/20 text-[var(--color-accent)] text-sm font-mono">
-              {code}
-              {selected.length > 1 && (
-                <button onClick={() => toggle(code)} className="hover:text-[var(--color-error)] cursor-pointer text-xs">&times;</button>
-              )}
-            </span>
-          );
-        })}
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+      <label className="text-base font-bold text-[var(--color-muted)] block">Display Currencies</label>
+      <div className="flex flex-wrap gap-1">
+        {selected.map(code => (
+          <span key={code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent)]/20 text-[var(--color-accent)] text-sm font-mono">
+            {code}
+            {selected.length > 1 && (
+              <button onClick={() => toggle(code)} className="hover:text-[var(--color-error)] cursor-pointer text-xs">&times;</button>
+            )}
+          </span>
+        ))}
       </div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
-      >
-        {expanded ? '\u25bc Hide currencies' : '\u25b6 Add currencies'} ({AVAILABLE_CURRENCIES.length} available)
-      </button>
-      {expanded && (
-        <div className="mt-2 border border-[var(--color-border)] rounded bg-[var(--color-surface)] p-3 max-h-[50vh] overflow-y-auto space-y-3">
+      <div className="space-y-3">
           {[...groups.entries()].map(([group, currencies]) => (
             <div key={group}>
               <div className="text-xs font-bold text-[var(--color-muted)] uppercase mb-1">{group}</div>
@@ -1069,8 +1057,7 @@ function CurrencyPicker({ selected, onChange }: { selected: string[]; onChange: 
               </div>
             </div>
           ))}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
