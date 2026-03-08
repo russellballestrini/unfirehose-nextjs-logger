@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { AVAILABLE_CURRENCIES } from '@unturf/unfirehose-ui/useCurrency';
+import { useVault } from '@unturf/unfirehose-ui/VaultProvider';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -138,9 +139,8 @@ export default function SettingsPage() {
     ? activity.reduce((s: number, p: { user_messages?: number }) => s + (p.user_messages ?? 0), 0)
     : 0;
 
-  // LLM commit message generation
+  // LLM commit message generation — endpoints/models in SQLite, keys in vault
   const llmEndpoint = settings?.llm_commit_endpoint ?? '';
-  const llmApiKey = settings?.llm_commit_api_key ?? '';
   const llmModel = settings?.llm_commit_model ?? '';
 
   // Mesh defaults
@@ -494,7 +494,6 @@ export default function SettingsPage() {
       {/* LLM Providers */}
       <LlmProviders
         endpoint={llmEndpoint}
-        apiKey={llmApiKey}
         model={llmModel}
         onSave={saveSetting}
       />
@@ -730,15 +729,14 @@ const PROVIDER_PRESETS = [
 
 function LlmProviders({
   endpoint,
-  apiKey,
   model,
   onSave,
 }: {
   endpoint: string;
-  apiKey: string;
   model: string;
   onSave: (key: string, value: string) => void;
 }) {
+  const vault = useVault();
   const { data: providerData } = useSWR('/api/llm/providers', fetcher);
   const detected = providerData?.providers ?? [];
 
@@ -747,8 +745,11 @@ function LlmProviders({
     ?? (endpoint ? 'custom' : '');
   const [selectedPreset, setSelectedPreset] = useState(activePreset);
   const [editEndpoint, setEditEndpoint] = useState(endpoint);
-  const [editKey, setEditKey] = useState(apiKey);
   const [editModel, setEditModel] = useState(model);
+
+  // API key comes from vault, keyed by provider preset id
+  const vaultKeyId = selectedPreset || 'custom';
+  const editKey = vault.getKey(vaultKeyId);
 
   function selectPreset(presetId: string) {
     setSelectedPreset(presetId);
@@ -762,16 +763,17 @@ function LlmProviders({
       setEditModel(preset.defaultModel);
       onSave('llm_commit_model', preset.defaultModel);
     }
+    // Store preferred provider in vault
+    vault.setPreferred(presetId);
   }
 
   function clearProvider() {
     setSelectedPreset('');
     setEditEndpoint('');
-    setEditKey('');
     setEditModel('');
     onSave('llm_commit_endpoint', '');
-    onSave('llm_commit_api_key', '');
     onSave('llm_commit_model', '');
+    if (vaultKeyId) vault.removeKey(vaultKeyId);
   }
 
   const currentPreset = PROVIDER_PRESETS.find(p => p.id === selectedPreset);
@@ -784,6 +786,24 @@ function LlmProviders({
         Used for commit message generation, code suggestions, and more. Configure your own keys or use auto-detected providers.
         Priority: your keys &gt; Claude Max OAuth &gt; mesh models (Qwen 3 Coder, Hermes 3).
       </p>
+
+      {/* Vault status */}
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-[var(--color-muted)]">
+          {vault.unlocked
+            ? <><span className="text-[var(--color-accent)]">{'\u{1F513}'} Vault unlocked</span> — keys encrypted in browser</>
+            : <span className="text-[var(--color-error)]">{'\u{1F510}'} Vault locked</span>
+          }
+        </span>
+        {vault.unlocked && (
+          <button
+            onClick={vault.lock}
+            className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer"
+          >
+            Lock vault
+          </button>
+        )}
+      </div>
 
       {/* Auto-detected providers */}
       {detected.length > 0 && (
@@ -856,17 +876,19 @@ function LlmProviders({
               <div className="text-[10px] font-mono text-[var(--color-muted)] truncate">{currentPreset.endpoint}</div>
             )}
 
-            {/* API Key */}
+            {/* API Key — stored in encrypted browser vault */}
             {!isLocal && (
               <div>
-                <label className="text-xs text-[var(--color-muted)] block mb-1">API Key</label>
+                <label className="text-xs text-[var(--color-muted)] block mb-1">API Key <span className="text-[10px] text-[var(--color-muted)]">(encrypted in browser)</span></label>
                 <input
                   type="password"
-                  value={editKey}
-                  onChange={(e) => setEditKey(e.target.value)}
+                  defaultValue={editKey}
                   placeholder={currentPreset.placeholder || 'sk-...'}
                   className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm font-mono"
-                  onBlur={() => onSave('llm_commit_api_key', editKey)}
+                  onBlur={(e) => {
+                    const val = e.target.value;
+                    if (val !== editKey) vault.setKey(vaultKeyId, val);
+                  }}
                 />
               </div>
             )}

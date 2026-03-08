@@ -52,10 +52,10 @@ interface LlmProvider {
   source: string; // 'claude-max' | 'settings' | etc
 }
 
-async function resolveProvider(settings: Record<string, string>): Promise<LlmProvider | null> {
-  // 1. User-configured provider takes priority
+async function resolveProvider(settings: Record<string, string>, vaultKey?: string): Promise<LlmProvider | null> {
+  // 1. User-configured provider + vault key takes priority
   if (settings.llm_commit_endpoint) {
-    const apiKey = settings.llm_commit_api_key || '';
+    const apiKey = vaultKey || settings.llm_commit_api_key || '';
     const isLocal = settings.llm_commit_endpoint.includes('localhost') || settings.llm_commit_endpoint.includes('127.0.0.1');
     if (!apiKey && !isLocal) return null;
     return {
@@ -63,7 +63,7 @@ async function resolveProvider(settings: Record<string, string>): Promise<LlmPro
       endpoint: settings.llm_commit_endpoint,
       apiKey,
       model: settings.llm_commit_model || 'gpt-4o-mini',
-      source: 'settings',
+      source: 'vault',
     };
   }
 
@@ -206,7 +206,9 @@ export async function POST(
   }
 
   const settings = getAllSettings() as Record<string, string>;
-  const provider = await resolveProvider(settings);
+  // Vault key passed from browser (decrypted client-side, sent per-request)
+  const vaultKey = request.headers.get('x-vault-api-key') || undefined;
+  const provider = await resolveProvider(settings, vaultKey);
 
   if (!provider) {
     return NextResponse.json({

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
+import { useVault } from '@unturf/unfirehose-ui/VaultProvider';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,13 +24,21 @@ export default function ReviewPage() {
   const [commitResult, setCommitResult] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const vault = useVault();
 
   const generateMessage = async () => {
     setGenerating(true);
     setGenerateError(null);
     try {
+      // Pass decrypted vault API key to server — keys never stored server-side
+      const preferred = vault.data?.preferred || '';
+      const vaultApiKey = preferred ? vault.getKey(preferred) : '';
+      const headers: Record<string, string> = {};
+      if (vaultApiKey) headers['x-vault-api-key'] = vaultApiKey;
+
       const res = await fetch(`/api/projects/${encodeURIComponent(project)}/git/suggest`, {
         method: 'POST',
+        headers,
       });
       const result = await res.json();
       if (result.message) {
