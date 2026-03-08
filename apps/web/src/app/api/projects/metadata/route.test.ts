@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 

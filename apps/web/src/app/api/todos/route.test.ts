@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createTestDb } from '@/test/db-helper';
@@ -37,7 +38,7 @@ beforeEach(() => {
 
 describe('POST /api/todos', () => {
   it('creates a todo with required fields', async () => {
-    const pid = seedProject('post-test');
+    seedProject('post-test');
     const res = await POST(req('/api/todos', {
       method: 'POST',
       body: { content: 'Write tests', projectName: 'post-test' },
@@ -58,7 +59,7 @@ describe('POST /api/todos', () => {
   });
 
   it('creates in_progress todo when status specified', async () => {
-    const pid = seedProject('status-test');
+    seedProject('status-test');
     const res = await POST(req('/api/todos', {
       method: 'POST',
       body: { content: 'Start now', projectName: 'status-test', status: 'in_progress' },
@@ -71,7 +72,7 @@ describe('POST /api/todos', () => {
   });
 
   it('creates audit event on creation', async () => {
-    const pid = seedProject('audit-test');
+    seedProject('audit-test');
     const res = await POST(req('/api/todos', {
       method: 'POST',
       body: { content: 'Audited task', projectName: 'audit-test' },
