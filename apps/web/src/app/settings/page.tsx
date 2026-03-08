@@ -162,7 +162,8 @@ export default function SettingsPage() {
     }
     return 'General';
   });
-  const setActiveTab = (tab: SettingsTab) => { setActiveTabRaw(tab); window.location.hash = tab; };
+  const setActiveTab = (tab: SettingsTab) => { setActiveTabRaw(tab); };
+  useEffect(() => { window.location.hash = activeTab; }, [activeTab]);
   const vault = useVault();
 
   return (

@@ -202,14 +202,20 @@ export default function LivePage() {
   const [hoveredEntry, setHoveredEntry] = useState<number | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sessionColorMap = useRef<Map<string, number>>(new Map());
+  const [sessionColorMap, setSessionColorMap] = useState<Map<string, number>>(() => new Map());
 
-  function getColorForSession(sessionId: string): string {
-    if (!sessionColorMap.current.has(sessionId)) {
-      sessionColorMap.current.set(sessionId, sessionColorMap.current.size);
+  const getColorForSession = useCallback((sessionId: string): string => {
+    if (!sessionColorMap.has(sessionId)) {
+      setSessionColorMap(prev => {
+        if (prev.has(sessionId)) return prev;
+        const next = new Map(prev);
+        next.set(sessionId, next.size);
+        return next;
+      });
+      return getSessionColor(sessionColorMap.size);
     }
-    return getSessionColor(sessionColorMap.current.get(sessionId)!);
-  }
+    return getSessionColor(sessionColorMap.get(sessionId)!);
+  }, [sessionColorMap]);
 
   const onEntryMouseEnter = useCallback((index: number) => {
     clearTimeout(hoverTimeout.current);

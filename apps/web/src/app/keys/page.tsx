@@ -165,7 +165,7 @@ export default function KeysPage() {
         {createdKey && (
           <div className="bg-[var(--color-background)] border border-green-600/40 rounded p-3 space-y-2">
             <p className="text-base text-green-400 font-bold">
-              Key created — copy it now, it won't be shown again
+              Key created — copy it now, it won&apos;t be shown again
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-base font-mono bg-[var(--color-surface)] px-3 py-1.5 rounded select-all break-all">
@@ -241,7 +241,7 @@ export default function KeysPage() {
           {createdSubKey && (
             <div className="bg-[var(--color-background)] border border-green-600/40 rounded p-3 space-y-2">
               <p className="text-base text-green-400 font-bold">
-                Sub-key created — copy it now, it won't be shown again
+                Sub-key created — copy it now, it won&apos;t be shown again
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 text-base font-mono bg-[var(--color-surface)] px-3 py-1.5 rounded select-all break-all">

@@ -175,7 +175,8 @@ export default function UsageMonitorPage() {
     }
     return 'model';
   });
-  const setActiveTab = (tab: UsageTab) => { setActiveTabRaw(tab); globalThis.location.hash = tab; };
+  const setActiveTab = (tab: UsageTab) => { setActiveTabRaw(tab); };
+  useEffect(() => { globalThis.location.hash = activeTab; }, [activeTab]);
   const [chartHostname, setChartHostname] = useState<string>('all');
   const currency = useCurrency();
   const [expandedProject, setExpandedProject] = useState<string | null>(null);

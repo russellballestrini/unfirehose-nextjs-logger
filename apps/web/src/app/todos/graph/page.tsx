@@ -43,6 +43,7 @@ export default function GraphPage() {
   const currentView = VIEWS.find(v => v.id === view);
 
   // Reset zoom/pan on view change
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on view change
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });

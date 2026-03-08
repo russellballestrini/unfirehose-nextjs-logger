@@ -82,7 +82,8 @@ export default function TmuxViewerPage() {
   );
   const windows: { index: string; name: string; active: boolean }[] = windowsData?.windows ?? [];
 
-  const connectSSE = useCallback(() => {
+  const connectSSERef = useRef<() => EventSource>(null);
+  connectSSERef.current = useCallback(() => {
     const url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
     const es = new EventSource(url);
 
@@ -101,16 +102,17 @@ export default function TmuxViewerPage() {
       setConnected(false);
       es.close();
       // Reconnect after 500ms
-      setTimeout(connectSSE, 500);
+      setTimeout(() => connectSSERef.current?.(), 500);
     };
 
     return es;
   }, [session, activeWindow, hostParam]);
 
   useEffect(() => {
-    const es = connectSSE();
+    const es = connectSSERef.current!();
     return () => es.close();
-  }, [connectSSE]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, activeWindow, hostParam]);
 
   // Interactive mode
   const [interactive, setInteractive] = useState(true);

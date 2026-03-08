@@ -77,7 +77,8 @@ export default function ProjectPage({
     }
     return 'overview';
   });
-  const setTab = (t: TabKey) => { setTabRaw(t); window.location.hash = t; };
+  const setTab = (t: TabKey) => { setTabRaw(t); };
+  useEffect(() => { window.location.hash = tab; }, [tab]);
   const [yolo, setYolo] = useState(true);
   const [booting, setBooting] = useState(false);
   const [bootResult, setBootResult] = useState<string | null>(null);
