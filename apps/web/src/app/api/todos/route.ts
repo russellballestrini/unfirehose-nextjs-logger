@@ -245,6 +245,21 @@ export async function GET(request: NextRequest) {
       }
     } catch { /* table may not exist */ }
 
+    // Load all attachments
+    const attachments = db.prepare('SELECT * FROM todo_attachments ORDER BY created_at').all() as any[];
+    const attachmentsByTodo = new Map<number, any[]>();
+    for (const a of attachments) {
+      if (!attachmentsByTodo.has(a.todo_id)) attachmentsByTodo.set(a.todo_id, []);
+      attachmentsByTodo.get(a.todo_id)!.push({
+        id: a.id,
+        filename: a.filename,
+        mimeType: a.mime_type,
+        sizeBytes: a.size_bytes,
+        hash: a.hash,
+        createdAt: a.created_at,
+      });
+    }
+
     // Group by project for overview
     const byProject: Record<string, { project: string; display: string; projectPath: string | null; todos: any[] }> = {};
     for (const todo of todos) {
@@ -273,6 +288,7 @@ export async function GET(request: NextRequest) {
         completedAt: todo.completed_at,
         estimatedMinutes: todo.estimated_minutes,
         tmuxSession: deploymentMap.get(todo.id) ?? null,
+        attachments: attachmentsByTodo.get(todo.id) ?? [],
       });
     }
 

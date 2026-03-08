@@ -200,6 +200,19 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_todo_events_todo ON todo_events(todo_id);
 
+    -- Todo attachments: content-addressed files at ~/.unfirehose/attachments/{hash}
+    CREATE TABLE IF NOT EXISTS todo_attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      todo_id INTEGER NOT NULL REFERENCES todos(id),
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_attachments_todo ON todo_attachments(todo_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_attachments_hash ON todo_attachments(hash);
+
     -- Agent deployments: tracks tmux sessions spawned by mega deploy
     CREATE TABLE IF NOT EXISTS agent_deployments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

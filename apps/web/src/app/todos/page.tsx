@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, Fragment } from 'react';
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
@@ -9,6 +9,15 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+interface Attachment {
+  id: number;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  hash: string;
+  createdAt: string;
+}
 
 interface Todo {
   id: number;
@@ -26,6 +35,7 @@ interface Todo {
   completedAt: string | null;
   estimatedMinutes: number | null;
   tmuxSession: string | null;
+  attachments: Attachment[];
 }
 
 interface ProjectGroup {
@@ -173,6 +183,11 @@ export default function TodosPage() {
   const [burst, setBurst] = useState<{ x: number; y: number; color: string; targetStatus: string } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_dragOverIndex, setDragOverIndex] = useState<number>(-1);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newContent, setNewContent] = useState('');
+  const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [creating, setCreating] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: meshData } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
   const meshNodes: { hostname: string; reachable: boolean }[] = meshData?.nodes ?? [];
@@ -269,6 +284,30 @@ export default function TodosPage() {
     catch (err) { setMegaStatus({ error: String(err) }); }
     setMegaLoading(false);
   }, [megaRefresh, fetchTodos]);
+
+  const createTodo = useCallback(async () => {
+    if (!newContent.trim()) return;
+    setCreating(true);
+    try {
+      const res = await fetch('/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newContent.trim() }),
+      });
+      const data = await res.json();
+      if (data.ok && newFiles.length > 0) {
+        const form = new FormData();
+        form.append('todoId', String(data.id));
+        for (const f of newFiles) form.append('files', f);
+        await fetch('/api/todos/attachments', { method: 'POST', body: form });
+      }
+      setNewContent('');
+      setNewFiles([]);
+      setShowCreateForm(false);
+      fetchTodos();
+    } catch { /* silent */ }
+    setCreating(false);
+  }, [newContent, newFiles, fetchTodos]);
 
   useEffect(() => {
     if (!autoCull) return;
@@ -390,6 +429,9 @@ export default function TodosPage() {
           ].map(b => (
             <button key={b.v} onClick={() => setFilter(b.v)} className={`px-3 py-1 text-sm rounded border ${filter === b.v ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-[var(--color-border)] text-[var(--color-muted)]'}`}>{b.l}</button>
           ))}
+          <button onClick={() => setShowCreateForm(!showCreateForm)} className={`px-3 py-1 text-sm rounded border ${showCreateForm ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]'}`}>
+            + Add Todo
+          </button>
           <span className="w-px bg-[var(--color-border)]" />
           <button onClick={megaDeploy} disabled={megaLoading} className="px-3 py-1 text-sm rounded border border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)]/10 disabled:opacity-50 font-bold">
             {megaLoading ? 'Deploying...' : 'Mega Deploy'}
@@ -406,6 +448,52 @@ export default function TodosPage() {
       {/* Mega Deploy Status Panel */}
       {megaPanelOpen && megaStatus && (
         <MegaPanel megaStatus={megaStatus} onClose={() => setMegaPanelOpen(false)} />
+      )}
+
+      {/* Create todo form */}
+      {showCreateForm && (
+        <div className="mb-4 border border-[var(--color-border)] rounded-lg p-4 bg-[var(--color-surface)]">
+          <h2 className="font-bold text-sm mb-3">New Todo</h2>
+          <input
+            type="text"
+            value={newContent}
+            onChange={(e) => setNewContent(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); createTodo(); } }}
+            placeholder="What needs to be done?"
+            className="w-full px-3 py-2 mb-3 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-sm focus:outline-none focus:border-[var(--color-accent)]"
+          />
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const files = Array.from(e.dataTransfer.files); setNewFiles(prev => [...prev, ...files]); }}
+            onClick={() => fileInputRef.current?.click()}
+            className="border-2 border-dashed border-[var(--color-border)] rounded-lg p-4 text-center cursor-pointer hover:border-[var(--color-accent)] transition-colors mb-3"
+          >
+            <p className="text-sm text-[var(--color-muted)]">Drop files here or click to browse</p>
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) setNewFiles(prev => [...prev, ...Array.from(e.target.files!)]); }} />
+          </div>
+          {newFiles.length > 0 && (
+            <div className="flex gap-2 mb-3 flex-wrap">
+              {newFiles.map((f, i) => (
+                <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--color-surface-hover)] text-xs">
+                  {f.type.startsWith('image/') ? (
+                    <img src={URL.createObjectURL(f)} alt={f.name} className="w-8 h-8 rounded object-cover" />
+                  ) : (
+                    <span className="text-[var(--color-muted)]">{f.name}</span>
+                  )}
+                  <button onClick={(e) => { e.stopPropagation(); setNewFiles(prev => prev.filter((_, j) => j !== i)); }} className="text-[var(--color-muted)] hover:text-[var(--color-error)]">&times;</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={createTodo} disabled={creating || !newContent.trim()} className="px-4 py-1.5 text-sm rounded bg-[var(--color-accent)] text-white font-bold hover:opacity-90 disabled:opacity-50">
+              {creating ? 'Creating...' : 'Create'}
+            </button>
+            <button onClick={() => { setShowCreateForm(false); setNewContent(''); setNewFiles([]); }} className="px-4 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-muted)]">
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Triage summary */}
@@ -651,6 +739,23 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
         />
       ) : (
         <p className="font-medium mb-2 leading-snug cursor-text" onClick={(e) => { e.stopPropagation(); setEditing(true); }}>{todo.content}</p>
+      )}
+
+      {todo.attachments && todo.attachments.length > 0 && (
+        <div className="flex gap-1.5 mb-2 flex-wrap">
+          {todo.attachments.map(a => (
+            a.mimeType.startsWith('image/') ? (
+              <a key={a.id} href={`/api/todos/attachments/${a.hash}`} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>
+                <img src={`/api/todos/attachments/${a.hash}`} alt={a.filename} className="w-8 h-8 rounded object-cover border border-[var(--color-border)]" />
+              </a>
+            ) : (
+              <a key={a.id} href={`/api/todos/attachments/${a.hash}`} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}
+                className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)] hover:text-[var(--color-accent)]">
+                {a.filename}
+              </a>
+            )
+          ))}
+        </div>
       )}
 
       {/* Estimate */}
