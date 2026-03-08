@@ -147,8 +147,9 @@ export default function UsageMonitorPage() {
   const { data: apmonitor } = useSWR('/api/apmonitor', fetcher, {
     refreshInterval: 15000,
   });
+  const standupDays = window === 0 ? 9999 : Math.max(1, Math.ceil(window / 1440));
   const { data: projectActivity } = useSWR(
-    '/api/projects/activity?days=30',
+    `/api/projects/activity?days=${standupDays}`,
     fetcher,
     { refreshInterval: 30000 }
   );
@@ -375,7 +376,7 @@ export default function UsageMonitorPage() {
         {/* Agent Standup — 30-day project activity */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-            Agent Standup (30 days)
+            Agent Standup ({window === 0 ? 'Lifetime' : window < 1440 ? `${window / 60}h` : `${standupDays}d`})
           </h3>
           {projectActivity && projectActivity.length > 0 ? (
             <div className="space-y-1">
@@ -470,7 +471,7 @@ export default function UsageMonitorPage() {
             </div>
           ) : (
             <div className="text-[var(--color-muted)] text-base py-4 text-center">
-              No project activity in last 30 days.
+              No project activity in this time range.
             </div>
           )}
         </div>
