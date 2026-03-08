@@ -164,13 +164,13 @@ export default function TmuxViewerPage() {
         await fetch('/api/tmux/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session: decodeURIComponent(session), host, ...payload }),
+          body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, ...payload }),
         });
       } catch { /* best effort */ }
     }
 
     flushingRef.current = false;
-  }, [session, host]);
+  }, [session, activeWindow, host]);
 
   const enqueueKeys = useCallback((payload: { keys?: string; special?: string }) => {
     queueRef.current.push(payload);
@@ -256,7 +256,7 @@ export default function TmuxViewerPage() {
           {windows.map(w => (
             <button
               key={w.index}
-              onClick={() => setActiveWindow(w.index)}
+              onClick={() => { setActiveWindow(w.index); termRef.current?.focus(); }}
               className={`px-3 py-1 text-xs rounded font-mono cursor-pointer transition-colors ${
                 (activeWindow ?? (windows.find(x => x.active)?.index)) === w.index
                   ? 'bg-[var(--color-accent)] text-[var(--color-background)] font-bold'

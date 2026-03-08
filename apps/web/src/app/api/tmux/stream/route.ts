@@ -134,20 +134,20 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/tmux/stream — send keys to a tmux session
-function sendKeys(session: string, keys: string, host?: string): Promise<void> {
+function sendKeys(target: string, keys: string, host?: string): Promise<void> {
   const { cmd, args } = sshPrefix(host);
   return new Promise((resolve, reject) => {
-    execFile(cmd, [...args, 'send-keys', '-t', session, '-l', keys], { timeout: host ? 10000 : 3000 }, (err) => {
+    execFile(cmd, [...args, 'send-keys', '-t', target, '-l', keys], { timeout: host ? 10000 : 3000 }, (err) => {
       if (err) reject(err);
       else resolve();
     });
   });
 }
 
-function sendSpecialKey(session: string, key: string, host?: string): Promise<void> {
+function sendSpecialKey(target: string, key: string, host?: string): Promise<void> {
   const { cmd, args } = sshPrefix(host);
   return new Promise((resolve, reject) => {
-    execFile(cmd, [...args, 'send-keys', '-t', session, key], { timeout: host ? 10000 : 3000 }, (err) => {
+    execFile(cmd, [...args, 'send-keys', '-t', target, key], { timeout: host ? 10000 : 3000 }, (err) => {
       if (err) reject(err);
       else resolve();
     });
@@ -157,13 +157,15 @@ function sendSpecialKey(session: string, key: string, host?: string): Promise<vo
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { session, keys, special, host } = body;
+    const { session, keys, special, host, window: win } = body;
     if (!session || typeof session !== 'string') {
       return Response.json({ error: 'session required' }, { status: 400 });
     }
     if (!/^[a-zA-Z0-9_-]+$/.test(session)) {
       return Response.json({ error: 'invalid session name' }, { status: 400 });
     }
+    // Build target — session:window if window specified
+    const target = win ? `${session}:${win}` : session;
 
     if (special && typeof special === 'string') {
       // Named keys: Enter, C-c, Escape, Up, Down, Left, Right, Tab, BSpace, etc.
@@ -171,13 +173,13 @@ export async function POST(request: NextRequest) {
       if (!allowed.includes(special)) {
         return Response.json({ error: 'key not allowed' }, { status: 400 });
       }
-      await sendSpecialKey(session, special, host);
+      await sendSpecialKey(target, special, host);
     } else if (keys && typeof keys === 'string') {
       // Limit literal input length
       if (keys.length > 4096) {
         return Response.json({ error: 'input too long' }, { status: 400 });
       }
-      await sendKeys(session, keys, host);
+      await sendKeys(target, keys, host);
     } else {
       return Response.json({ error: 'keys or special required' }, { status: 400 });
     }
