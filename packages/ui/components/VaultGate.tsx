@@ -50,7 +50,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="h-screen flex items-center justify-center bg-[var(--color-background)] relative overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-background)] overflow-hidden">
       {/* Animated background glow */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="w-[600px] h-[600px] rounded-full opacity-15 blur-[120px]" style={{ background: 'radial-gradient(circle, var(--color-accent) 0%, transparent 70%)', animation: 'pulse 4s ease-in-out infinite' }} />
