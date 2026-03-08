@@ -84,17 +84,18 @@ Monospace-only. All text renders in Geist Mono. This creates a consistent code-e
 
 ### Type Scale
 
+**16px minimum — no text smaller than 1rem.** The theme overrides `--font-size-xs` and `--font-size-sm` to `1rem`. Arbitrary small values like `text-[10px]` are banned.
+
 | Class | Size | Weight | Usage |
 |---|---|---|---|
-| `text-2xl font-bold` | 1.5rem | 700 | Page headings |
-| `text-lg font-bold` | 1.125rem | 700 | Section headings |
-| `text-base font-bold` | 1rem | 700 | Card titles, inline headings |
-| `text-base` | 1rem | 400 | Body text (default) |
-| `text-base text-muted` | 1rem | 400 | Captions, secondary content |
-| `text-sm` | 0.875rem | 400 | Badge labels, helper text |
-| `text-sm font-bold` | 0.875rem | 700 | Sub-section headers |
-| `text-xs` | 0.75rem | 400 | Timestamps, counters, tiny labels |
-| `text-[10px]` | 10px | 400 | Section dividers (e.g., sidebar groups) |
+| `text-2xl font-bold` | 1.5rem / 24px | 700 | Page headings |
+| `text-xl font-bold` | 1.25rem / 20px | 700 | Section headings |
+| `text-lg font-bold` | 1.125rem / 18px | 700 | Sub-headings |
+| `text-base font-bold` | 1rem / 16px | 700 | Card titles, inline headings |
+| `text-base` | 1rem / 16px | 400 | Body text (default) |
+| `text-base text-muted` | 1rem / 16px | 400 | Captions, secondary content |
+| `text-sm` | 1rem / 16px | 400 | Theme override — same as base |
+| `text-xs` | 1rem / 16px | 400 | Theme override — same as base |
 
 ### Markdown Content
 

@@ -929,7 +929,7 @@ function OverviewTab({ detail }: { detail: any }) {
                   <div className="w-full bg-[var(--color-surface)] rounded-sm overflow-hidden" style={{ height: '100%' }}>
                     <div className="w-full rounded-sm transition-all" style={{ height: `${pct}%`, backgroundColor: color, marginTop: `${100 - pct}%` }} />
                   </div>
-                  <span className="text-[10px] text-[var(--color-muted)]">{label}</span>
+                  <span className="text-xs text-[var(--color-muted)]">{label}</span>
                 </div>
               );
             })}
@@ -1178,7 +1178,7 @@ function DiskTab({ detail }: { detail: any }) {
               }}
             />
           </div>
-          <div className="flex justify-between mt-1 text-[10px] text-[var(--color-muted)]">
+          <div className="flex justify-between mt-1 text-xs text-[var(--color-muted)]">
             <span>{d.usePct}% used</span>
             <span>{d.avail} free</span>
           </div>
@@ -1446,7 +1446,7 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
                     <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${pct}%` }} />
                   </div>
                   <span className="text-xs font-mono w-16 text-right">${cost}/mo</span>
-                  <span className="text-[10px] text-[var(--color-muted)] w-6">{count}x</span>
+                  <span className="text-xs text-[var(--color-muted)] w-6">{count}x</span>
                 </div>
               );
             })}
@@ -1481,7 +1481,7 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
                     <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${(ns.score / maxScore) * 100}%` }} />
                   </div>
                   <span className="text-xs font-mono w-8 text-right">{ns.score}</span>
-                  <span className="text-[10px] text-[var(--color-muted)]">dist:{ns.distanceScore} eff:{ns.efficiencyScore}</span>
+                  <span className="text-xs text-[var(--color-muted)]">dist:{ns.distanceScore} eff:{ns.efficiencyScore}</span>
                 </div>
               );
             })}
@@ -1656,7 +1656,7 @@ function EconomicsTab({ hostname: _hostname, econ, onSave, meshNode, geoip, sett
           <div>
             <div className="text-xs text-[var(--color-muted)]">Power ({totalWatts}W × 730h)</div>
             <div className="text-base font-mono font-bold">${monthlyPowerCost.toFixed(2)}</div>
-            <div className="text-[10px] text-[var(--color-muted)]">{monthlyKwh.toFixed(1)} kWh @ ${form.electricityCostKwh}/kWh</div>
+            <div className="text-xs text-[var(--color-muted)]">{monthlyKwh.toFixed(1)} kWh @ ${form.electricityCostKwh}/kWh</div>
           </div>
           <div>
             <div className="text-xs text-[var(--color-muted)]">Total Monthly</div>
@@ -1704,7 +1704,7 @@ function EconomicsTab({ hostname: _hostname, econ, onSave, meshNode, geoip, sett
                 </div>
               ))}
             </div>
-            {rates.source && <div className="text-[10px] text-[var(--color-muted)] mt-1">via {rates.source} — {rates.updatedAt}</div>}
+            {rates.source && <div className="text-xs text-[var(--color-muted)] mt-1">via {rates.source} — {rates.updatedAt}</div>}
           </div>
         )}
       </div>
@@ -1753,7 +1753,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
     <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
       <div className="text-xs text-[var(--color-muted)] mb-1">{label}</div>
       <div className={`text-sm font-bold truncate ${accent ? 'text-[var(--color-accent)]' : ''}`}>{value}</div>
-      {sub && <div className="text-[10px] text-[var(--color-muted)] truncate mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs text-[var(--color-muted)] truncate mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -1769,7 +1769,7 @@ function GaugeBar({ label, pct, value, sub, warn }: { label: string; pct: number
       <div className="h-2.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      {sub && <div className="text-[10px] text-[var(--color-muted)] mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -1783,7 +1783,7 @@ function GaugeCard({ label, pct, value }: { label: string; pct: number; value: s
       <div className="h-1.5 bg-[var(--color-background)] rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <div className="text-[10px] text-[var(--color-muted)] mt-1">{value}</div>
+      <div className="text-xs text-[var(--color-muted)] mt-1">{value}</div>
     </div>
   );
 }
@@ -1793,11 +1793,11 @@ function GaugePill({ label, value, max }: { label: string; value: number; max: n
   const color = pct > 50 ? '#ef4444' : pct > 20 ? '#eab308' : 'var(--color-accent)';
   return (
     <div className="flex items-center gap-1 w-20">
-      <span className="text-[10px] text-[var(--color-muted)]">{label}</span>
+      <span className="text-xs text-[var(--color-muted)]">{label}</span>
       <div className="flex-1 h-1 bg-[var(--color-background)] rounded-full overflow-hidden">
         <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="text-[10px] font-mono" style={{ color }}>{value.toFixed(1)}</span>
+      <span className="text-xs font-mono" style={{ color }}>{value.toFixed(1)}</span>
     </div>
   );
 }

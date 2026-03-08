@@ -665,12 +665,12 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
                     <span className="text-sm font-bold">{h.name}</span>
                     <div className="flex gap-1">
                       {h.tags.slice(0, 2).map(t => (
-                        <span key={t} className="text-[10px] px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
+                        <span key={t} className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
                       ))}
                     </div>
                   </div>
                   <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
-                  <div className="text-[10px] text-[var(--color-muted)] font-mono space-y-0.5">
+                  <div className="text-xs text-[var(--color-muted)] font-mono space-y-0.5">
                     <div className="truncate">install: {h.install}</div>
                     <div className="truncate">verify: {h.verify}</div>
                     {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
@@ -940,14 +940,14 @@ function ExampleCard({ title, desc, command, network, onRun }: {
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2 hover:border-[var(--color-accent)]/30 transition-colors">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-bold">{title}</h4>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+        <span className={`text-xs px-1.5 py-0.5 rounded ${
           network === 'semitrusted' ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'bg-yellow-400/10 text-yellow-400'
         }`}>
           {network}
         </span>
       </div>
       <p className="text-xs text-[var(--color-muted)]">{desc}</p>
-      <pre className="text-[11px] font-mono text-[var(--color-muted)] bg-[var(--color-background)] rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">{command}</pre>
+      <pre className="text-xs font-mono text-[var(--color-muted)] bg-[var(--color-background)] rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">{command}</pre>
       <button
         onClick={() => onRun(command, network)}
         className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer"

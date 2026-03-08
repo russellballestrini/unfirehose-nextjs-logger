@@ -268,7 +268,7 @@ export default function StyleguidePage() {
               { title: 'configure', items: [['♪', 'Scrobble'], ['{', 'Schema'], ['◐', 'Styleguide'], ['⚙', 'Settings']] },
             ].map(group => (
               <div key={group.title}>
-                <div className="text-[10px] uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2">{group.title}</div>
+                <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2">{group.title}</div>
                 <div className="space-y-1">
                   {group.items.map(([icon, label], i) => (
                     <div key={i} className="flex items-center gap-2 text-base text-[var(--color-muted)]">
@@ -481,16 +481,47 @@ export default function StyleguidePage() {
 
       {/* Typography */}
       <Section title="Typography">
-        <div className="space-y-2 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h1 className="text-2xl font-bold">Heading 2XL — bold</h1>
-          <h2 className="text-lg font-bold">Heading LG — bold</h2>
-          <h3 className="text-base font-bold">Heading Base — bold</h3>
-          <p className="text-base">Body text — base regular</p>
-          <p className="text-base text-[var(--color-muted)]">Muted caption — base muted</p>
-          <p className="text-base text-[var(--color-accent)]">Accent text — base accent</p>
-          <p className="text-base font-mono bg-[var(--color-background)] inline-block px-2 py-0.5 rounded">
-            Monospace inline
-          </p>
+        <div className="space-y-4 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <div className="bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/30 rounded p-3">
+            <p className="text-base font-bold text-[var(--color-accent)]">16px minimum — no text smaller than 1rem</p>
+            <p className="text-base text-[var(--color-muted)] mt-1">
+              The theme overrides <code className="text-[var(--color-accent)]">--font-size-xs</code> and{' '}
+              <code className="text-[var(--color-accent)]">--font-size-sm</code> to{' '}
+              <code className="text-[var(--color-accent)]">1rem</code> (16px). All Tailwind text utilities{' '}
+              (<code className="text-[var(--color-accent)]">text-xs</code>,{' '}
+              <code className="text-[var(--color-accent)]">text-sm</code>,{' '}
+              <code className="text-[var(--color-accent)]">text-base</code>) resolve to 16px or larger.
+              Arbitrary small values like <code className="text-[var(--color-accent)]">text-[10px]</code> are banned.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold">Heading 2XL — 1.5rem / 24px</h1>
+            <h2 className="text-xl font-bold">Heading XL — 1.25rem / 20px</h2>
+            <h3 className="text-lg font-bold">Heading LG — 1.125rem / 18px</h3>
+            <p className="text-base font-bold">Heading Base — 1rem / 16px bold</p>
+            <p className="text-base">Body text — 1rem / 16px regular</p>
+            <p className="text-sm">text-sm — resolves to 16px (theme override)</p>
+            <p className="text-xs">text-xs — resolves to 16px (theme override)</p>
+            <p className="text-base text-[var(--color-muted)]">Muted caption — base muted</p>
+            <p className="text-base text-[var(--color-accent)]">Accent text — base accent</p>
+            <p className="text-base font-mono bg-[var(--color-background)] inline-block px-2 py-0.5 rounded">
+              Monospace inline — font-mono
+            </p>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              ['text-2xl', '1.5rem / 24px', 'Page titles'],
+              ['text-xl', '1.25rem / 20px', 'Section headings'],
+              ['text-lg', '1.125rem / 18px', 'Sub-headings'],
+              ['text-base', '1rem / 16px', 'Body, labels, everything else'],
+            ].map(([cls, size, usage]) => (
+              <div key={cls} className="bg-[var(--color-background)] rounded p-3">
+                <div className="text-base font-bold text-[var(--color-accent)]">{cls}</div>
+                <div className="text-base text-[var(--color-foreground)]">{size}</div>
+                <div className="text-base text-[var(--color-muted)]">{usage}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </Section>
 
@@ -1025,7 +1056,7 @@ Response:
                       <div className="h-full rounded-full" style={{ width: `${b.progress * 100}%`, backgroundColor: color }} />
                     </div>
                   )}
-                  {b.tier && b.earned && <div className="text-[10px] uppercase mt-1" style={{ color }}>{b.tier}</div>}
+                  {b.tier && b.earned && <div className="text-xs uppercase mt-1" style={{ color }}>{b.tier}</div>}
                 </div>
               );
             })}
@@ -1039,11 +1070,11 @@ Response:
             <div className="inline-grid gap-0.5" style={{ gridTemplateColumns: 'auto repeat(24, 1fr)' }}>
               <div />
               {Array.from({ length: 24 }, (_, h) => (
-                <div key={h} className="text-[10px] text-[var(--color-muted)] text-center w-5">{h % 3 === 0 ? h : ''}</div>
+                <div key={h} className="text-xs text-[var(--color-muted)] text-center w-5">{h % 3 === 0 ? h : ''}</div>
               ))}
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, dow) => (
                 <Fragment key={dow}>
-                  <div className="text-[10px] text-[var(--color-muted)] pr-1 leading-5">{day}</div>
+                  <div className="text-xs text-[var(--color-muted)] pr-1 leading-5">{day}</div>
                   {Array.from({ length: 24 }, (_, h) => {
                     const intensity = Math.random() * (h >= 9 && h <= 22 && dow >= 1 && dow <= 5 ? 1 : 0.2);
                     return (

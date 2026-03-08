@@ -470,17 +470,17 @@ export default function UsageMonitorPage() {
                                   {rp.prompt}
                                 </span>
                                 {rp.commitHash && (
-                                  <span className="shrink-0 text-[10px] px-1 py-0.5 rounded bg-green-500/20 text-green-400 font-mono" title={rp.commitSubject}>
+                                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-green-500/20 text-green-400 font-mono" title={rp.commitSubject}>
                                     {rp.commitHash}
                                   </span>
                                 )}
                                 {rp.gitStatus === 'uncommitted' && (
-                                  <span className="shrink-0 text-[10px] px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono">
+                                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono">
                                     uncommitted
                                   </span>
                                 )}
                                 {rp.gitStatus === 'unpushed' && (
-                                  <span className="shrink-0 text-[10px] px-1 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
+                                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
                                     unpushed
                                   </span>
                                 )}
@@ -1118,15 +1118,15 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
           </div>
         )}
         <div className="flex gap-2 flex-wrap">
-          {node.arch && <span className="text-[10px] px-1 py-0.5 rounded bg-[var(--color-surface-hover)]">{node.arch}</span>}
-          {node.cpuModel && /intel/i.test(node.cpuModel) && <span className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-400">Intel</span>}
-          {node.cpuModel && /amd|epyc|ryzen/i.test(node.cpuModel) && <span className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-400">AMD</span>}
-          {node.cpuModel && /arm|aarch/i.test(node.arch ?? '') && <span className="text-[10px] px-1 py-0.5 rounded bg-green-500/20 text-green-400">ARM</span>}
-          {node.cpuModel && /risc/i.test(node.arch ?? '') && <span className="text-[10px] px-1 py-0.5 rounded bg-purple-500/20 text-purple-400">RISC-V</span>}
+          {node.arch && <span className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface-hover)]">{node.arch}</span>}
+          {node.cpuModel && /intel/i.test(node.cpuModel) && <span className="text-xs px-1 py-0.5 rounded bg-blue-500/20 text-blue-400">Intel</span>}
+          {node.cpuModel && /amd|epyc|ryzen/i.test(node.cpuModel) && <span className="text-xs px-1 py-0.5 rounded bg-red-500/20 text-red-400">AMD</span>}
+          {node.cpuModel && /arm|aarch/i.test(node.arch ?? '') && <span className="text-xs px-1 py-0.5 rounded bg-green-500/20 text-green-400">ARM</span>}
+          {node.cpuModel && /risc/i.test(node.arch ?? '') && <span className="text-xs px-1 py-0.5 rounded bg-purple-500/20 text-purple-400">RISC-V</span>}
         </div>
         {node.gpuModel && (
           <div className="flex items-center gap-1.5 mt-1">
-            <span className="text-[10px] px-1 py-0.5 rounded bg-green-500/20 text-green-400">GPU</span>
+            <span className="text-xs px-1 py-0.5 rounded bg-green-500/20 text-green-400">GPU</span>
             <span className="truncate" title={node.gpuModel}>{node.gpuModel}</span>
             {node.gpuMemTotalMB && (
               <span className="shrink-0">{node.gpuMemUsedMB ? `${(node.gpuMemUsedMB / 1024).toFixed(1)}/${(node.gpuMemTotalMB / 1024).toFixed(0)}GB` : `${(node.gpuMemTotalMB / 1024).toFixed(0)}GB`}</span>
@@ -1202,42 +1202,42 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
                 {gpuWatts > 0 && <> + {gpuWatts.toFixed(0)}W gpu</>}
                 {' = '}{totalWatts.toFixed(0)}W
                 {' '}
-                <span className={`text-[10px] ${wattsOverride ? 'text-yellow-400' : node.powerSource ? 'text-[var(--color-accent)]' : 'opacity-60'}`}>
+                <span className={`text-xs ${wattsOverride ? 'text-yellow-400' : node.powerSource ? 'text-[var(--color-accent)]' : 'opacity-60'}`}>
                   [{cpuSourceLabel}]
                 </span>
                 {gpuWatts > 0 && (
-                  <span className="text-[10px] text-green-400"> [gpu nvidia-smi]</span>
+                  <span className="text-xs text-green-400"> [gpu nvidia-smi]</span>
                 )}
               </span>
               <span className="text-[var(--color-accent)] font-bold">{formatCost(totalPerMonth)}/mo</span>
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-[var(--color-muted)]">$</span>
+                <span className="text-xs text-[var(--color-muted)]">$</span>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   value={kwhRate}
                   onChange={(e) => onRateChange(node.hostname, parseFloat(e.target.value) || 0)}
-                  className="w-14 text-[10px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
+                  className="w-14 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
                 />
-                <span className="text-[10px] text-[var(--color-muted)]">/kWh</span>
+                <span className="text-xs text-[var(--color-muted)]">/kWh</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-[var(--color-muted)]">ISP $</span>
+                <span className="text-xs text-[var(--color-muted)]">ISP $</span>
                 <input
                   type="number"
                   step="1"
                   min="0"
                   value={ispCost}
                   onChange={(e) => onIspCostChange(node.hostname, parseFloat(e.target.value) || 0)}
-                  className="w-14 text-[10px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
+                  className="w-14 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
                 />
-                <span className="text-[10px] text-[var(--color-muted)]">/mo</span>
+                <span className="text-xs text-[var(--color-muted)]">/mo</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-[var(--color-muted)]">HDDs</span>
+                <span className="text-xs text-[var(--color-muted)]">HDDs</span>
                 <input
                   type="number"
                   step="1"
@@ -1245,11 +1245,11 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
                   value={diskOverride ?? ''}
                   placeholder={String(node.spinningDisks ?? 0)}
                   onChange={(e) => onDiskOverrideChange(node.hostname, parseInt(e.target.value) || 0)}
-                  className="w-10 text-[10px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
+                  className="w-10 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
                 />
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-[var(--color-muted)]">W</span>
+                <span className="text-xs text-[var(--color-muted)]">W</span>
                 <input
                   type="number"
                   step="1"
@@ -1257,9 +1257,9 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
                   value={wattsOverride ?? ''}
                   placeholder="auto"
                   onChange={(e) => onWattsOverrideChange(node.hostname, parseFloat(e.target.value) || 0)}
-                  className="w-14 text-[10px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
+                  className="w-14 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 font-mono"
                 />
-                <span className="text-[10px] text-[var(--color-muted)]">override</span>
+                <span className="text-xs text-[var(--color-muted)]">override</span>
               </div>
             </div>
           </div>
@@ -1298,7 +1298,7 @@ function UnsandboxCard({ status, probe }: { status: any; probe: any }) {
         <Link href="/permacomputer/unsandbox" className="font-bold text-sm text-purple-400 hover:underline transition-colors">
           unsandbox.com
         </Link>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">ephemeral</span>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">ephemeral</span>
         {probe?.uptime && <span className="text-xs text-[var(--color-muted)] ml-auto">up {probe.uptime}</span>}
       </div>
 
@@ -1318,9 +1318,9 @@ function UnsandboxCard({ status, probe }: { status: any; probe: any }) {
             </div>
           )}
           <div className="flex gap-2 flex-wrap">
-            <span className="text-[10px] px-1 py-0.5 rounded bg-[var(--color-surface-hover)]">x86_64</span>
-            {probe.cpuModel && /intel/i.test(probe.cpuModel) && <span className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-400">Intel</span>}
-            {probe.cpuModel && /amd|epyc|ryzen/i.test(probe.cpuModel) && <span className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-400">AMD</span>}
+            <span className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface-hover)]">x86_64</span>
+            {probe.cpuModel && /intel/i.test(probe.cpuModel) && <span className="text-xs px-1 py-0.5 rounded bg-blue-500/20 text-blue-400">Intel</span>}
+            {probe.cpuModel && /amd|epyc|ryzen/i.test(probe.cpuModel) && <span className="text-xs px-1 py-0.5 rounded bg-red-500/20 text-red-400">AMD</span>}
           </div>
         </div>
 

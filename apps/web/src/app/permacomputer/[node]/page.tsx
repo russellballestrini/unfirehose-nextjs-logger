@@ -407,11 +407,11 @@ export default function NodeDetailPage() {
               {gpuWatts > 0 && <> + {gpuWatts.toFixed(0)}W gpu</>}
               {' = '}{totalWatts.toFixed(0)}W
               {' '}
-              <span className={`text-[10px] ${wattsOverride ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
+              <span className={`text-xs ${wattsOverride ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
                 [{wattsOverride ? 'override' : node.powerSource ?? 'n/a'}
                 {!wattsOverride && node.cpuTdpWatts && ` ${node.cpuTdpWatts}W`}]
               </span>
-              {gpuWatts > 0 && <span className="text-[10px] text-green-400"> [gpu nvidia-smi]</span>}
+              {gpuWatts > 0 && <span className="text-xs text-green-400"> [gpu nvidia-smi]</span>}
             </div>
             <div className="text-sm text-[var(--color-muted)]">
               {kwhPerMonth.toFixed(1)} kWh/mo &middot; ${elecPerMonth.toFixed(0)} elec &middot; ${ispCost.toFixed(0)} isp
@@ -988,12 +988,12 @@ export default function NodeDetailPage() {
                     <span className="text-sm font-bold">{h.name}</span>
                     <div className="flex gap-1">
                       {h.tags.slice(0, 2).map(t => (
-                        <span key={t} className="text-[10px] px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
+                        <span key={t} className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
                       ))}
                     </div>
                   </div>
                   <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
-                  <div className="text-[10px] text-[var(--color-muted)] font-mono space-y-0.5">
+                  <div className="text-xs text-[var(--color-muted)] font-mono space-y-0.5">
                     <div className="truncate">install: {h.install}</div>
                     <div className="truncate">verify: {h.verify}</div>
                     {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}

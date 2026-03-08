@@ -380,7 +380,7 @@ function BadgeCard({ badge }: { badge: any }) {
         </div>
       )}
       {badge.tier && badge.earned && (
-        <div className="text-[10px] uppercase mt-1" style={{ color }}>{badge.tier}</div>
+        <div className="text-xs uppercase mt-1" style={{ color }}>{badge.tier}</div>
       )}
     </div>
   );
@@ -399,14 +399,14 @@ function HeatmapGrid({ data }: { data: { dow: number; hour: number; count: numbe
         {/* Header row */}
         <div />
         {Array.from({ length: 24 }, (_, h) => (
-          <div key={h} className="text-[10px] text-[var(--color-muted)] text-center w-5">
+          <div key={h} className="text-xs text-[var(--color-muted)] text-center w-5">
             {h % 3 === 0 ? h : ''}
           </div>
         ))}
         {/* Data rows */}
         {[0, 1, 2, 3, 4, 5, 6].map(dow => (
           <>
-            <div key={`label-${dow}`} className="text-[10px] text-[var(--color-muted)] pr-1 leading-5">
+            <div key={`label-${dow}`} className="text-xs text-[var(--color-muted)] pr-1 leading-5">
               {DAY_NAMES[dow]}
             </div>
             {Array.from({ length: 24 }, (_, h) => {
@@ -451,7 +451,7 @@ function BarChart({ data }: { data: { label: string; value: number }[] }) {
               {d.label}
             </div>
           )}
-          <div className="absolute -top-6 left-1/2 -translate-x-1/2 hidden group-hover:block bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap z-10">
+          <div className="absolute -top-6 left-1/2 -translate-x-1/2 hidden group-hover:block bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-xs whitespace-nowrap z-10">
             {d.label}: {typeof d.value === 'number' && d.value % 1 !== 0 ? `$${d.value}` : d.value}
           </div>
         </div>

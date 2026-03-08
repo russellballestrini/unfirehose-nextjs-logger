@@ -330,7 +330,7 @@ function KeyRow({ apiKey, onRevoke, isSubKey }: { apiKey: ApiKey; onRevoke?: (id
         {apiKey.scopes}
       </span>
       {isSubKey && (
-        <span className="text-[10px] uppercase tracking-wider bg-[var(--color-surface-hover)] px-1.5 py-0.5 rounded text-[var(--color-muted)]">
+        <span className="text-xs uppercase tracking-wider bg-[var(--color-surface-hover)] px-1.5 py-0.5 rounded text-[var(--color-muted)]">
           sub-key
         </span>
       )}

@@ -15,6 +15,11 @@
   --color-error: #f87171;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* 16px minimum — no text smaller than 1rem */
+  --font-size-xs: 1rem;
+  --font-size-xs--line-height: 1.5rem;
+  --font-size-sm: 1rem;
+  --font-size-sm--line-height: 1.5rem;
 }
 
 :root.light {
@@ -208,7 +213,7 @@ body {
   color: var(--color-accent);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-  font-size: 0.9em;
+  font-size: 1em;
 }
 .md-content pre {
   background: var(--color-background);

@@ -59,7 +59,7 @@ export function Sidebar() {
             return (
               <div
                 key={item.separator}
-                className={`text-[10px] uppercase tracking-widest text-[var(--color-muted)] px-3 ${i === 0 ? 'pt-1' : 'pt-3'} pb-1 select-none opacity-60`}
+                className={`text-xs uppercase tracking-widest text-[var(--color-muted)] px-3 ${i === 0 ? 'pt-1' : 'pt-3'} pb-1 select-none opacity-60`}
               >
                 {item.separator}
               </div>

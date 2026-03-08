@@ -896,7 +896,7 @@ function LlmProviders({
         <span className="text-[var(--color-accent)]">{'\u{1F513}'} Vault unlocked — keys encrypted in browser</span>
         <button
           onClick={vault.lock}
-          className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer"
+          className="text-xs text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer"
         >
           Lock vault
         </button>
@@ -919,10 +919,10 @@ function LlmProviders({
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${p.ready ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-error)]'}`} />
                 <span className="text-sm font-bold">{p.name}</span>
-                <span className="text-[10px] text-[var(--color-muted)] ml-auto font-mono">{p.model}</span>
+                <span className="text-xs text-[var(--color-muted)] ml-auto font-mono">{p.model}</span>
               </div>
               {p.detail && (
-                <div className="text-[10px] text-[var(--color-muted)] mt-1">{p.detail}</div>
+                <div className="text-xs text-[var(--color-muted)] mt-1">{p.detail}</div>
               )}
             </div>
           ))}
@@ -952,7 +952,7 @@ function LlmProviders({
           <div className="space-y-3 border border-[var(--color-border)] rounded p-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[var(--color-muted)]">{currentPreset.name}</span>
-              <button onClick={clearProvider} className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer">
+              <button onClick={clearProvider} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-error)] cursor-pointer">
                 Clear
               </button>
             </div>
@@ -971,13 +971,13 @@ function LlmProviders({
                 />
               </div>
             ) : (
-              <div className="text-[10px] font-mono text-[var(--color-muted)] truncate">{currentPreset.endpoint}</div>
+              <div className="text-xs font-mono text-[var(--color-muted)] truncate">{currentPreset.endpoint}</div>
             )}
 
             {/* API Key — stored in encrypted browser vault */}
             {!isLocal && (
               <div>
-                <label className="text-xs text-[var(--color-muted)] block mb-1">API Key <span className="text-[10px] text-[var(--color-muted)]">(encrypted in browser)</span></label>
+                <label className="text-xs text-[var(--color-muted)] block mb-1">API Key <span className="text-xs text-[var(--color-muted)]">(encrypted in browser)</span></label>
                 <input
                   type="password"
                   defaultValue={editKey}
@@ -1017,7 +1017,7 @@ function LlmProviders({
             </div>
 
             {isLocal && (
-              <div className="text-[10px] text-[var(--color-muted)]">No API key needed for local endpoints</div>
+              <div className="text-xs text-[var(--color-muted)]">No API key needed for local endpoints</div>
             )}
           </div>
         )}
