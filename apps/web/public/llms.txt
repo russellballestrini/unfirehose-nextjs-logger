@@ -1,0 +1,405 @@
+# unfirehose — LLM & Agent API Reference
+
+> Base URL: http://localhost:3000 (self-hosted)
+> All endpoints return JSON. Errors: `{ error, detail?, status? }`
+> No authentication required for local instance.
+
+## Logs & Thinking Traces
+
+### GET /api/logs
+Search all conversation logs across harnesses (Claude Code, Fetch, uncloseai).
+- `?search=error` — full-text search
+- `?project=-home-fox-git-myapp` — filter by project
+- `?types=assistant,user,thinking` — filter message types
+- `?from=2026-03-01&to=2026-03-07` — date range
+- `?session=abc123` — single session
+- `?limit=50&offset=0` — pagination
+→ `{ entries: [{ id, sessionId, project, type, timestamp, content, model }], total, limit, offset }`
+
+### GET /api/thinking
+Search thinking/reasoning blocks from all sessions.
+- `?search=architecture` — search thinking content
+- `?project=...&from=...&to=...&limit=100&offset=0`
+→ `{ entries: [{ sessionId, project, timestamp, thinking, model }], total, limit, offset }`
+
+### GET /api/sessions/{sessionId}
+Full conversation replay for a session.
+- `?project=-home-fox-git-myapp` — project context
+- `?types=user,assistant` — filter types
+- `?offset=0&limit=200` — paginate messages
+- `?stream=true` — SSE stream instead of JSON
+→ `{ entries: [...], count, offset, limit }`
+
+### GET /api/sessions/{sessionId}/thinking
+All thinking blocks from a specific session.
+- `?project=...`
+→ `[{ sessionId, project, timestamp, thinking, precedingPrompt, model }]`
+
+
+## Todo System
+
+### GET /api/todos
+All todos with filters.
+- `?project=...&status=pending&source=claude`
+→ `{ todos: [...], byProject: {...}, counts: {...} }`
+
+### POST /api/todos
+Create a todo.
+← `{ content: "Fix the thing", source: "manual", projectId?: "...", projectName?: "..." }`
+→ `{ ok: true, id: 123 }`
+
+### PATCH /api/todos
+Update a single todo.
+← `{ id: 123, status?: "completed", estimatedMinutes?: 30 }`
+→ `{ ok: true }`
+
+### GET /api/todos/pending
+Actionable pending todos with smart filters.
+- `?project=-home-fox-git-myapp` — by project
+- `?search=auth` — search content
+- `?quick=true` — under 15 minutes only
+- `?needs_ticket=true` — items needing tickets
+- `?limit=20`
+→ `[{ id, uuid, content, status, source, project, estimatedMinutes, createdAt, updatedAt }]`
+
+### GET /api/todos/summary
+Landscape overview — counts, stale items, by-project breakdown.
+→ `{ counts: { pending, completed, ... }, totalMinutes, needsTicket, staleCount, byProject: {...}, bySource: {...}, oldestPending: {...} }`
+
+### GET /api/todos/stale
+Items not touched in N days.
+- `?days=7&limit=20&project=...`
+→ `{ staleThresholdDays, count, todos: [...] }`
+
+### PATCH /api/todos/bulk
+Bulk update multiple todos.
+← `{ ids: [1,2,3], status: "completed" }`
+→ `{ ok: true, updated: 3 }`
+
+### GET /api/todos/graph
+Graphviz visualization of todo relationships.
+- `?project=...&status=pending&layout=dot`
+→ `{ svg, nodeCount, edgeCount, dot }`
+
+
+## Projects
+
+### GET /api/projects
+List all projects with metadata.
+→ `[{ name, displayName, path, sessionCount, totalMessages, latestActivity, hasMemory }]`
+
+### GET /api/projects/activity
+Activity metrics across projects.
+- `?days=30` — lookback period
+- `?project=...` — single project with git context
+→ `[{ name, user_messages, assistant_messages, thinking_blocks, ... }]`
+
+### GET /api/projects/{project}/sessions
+All sessions for a project.
+- `?sort=latest&order=desc`
+→ `{ project, originalPath, sessions: [...] }`
+
+### GET /api/projects/{project}/git
+Git status for a project repo.
+→ `{ repoPath, branch, files: [...], diff, isDirty }`
+
+### POST /api/projects/{project}/git
+Commit changes in a project repo.
+← `{ message: "Fix auth bug", addAll: true }`
+→ `{ success: true, commit: "abc123", pushed: true }`
+
+### POST /api/projects/{project}/git/suggest
+Generate a commit message using LLM.
+- Header: `x-vault-api-key: sk-...` (optional, decrypted BYOK key)
+→ `{ message: "Fix login redirect on expired sessions", provider: "claude-max" }`
+Provider fallback: vault BYOK → Claude Max OAuth → Qwen 3 Coder mesh → Hermes 3 mesh
+
+
+## Dashboard & Analytics
+
+### GET /api/dashboard
+Aggregate dashboard metrics.
+- `?range=7d` — 1h, 6h, 24h, 7d, 14d, 28d
+→ `{ range, summary, modelBreakdown, dailyActivity, hourCounts, dayOfWeekCounts, dowHourHeatmap }`
+
+### GET /api/tokens
+Token usage analytics.
+- `?range=7d`
+→ `{ range, summary, modelBreakdown, dailyActivity, toolCalls, blockTypes }`
+
+### GET /api/usage
+Usage timeline or by-project breakdown.
+- `?minutes=60` — time window
+- `?view=projects` — group by project
+→ Timeline array or project breakdown
+
+### GET /api/stats
+Cached statistics.
+- `?from=2026-03-01&to=2026-03-07`
+→ Aggregate stats object
+
+### GET /api/active-sessions
+Currently active sessions.
+- `?minutes=15` — activity window
+→ `{ sessions: [...], count }`
+
+### GET /api/live
+Server-sent events stream of live session activity.
+→ SSE: `{ type, sessions?, entry?, ... }`
+
+
+## Mesh / Permacomputer
+
+### GET /api/mesh
+All mesh node stats (SSH-connected machines).
+→ `{ nodes: [...], localHostname, summary }`
+
+### GET /api/mesh/history
+Time-series metrics for mesh nodes.
+- `?hours=24&hostname=cammy`
+→ `{ timeline: [{ timestamp, cpuPercent, memUsedGB, memTotalGB, gpuUtil, gpuMemUsedGB, ... }], hostnames, hours, count }`
+
+### POST /api/mesh/history
+Ingest snapshot from mesh nodes.
+← `{ nodes: [...] }`
+
+### GET /api/mesh/node
+Deep probe of a single node.
+- `?host=cammy`
+→ CPU, memory, GPU, temps, processes, network, Docker, tmux, screen sessions
+
+### GET /api/mesh/geoip
+GeoIP lookup for mesh nodes.
+
+### GET /api/mesh/rates
+Currency exchange rates for cost calculations.
+
+### GET /api/unsandbox
+unsandbox.com cloud platform integration.
+- `?action=status` — tier, diagnostics, rate limits
+
+
+## Graph Explorer
+
+### GET /api/graph
+Graphviz visualizations of sessions, tools, projects, timelines.
+- `?view=sessions|tools|projects|timeline`
+- `?project=...&layout=dot|neato|fdp&format=svg`
+→ `{ svg, nodeCount, edgeCount, dot }`
+
+
+## Scrobble (Social Feed)
+
+### GET /api/scrobble/payload
+Full scrobble payload for publishing to the network.
+→ `{ $schema, generatedAt, handle, lifetime, streaks, badges, activity, timeSeries, models, tools, projects }`
+
+### GET /api/scrobble/preview
+Preview of scrobble data before publishing.
+
+
+## Schema & Documentation
+
+### GET /api/schema
+Browse database schema and source files.
+- `?file=db/schema.ts` — read specific file
+→ `{ files: [...] }` or `{ file, content }`
+
+
+## Settings & Configuration
+
+### GET /api/settings
+All settings as key-value pairs.
+→ `{ theme_accent_color, unfirehose_plan, ..., _system_username }`
+
+### POST /api/settings
+Set a setting.
+← `{ action: "set", key: "theme_accent_color", value: "#d40000" }`
+
+### GET /api/llm/providers
+Discover available LLM providers (auto-detected + mesh).
+→ `{ providers: [{ id, name, source, type, model, ready, detail }] }`
+
+
+## Blog
+
+### GET /api/blog
+List blog posts.
+- `?limit=10&offset=0`
+→ Array of posts
+
+### POST /api/blog
+Create a blog post.
+← `{ title, description, source, content, url }`
+→ `{ ok: true, id }`
+
+
+## Alerts
+
+### GET /api/alerts
+System alerts and notifications.
+- `?filter=unread&limit=50&offset=0&paginate=true`
+→ `{ alerts: [...], total }`
+
+### POST /api/alerts
+Manage alerts (dismiss, acknowledge).
+← `{ action: "dismiss", id: 123 }`
+
+
+## Triage
+
+### GET /api/triage
+Triage overview for a project.
+- `?project=...&days=7&limit=20`
+
+### POST /api/triage
+Execute triage actions.
+← `{ actions: [...] }`
+→ `{ ok: true, results: [...] }`
+
+
+## API Keys
+
+### GET /api/keys
+List API keys for programmatic access.
+→ `{ keys: [...] }`
+
+### POST /api/keys
+Create an API key.
+← `{ label: "my-agent", parentKeyId?, scopes: ["read"] }`
+→ `{ ok: true, id, key: "unfh-...", keyPrefix }`
+
+### DELETE /api/keys
+Revoke an API key.
+← `{ keyId: "..." }`
+
+### GET /api/keys/usage
+API key usage analytics.
+- `?days=30`
+→ `{ period, total, byKey: {...} }`
+
+
+## Ingest
+
+### GET /api/ingest
+Ingest status and database info.
+→ `{ ingested, db }`
+
+### POST /api/ingest
+Ingest JSONL conversation data.
+← Raw JSONL lines
+→ `{ accepted, errors }`
+
+
+## Boot & Harness Management
+
+### POST /api/boot
+Boot a Claude Code session on a mesh node.
+← `{ projectPath, sessionId?, yolo?, prompt?, host?, sudoPassword? }`
+→ `{ success, tmuxSession, command }`
+
+### POST /api/boot/finished
+Mark a boot session as complete.
+
+### POST /api/boot/mega
+Mega-boot: batch bootstrap across multiple nodes.
+
+### GET /api/tmux/stream
+SSE stream of tmux terminal output.
+- `?session=mysession&host=cammy&windows=true`
+
+### POST /api/tmux/stream
+Send keystrokes to tmux session.
+← `{ session, keys: "ls -la", special?: "Enter" }`
+→ `{ ok: true }`
+
+### POST /api/harness/verify
+Verify harness installation on a remote node.
+← `{ host, install?: true, verify?: true }`
+→ `{ success, version, steps }`
+
+
+## Maintenance
+
+### POST /api/pii-backfill
+Scan and redact PII from stored conversation data.
+→ `{ ok, blocksScanned, blocksModified, sessionsModified, piiReplacementsAdded }`
+
+### GET /api/ssh-config
+Parse and list SSH config hosts and keys.
+→ `{ hosts: [...], keys: [...] }`
+
+### POST /api/ssh-config
+Add/update SSH config entry.
+← `{ name, hostname, port?, user?, identityFile? }`
+
+### GET /api/apmonitor
+Application monitoring for mesh nodes.
+- `?host=...&path=...`
+→ `{ nodes: [...], summary }`
+
+
+## Agent Workflow Examples
+
+### Start-of-session orientation
+```bash
+curl -s localhost:3000/api/todos/summary | python3 -m json.tool
+curl -s "localhost:3000/api/todos/pending?project=-home-fox-git-myapp&limit=10"
+curl -s "localhost:3000/api/projects/activity?days=7"
+```
+
+### Search conversation history
+```bash
+curl -s "localhost:3000/api/logs?search=auth+error&types=assistant&from=2026-03-01&limit=50"
+curl -s "localhost:3000/api/thinking?search=architecture&limit=100"
+```
+
+### Extract training data (thinking traces)
+```bash
+# All thinking blocks for a project
+curl -s "localhost:3000/api/thinking?project=-home-fox-git-myapp&limit=1000"
+
+# Full session replay with thinking
+curl -s "localhost:3000/api/sessions/SESSION_ID?types=user,assistant,thinking"
+
+# Scrobble payload — structured activity + model usage data
+curl -s localhost:3000/api/scrobble/payload
+```
+
+### Todo management
+```bash
+# Create
+curl -X POST localhost:3000/api/todos -H 'Content-Type: application/json' -d '{"content":"Fix auth","source":"manual"}'
+
+# Bulk complete
+curl -X PATCH localhost:3000/api/todos/bulk -H 'Content-Type: application/json' -d '{"ids":[1,2,3],"status":"completed"}'
+
+# Quick wins
+curl -s "localhost:3000/api/todos/pending?quick=true&limit=20"
+```
+
+### Git operations from agents
+```bash
+# Check repo status
+curl -s "localhost:3000/api/projects/-home-fox-git-myapp/git"
+
+# Generate commit message (uses LLM fallback chain)
+curl -X POST "localhost:3000/api/projects/-home-fox-git-myapp/git/suggest"
+
+# Commit and push
+curl -X POST "localhost:3000/api/projects/-home-fox-git-myapp/git" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Fix auth redirect","addAll":true}'
+```
+
+### Infrastructure monitoring
+```bash
+# All mesh nodes
+curl -s localhost:3000/api/mesh
+
+# 24h time-series for a node
+curl -s "localhost:3000/api/mesh/history?hours=24&hostname=cammy"
+
+# Deep probe
+curl -s "localhost:3000/api/mesh/node?host=cammy"
+```
