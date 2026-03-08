@@ -204,7 +204,7 @@ export default function SettingsPage() {
 
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6">
           {/* Profile */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
             <h3 className="text-base font-bold text-[var(--color-muted)]">Profile</h3>
@@ -319,7 +319,7 @@ export default function SettingsPage() {
 
       {/* ===== APPEARANCE TAB ===== */}
       {activeTab === 'Appearance' && (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6">
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
@@ -342,7 +342,7 @@ export default function SettingsPage() {
 
       {/* ===== MESH TAB ===== */}
       {activeTab === 'Mesh' && (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6">
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
             <h3 className="text-base font-bold text-[var(--color-muted)]">Mesh Defaults</h3>
             <p className="text-base text-[var(--color-muted)]">
@@ -428,7 +428,7 @@ export default function SettingsPage() {
 
       {/* ===== CONNECTION TAB ===== */}
       {activeTab === 'Connection' && (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6">
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Connection</h3>
@@ -526,7 +526,7 @@ export default function SettingsPage() {
 
       {/* ===== API KEYS TAB ===== */}
       {activeTab === 'API Keys' && (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6">
           {!vault.unlocked ? (
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-8 text-center space-y-4">
               <div className="text-4xl">{'\u{1F510}'}</div>
