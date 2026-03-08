@@ -7,56 +7,73 @@ import useSWR from 'swr';
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
-// Convert basic ANSI escape codes to styled spans
-function ansiToHtml(text: string): string {
-  const colorMap: Record<string, string> = {
-    '30': '#1e1e1e', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',
-    '34': '#60a5fa', '35': '#c084fc', '36': '#22d3ee', '37': '#d4d4d4',
-    '90': '#737373', '91': '#f87171', '92': '#4ade80', '93': '#facc15',
-    '94': '#93c5fd', '95': '#d8b4fe', '96': '#67e8f9', '97': '#ffffff',
-  };
-  const bgMap: Record<string, string> = {
-    '40': '#1e1e1e', '41': '#991b1b', '42': '#166534', '43': '#854d0e',
-    '44': '#1e3a5f', '45': '#581c87', '46': '#164e63', '47': '#404040',
-  };
+// Convert basic ANSI escape codes to styled spans — optimized hot path
+const FG_MAP: Record<string, string> = {
+  '30': '#1e1e1e', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',
+  '34': '#60a5fa', '35': '#c084fc', '36': '#22d3ee', '37': '#d4d4d4',
+  '90': '#737373', '91': '#f87171', '92': '#4ade80', '93': '#facc15',
+  '94': '#93c5fd', '95': '#d8b4fe', '96': '#67e8f9', '97': '#ffffff',
+};
+const BG_MAP: Record<string, string> = {
+  '40': '#1e1e1e', '41': '#991b1b', '42': '#166534', '43': '#854d0e',
+  '44': '#1e3a5f', '45': '#581c87', '46': '#164e63', '47': '#404040',
+};
+const ANSI_RE = /(\x1b\[[0-9;]*m)/;
+const ESC_RE = /^\x1b\[([0-9;]*)m$/;
+// Cache style strings keyed by state — avoids rebuilding for repeated states
+const styleCache = new Map<string, string>();
+function getStyleTag(fg: string, bg: string, bold: boolean, dim: boolean): string {
+  const key = `${fg}|${bg}|${bold ? 1 : 0}|${dim ? 1 : 0}`;
+  let cached = styleCache.get(key);
+  if (!cached) {
+    const s: string[] = [];
+    if (fg) s.push(`color:${fg}`);
+    if (bg) s.push(`background:${bg}`);
+    if (bold) s.push('font-weight:bold');
+    if (dim) s.push('opacity:0.6');
+    cached = s.length ? `<span style="${s.join(';')}">` : '';
+    styleCache.set(key, cached);
+  }
+  return cached;
+}
 
-  let result = '';
+function ansiToHtml(text: string): string {
+  const chunks: string[] = [];
   let fg = '';
   let bg = '';
   let bold = false;
   let dim = false;
 
-  const parts = text.split(/(\x1b\[[0-9;]*m)/);
+  const parts = text.split(ANSI_RE);
 
-  for (const part of parts) {
-    const match = part.match(/^\x1b\[([0-9;]*)m$/);
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+    const match = ESC_RE.exec(part);
     if (match) {
-      const codes = match[1].split(';').filter(Boolean);
-      for (const code of codes) {
-        if (code === '0') { fg = ''; bg = ''; bold = false; dim = false; }
+      const codes = match[1].split(';');
+      for (let j = 0; j < codes.length; j++) {
+        const code = codes[j];
+        if (!code || code === '0') { fg = ''; bg = ''; bold = false; dim = false; }
         else if (code === '1') bold = true;
         else if (code === '2') dim = true;
         else if (code === '22') { bold = false; dim = false; }
-        else if (colorMap[code]) fg = colorMap[code];
-        else if (bgMap[code]) bg = bgMap[code];
+        else if (FG_MAP[code]) fg = FG_MAP[code];
+        else if (BG_MAP[code]) bg = BG_MAP[code];
         else if (code === '39') fg = '';
         else if (code === '49') bg = '';
       }
-    } else if (part) {
+    } else {
       const escaped = part.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const styles: string[] = [];
-      if (fg) styles.push(`color:${fg}`);
-      if (bg) styles.push(`background:${bg}`);
-      if (bold) styles.push('font-weight:bold');
-      if (dim) styles.push('opacity:0.6');
-      if (styles.length > 0) {
-        result += `<span style="${styles.join(';')}">${escaped}</span>`;
+      const open = getStyleTag(fg, bg, bold, dim);
+      if (open) {
+        chunks.push(open, escaped, '</span>');
       } else {
-        result += escaped;
+        chunks.push(escaped);
       }
     }
   }
-  return result;
+  return chunks.join('');
 }
 
 export default function TmuxViewerPage() {
@@ -66,6 +83,7 @@ export default function TmuxViewerPage() {
   const host = searchParams.get('host') ?? undefined;
   const hostParam = host ? `&host=${encodeURIComponent(host)}` : '';
   const [connected, setConnected] = useState(false);
+  const connectedRef = useRef(false);
   const [activeWindow, setActiveWindow] = useState<string | undefined>(undefined);
   const termRef = useRef<HTMLPreElement>(null);
   const autoScrollRef = useRef(true);
@@ -73,6 +91,18 @@ export default function TmuxViewerPage() {
   const pendingContentRef = useRef<string | null>(null);
   const lastRenderedRef = useRef('');
   const rafIdRef = useRef<number>(0);
+
+  // Paint content to terminal — used by both SSE and POST response
+  const paintContent = useCallback((raw: string) => {
+    if (raw === lastRenderedRef.current) return;
+    lastRenderedRef.current = raw;
+    if (termRef.current) {
+      termRef.current.innerHTML = ansiToHtml(raw);
+      if (autoScrollRef.current) {
+        termRef.current.scrollTop = termRef.current.scrollHeight;
+      }
+    }
+  }, []);
 
   const { data: windowsData } = useSWR(
     `/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`,
@@ -89,28 +119,21 @@ export default function TmuxViewerPage() {
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        setConnected(true);
+        if (!connectedRef.current) { connectedRef.current = true; setConnected(true); }
         // Buffer content — only render on next animation frame
         pendingContentRef.current = data;
         if (!rafIdRef.current) {
           rafIdRef.current = requestAnimationFrame(() => {
             rafIdRef.current = 0;
             const raw = pendingContentRef.current;
-            if (raw !== null && raw !== lastRenderedRef.current) {
-              lastRenderedRef.current = raw;
-              if (termRef.current) {
-                termRef.current.innerHTML = ansiToHtml(raw);
-                if (autoScrollRef.current) {
-                  termRef.current.scrollTop = termRef.current.scrollHeight;
-                }
-              }
-            }
+            if (raw !== null) paintContent(raw);
           });
         }
       } catch { /* skip */ }
     };
 
     es.onerror = () => {
+      connectedRef.current = false;
       setConnected(false);
       es.close();
       // Reconnect after 500ms
@@ -161,16 +184,19 @@ export default function TmuxViewerPage() {
 
       const payload = batch ? { keys: batch } : pending[0];
       try {
-        await fetch('/api/tmux/stream', {
+        const res = await fetch('/api/tmux/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, ...payload }),
         });
+        // Render immediately from POST response — don't wait for next SSE poll
+        const result = await res.json();
+        if (result.content) paintContent(result.content);
       } catch { /* best effort */ }
     }
 
     flushingRef.current = false;
-  }, [session, activeWindow, host]);
+  }, [session, activeWindow, host, paintContent]);
 
   const enqueueKeys = useCallback((payload: { keys?: string; special?: string }) => {
     queueRef.current.push(payload);

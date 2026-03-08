@@ -184,7 +184,14 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'keys or special required' }, { status: 400 });
     }
 
-    return Response.json({ ok: true });
+    // Capture pane immediately after sending keys — gives client instant feedback
+    // without waiting for the next SSE poll cycle
+    try {
+      const content = await capturePane(session, win, host);
+      return Response.json({ ok: true, content });
+    } catch {
+      return Response.json({ ok: true });
+    }
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 });
   }
