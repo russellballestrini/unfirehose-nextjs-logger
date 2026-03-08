@@ -62,7 +62,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
       `}</style>
 
-      <div className="w-full max-w-md space-y-8 p-8 relative z-10" style={{ animation: 'slideUp 0.6s ease-out' }}>
+      <div className="w-full max-w-lg space-y-8 p-8 relative z-10" style={{ animation: 'slideUp 0.6s ease-out' }}>
         {/* Logo */}
         <div className="text-center">
           <h1 className="font-black leading-none" style={{ fontSize: '4rem', letterSpacing: '-0.06em', WebkitTextStroke: '0.5px currentColor' }}>
