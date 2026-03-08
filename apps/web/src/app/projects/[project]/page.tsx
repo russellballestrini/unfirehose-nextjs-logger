@@ -21,6 +21,7 @@ const HARNESSES = [
   { value: 'agnt', label: 'agnt', cmd: 'agnt' },
   { value: 'cursor', label: 'Cursor', cmd: 'cursor' },
   { value: 'continue', label: 'Continue', cmd: 'continue' },
+  { value: 'qwen3-coder', label: 'Qwen 3 Coder', cmd: 'ollama run qwen3-coder:8b' },
   { value: 'ollama', label: 'Ollama', cmd: 'ollama' },
   { value: 'fetch', label: 'Fetch', cmd: 'fetch' },
   { value: 'uncloseai', label: 'uncloseai-cli', cmd: 'uncloseai' },

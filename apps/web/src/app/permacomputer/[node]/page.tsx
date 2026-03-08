@@ -165,6 +165,13 @@ const HARNESSES = [
   },
   // --- Agent frameworks ---
   {
+    id: 'qwen3-coder', name: 'Qwen 3 Coder',
+    desc: 'Local code model via Ollama — no API key, reviews code, generates prompts, writes scripts',
+    install: 'curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen3-coder:8b',
+    verify: 'ollama list | grep qwen3-coder',
+    tags: ['ml', 'local', 'coding'],
+  },
+  {
     id: 'hermes-agent', name: 'Hermes Agent',
     desc: 'Autonomous agent framework — tool use, memory, planning with local or cloud LLMs',
     install: 'pip install hermes-agent',
