@@ -61,25 +61,31 @@ export async function GET() {
     });
   }
 
-  // 3. Auto-detect Qwen 3 Coder on the mesh (no keys needed)
-  try {
-    const res = await fetch('https://qwen.ai.unturf.com/v1/models', { signal: AbortSignal.timeout(3000) });
-    if (res.ok) {
-      const data = await res.json();
-      const model = data?.data?.[0]?.id;
-      if (model) {
-        providers.push({
-          id: 'qwen-mesh',
-          name: 'Qwen 3 Coder (mesh)',
-          source: 'filesystem',
-          type: 'openai-compatible',
-          model,
-          ready: true,
-          detail: 'https://qwen.ai.unturf.com — local mesh inference, no API key',
-        });
+  // 3. Auto-detect mesh inference endpoints (no keys needed)
+  const meshEndpoints = [
+    { id: 'qwen-mesh', name: 'Qwen 3 Coder (mesh)', url: 'https://qwen.ai.unturf.com' },
+    { id: 'hermes-mesh', name: 'Hermes 3 (mesh)', url: 'https://hermes.ai.unturf.com' },
+  ];
+  for (const ep of meshEndpoints) {
+    try {
+      const res = await fetch(`${ep.url}/v1/models`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        const data = await res.json();
+        const model = data?.data?.[0]?.id;
+        if (model) {
+          providers.push({
+            id: ep.id,
+            name: ep.name,
+            source: 'filesystem',
+            type: 'openai-compatible',
+            model,
+            ready: true,
+            detail: `${ep.url} — local mesh inference, no API key`,
+          });
+        }
       }
-    }
-  } catch { /* mesh unreachable */ }
+    } catch { /* mesh unreachable */ }
+  }
 
   return NextResponse.json({ providers });
 }

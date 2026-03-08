@@ -90,7 +90,7 @@ async function resolveProvider(settings: Record<string, string>): Promise<LlmPro
     };
   }
 
-  // 4. Fallback: local Qwen 3 Coder on the mesh — no keys needed
+  // 4. Fallback: Qwen 3 Coder on the mesh — code-specialized, best for commit messages/PRs
   try {
     const res = await fetch('https://qwen.ai.unturf.com/v1/models', { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
@@ -103,6 +103,24 @@ async function resolveProvider(settings: Record<string, string>): Promise<LlmPro
           apiKey: '',
           model,
           source: 'qwen-mesh',
+        };
+      }
+    }
+  } catch { /* mesh unreachable, skip */ }
+
+  // 5. Fallback: Hermes 3 on the mesh — general purpose
+  try {
+    const res = await fetch('https://hermes.ai.unturf.com/v1/models', { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data = await res.json();
+      const model = data?.data?.[0]?.id;
+      if (model) {
+        return {
+          type: 'openai-compatible',
+          endpoint: 'https://hermes.ai.unturf.com/v1/chat/completions',
+          apiKey: '',
+          model,
+          source: 'hermes-mesh',
         };
       }
     }
