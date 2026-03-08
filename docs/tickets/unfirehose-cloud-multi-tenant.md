@@ -44,7 +44,7 @@ Already built and wired up:
 MULTI_TENANT=false  (default, local)     MULTI_TENANT=true  (cloud)
 -------------------------------------    ----------------------------------
 No auth                                  API key auth on all routes
-Single SQLite at ~/.claude/unfirehose.db SQLite per tenant: /data/{account_id}.db
+Single SQLite at ~/.unfirehose/unfirehose.db SQLite per tenant: /data/{account_id}.db
 Reads JSONL from ~/.claude/              Receives events via POST /api/ingest
 No teams, no keys                        Teams, sub-keys, usage tracking
 ```

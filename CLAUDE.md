@@ -31,7 +31,7 @@ Then ask fox what the mission is.
 
 ## Architecture
 
-Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.claude/unfirehose.db`. Dashboard at `localhost:3000`.
+Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `localhost:3000`.
 
 ### npm Packages (published under `@unturf` org on npmjs.com, account `fxhp`)
 

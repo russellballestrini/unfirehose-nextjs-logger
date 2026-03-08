@@ -20,7 +20,7 @@ Requires `better-sqlite3` (included as dependency).
 import { initDb, runMigrations } from '@unturf/unfirehose/db/schema'
 import { ingestAll } from '@unturf/unfirehose/db/ingest'
 
-const db = initDb('~/.claude/unfirehose.db')
+const db = initDb('~/.unfirehose/unfirehose.db')
 runMigrations(db)
 await ingestAll(db) // scans all harness directories, deduplicates, inserts
 ```

@@ -148,7 +148,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The first load triggers an ingestion of your `~/.claude/` session data into SQLite at `~/.claude/unfirehose.db`. Subsequent ingestions are incremental (byte offset tracking) and triggered automatically by file watcher on JSONL changes.
+The first load triggers an ingestion of your `~/.claude/` session data into SQLite at `~/.unfirehose/unfirehose.db`. Subsequent ingestions are incremental (byte offset tracking) and triggered automatically by file watcher on JSONL changes.
 
 ### Requirements
 
@@ -171,7 +171,7 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
   packages/core              @unturf/unfirehose — ingestion, adapters, DB schema, todo extraction
         │
         ▼
-  ~/.claude/unfirehose.db   SQLite (normalized: projects → sessions → messages → content_blocks)
+  ~/.unfirehose/unfirehose.db   SQLite (normalized: projects → sessions → messages → content_blocks)
         │
         ▼
   apps/web API routes        40+ endpoints serving dashboard, usage, projects, sessions, tokens, alerts, boot, mesh

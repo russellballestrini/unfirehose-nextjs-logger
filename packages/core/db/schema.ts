@@ -1,8 +1,13 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { homedir } from 'os';
+import { mkdirSync } from 'fs';
 
-const DB_PATH = path.join(homedir(), '.claude', 'unfirehose.db');
+const UNFIREHOSE_DIR = path.join(homedir(), '.unfirehose');
+const DB_PATH = path.join(UNFIREHOSE_DIR, 'unfirehose.db');
+
+// Exported for other modules that need the base directory
+export { UNFIREHOSE_DIR };
 
 let _db: Database.Database | null = null;
 
@@ -12,6 +17,7 @@ export function getDb(): Database.Database {
   }
   if (_db) return _db;
 
+  mkdirSync(UNFIREHOSE_DIR, { recursive: true });
   _db = new Database(DB_PATH);
   _db.pragma('journal_mode = WAL');
   _db.pragma('synchronous = NORMAL');

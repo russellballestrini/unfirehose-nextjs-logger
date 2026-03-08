@@ -1,9 +1,9 @@
-import { readFileSync, appendFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 
-const TRIAGE_PATH = join(homedir(), '.claude', 'unfirehose-triage.jsonl');
+const TRIAGE_PATH = join(homedir(), '.unfirehose', 'triage.jsonl');
 
 interface TriageEntry {
   project: string;   // project name (e.g. -home-fox-git-unsandbox-com)
@@ -62,6 +62,7 @@ export function recordTriage(projectName: string, content: string, status: strin
     status,
     at: new Date().toISOString(),
   };
+  mkdirSync(dirname(TRIAGE_PATH), { recursive: true });
   appendFileSync(TRIAGE_PATH, JSON.stringify(entry) + '\n');
   // Invalidate cache
   _cache = null;
@@ -71,6 +72,7 @@ export function recordTriage(projectName: string, content: string, status: strin
 export function recordTriageBatch(entries: Array<{ project: string; content: string; status: string }>): void {
   const now = new Date().toISOString();
   const lines = entries.map(e => JSON.stringify({ project: e.project, content: e.content, status: e.status, at: now }));
+  mkdirSync(dirname(TRIAGE_PATH), { recursive: true });
   appendFileSync(TRIAGE_PATH, lines.join('\n') + '\n');
   _cache = null;
 }

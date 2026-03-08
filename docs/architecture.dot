@@ -32,7 +32,7 @@ digraph architecture {
 
   // Storage
   subgraph cluster_db {
-    label="SQLite (WAL mode)\n~/.claude/unfirehose.db"
+    label="SQLite (WAL mode)\n~/.unfirehose/unfirehose.db"
     style=dashed
     color="#444466"
     fontcolor="#999999"

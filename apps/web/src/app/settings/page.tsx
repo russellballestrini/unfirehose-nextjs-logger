@@ -301,7 +301,7 @@ export default function SettingsPage() {
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
               <div className="text-base text-[var(--color-muted)] space-y-1">
-                <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
+                <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.unfirehose/unfirehose.db</span></div>
                 <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
               </div>
             </div>
