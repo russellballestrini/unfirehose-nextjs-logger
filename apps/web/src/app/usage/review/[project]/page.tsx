@@ -123,12 +123,12 @@ export default function ReviewPage() {
                 {data.files.map((f: any, i: number) => (
                   <div key={i} className="flex items-center gap-2 text-sm font-mono">
                     <span className={`w-5 text-center text-xs font-bold ${
-                      f.status === 'M' ? 'text-yellow-400' :
-                      f.status === 'A' || f.status === '?' ? 'text-green-400' :
+                      f.status.includes('M') ? 'text-yellow-400' :
+                      f.status === 'A' || f.status.includes('?') ? 'text-green-400' :
                       f.status === 'D' ? 'text-red-400' :
                       'text-[var(--color-muted)]'
                     }`}>
-                      {f.status === '?' ? 'U' : f.status}
+                      {f.status.includes('?') ? 'U' : f.status.charAt(0)}
                     </span>
                     <span className="text-[var(--color-foreground)]">{f.file}</span>
                   </div>

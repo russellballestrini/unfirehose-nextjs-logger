@@ -50,10 +50,18 @@ export async function GET(
     const fullDiff = await gitExec(repoPath, ['diff', 'HEAD']);
 
     // Parse status into structured files
+    // git status --porcelain format: XY<space>filename
+    // XY is 2 chars (index + worktree status), may include leading space (e.g. " M")
+    // Robust: match first non-space char(s) then skip whitespace to get filename
     const files = statusRaw.trim().split('\n').filter(Boolean).map((line) => {
-      const status = line.slice(0, 2).trim();
-      const file = line.slice(3);
-      return { status, file };
+      // Try standard 2-char XY format first (handles " M", "M ", "??", "MM", etc.)
+      if (line.length >= 4 && (line[2] === ' ' || line[2] === '\t')) {
+        return { status: line.slice(0, 2).trim(), file: line.slice(3) };
+      }
+      // Fallback: split on first whitespace run
+      const match = line.match(/^(\S+)\s+(.+)$/);
+      if (match) return { status: match[1], file: match[2] };
+      return { status: '?', file: line.trim() };
     });
 
     return NextResponse.json({
