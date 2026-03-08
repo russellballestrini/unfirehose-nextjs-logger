@@ -166,6 +166,88 @@ See `docs/tickets/README.md` for the full ticket format and workflow.
 5. Items that are quick wins → just do them, mark completed
 6. Items that need human input → create blocked tickets, flag to fox
 
+## Next.js Best Practices (vercel-labs/next-skills)
+
+### File Conventions
+- Special files: `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx`, `route.ts`, `template.tsx`, `default.tsx`
+- Dynamic segments: `[slug]`, catch-all: `[...slug]`, optional catch-all: `[[...slug]]`
+- Route groups: `(marketing)` — organize without affecting URL
+- Parallel routes: `@slot` folders, always need `default.tsx` fallback
+- Intercepting routes: `(.)` same level, `(..)` one up, `(...)` from root
+
+### RSC Boundaries
+- Client components CANNOT be async — only Server Components can be async
+- Only JSON-serializable values cross the server→client boundary (no Date, Map, Set, functions, classes)
+- Server Actions (`'use server'`) are the sole exception — functions that can be passed to client components
+- Move async logic to server parents, pass plain data down to clients
+
+### Async Patterns (Next.js 15+)
+- `params`, `searchParams`, `cookies()`, `headers()` are all async — must `await` them
+- Use `React.use()` when a component cannot be async
+- Migration codemod: `npx @next/codemod@latest next-async-request-api .`
+
+### Directives
+- `'use client'` — required for hooks, event handlers, browser APIs
+- `'use server'` — marks Server Actions (file-level or inline)
+- `'use cache'` — Next.js caching directive (requires `cacheComponents: true` in config)
+
+### Data Patterns
+- Server Components for reads (no API layer needed, secrets stay secure)
+- Server Actions for mutations (POST only, end-to-end type safety, progressive enhancement)
+- Route Handlers for external clients, webhooks, REST APIs, HTTP caching
+- Avoid waterfalls: use `Promise.all`, Suspense streaming, or preload pattern
+- Never use Server Actions for cacheable reads — use Route Handlers instead
+
+### Error Handling
+- NEVER wrap `redirect()`, `notFound()`, `forbidden()`, `unauthorized()` in try-catch — they throw for control flow
+- Use `unstable_rethrow(error)` if navigation calls must be inside try-catch
+- `error.tsx` = Client Component error boundary, `global-error.tsx` = root layout errors
+
+### Route Handlers
+- `route.ts` and `page.tsx` CANNOT coexist in the same folder
+- Params are Promises in Next.js 15+: `{ params }: { params: Promise<{ id: string }> }`
+- Prefer Server Actions for UI mutations, Route Handlers for external integrations
+
+### Metadata
+- `metadata` and `generateMetadata` are Server Component only — cannot use in `'use client'` files
+- Use React `cache()` to deduplicate data fetched in both metadata and page
+- Viewport must be separate from metadata (for streaming support)
+- Title templates in root layout: `{ default: 'Site Name', template: '%s | Site Name' }`
+- Use `next/og` (not `@vercel/og`) for OG images, avoid Edge runtime for them
+
+### Image & Font
+- Always use `next/image` over `<img>` — remote images need `remotePatterns` in config
+- Always set `sizes` when using `fill` (prevents downloading largest image)
+- `priority` for above-the-fold LCP images, below-fold lazy-loads automatically
+- Always use `next/font` over `<link>` tags — define once in layout, distribute via CSS variables
+- Specify character subsets (e.g. `['latin']`) to reduce font file size
+
+### Bundling
+- Browser-only libs: `dynamic(() => import('pkg'), { ssr: false })`
+- Native bindings (sharp, bcrypt): add to `serverExternalPackages` in config
+- Next.js includes common polyfills — don't add external polyfill services
+- ESM/CJS issues: use `transpilePackages` config
+
+### Hydration
+- Common causes: browser APIs (`window`), Date/time rendering, random values, invalid HTML nesting
+- Use `useId()` for unique IDs, mounted check pattern for browser-only content
+- Third-party scripts: use `next/script` with `strategy="afterInteractive"`
+
+### Suspense Boundaries
+- `useSearchParams()` ALWAYS requires Suspense boundary in static routes
+- `usePathname()` requires Suspense in dynamic routes (unless `generateStaticParams` used)
+- `useParams()` and `useRouter()` do NOT require Suspense
+
+### Scripts
+- Use `next/script` not native `<script>` tags — inline scripts need `id` attribute
+- Never place scripts inside `next/head`
+- Use `@next/third-parties` for Google Analytics, Tag Manager, YouTube embeds
+
+### Self-Hosting
+- `output: 'standalone'` for Docker — creates minimal production folder
+- ISR uses filesystem cache by default — breaks with multiple instances (need shared cache handler)
+- Set `HOSTNAME="0.0.0.0"` for containers
+
 ## Searching Logs
 
 ```bash

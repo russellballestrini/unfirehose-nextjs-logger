@@ -226,7 +226,7 @@ export default function StyleguidePage() {
       <PageContext
         pageType="styleguide"
         summary="Component reference and design system for unfirehose."
-        metrics={{ components: 12, sections: 8 }}
+        metrics={{ components: 18, sections: 22 }}
       />
 
       <div className="flex items-center justify-between">
@@ -322,6 +322,160 @@ export default function StyleguidePage() {
               <div className="text-base font-mono">{v.hex}</div>
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* Design Tokens */}
+      <Section title="Design Tokens">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            All design decisions flow through CSS custom properties defined in{' '}
+            <code className="text-[var(--color-accent)]">globals.css</code> via{' '}
+            <code className="text-[var(--color-accent)]">@theme inline</code>.
+            Tailwind v4 consumes them directly — no tailwind.config needed.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Surface Tokens</h4>
+              <div className="space-y-1 text-base">
+                {[
+                  ['--color-background', 'Page base', '#09090b'],
+                  ['--color-surface', 'Card / panel', '#18181b'],
+                  ['--color-surface-hover', 'Hover state', '#27272a'],
+                ].map(([token, usage, hex]) => (
+                  <div key={token} className="grid grid-cols-[12px_1fr_auto] gap-2 items-center">
+                    <div className="w-3 h-3 rounded-sm border border-[var(--color-border)]" style={{ background: hex }} />
+                    <code className="text-[var(--color-accent)] text-sm">{token}</code>
+                    <span className="text-[var(--color-muted)] text-sm">{usage}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Semantic Tokens</h4>
+              <div className="space-y-1 text-base">
+                {[
+                  ['--color-foreground', 'Primary text', '#fafafa'],
+                  ['--color-muted', 'Secondary text', '#a1a1aa'],
+                  ['--color-border', 'Borders', '#3f3f46'],
+                  ['--color-error', 'Error state', '#f87171'],
+                ].map(([token, usage, hex]) => (
+                  <div key={token} className="grid grid-cols-[12px_1fr_auto] gap-2 items-center">
+                    <div className="w-3 h-3 rounded-sm border border-[var(--color-border)]" style={{ background: hex }} />
+                    <code className="text-[var(--color-accent)] text-sm">{token}</code>
+                    <span className="text-[var(--color-muted)] text-sm">{usage}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Role Tokens</h4>
+              <div className="space-y-1 text-base">
+                {[
+                  ['--color-user', 'User messages', '#60a5fa'],
+                  ['--color-assistant', 'Assistant msgs', '#d40000'],
+                  ['--color-thinking', 'Thinking blocks', '#a78bfa'],
+                  ['--color-tool', 'Tool calls', '#fbbf24'],
+                ].map(([token, usage, hex]) => (
+                  <div key={token} className="grid grid-cols-[12px_1fr_auto] gap-2 items-center">
+                    <div className="w-3 h-3 rounded-sm border border-[var(--color-border)]" style={{ background: hex }} />
+                    <code className="text-[var(--color-accent)] text-sm">{token}</code>
+                    <span className="text-[var(--color-muted)] text-sm">{usage}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <p className="text-base text-[var(--color-muted)]">
+            Dark mode is default. Light mode activates via <code className="text-[var(--color-accent)]">:root.light</code> class.
+            The accent color (<code className="text-[var(--color-accent)]">--color-accent</code>) is user-customizable and persists to the settings database.
+            <code className="text-[var(--color-accent)]">--color-assistant</code> tracks the accent color.
+          </p>
+        </div>
+      </Section>
+
+      {/* Shape System */}
+      <Section title="Shape System">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Three corner radius tiers. Consistent rounding reinforces hierarchy.
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              ['rounded (6px)', 'rounded', 'Cards, inputs, buttons, code blocks'],
+              ['rounded-lg (8px)', 'rounded-lg', 'Modals, panels, larger containers'],
+              ['rounded-xl (12px)', 'rounded-xl', 'Kanban cards, vault gate, hero elements'],
+            ].map(([label, cls, usage]) => (
+              <div key={label} className="space-y-2">
+                <div className={`h-20 bg-[var(--color-accent)]/20 border border-[var(--color-accent)] ${cls}`} />
+                <div className="text-base font-bold">{label}</div>
+                <div className="text-sm text-[var(--color-muted)]">{usage}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-base text-[var(--color-muted)]">
+            Scrollbar thumb: <code className="text-[var(--color-accent)]">4px</code>.
+            Inline code: <code className="text-[var(--color-accent)]">3px</code>.
+            Progress bars: <code className="text-[var(--color-accent)]">rounded</code> (full pill).
+          </p>
+        </div>
+      </Section>
+
+      {/* Elevation */}
+      <Section title="Elevation">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Dark-first design uses border-based elevation rather than shadow-heavy. Shadows reserved for interactive lift and emphasis.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              ['Level 0', 'No shadow', 'shadow-none', 'Static content, table rows'],
+              ['Level 1', 'shadow-md', 'shadow-md', 'Cards, kanban items at rest'],
+              ['Level 2', 'shadow-lg', 'shadow-lg', 'Active kanban cards, dropdowns'],
+              ['Level 3', 'shadow-2xl', 'shadow-2xl', 'Dragged items, modals, vault gate'],
+            ].map(([level, label, cls, usage]) => (
+              <div key={level} className="space-y-2">
+                <div className={`h-16 bg-[var(--color-surface)] rounded border border-[var(--color-border)] ${cls}`} />
+                <div className="text-base font-bold">{level}</div>
+                <div className="text-sm text-[var(--color-muted)]">{label}</div>
+                <div className="text-xs text-[var(--color-muted)]">{usage}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-base text-[var(--color-muted)]">
+            Accent glow: <code className="text-[var(--color-accent)]">shadow-[0_0_12px_var(--color-accent)]</code> for active/running items.
+            Vault gate: <code className="text-[var(--color-accent)]">radial-gradient</code> glow with blur backdrop.
+          </p>
+        </div>
+      </Section>
+
+      {/* Spacing */}
+      <Section title="Spacing Scale">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            4px base unit. All spacing derives from Tailwind&apos;s default 4px scale.
+          </p>
+          <div className="space-y-1">
+            {[
+              ['0.5', '2px', 'Tight inline gaps (icon+text within badges)'],
+              ['1', '4px', 'Minimal separation (list items, badge padding-y)'],
+              ['1.5', '6px', 'Input padding-y, checkbox gap'],
+              ['2', '8px', 'Standard gap between related items'],
+              ['3', '12px', 'Card padding, section gaps, input padding-x'],
+              ['4', '16px', 'Card padding, grid gaps, section spacing'],
+              ['6', '24px', 'Page padding, major section margins'],
+              ['8', '32px', 'Page-level vertical rhythm'],
+            ].map(([unit, px, usage]) => (
+              <div key={unit} className="grid grid-cols-[3rem_4rem_1fr_auto] gap-2 items-center text-base">
+                <span className="text-[var(--color-accent)] font-mono text-sm">{unit}</span>
+                <span className="text-[var(--color-muted)] text-sm">{px}</span>
+                <div className="h-3 bg-[var(--color-background)] rounded overflow-hidden">
+                  <div className="h-full bg-[var(--color-accent)]/40 rounded" style={{ width: `${(parseInt(px) / 32) * 100}%` }} />
+                </div>
+                <span className="text-[var(--color-muted)] text-sm">{usage}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </Section>
 
@@ -960,6 +1114,292 @@ Response:
             <div className="text-base text-[var(--color-accent)]">Accent bordered card</div>
             <div className="text-base mt-2">Highlighted / selected state.</div>
           </div>
+        </div>
+      </Section>
+
+      {/* Motion & Animation */}
+      <Section title="Motion & Animation">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Animations serve feedback, not decoration. All use <code className="text-[var(--color-accent)]">ease-out</code> for natural deceleration.
+            Defined in <code className="text-[var(--color-accent)]">globals.css</code> as <code className="text-[var(--color-accent)]">@keyframes</code>.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Duration Scale</h4>
+              <div className="space-y-1">
+                {[
+                  ['150ms', 'Micro', 'Color transitions, opacity, hover states'],
+                  ['200ms', 'Short', 'Output expand, content reveal'],
+                  ['350ms', 'Medium', 'Card scale-in, capacitor flash'],
+                  ['600ms', 'Long', 'Card-landed burst, particle effects'],
+                  ['900ms', 'Extended', 'Slow particles, ambient effects'],
+                  ['4000ms', 'Ambient', 'Vault pulse glow (loops)'],
+                ].map(([dur, name, usage]) => (
+                  <div key={dur} className="grid grid-cols-[5rem_4rem_1fr] gap-2 items-center text-sm">
+                    <code className="text-[var(--color-accent)]">{dur}</code>
+                    <span className="font-bold">{name}</span>
+                    <span className="text-[var(--color-muted)]">{usage}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Animation Catalog</h4>
+              <div className="space-y-1">
+                {[
+                  ['card-landed', '0.6s', 'Drop burst glow ring'],
+                  ['card-scale-in', '0.35s', 'Scale + rotate entrance'],
+                  ['burst-particle', 'varies', 'Translate + fade-out'],
+                  ['powerup-particle', '0.6s', 'Explosion from center'],
+                  ['powerup-shockwave', '0.6s', 'Expanding ring'],
+                  ['capacitor-core', '0.35s', 'Core shrink (power-down)'],
+                  ['column-pulse', '0.4s', 'Accent background flash'],
+                  ['output-expand', '0.2s', 'Inline content reveal'],
+                ].map(([name, dur, desc]) => (
+                  <div key={name} className="grid grid-cols-[10rem_4rem_1fr] gap-2 items-center text-sm">
+                    <code className="text-[var(--color-accent)]">{name}</code>
+                    <span className="text-[var(--color-muted)]">{dur}</span>
+                    <span className="text-[var(--color-muted)]">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mt-2">
+            <div className="text-center space-y-2">
+              <div className="card-landed rounded-lg border border-[var(--color-accent)]/50 p-4 bg-[var(--color-accent)]/10">
+                <span className="text-sm font-bold text-[var(--color-accent)]">card-landed</span>
+              </div>
+              <span className="text-xs text-[var(--color-muted)]">Plays on page load</span>
+            </div>
+            <div className="text-center space-y-2">
+              <div className="column-drop-pulse rounded-lg border border-[var(--color-border)] p-4">
+                <span className="text-sm font-bold">column-pulse</span>
+              </div>
+              <span className="text-xs text-[var(--color-muted)]">Plays on page load</span>
+            </div>
+            <div className="text-center space-y-2">
+              <div className="output-reveal-inline rounded-lg border border-[var(--color-border)] p-4">
+                <span className="text-sm font-bold">output-expand</span>
+              </div>
+              <span className="text-xs text-[var(--color-muted)]">Plays on page load</span>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* Interaction States */}
+      <Section title="Interaction States">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            State layers communicate interactivity. Every interactive element follows this state machine.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[
+              ['Enabled', 'border-[var(--color-border)]', 'Default resting state'],
+              ['Hover', 'border-[var(--color-accent)]', 'Accent border, 150ms'],
+              ['Focused', 'border-[var(--color-accent)] outline outline-1 outline-[var(--color-accent)]', '1px accent outline'],
+              ['Active', 'border-[var(--color-accent)] scale-[0.98]', 'Scale down on press'],
+              ['Disabled', 'border-[var(--color-border)] opacity-50', 'Half opacity, no cursor'],
+            ].map(([state, classes, desc]) => (
+              <div key={state} className="space-y-2 text-center">
+                <div className={`h-12 rounded border ${classes} bg-[var(--color-background)] grid place-items-center text-sm font-bold`}>
+                  {state}
+                </div>
+                <div className="text-xs text-[var(--color-muted)]">{desc}</div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2 mt-2">
+            <h4 className="text-sm font-bold text-[var(--color-muted)]">Drag States (Kanban)</h4>
+            <div className="grid grid-cols-4 gap-3 text-center">
+              {[
+                ['Grabbable', 'Default grab cursor'],
+                ['Grabbing', 'Lift + slight rotate'],
+                ['Ghost', 'Source placeholder, 30% opacity'],
+                ['Drop Zone', 'Dashed accent border'],
+              ].map(([state, desc]) => (
+                <div key={state} className="space-y-1">
+                  <div className="text-sm font-bold">{state}</div>
+                  <div className="text-xs text-[var(--color-muted)]">{desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-base text-[var(--color-muted)]">
+            Text selection: <code className="text-[var(--color-accent)]">::selection</code> with 25% accent.
+            Focus rings: <code className="text-[var(--color-accent)]">1px solid var(--color-accent), offset -1px</code>.
+            Checkbox accent tracks <code className="text-[var(--color-accent)]">var(--color-accent)</code>.
+          </p>
+        </div>
+      </Section>
+
+      {/* Iconography */}
+      <Section title="Iconography">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            No icon library. Unicode text symbols only — consistent with monospace-first aesthetic.
+            Zero font loading, zero bundle cost, renders identically everywhere.
+          </p>
+          <div className="grid grid-cols-4 md:grid-cols-9 gap-3">
+            {[
+              ['\u25CF', 'Live'],
+              ['\u25CB', 'Inactive'],
+              ['\u25C9', 'Working'],
+              ['\u25B8', 'Play'],
+              ['\u25C7', 'Dashboard'],
+              ['\u25A0', 'Projects'],
+              ['\u2630', 'Menu'],
+              ['\u25C8', 'Graph'],
+              ['\u25CE', 'Target'],
+              ['\u2261', 'Logs'],
+              ['\u00A4', 'Token'],
+              ['\u25B3', 'Usage'],
+              ['\u266A', 'Scrobble'],
+              ['{', 'Schema'],
+              ['\u25D0', 'Style'],
+              ['\u2699', 'Settings'],
+              ['\u25C6', 'Earned'],
+              ['\u25C7', 'Locked'],
+            ].map(([icon, label], i) => (
+              <div key={i} className="text-center space-y-1">
+                <div className="text-lg font-bold text-[var(--color-accent)]">{icon}</div>
+                <div className="text-xs text-[var(--color-muted)]">{label}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-base text-[var(--color-muted)]">
+            Active: <code className="text-[var(--color-accent)]">text-[var(--color-accent)]</code>.
+            Inactive: <code className="text-[var(--color-accent)]">text-[var(--color-border)]</code>.
+            Running pulse: <code className="text-[var(--color-accent)]">w-1.5 h-1.5 rounded-full animate-pulse</code>.
+          </p>
+        </div>
+      </Section>
+
+      {/* Responsive Breakpoints */}
+      <Section title="Responsive Breakpoints">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Mobile-first with Tailwind v4 defaults. Sidebar collapses below md. Grid columns adapt at each tier.
+          </p>
+          <div className="space-y-1">
+            {[
+              ['default', '0px', '1 column', 'Mobile, sidebar hidden'],
+              ['sm', '640px', '1-2 columns', 'Small tablets'],
+              ['md', '768px', '2-3 columns', 'Sidebar visible, 2-col grids'],
+              ['lg', '1024px', '3-4 columns', 'Full dashboard, 3-col grids'],
+              ['xl', '1280px', '4+ columns', 'Wide monitors, 4-col cards'],
+              ['2xl', '1536px', 'Max width', 'Ultra-wide, no max-w'],
+            ].map(([bp, px, cols, usage]) => (
+              <div key={bp} className="grid grid-cols-[3rem_5rem_8rem_1fr] gap-2 items-center text-sm">
+                <code className="text-[var(--color-accent)] font-bold">{bp}</code>
+                <span className="text-[var(--color-muted)]">{px}</span>
+                <span className="font-bold">{cols}</span>
+                <span className="text-[var(--color-muted)]">{usage}</span>
+              </div>
+            ))}
+          </div>
+          <h4 className="text-sm font-bold text-[var(--color-muted)]">Common Grid Patterns</h4>
+          <div className="space-y-1 text-sm">
+            {[
+              ['grid-cols-1 md:grid-cols-2', 'Settings, split layouts'],
+              ['grid-cols-1 md:grid-cols-3', 'Stat cards, kanban columns'],
+              ['grid-cols-3 md:grid-cols-6', 'Badges, color swatches'],
+              ['grid-cols-[auto_1fr]', 'Label + content (all sizes)'],
+            ].map(([pattern, usage]) => (
+              <div key={pattern} className="grid grid-cols-[1fr_1fr] gap-2 items-center">
+                <code className="text-[var(--color-accent)]">{pattern}</code>
+                <span className="text-[var(--color-muted)]">{usage}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      {/* Accessibility */}
+      <Section title="Accessibility">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Minimum standards for operator software. Not a public marketing site, but usability matters.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Contrast Ratios</h4>
+              <div className="space-y-1 text-sm">
+                {[
+                  ['Foreground on background', '17.4:1', true],
+                  ['Muted on background', '7.2:1', true],
+                  ['Accent (#d40000) on bg', '4.8:1', true],
+                  ['Muted on surface', '5.7:1', true],
+                ].map(([label, ratio, pass]) => (
+                  <div key={label} className="grid grid-cols-[1fr_auto] gap-2">
+                    <span>{label}</span>
+                    <span className={pass ? 'text-green-400' : 'text-yellow-400'} style={{ fontWeight: 'bold' }}>{ratio}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--color-muted)]">
+                WCAG AA: 4.5:1 text, 3:1 large text. Custom accent colors may reduce contrast.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Keyboard & Focus</h4>
+              <div className="space-y-1 text-sm text-[var(--color-muted)]">
+                <div>Natively focusable elements (button, input, select, a)</div>
+                <div>Focus ring: 1px accent outline, visible on all backgrounds</div>
+                <div>Tab order follows DOM (no tabindex hacks)</div>
+                <div>Escape closes modals and overlays</div>
+              </div>
+              <h4 className="text-sm font-bold text-[var(--color-muted)] mt-3">Touch Targets</h4>
+              <div className="space-y-1 text-sm text-[var(--color-muted)]">
+                <div>Buttons: min py-1.5 (36px height)</div>
+                <div>Sidebar: full-width click area</div>
+                <div>Kanban: full card is draggable</div>
+                <div>Scrollbar: 8px width</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* Data Visualization Guidelines */}
+      <Section title="Data Visualization Guidelines">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Charts use Recharts or pure CSS. All chart styling overridden in globals.css to match theme.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Color Assignment</h4>
+              <div className="space-y-1 text-sm">
+                {[
+                  ['Primary metric', 'var(--color-accent)'],
+                  ['Input tokens', '#22c55e (green)'],
+                  ['Output tokens', 'var(--color-accent)'],
+                  ['Pie rotation', 'accent → user → tool'],
+                ].map(([role, color]) => (
+                  <div key={role} className="grid grid-cols-[8rem_1fr] gap-2">
+                    <span className="font-bold">{role}</span>
+                    <span className="text-[var(--color-muted)]">{color}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-bold text-[var(--color-muted)]">Chart Text</h4>
+              <div className="space-y-1 text-sm text-[var(--color-muted)]">
+                <div>Axes: 16px, #71717a</div>
+                <div>Tooltip label: 16px bold, #fafafa</div>
+                <div>Tooltip values: 16px semi-bold, #fafafa</div>
+                <div>Legend: 16px, #d4d4d8</div>
+              </div>
+            </div>
+          </div>
+          <p className="text-sm text-[var(--color-muted)]">
+            Tooltips: forced dark surface #18181b, 6px radius, 8px 12px padding, deep shadow.
+            Light mode swaps via <code className="text-[var(--color-accent)]">:root.light</code> overrides.
+          </p>
         </div>
       </Section>
 
