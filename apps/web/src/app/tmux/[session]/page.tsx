@@ -5,8 +5,6 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import useSWR from 'swr';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 // Convert basic ANSI escape codes to styled spans
@@ -28,11 +26,9 @@ function ansiToHtml(text: string): string {
   let bold = false;
   let dim = false;
 
-  // eslint-disable-next-line no-control-regex
   const parts = text.split(/(\x1b\[[0-9;]*m)/);
 
   for (const part of parts) {
-    // eslint-disable-next-line no-control-regex
     const match = part.match(/^\x1b\[([0-9;]*)m$/);
     if (match) {
       const codes = match[1].split(';').filter(Boolean);
@@ -111,7 +107,6 @@ export default function TmuxViewerPage() {
   useEffect(() => {
     const es = connectSSERef.current!();
     return () => es.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, activeWindow, hostParam]);
 
   // Interactive mode

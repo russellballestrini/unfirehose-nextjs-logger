@@ -732,7 +732,8 @@ function MiniGauge({ label, value, pct }: { label: string; value: string; pct: n
 // Add Node Button (inline card)
 // ============================================================
 
-function AddNodeButton({ hosts, keys, mutate }: { hosts: SshHost[]; keys: string[]; mutate: () => void }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function AddNodeButton({ hosts: _hosts, keys, mutate }: { hosts: SshHost[]; keys: string[]; mutate: () => void }) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<SshHost>({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' });
   const [saving, setSaving] = useState(false);
@@ -768,6 +769,7 @@ function AddNodeButton({ hosts, keys, mutate }: { hosts: SshHost[]; keys: string
 // Node Detail Panel (expanded view with deep probe data)
 // ============================================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh, mutateMesh, econ, onSaveEcon, geoip, settings }: {
   hostname: string;
   sshHost?: SshHost;
@@ -891,7 +893,8 @@ function OverviewTab({ detail }: { detail: any }) {
   const mem = detail.memory;
   const load = detail.loadAvg;
   const cores = sys?.cpuCores ?? 1;
-  const uptimeHours = Math.round((detail.uptimeSeconds ?? 0) / 3600);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _uptimeHours = Math.round((detail.uptimeSeconds ?? 0) / 3600);
 
   // Build load sparkline from 1/5/15 min averages
   const loadPoints = load ? [load[0], load[1], load[2]] : [0, 0, 0];
@@ -1493,7 +1496,8 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
 // Economics Tab (per-node)
 // ============================================================
 
-function EconomicsTab({ hostname, econ, onSave, meshNode, geoip, settings }: {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function EconomicsTab({ hostname: _hostname, econ, onSave, meshNode, geoip, settings }: {
   hostname: string; econ: NodeEcon; onSave: (e: NodeEcon) => void; meshNode?: any; geoip?: any; settings?: any;
 }) {
   const [form, setForm] = useState<NodeEcon>(econ);
@@ -1991,6 +1995,7 @@ function UnsandboxPanel() {
 // Bootstrap Harness Panel
 // ============================================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BootstrapPanel() {
   const { data: mesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
   const { data: projects } = useSWR('/api/projects', fetcher);

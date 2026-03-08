@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
-import { readFileSync, existsSync } from 'fs';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

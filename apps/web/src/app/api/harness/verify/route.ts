@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
           const { stdout, stderr } = await exec('bash', ['-lc', `${nvmPrefix}${install}`], { timeout: 180000 });
           steps.push({ step: 'install', ok: true, output: (stdout + stderr).trim().slice(-500) });
         }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         steps.push({ step: 'install', ok: false, output: (err.stderr || String(err)).slice(-500) });
         // Don't fail — install might error if already installed, try verify anyway
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
       try {
         const synced = await syncClaudeCredentials(host);
         steps.push({ step: 'credentials', ok: synced, output: synced ? 'synced' : 'no local credentials found' });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         steps.push({ step: 'credentials', ok: false, output: String(err).slice(-500) });
       }
@@ -98,6 +100,7 @@ export async function POST(request: NextRequest) {
         version = stdout.trim();
         steps.push({ step: 'verify', ok: true, output: version });
       }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       steps.push({ step: 'verify', ok: false, output: (err.stderr || String(err)).slice(-500) });
       return NextResponse.json({ success: false, steps, error: 'Verification failed — harness not found or not working' });

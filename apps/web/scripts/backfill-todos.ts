@@ -15,12 +15,13 @@ const taskCreates = db.prepare(`
   JOIN sessions s ON m.session_id = s.id
   WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskCreate'
   ORDER BY m.timestamp ASC
-`).all() as any[];
+`).all() as Record<string, unknown>[];
 
 console.log(`TaskCreate rows: ${taskCreates.length}`);
 
 const sessionCounters = new Map<number, number>();
-let created = 0;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let _created = 0;
 
 const tx = db.transaction(() => {
   for (const row of taskCreates) {
@@ -36,7 +37,7 @@ const tx = db.transaction(() => {
         INSERT OR IGNORE INTO todos (project_id, session_id, external_id, content, status, active_form, source, source_session_uuid, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(row.project_id, row.session_id, String(counter), input.subject ?? input.description ?? '', 'pending', input.activeForm ?? null, 'claude', row.session_uuid, ts, ts);
-      created++;
+      _created++;
     } catch { /* skip */ }
   }
 
@@ -48,7 +49,7 @@ const tx = db.transaction(() => {
     JOIN sessions s ON m.session_id = s.id
     WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskUpdate'
     ORDER BY m.timestamp ASC
-  `).all() as any[];
+  `).all() as Record<string, unknown>[];
 
   console.log(`TaskUpdate rows: ${taskUpdates.length}`);
   let updated = 0;
@@ -88,7 +89,7 @@ const tx = db.transaction(() => {
     JOIN sessions s ON m.session_id = s.id
     WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TodoWrite'
     ORDER BY m.timestamp ASC
-  `).all() as any[];
+  `).all() as Record<string, unknown>[];
 
   console.log(`TodoWrite rows: ${todoWrites.length}`);
 

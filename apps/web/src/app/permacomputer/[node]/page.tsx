@@ -38,10 +38,8 @@ function ansiToHtml(text: string): string {
   let result = '';
   let fg = '', bg = '';
   let bold = false, dim = false;
-  // eslint-disable-next-line no-control-regex
   const parts = text.split(/(\x1b\[[0-9;]*m)/);
   for (const part of parts) {
-    // eslint-disable-next-line no-control-regex
     const match = part.match(/^\x1b\[([0-9;]*)m$/);
     if (match) {
       const codes = match[1].split(';').filter(Boolean);

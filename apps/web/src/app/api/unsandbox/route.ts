@@ -47,6 +47,7 @@ async function apiPost(publicKey: string, secretKey: string, apiPath: string, pa
   const headers = authHeaders(publicKey, secretKey, 'POST', apiPath, payload);
   const res = await fetch(`${API_BASE}${apiPath}`, { method: 'POST', headers, body: payload, signal: AbortSignal.timeout(timeout) });
   const text = await res.text();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let data: any;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}: ${text}`);
@@ -258,6 +259,7 @@ ENDJSON`;
       network_mode: network || 'semitrusted',
     });
     const sessionHeaders = authHeaders(publicKey, secretKey, 'POST', sessionPath, sessionPayload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let session: any;
     try {
       const res = await fetch(`${API_BASE}${sessionPath}`, {
@@ -334,6 +336,7 @@ ENDJSON`;
     try {
       // Ports must be an array of integers (matching SDK format)
       const portsArray = (ports || '80').toString().split(',').map((p: string) => parseInt(p.trim())).filter((p: number) => !isNaN(p));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const svcPayload: any = { name, ports: portsArray };
       if (bootstrap) svcPayload.bootstrap = bootstrap;
       if (network) svcPayload.network = network;

@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect, useCallback } from 'react';
+import { use, useState, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
@@ -406,7 +406,8 @@ export default function ProjectPage({
 }
 
 /* ─── OVERVIEW TAB ─── */
-function OverviewTab({ full, data, meta, project, decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets }: any) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets }: any) {
   const gitRemoteUrl = meta?.remotes?.find((r: any) => r.type === 'fetch' && r.name === 'origin')?.url
     ?? meta?.remotes?.find((r: any) => r.type === 'fetch')?.url;
   return (
@@ -811,7 +812,8 @@ function CommitsTab({ meta, fetchRemotes, activityData, project }: any) {
 }
 
 /* ─── TODOS TAB ─── */
-function TodosTab({ full, project, decodedProject }: any) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function TodosTab({ full, project, decodedProject: _decodedProject }: any) {
   const todos = full?.todos ?? [];
   const pending = todos.filter((t: any) => t.status === 'pending');
   const inProgress = todos.filter((t: any) => t.status === 'in_progress');
@@ -891,7 +893,8 @@ function TodoRow({ todo, project, completed }: { todo: any; project: string; com
 }
 
 /* ─── ACTIVITY TAB ─── */
-function ActivityTab({ activityData, project, decodedProject }: any) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function ActivityTab({ activityData, project, decodedProject: _decodedProject }: any) {
   const prompts = activityData?.recentPrompts ?? [];
 
   return (

@@ -896,6 +896,7 @@ function LlmProviders({
       {detected.length > 0 && (
         <div className="space-y-2">
           <div className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Auto-detected</div>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {detected.filter((p: any) => p.source === 'filesystem' && !SECRET_PROVIDER_IDS.includes(p.id)).map((p: any) => (
             <div
               key={p.id}
@@ -1018,6 +1019,7 @@ function LlmProviders({
 function CurrencyPicker({ selected, onChange }: { selected: string[]; onChange: (codes: string[]) => void }) {
   const groups = new Map<string, typeof AVAILABLE_CURRENCIES>();
   for (const c of AVAILABLE_CURRENCIES) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = (c as any).group || 'Other';
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g)!.push(c);

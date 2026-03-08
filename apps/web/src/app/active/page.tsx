@@ -6,8 +6,6 @@ import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 interface ActiveSession {
   id: number;
   sessionUuid: string;

@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 export interface GeoIPResult {
   hostname: string;
   ip: string;

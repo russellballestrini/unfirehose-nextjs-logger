@@ -187,7 +187,8 @@ interface BootOpts {
   harness: string;       // 'claude' or custom command string
 }
 
-async function detectMultiplexer(): Promise<'tmux' | 'screen' | null> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _detectMultiplexer(): Promise<'tmux' | 'screen' | null> {
   try {
     await exec('which', ['tmux'], { timeout: 2000 });
     return 'tmux';
@@ -666,6 +667,7 @@ function unsandboxHeaders(publicKey: string, secretKey: string, method: string, 
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: string) {
   const publicKey = getSetting('unsandbox_public_key');
   const secretKey = getSetting('unsandbox_secret_key');
@@ -691,6 +693,7 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
   });
   const sessionHeaders = unsandboxHeaders(publicKey, secretKey, 'POST', sessionPath, sessionPayload);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let session: any;
   try {
     const res = await fetch(`${UNSANDBOX_API_BASE}${sessionPath}`, {

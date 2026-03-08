@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from 'react';
+import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
@@ -168,7 +168,8 @@ export default function TodosPage() {
   const [landedCardId, setLandedCardId] = useState<number | null>(null);
   const [pulsedColumn, setPulsedColumn] = useState<string | null>(null);
   const [burst, setBurst] = useState<{ x: number; y: number; color: string; targetStatus: string } | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number>(-1);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_dragOverIndex, setDragOverIndex] = useState<number>(-1);
 
   const { data: meshData } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
   const meshNodes: { hostname: string; reachable: boolean }[] = meshData?.nodes ?? [];

@@ -44,6 +44,7 @@ async function getCryptoKey(): Promise<CryptoKey> {
   return _cryptoKey;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function signJwt(payload: Record<string, unknown>): Promise<string> {
   const header = base64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body = base64urlEncode(JSON.stringify(payload));

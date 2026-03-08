@@ -4,8 +4,6 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { getAllSettings } from '@unturf/unfirehose/db/ingest';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 interface DetectedProvider {
   id: string;
   name: string;

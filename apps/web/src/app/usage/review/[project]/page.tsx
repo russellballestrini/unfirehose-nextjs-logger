@@ -12,7 +12,8 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function ReviewPage() {
   const params = useParams();
-  const router = useRouter();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _router = useRouter();
   const project = params.project as string;
   const { data, error, mutate } = useSWR(
     `/api/projects/${encodeURIComponent(project)}/git`,

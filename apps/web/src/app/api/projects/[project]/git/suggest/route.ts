@@ -7,8 +7,6 @@ import { getAllSettings } from '@unturf/unfirehose/db/ingest';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 5 }, (err, stdout) => {

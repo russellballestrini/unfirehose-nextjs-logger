@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatTimestamp } from '@unturf/unfirehose/format';
-import { decodeProjectName } from '@unturf/unfirehose/claude-paths-client';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 
