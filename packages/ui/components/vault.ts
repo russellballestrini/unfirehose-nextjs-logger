@@ -29,7 +29,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 600_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 600_000, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -41,7 +41,7 @@ async function encrypt(data: string, password: string, salt: Uint8Array): Promis
   const key = await deriveKey(password, salt);
   const iv = getRandomBytes(12);
   const enc = new TextEncoder();
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(data));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, enc.encode(data) as BufferSource);
   // Store as: iv(12 bytes base64) + '.' + ciphertext(base64)
   return bufToBase64(iv) + '.' + bufToBase64(ct);
 }
@@ -52,9 +52,9 @@ async function decrypt(blob: string, password: string, salt: Uint8Array): Promis
     if (!ivB64 || !ctB64) return null;
     const key = await deriveKey(password, salt);
     const pt = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: base64ToBuf(ivB64) },
+      { name: 'AES-GCM', iv: base64ToBuf(ivB64) as BufferSource },
       key,
-      base64ToBuf(ctB64),
+      base64ToBuf(ctB64) as BufferSource,
     );
     return new TextDecoder().decode(pt);
   } catch {
