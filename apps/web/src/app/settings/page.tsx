@@ -205,114 +205,120 @@ export default function SettingsPage() {
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (
         <div className="space-y-6">
-          {/* Profile */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-            <h3 className="text-base font-bold text-[var(--color-muted)]">Profile</h3>
-            <div>
-              <label className="text-base text-[var(--color-muted)] block mb-1">Display Name</label>
-              <input
-                type="text"
-                defaultValue={displayName}
-                placeholder={systemUser}
-                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
-                onBlur={(e) => {
-                  if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <label className="text-base text-[var(--color-muted)] block mb-1">Handle</label>
-              <div className="flex items-center">
-                <span className="text-[var(--color-muted)] text-base mr-1">@</span>
-                <input
-                  type="text"
-                  defaultValue={handle}
-                  placeholder={systemUser}
-                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+          {/* Profile + Plan — 2 column */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Profile */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">Profile</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-base text-[var(--color-muted)] block mb-1">Display Name</label>
+                  <input
+                    type="text"
+                    defaultValue={displayName}
+                    placeholder={systemUser}
+                    className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base"
+                    onBlur={(e) => {
+                      if (e.target.value !== displayName) saveSetting(SETTINGS_KEYS.displayName, e.target.value);
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-base text-[var(--color-muted)] block mb-1">Handle</label>
+                  <div className="flex items-center">
+                    <span className="text-[var(--color-muted)] text-base mr-1">@</span>
+                    <input
+                      type="text"
+                      defaultValue={handle}
+                      placeholder={systemUser}
+                      className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                      onBlur={(e) => {
+                        if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="text-base text-[var(--color-muted)] block mb-1">Bio</label>
+                <textarea
+                  defaultValue={bio}
+                  placeholder="building things with machines"
+                  rows={2}
+                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base resize-none"
                   onBlur={(e) => {
-                    if (e.target.value !== handle) saveSetting(SETTINGS_KEYS.handle, e.target.value);
+                    if (e.target.value !== bio) saveSetting(SETTINGS_KEYS.bio, e.target.value);
                   }}
                 />
               </div>
+              {projectCount > 0 && (
+                <div className="text-base text-[var(--color-muted)]">
+                  {projectCount} projects — {totalPrompts.toLocaleString()} prompts (30d)
+                </div>
+              )}
             </div>
-            <div>
-              <label className="text-base text-[var(--color-muted)] block mb-1">Bio</label>
-              <textarea
-                defaultValue={bio}
-                placeholder="building things with machines"
-                rows={2}
-                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base resize-none"
-                onBlur={(e) => {
-                  if (e.target.value !== bio) saveSetting(SETTINGS_KEYS.bio, e.target.value);
-                }}
-              />
-            </div>
-            {projectCount > 0 && (
-              <div className="text-base text-[var(--color-muted)]">
-                {projectCount} projects — {totalPrompts.toLocaleString()} prompts (30d)
-              </div>
-            )}
-          </div>
 
-          {/* Plan */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-            <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
-            <div className="grid grid-cols-1 gap-2">
-              {PLANS.filter((p) => p.value).map((plan) => (
-                <div
-                  key={plan.value}
-                  onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
-                  className={`rounded border p-3 cursor-pointer transition-colors ${
-                    currentPlan === plan.value
-                      ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
-                      : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
-                      {plan.label}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {plan.price && plan.price !== '$0' && (
-                        <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
-                      )}
-                      {currentPlan === plan.value && (
-                        <span className="text-base text-[var(--color-accent)] font-bold">current</span>
-                      )}
+            {/* Plan */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
+              <div className="grid grid-cols-1 gap-2">
+                {PLANS.filter((p) => p.value).map((plan) => (
+                  <div
+                    key={plan.value}
+                    onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
+                    className={`rounded border p-3 cursor-pointer transition-colors ${
+                      currentPlan === plan.value
+                        ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                        : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
+                        {plan.label}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {plan.price && plan.price !== '$0' && (
+                          <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
+                        )}
+                        {currentPlan === plan.value && (
+                          <span className="text-base text-[var(--color-accent)] font-bold">current</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                      {plan.features.map((f, i) => (
+                        <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
+                      ))}
                     </div>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                    {plan.features.map((f, i) => (
-                      <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Data & Storage */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-            <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
-            <div className="text-base text-[var(--color-muted)] space-y-1">
-              <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
-              <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
+          {/* Local Data + Git — 2 column */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
+              <div className="text-base text-[var(--color-muted)] space-y-1">
+                <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.claude/unfirehose.db</span></div>
+                <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
+              </div>
             </div>
-          </div>
 
-          {/* Git */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
-            <h3 className="text-base font-bold text-[var(--color-muted)]">Git</h3>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={(settings?.git_auto_push ?? 'true') !== 'false'}
-                onChange={(e) => saveSetting('git_auto_push', e.target.checked ? 'true' : 'false')}
-                className="accent-[var(--color-accent)]"
-              />
-              <span className="text-sm">Auto-push after commit</span>
-              <span className="text-xs text-[var(--color-muted)]">When committing from the app, automatically push to remote</span>
-            </label>
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">Git</h3>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={(settings?.git_auto_push ?? 'true') !== 'false'}
+                  onChange={(e) => saveSetting('git_auto_push', e.target.checked ? 'true' : 'false')}
+                  className="accent-[var(--color-accent)]"
+                />
+                <span className="text-sm">Auto-push after commit</span>
+                <span className="text-xs text-[var(--color-muted)]">When committing from the app, automatically push to remote</span>
+              </label>
+            </div>
           </div>
         </div>
       )}
@@ -320,23 +326,25 @@ export default function SettingsPage() {
       {/* ===== APPEARANCE TAB ===== */}
       {activeTab === 'Appearance' && (
         <div className="space-y-6">
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
-              <button
-                onClick={toggleTheme}
-                className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
-              >
-                {lightMode ? 'Light Mode' : 'Dark Mode'}
-              </button>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-[var(--color-muted)]">Accent Color</h3>
+                <button
+                  onClick={toggleTheme}
+                  className="px-3 py-1.5 text-sm font-bold rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors cursor-pointer"
+                >
+                  {lightMode ? 'Light Mode' : 'Dark Mode'}
+                </button>
+              </div>
+              <HexColorPicker value={accentColor} settingKey={SETTINGS_KEYS.accentColor} />
             </div>
-            <HexColorPicker value={accentColor} settingKey={SETTINGS_KEYS.accentColor} />
-          </div>
 
-          <CurrencyPicker
-            selected={(settings?.[SETTINGS_KEYS.displayCurrency] ?? 'USD').split(',').filter(Boolean)}
-            onChange={(codes) => saveSetting(SETTINGS_KEYS.displayCurrency, codes.join(','))}
-          />
+            <CurrencyPicker
+              selected={(settings?.[SETTINGS_KEYS.displayCurrency] ?? 'USD').split(',').filter(Boolean)}
+              onChange={(codes) => saveSetting(SETTINGS_KEYS.displayCurrency, codes.join(','))}
+            />
+          </div>
         </div>
       )}
 
@@ -462,33 +470,35 @@ export default function SettingsPage() {
                   }}
                 />
               </div>
-              <div>
-                <label className="text-base text-[var(--color-muted)] block mb-1">Public Key</label>
-                <input
-                  type="text"
-                  defaultValue={firehosePublicKey}
-                  placeholder="unfh-pk-..."
-                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-                  onBlur={(e) => {
-                    if (e.target.value && e.target.value !== firehosePublicKey) {
-                      saveSetting(SETTINGS_KEYS.firehosePublicKey, e.target.value);
-                    }
-                  }}
-                />
-              </div>
-              <div>
-                <label className="text-base text-[var(--color-muted)] block mb-1">Secret Key</label>
-                <input
-                  type="password"
-                  defaultValue={firehoseKey}
-                  placeholder="unfh-sk-..."
-                  className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
-                  onBlur={(e) => {
-                    if (e.target.value && e.target.value !== firehoseKey) {
-                      saveSetting(SETTINGS_KEYS.firehoseKey, e.target.value);
-                    }
-                  }}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-base text-[var(--color-muted)] block mb-1">Public Key</label>
+                  <input
+                    type="text"
+                    defaultValue={firehosePublicKey}
+                    placeholder="unfh-pk-..."
+                    className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                    onBlur={(e) => {
+                      if (e.target.value && e.target.value !== firehosePublicKey) {
+                        saveSetting(SETTINGS_KEYS.firehosePublicKey, e.target.value);
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-base text-[var(--color-muted)] block mb-1">Secret Key</label>
+                  <input
+                    type="password"
+                    defaultValue={firehoseKey}
+                    placeholder="unfh-sk-..."
+                    className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono"
+                    onBlur={(e) => {
+                      if (e.target.value && e.target.value !== firehoseKey) {
+                        saveSetting(SETTINGS_KEYS.firehoseKey, e.target.value);
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
