@@ -64,16 +64,13 @@ export async function GET(
   }
 
   try {
-    const [statusRaw, diffStaged, diffUnstaged, branch, logRaw] = await Promise.all([
+    const [statusRaw, diffStat, branch, logRaw, fullDiff] = await Promise.all([
       gitExec(repoPath, ['status', '--porcelain']),
-      gitExec(repoPath, ['diff', '--cached', '--stat']),
-      gitExec(repoPath, ['diff', '--stat']),
+      gitExec(repoPath, ['diff', 'HEAD', '--stat']),
       gitExec(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']),
       gitExec(repoPath, ['log', '--oneline', '-5']),
+      gitExec(repoPath, ['diff', 'HEAD']),
     ]);
-
-    // Full unified diff (staged + unstaged)
-    const fullDiff = await gitExec(repoPath, ['diff', 'HEAD']);
 
     // Parse status into structured files
     // git status --porcelain format: XY<space>filename
@@ -94,7 +91,7 @@ export async function GET(
       repoPath,
       branch: branch.trim(),
       files,
-      diffStat: (diffStaged.trim() + '\n' + diffUnstaged.trim()).trim(),
+      diffStat: diffStat.trim(),
       diff: fullDiff,
       recentCommits: logRaw.trim(),
       isDirty: files.length > 0,
