@@ -273,122 +273,12 @@ function LossCurve({ data, showEma }: { data: LossPoint[]; showEma: boolean }) {
   );
 }
 
-function EventsTimeline({
-  checkpoints,
-  samples,
-  evals,
-}: {
-  checkpoints: Checkpoint[];
-  samples: Sample[];
-  evals: EvalResult[];
-}) {
-  const hasAny = checkpoints?.length || samples?.length || evals?.length;
-  if (!hasAny) return null;
-
-  return (
-    <div className="flex flex-col gap-4">
-      {/* Checkpoints */}
-      {checkpoints?.length > 0 && (
-        <div>
-          <h3 className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-muted)' }}>
-            Checkpoints
-          </h3>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {checkpoints.map((cp, i) => (
-              <div
-                key={i}
-                className="rounded-lg p-3"
-                style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-medium" style={{ color: '#10b981' }}>
-                    Step {cp.step.toLocaleString()}
-                  </span>
-                  {cp.size_bytes != null && (
-                    <span className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-                      {(cp.size_bytes / 1024 / 1024).toFixed(1)} MB
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 truncate font-mono text-xs" style={{ color: 'var(--color-muted)' }} title={cp.path}>
-                  {cp.path}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Evals */}
-      {evals?.length > 0 && (
-        <div>
-          <h3 className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-muted)' }}>
-            Evaluations
-          </h3>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {evals.map((ev, i) => (
-              <div
-                key={i}
-                className="rounded-lg p-3"
-                style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-medium" style={{ color: '#a78bfa' }}>
-                    Step {ev.step.toLocaleString()}
-                  </span>
-                  <span className="font-mono text-sm font-bold" style={{ color: 'var(--color-foreground)' }}>
-                    {ev.score.toFixed(4)}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-                  {ev.eval_name}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Samples */}
-      {samples?.length > 0 && (
-        <div>
-          <h3 className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-muted)' }}>
-            Samples
-          </h3>
-          <div className="grid gap-2 lg:grid-cols-2">
-            {samples.map((s, i) => (
-              <div
-                key={i}
-                className="rounded-lg p-3"
-                style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-              >
-                <div className="mb-1 flex items-center gap-3">
-                  <span className="font-mono text-xs font-medium" style={{ color: '#fbbf24' }}>
-                    Step {s.step.toLocaleString()}
-                  </span>
-                  {s.loss != null && (
-                    <span className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-                      loss {s.loss.toFixed(4)}
-                    </span>
-                  )}
-                </div>
-                <div className="font-mono text-xs leading-relaxed" style={{ color: 'var(--color-foreground)' }}>
-                  {s.text.length > 200 ? s.text.slice(0, 200) + '...' : s.text}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------- page ----------
 
 export default function TrainingPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [showEma, setShowEma] = useState(true);
+  const [activeTab, setActiveTab] = useState<'loss' | 'checkpoints' | 'samples' | 'evals'>('loss');
 
   // Runs list — polls every 5s for live updates
   const { data: runsData } = useSWR<{ runs: TrainingRun[] }>(
@@ -458,45 +348,155 @@ export default function TrainingPage() {
 
       {/* Main area */}
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
-        {/* Loss curve */}
-        <div
-          className="rounded-xl p-4"
-          style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-mono text-sm font-semibold" style={{ color: 'var(--color-foreground)' }}>
-              Loss Curve
-            </h2>
-            <label className="flex cursor-pointer items-center gap-2 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-              <input
-                type="checkbox"
-                checked={showEma}
-                onChange={(e) => setShowEma(e.target.checked)}
-                className="accent-blue-500"
-              />
-              EMA smoothing (alpha=0.1)
-            </label>
-          </div>
-          <LossCurve data={detail?.lossEvents ?? []} showEma={showEma} />
+        {/* Tabs */}
+        <div className="flex items-center gap-1">
+          {([
+            ['loss', 'Loss', detail?.lossEvents?.length ?? 0],
+            ['checkpoints', 'Checkpoints', detail?.checkpoints?.length ?? 0],
+            ['samples', 'Samples', detail?.samples?.length ?? 0],
+            ['evals', 'Evals', detail?.evals?.length ?? 0],
+          ] as const).map(([key, label, count]) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key as typeof activeTab)}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-sm transition-colors cursor-pointer"
+              style={{
+                backgroundColor: activeTab === key ? 'var(--color-surface)' : 'transparent',
+                color: activeTab === key ? 'var(--color-foreground)' : 'var(--color-muted)',
+                border: activeTab === key ? '1px solid var(--color-border)' : '1px solid transparent',
+                fontWeight: activeTab === key ? 600 : 400,
+              }}
+            >
+              {label}
+              {count > 0 && (
+                <span className="rounded-full px-1.5 py-0.5 text-xs" style={{
+                  backgroundColor: activeTab === key ? 'var(--color-accent)' : 'var(--color-border)',
+                  color: activeTab === key ? 'var(--color-background)' : 'var(--color-muted)',
+                }}>
+                  {count.toLocaleString()}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* Events timeline */}
+        {/* Tab content */}
         <div
-          className="rounded-xl p-4"
+          className="flex-1 rounded-xl p-4"
           style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
         >
-          <h2 className="mb-3 font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-muted)' }}>
-            Events
-          </h2>
-          <EventsTimeline
-            checkpoints={detail?.checkpoints ?? []}
-            samples={detail?.samples ?? []}
-            evals={detail?.evals ?? []}
-          />
-          {!detail?.checkpoints?.length && !detail?.samples?.length && !detail?.evals?.length && detail && (
-            <div className="py-8 text-center font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-              No checkpoint, sample, or eval events recorded for this run
-            </div>
+          {activeTab === 'loss' && (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-mono text-sm font-semibold" style={{ color: 'var(--color-foreground)' }}>
+                  Loss Curve
+                </h2>
+                <label className="flex cursor-pointer items-center gap-2 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+                  <input
+                    type="checkbox"
+                    checked={showEma}
+                    onChange={(e) => setShowEma(e.target.checked)}
+                    className="accent-blue-500"
+                  />
+                  EMA smoothing (alpha=0.1)
+                </label>
+              </div>
+              <LossCurve data={detail?.lossEvents ?? []} showEma={showEma} />
+            </>
+          )}
+
+          {activeTab === 'checkpoints' && (
+            detail?.checkpoints?.length ? (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {detail.checkpoints.map((cp, i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg p-3"
+                    style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-medium" style={{ color: '#10b981' }}>
+                        Step {cp.step.toLocaleString()}
+                      </span>
+                      {cp.size_bytes != null && (
+                        <span className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+                          {(cp.size_bytes / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 truncate font-mono text-xs" style={{ color: 'var(--color-muted)' }} title={cp.path}>
+                      {cp.path}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
+                No checkpoints recorded
+              </div>
+            )
+          )}
+
+          {activeTab === 'samples' && (
+            detail?.samples?.length ? (
+              <div className="grid gap-2 lg:grid-cols-2">
+                {detail.samples.map((s, i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg p-3"
+                    style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}
+                  >
+                    <div className="mb-1 flex items-center gap-3">
+                      <span className="font-mono text-xs font-medium" style={{ color: '#fbbf24' }}>
+                        Step {s.step.toLocaleString()}
+                      </span>
+                      {s.loss != null && (
+                        <span className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+                          loss {s.loss.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-xs leading-relaxed" style={{ color: 'var(--color-foreground)' }}>
+                      {s.text.length > 200 ? s.text.slice(0, 200) + '...' : s.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
+                No samples recorded
+              </div>
+            )
+          )}
+
+          {activeTab === 'evals' && (
+            detail?.evals?.length ? (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {detail.evals.map((ev, i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg p-3"
+                    style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-medium" style={{ color: '#a78bfa' }}>
+                        Step {ev.step.toLocaleString()}
+                      </span>
+                      <span className="font-mono text-sm font-bold" style={{ color: 'var(--color-foreground)' }}>
+                        {ev.score.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+                      {ev.eval_name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
+                No eval results recorded
+              </div>
+            )
           )}
         </div>
       </div>
