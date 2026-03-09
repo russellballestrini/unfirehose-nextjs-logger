@@ -4,6 +4,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { resolveProjectPath } from '@unturf/unfirehose/project-name';
+import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -129,7 +130,7 @@ export async function POST(
       const harness = getProjectHarness(db, project);
       const diff = git?.isDirty ? await gitExec(repoPath, ['diff', 'HEAD'], 15000).catch(() => '') : '';
       // Fire and forget — spawn agent in background, update DB when done
-      spawnNudgeAgent(db, Number(actionId), repoPath, harness, git, prompts, diff);
+      spawnNudgeAgent(db, Number(actionId), project, repoPath, harness, git, prompts, diff);
       return NextResponse.json({ ok: true, actionId, status: 'spawned', harness });
     }
 
@@ -358,9 +359,61 @@ function buildNudgePrompt(git: GitSnapshot | null, prompts: any[], diff: string)
   return sections.join('\n');
 }
 
+function extractAndCreateTodos(db: any, projectName: string, responseText: string) {
+  // Get or create project
+  const project = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as any;
+  if (!project) return 0;
+  const projectId = project.id;
+
+  // Extract TODO-like items from agent response
+  // Match numbered lists, bullet points, or lines starting with TODO/BLOCKED
+  const todoPatterns = [
+    /^\s*\d+\.\s+\*\*(.+?)\*\*\s*[—–-]\s*(.+)/gm,  // "1. **Title** — description"
+    /^\s*\d+\.\s+\*\*(.+?)\*\*:?\s*(.+)/gm,          // "1. **Title**: description" or "1. **Title** description"
+    /^\s*[-*]\s+\*\*(.+?)\*\*\s*[—–-]\s*(.+)/gm,     // "- **Title** — description"
+    /^\s*[-*]\s+TODO:\s*(.+)/gim,                       // "- TODO: description"
+    /^\s*BLOCKED:\s*(.+)/gim,                            // "BLOCKED: description"
+  ];
+
+  const todos: string[] = [];
+  const seen = new Set<string>();
+
+  for (const pattern of todoPatterns) {
+    let match;
+    while ((match = pattern.exec(responseText)) !== null) {
+      // Combine title + description, or just the match
+      const content = match[2]
+        ? `${match[1].trim()}: ${match[2].trim()}`
+        : match[1].trim();
+      // Clean markdown
+      const clean = content.replace(/\*\*/g, '').replace(/`/g, '').trim();
+      if (clean.length > 5 && !seen.has(clean.toLowerCase())) {
+        seen.add(clean.toLowerCase());
+        todos.push(clean);
+      }
+    }
+  }
+
+  if (todos.length === 0) return 0;
+
+  const insert = db.prepare(`
+    INSERT INTO todos (project_id, content, status, source, uuid, created_at, updated_at)
+    VALUES (?, ?, 'pending', 'nudge', ?, datetime('now'), datetime('now'))
+  `);
+
+  db.transaction(() => {
+    for (const content of todos) {
+      insert.run(projectId, content, uuidv7());
+    }
+  })();
+
+  return todos.length;
+}
+
 function spawnNudgeAgent(
   db: any,
   actionId: number,
+  projectName: string,
   repoPath: string,
   harness: string,
   git: GitSnapshot | null,
@@ -405,15 +458,26 @@ function spawnNudgeAgent(
       try { parsed = JSON.parse(stdout); } catch { /* not JSON */ }
 
       const stderrClean = stderr.trim().slice(0, 1500);
+      const responseText = parsed?.result ?? stdout.slice(0, 5000);
+
+      // Extract TODOs from agent response and create them in the DB
+      let todosCreated = 0;
+      if (code === 0 && responseText) {
+        try {
+          todosCreated = extractAndCreateTodos(db, projectName, responseText);
+        } catch { /* don't fail the whole action */ }
+      }
+
       const result = {
         harness,
         exitCode: code,
-        response: parsed?.result ?? stdout.slice(0, 5000),
+        response: responseText,
         stderr: stderrClean || undefined,
         costUsd: parsed?.cost_usd ?? null,
         duration: parsed?.duration_ms ?? null,
+        todosCreated,
         summary: code === 0
-          ? `Agent finished (${harness})`
+          ? `Agent finished (${harness})` + (todosCreated > 0 ? ` — ${todosCreated} todo(s) created` : '')
           : `Agent exited with code ${code}${stderrClean ? ': ' + stderrClean.split('\n')[0] : ''}`,
         severity: code === 0 ? 'ok' : 'error',
       };
