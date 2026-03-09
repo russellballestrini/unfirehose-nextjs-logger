@@ -1,5 +1,6 @@
 stages:
   - test
+  - publish
 
 test:
   stage: test
@@ -11,3 +12,32 @@ test:
   script:
     - npm run lint
     - npm test
+
+publish:
+  stage: publish
+  tags:
+    - build
+  only:
+    - tags
+  before_script:
+    - export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+    - npm ci
+  script:
+    # Extract version from git tag (strip leading v if present)
+    - export VERSION=$(echo "$CI_COMMIT_TAG" | sed 's/^v//')
+    - echo "Publishing version $VERSION"
+    # Set version on all packages
+    - |
+      for pkg in packages/core packages/schema packages/router packages/ui; do
+        cd "$CI_PROJECT_DIR/$pkg"
+        npm version "$VERSION" --no-git-tag-version --allow-same-version
+      done
+    # Build packages that need it
+    - cd "$CI_PROJECT_DIR/packages/router" && npm run build
+    # Publish all packages
+    - |
+      for pkg in packages/core packages/schema packages/router packages/ui; do
+        cd "$CI_PROJECT_DIR/$pkg"
+        echo "Publishing $(node -p 'require("./package.json").name')@$VERSION"
+        npm publish --access public || echo "Already published or failed: $pkg"
+      done
