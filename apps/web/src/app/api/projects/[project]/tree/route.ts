@@ -67,18 +67,15 @@ export async function GET(
       try {
         const objType = (await gitExec(repoPath, ['cat-file', '-t', `${ref}:${subpath}`])).trim();
         if (objType === 'blob') {
-          // It's a file — return its content
-          const content = await gitExec(repoPath, ['show', `${ref}:${subpath}`], 15000);
-          const sizeRaw = (await gitExec(repoPath, ['cat-file', '-s', `${ref}:${subpath}`])).trim();
+          // Fetch content, size, and last commit in parallel
+          const [content, sizeRaw, lastCommitRaw] = await Promise.all([
+            gitExec(repoPath, ['show', `${ref}:${subpath}`], 15000),
+            gitExec(repoPath, ['cat-file', '-s', `${ref}:${subpath}`]).then(s => s.trim()),
+            gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', subpath]).then(s => s.trim()).catch(() => ''),
+          ]);
           const size = parseInt(sizeRaw, 10);
 
-          // Get last commit for this file
-          let lastCommit = '';
-          try {
-            lastCommit = (await gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', subpath])).trim();
-          } catch {}
-
-          const [commitHash, commitMsg, commitAge] = lastCommit.split('|');
+          const [commitHash, commitMsg, commitAge] = (lastCommitRaw || '||').split('|');
           const ext = subpath.split('.').pop() || '';
           const lang = EXT_TO_LANG[ext] || ext;
 
@@ -97,9 +94,27 @@ export async function GET(
       }
     }
 
-    // List directory contents via git ls-tree
+    // Run all independent git operations in parallel
     const treePath = subpath ? `${ref}:${subpath}` : ref;
-    const treeRaw = await gitExec(repoPath, ['ls-tree', '--long', treePath]);
+    const logPath = subpath || '.';
+
+    const [treeRaw, lastCommitRaw, branch, readmeResult] = await Promise.all([
+      // 1. List directory contents
+      gitExec(repoPath, ['ls-tree', '--long', treePath]),
+      // 2. Last commit for this directory
+      gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', logPath]).then(s => s.trim()).catch(() => ''),
+      // 3. Branch info
+      gitExec(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']).then(s => s.trim()),
+      // 4. README — single ls-tree check then one show, instead of up to 4 blind attempts
+      !subpath
+        ? gitExec(repoPath, ['ls-tree', '--name-only', ref]).then(async (names) => {
+            const files = names.trim().split('\n');
+            const readmeName = ['README.md', 'README', 'readme.md', 'README.txt'].find(n => files.includes(n));
+            if (!readmeName) return '';
+            try { return await gitExec(repoPath, ['show', `${ref}:${readmeName}`], 5000); } catch { return ''; }
+          }).catch(() => '')
+        : Promise.resolve(''),
+    ]);
 
     const entries = treeRaw.trim().split('\n').filter(Boolean).map((line) => {
       // Format: <mode> <type> <hash> <size>\t<name>
@@ -119,27 +134,7 @@ export async function GET(
       return a.name.localeCompare(b.name);
     });
 
-    // Get last commit for this directory
-    const logPath = subpath || '.';
-    let lastCommit = '';
-    try {
-      lastCommit = (await gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', logPath])).trim();
-    } catch {}
-    const [commitHash, commitMsg, commitAge] = (lastCommit || '||').split('|');
-
-    // Get branch info
-    const branch = (await gitExec(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
-
-    // Get README if at root
-    let readme = '';
-    if (!subpath) {
-      for (const name of ['README.md', 'README', 'readme.md', 'README.txt']) {
-        try {
-          readme = await gitExec(repoPath, ['show', `${ref}:${name}`], 5000);
-          if (readme) break;
-        } catch {}
-      }
-    }
+    const [commitHash, commitMsg, commitAge] = (lastCommitRaw || '||').split('|');
 
     return NextResponse.json({
       type: 'tree',
@@ -147,7 +142,7 @@ export async function GET(
       branch,
       entries,
       lastCommit: commitHash ? { hash: commitHash, message: commitMsg, age: commitAge } : null,
-      readme: readme.slice(0, 10000), // cap at 10KB
+      readme: readmeResult.slice(0, 10000), // cap at 10KB
       repoPath,
     });
   } catch (err) {
