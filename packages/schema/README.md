@@ -71,6 +71,7 @@ The `docs/` directory contains the full spec:
 | [llama.cpp](docs/harnesses/llama-cpp.md) | Local | Researched |
 | [vLLM](docs/harnesses/vllm.md) | Local/self-hosted | Researched |
 | [text-generation-webui](docs/harnesses/text-generation-webui.md) | Local | Researched |
+| [pi](docs/harnesses/pi.md) | Multi-provider | Researched |
 | [agnt](docs/harnesses/agnt.md) | Multi-provider | Native target |
 
 ## Quick example
