@@ -6,6 +6,10 @@ import type { SessionsIndex } from '@unturf/unfirehose/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const treeCache = new Map<string, { data: any; ts: number }>();
+const TREE_CACHE_TTL = 10_000; // 10 seconds
+const TREE_CACHE_MAX = 100; // LRU cap
+
 function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 10 }, (err, stdout) => {
@@ -60,6 +64,12 @@ export async function GET(
   const subpath = url.searchParams.get('path') || '';
   const ref = url.searchParams.get('ref') || 'HEAD';
 
+  const cacheKey = `${project}:${subpath}:${ref}`;
+  const cached = treeCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < TREE_CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
+
   try {
     // If subpath looks like it could be a file, try to cat it
     if (subpath && !subpath.endsWith('/')) {
@@ -79,7 +89,7 @@ export async function GET(
           const ext = subpath.split('.').pop() || '';
           const lang = EXT_TO_LANG[ext] || ext;
 
-          return NextResponse.json({
+          const fileResult = {
             type: 'file',
             path: subpath,
             name: subpath.split('/').pop(),
@@ -87,7 +97,13 @@ export async function GET(
             size,
             language: lang,
             lastCommit: commitHash ? { hash: commitHash, message: commitMsg, age: commitAge } : null,
-          });
+          };
+          if (treeCache.size >= TREE_CACHE_MAX) {
+            const oldest = treeCache.keys().next().value;
+            if (oldest) treeCache.delete(oldest);
+          }
+          treeCache.set(cacheKey, { data: fileResult, ts: Date.now() });
+          return NextResponse.json(fileResult);
         }
       } catch {
         // Not a valid git object at this path — fall through to tree listing
@@ -136,7 +152,7 @@ export async function GET(
 
     const [commitHash, commitMsg, commitAge] = (lastCommitRaw || '||').split('|');
 
-    return NextResponse.json({
+    const treeResult = {
       type: 'tree',
       path: subpath || '',
       branch,
@@ -144,7 +160,13 @@ export async function GET(
       lastCommit: commitHash ? { hash: commitHash, message: commitMsg, age: commitAge } : null,
       readme: readmeResult.slice(0, 10000), // cap at 10KB
       repoPath,
-    });
+    };
+    if (treeCache.size >= TREE_CACHE_MAX) {
+      const oldest = treeCache.keys().next().value;
+      if (oldest) treeCache.delete(oldest);
+    }
+    treeCache.set(cacheKey, { data: treeResult, ts: Date.now() });
+    return NextResponse.json(treeResult);
   } catch (err) {
     return NextResponse.json({ error: 'Tree operation failed', detail: String(err) }, { status: 500 });
   }
