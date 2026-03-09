@@ -196,6 +196,13 @@ export default function UsageMonitorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg: string;
+        try { msg = JSON.parse(text).error; } catch { msg = text.slice(0, 200); }
+        setAgentAction({ project: projectName, action, loading: false, result: { summary: msg, severity: 'error' } });
+        return;
+      }
       const data = await res.json();
 
       // Nudge is async — poll for completion
