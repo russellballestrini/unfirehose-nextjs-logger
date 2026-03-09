@@ -101,6 +101,10 @@ The Harnesses tab on node detail pages shows:
 - **nvidia-smi** `--query-gpu=power.draw` for real-time GPU wattage
 - **TDP** fallback from CPU model name lookup
 
+### Performance
+
+Key API routes are parallelized: SSH mesh probes run concurrently via `Promise.all` (3 calls combined into 1 per node), git operations in `/api/projects/*/tree` and `/api/projects/*/git` run all spawns in parallel, and `/api/tokens` uses covering indexes + `EXISTS` subqueries. Benchmark with `python3 scripts/perf-report.py --runs 3 --threshold 500` (crawls `/sitemap` + all API routes, outputs JSON + terminal report).
+
 ### Bootstrap
 
 The bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:

@@ -178,7 +178,7 @@ digraph architecture {
   llm_resolve -> api_git_suggest
 
   // Mesh flows
-  ssh_nodes -> api_mesh [label="SSH\nprobes"]
+  ssh_nodes -> api_mesh [label="SSH probes\nPromise.all\n(parallel)"]
   ssh_nodes -> api_mesh_node [label="deep\nprobe"]
   ssh_nodes -> api_tmux [label="tmux\ncapture"]
   api_mesh -> api_mesh_history [label="snapshot\nINSERT"]

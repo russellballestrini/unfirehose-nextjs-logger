@@ -180,6 +180,20 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
   apps/web frontend          SWR auto-refresh, SSE live tailing, Recharts visualization
 ```
 
+### Performance
+
+API routes are optimized for parallel execution. Benchmark all pages and routes:
+
+```bash
+python3 scripts/perf-report.py --runs 3 --threshold 500
+```
+
+Crawls `/sitemap` and all API routes, generates JSON + terminal report. Key patterns:
+- **Parallel SSH probes** — mesh node probes run concurrently, 3 SSH calls combined into 1 per node
+- **Parallel git operations** — project tree and git info routes run all spawns in `Promise.all`
+- **Covering indexes** — `/api/tokens` and `/api/logs` use `EXISTS` subqueries and covering indexes
+- **Batch-capped external checks** — `/api/scrobble/preview` caps concurrent forge API checks at 7 projects with 2s timeout
+
 ### Database Schema
 
 - **projects** — one row per unique project directory
