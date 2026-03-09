@@ -8,6 +8,9 @@ import type { SessionsIndex } from '@unturf/unfirehose/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const gitCache = new Map<string, { data: any; ts: number }>();
+const GIT_CACHE_TTL = 5_000; // 5 seconds
+
 function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 5 }, (err, stdout) => {
@@ -58,6 +61,13 @@ export async function GET(
   { params }: { params: Promise<{ project: string }> }
 ) {
   const { project } = await params;
+
+  const cacheKey = project;
+  const cached = gitCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < GIT_CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
+
   const repoPath = await resolveRepoPath(project);
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
@@ -87,7 +97,7 @@ export async function GET(
       return { status: '?', file: line.trim() };
     });
 
-    return NextResponse.json({
+    const result = {
       repoPath,
       branch: branch.trim(),
       files,
@@ -95,7 +105,9 @@ export async function GET(
       diff: fullDiff,
       recentCommits: logRaw.trim(),
       isDirty: files.length > 0,
-    });
+    };
+    gitCache.set(cacheKey, { data: result, ts: Date.now() });
+    return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: 'Git operation failed', detail: String(err) }, { status: 500 });
   }
@@ -111,6 +123,8 @@ export async function POST(
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }
+
+  gitCache.delete(project);
 
   try {
     const body = await request.json();
@@ -180,6 +194,8 @@ export async function DELETE(
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }
+
+  gitCache.delete(project);
 
   try {
     const body = await request.json();
