@@ -133,10 +133,8 @@ export async function POST(request: NextRequest) {
   if (action === 'probe') {
     // Run a system probe on unsandbox to get CPU, memory, GPU, etc.
     const probeScript = `#!/bin/bash
-set -e
 echo "---JSON---"
-CORES=$(nproc 2>/dev/null || echo 0)
-# Count total host/hypervisor CPUs visible in /proc/cpuinfo (LXC exposes all host threads)
+CORES=$(nproc 2>/dev/null || echo 1)
 HOST_THREADS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "$CORES")
 CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo "unknown")
 MEM_TOTAL=$(awk '/MemTotal/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
@@ -146,10 +144,10 @@ SWAP_TOTAL=$(awk '/SwapTotal/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/
 SWAP_FREE=$(awk '/SwapFree/ {printf "%.2f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
 SWAP_USED=$(echo "$SWAP_TOTAL $SWAP_FREE" | awk '{printf "%.2f", $1-$2}')
 # /proc/loadavg in LXC shows hypervisor load — normalize to guest vCPU share
-RAW_LOAD=$(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}' || echo "0 0 0")
-LOAD1=$(echo "$RAW_LOAD $CORES $HOST_THREADS" | awk '{if($5>0) printf "%.2f", $1*($4/$5); else print $1}')
-LOAD5=$(echo "$RAW_LOAD $CORES $HOST_THREADS" | awk '{if($5>0) printf "%.2f", $2*($4/$5); else print $2}')
-LOAD15=$(echo "$RAW_LOAD $CORES $HOST_THREADS" | awk '{if($5>0) printf "%.2f", $3*($4/$5); else print $3}')
+RAW_LOAD=$(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null || echo "0 0 0")
+LOAD1=$(echo "$RAW_LOAD $CORES $HOST_THREADS" | awk '{h=$5>0?$5:1; printf "%.2f", $1*($4/h)}')
+LOAD5=$(echo "$RAW_LOAD $CORES $HOST_THREADS" | awk '{h=$5>0?$5:1; printf "%.2f", $2*($4/h)}')
+LOAD15=$(echo "$RAW_LOAD $CORES $HOST_THREADS" | awk '{h=$5>0?$5:1; printf "%.2f", $3*($4/h)}')
 UPTIME=$(uptime -p 2>/dev/null | sed 's/^up //' || echo "unknown")
 GPU_MODEL=""
 GPU_MEM_MB=0
