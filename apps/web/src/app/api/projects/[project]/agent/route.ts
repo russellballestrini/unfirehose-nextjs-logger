@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile, spawn } from 'child_process';
-import { readFile } from 'fs/promises';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
-import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { resolveProjectPath } from '@unturf/unfirehose/project-name';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -18,46 +17,14 @@ function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> 
 }
 
 async function resolveRepoPath(projectName: string): Promise<string | null> {
-  // Try sessions-index.json first
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    if (index.originalPath) return index.originalPath;
-  } catch { /* no index file */ }
-
-  // Try DB path
-  try {
-    const db = getDb();
-    const row = db.prepare('SELECT path FROM projects WHERE name = ?').get(projectName) as any;
-    if (row?.path) return row.path;
-  } catch { /* no db path */ }
-
-  // Decode from project name: -home-fox-git-unfirehose-nextjs-logger → /home/fox/git/unfirehose-nextjs-logger
-  // Dashes are ambiguous (separator vs literal), so try all split points and check which path is a git repo
-  const parts = projectName.replace(/^-/, '').split('-');
-  const { existsSync } = await import('fs');
-
-  // Try combining parts greedily from right (longer directory names first)
-  const tryCombinations = (idx: number, current: string): string | null => {
-    if (idx >= parts.length) {
-      // Check if this is a git repo
-      if (existsSync(current + '/.git')) return current;
-      return null;
-    }
-    // Try joining remaining parts with dashes (greedy: longer names first)
-    for (let end = parts.length; end > idx; end--) {
-      const segment = parts.slice(idx, end).join('-');
-      const candidate = current + '/' + segment;
-      const result = tryCombinations(end, candidate);
-      if (result) return result;
-    }
-    return null;
-  };
-
-  const decoded = tryCombinations(0, '');
-  if (decoded) return decoded;
-
-  return null;
+  const db = getDb();
+  return resolveProjectPath(projectName, {
+    dbLookup: (name) => {
+      const row = db.prepare('SELECT path FROM projects WHERE name = ?').get(name) as any;
+      return row?.path || null;
+    },
+    sessionsIndexPath: claudePaths.sessionsIndex(projectName),
+  });
 }
 
 interface GitSnapshot {

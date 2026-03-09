@@ -34,14 +34,5 @@ export const claudePaths = {
   },
 };
 
-export function decodeProjectName(encoded: string): string {
-  // The directory names encode the full path with - replacing / and .
-  // e.g. "-home-fox-git-unsandbox-com" -> "unsandbox.com" (approximate)
-  // Best effort: extract the last meaningful segment after "git"
-  const parts = encoded.replace(/^-/, '').split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx >= 0 && gitIdx < parts.length - 1) {
-    return parts.slice(gitIdx + 1).join('-');
-  }
-  return parts.slice(-2).join('-') || encoded;
-}
+// Re-export from canonical location
+export { decodeProjectName, encodeProjectName, resolveProjectPath } from './project-name.ts';

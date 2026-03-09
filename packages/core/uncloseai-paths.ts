@@ -16,11 +16,5 @@ export const uncloseaiPaths = {
   },
 };
 
-export function decodeUncloseaiProjectName(cwdSlug: string): string {
-  const parts = cwdSlug.split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx >= 0 && gitIdx < parts.length - 1) {
-    return parts.slice(gitIdx + 1).join('-');
-  }
-  return parts.slice(-2).join('-') || cwdSlug;
-}
+// Re-export from canonical location — same encoding as Claude Code
+export { decodeProjectName as decodeUncloseaiProjectName } from './project-name.ts';

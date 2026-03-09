@@ -23,7 +23,5 @@ export const fetchPaths = {
   },
 };
 
-export function decodeFetchProjectName(slug: string): string {
-  // Fetch project slugs are typically just the project directory name
-  return slug.replace(/-/g, ' ').trim() || slug;
-}
+// Re-export from canonical location
+export { decodeProjectName as decodeFetchProjectName } from './project-name.ts';

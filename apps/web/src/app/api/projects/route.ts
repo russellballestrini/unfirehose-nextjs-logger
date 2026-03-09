@@ -1,42 +1,12 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { claudePaths, decodeProjectName } from '@unturf/unfirehose/claude-paths';
+import { claudePaths } from '@unturf/unfirehose/claude-paths';
+import { decodeProjectName, resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { NextResponse } from 'next/server';
 import type { ProjectInfo, SessionsIndex } from '@unturf/unfirehose/types';
 
 // In-memory cache — 30s TTL
 let cache: { data: ProjectInfo[]; ts: number } | null = null;
 const CACHE_TTL = 30_000;
-
-// Try to resolve actual filesystem path from encoded project name
-function resolvePathFromName(name: string): string[] {
-  const parts = name.replace(/^-/, '').split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx < 0 || gitIdx >= parts.length - 1) return [];
-
-  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
-  const projectParts = parts.slice(gitIdx + 1);
-  const candidates = [prefix + '/' + projectParts.join('-')];
-
-  if (projectParts.length >= 2) {
-    const lastPart = projectParts[projectParts.length - 1];
-    if (['com', 'net', 'org', 'io', 'dev', 'ai', 'app'].includes(lastPart)) {
-      candidates.push(prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + lastPart);
-      candidates.push(prefix + '/' + projectParts.join('.'));
-    }
-  }
-  return candidates;
-}
-
-async function resolvePathFromNameAsync(name: string): Promise<string> {
-  const candidates = resolvePathFromName(name);
-  // Test all candidates in parallel
-  const results = await Promise.all(
-    candidates.map(async (p) => {
-      try { return (await stat(p)).isDirectory() ? p : ''; } catch { return ''; }
-    })
-  );
-  return results.find(Boolean) || '';
-}
 
 async function loadOneProject(dir: string): Promise<ProjectInfo | null> {
   try {
@@ -67,7 +37,7 @@ async function loadOneProject(dir: string): Promise<ProjectInfo | null> {
     }
 
     if (!projectPath) {
-      projectPath = await resolvePathFromNameAsync(dir);
+      projectPath = (await resolveProjectPath(dir)) ?? '';
     }
 
     return {
