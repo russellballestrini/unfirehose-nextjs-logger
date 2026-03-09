@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ProjectInfo } from '@unturf/unfirehose/types';
@@ -29,11 +29,26 @@ interface GitStatus {
   branch: string;
 }
 
+interface RepoGitDetail {
+  files: { status: string; file: string }[];
+  diff: string;
+  branch: string;
+  repoPath: string;
+  recentCommits: string;
+}
+
+interface DirtyCache {
+  details: Record<string, RepoGitDetail | null>;
+  expanded: Record<string, boolean>;
+  gitSnap: string; // JSON of gitStatuses — bust cache when this changes
+}
+
 export default function ProjectsPage() {
   const [range, setRange] = useTimeRange('projects_range', '28d');
   const rangeDays = Math.max(1, Math.ceil((getTimeRangeMinutes(range) || 60 * 24 * 365) / 60 / 24));
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<'projects' | 'dirty'>('projects');
+  const dirtyCache = useRef<DirtyCache>({ details: {}, expanded: {}, gitSnap: '' });
 
   const { data: projects, error } = useSWR<ProjectInfo[]>(
     '/api/projects',
@@ -183,6 +198,7 @@ export default function ProjectsPage() {
           projects={dirtyProjects}
           gitStatuses={gitStatuses ?? {}}
           mutateGit={mutateGit}
+          cache={dirtyCache}
         />
       )}
     </div>
@@ -280,14 +296,6 @@ interface RepoAction {
   provider: string;
 }
 
-interface RepoGitDetail {
-  files: { status: string; file: string }[];
-  diff: string;
-  branch: string;
-  repoPath: string;
-  recentCommits: string;
-}
-
 const STATUS_COLORS: Record<string, { label: string; color: string }> = {
   'M': { label: 'M', color: '#fbbf24' },
   'A': { label: 'A', color: '#22c55e' },
@@ -302,15 +310,34 @@ function DirtyReposTab({
   projects,
   gitStatuses,
   mutateGit,
+  cache,
 }: {
   projects: ProjectInfo[];
   gitStatuses: Record<string, GitStatus>;
   mutateGit: () => void;
+  cache: React.MutableRefObject<DirtyCache>;
 }) {
+  // Build a fingerprint from gitStatuses to detect changes
+  const gitSnap = JSON.stringify(
+    Object.fromEntries(projects.map((p) => [p.name, gitStatuses[p.name]]))
+  );
+  const stale = gitSnap !== cache.current.gitSnap;
+
   const [actions, setActions] = useState<Record<string, RepoAction>>({});
   const [batchRunning, setBatchRunning] = useState(false);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [details, setDetails] = useState<Record<string, RepoGitDetail | null>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(
+    stale ? {} : cache.current.expanded
+  );
+  const [details, setDetails] = useState<Record<string, RepoGitDetail | null>>(
+    stale ? {} : cache.current.details
+  );
+
+  // Persist to cache ref on every change
+  useEffect(() => {
+    cache.current.details = details;
+    cache.current.expanded = expanded;
+    cache.current.gitSnap = gitSnap;
+  }, [details, expanded, gitSnap, cache]);
 
   // Delete or gitignore a file in a project
   async function handleFileAction(projectName: string, file: string, action: 'delete' | 'gitignore') {
@@ -323,7 +350,6 @@ function DirtyReposTab({
       });
       const result = await res.json();
       if (result.success) {
-        // Re-fetch details for this project
         fetchDetail(projectName);
         mutateGit();
       }
@@ -341,16 +367,15 @@ function DirtyReposTab({
     } catch { /* ignore */ }
   }
 
-  // Auto-expand all on mount
+  // Auto-expand all on mount (or when cache was busted)
   useEffect(() => {
     if (projects.length === 0) return;
+    // If we already have cached data, skip fetching
+    if (Object.keys(details).length > 0) return;
     const allExpanded: Record<string, boolean> = {};
     for (const p of projects) allExpanded[p.name] = true;
     setExpanded(allExpanded);
-    // Fetch details for all projects in parallel
-    for (const p of projects) {
-      if (!details[p.name]) fetchDetail(p.name);
-    }
+    for (const p of projects) fetchDetail(p.name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects.length]);
 
