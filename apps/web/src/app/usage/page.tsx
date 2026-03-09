@@ -461,7 +461,7 @@ export default function UsageMonitorPage() {
                   </div>
 
                   {!collapsedProjects.has(p.name) && (
-                    <StandupProjectDetail projectName={p.name} displayName={p.display_name} mutateProjects={mutateProjects} />
+                    <StandupProjectDetail projectName={p.name} mutateProjects={mutateProjects} />
                   )}
                 </div>
               ))}
@@ -1028,9 +1028,8 @@ export default function UsageMonitorPage() {
 
 // ---------- standup project detail (own SWR per project) ----------
 
-function StandupProjectDetail({ projectName, displayName, mutateProjects }: {
+function StandupProjectDetail({ projectName, mutateProjects }: {
   projectName: string;
-  displayName: string;
   mutateProjects: () => void;
 }) {
   const { data: projectDetail, mutate: mutateDetail } = useSWR(

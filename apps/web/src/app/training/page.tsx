@@ -150,11 +150,7 @@ function saveRunFlags(flags: RunFlags) {
 }
 
 function useRunFlags() {
-  const [flags, setFlags] = useState<RunFlags>({ favorites: new Set(), locked: new Set() });
-
-  useEffect(() => {
-    setFlags(loadRunFlags());
-  }, []);
+  const [flags, setFlags] = useState<RunFlags>(() => loadRunFlags());
 
   const toggle = useCallback((runId: string, field: 'favorites' | 'locked') => {
     setFlags((prev) => {
@@ -764,7 +760,7 @@ export default function TrainingPage() {
   const favRunIds = useMemo(() => [...flags.favorites].sort(), [flags.favorites]);
   const { data: favData } = useSWR<Record<string, LossPoint[]>>(
     favRunIds.length > 0 ? `/api/training/favorites?ids=${favRunIds.map(encodeURIComponent).join(',')}` : null,
-    async (url: string) => {
+    async () => {
       // Fetch each run's events in parallel
       const results: Record<string, LossPoint[]> = {};
       await Promise.all(favRunIds.map(async (id) => {
@@ -818,7 +814,7 @@ export default function TrainingPage() {
       autoScanned.current = true;
       runScan();
     }
-  }, [autoScan, runsData, runScan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoScan, runsData, runScan]);
 
   if (!runs.length && !runsData) {
     return (

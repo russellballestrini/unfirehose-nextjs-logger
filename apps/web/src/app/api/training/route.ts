@@ -293,7 +293,7 @@ export async function POST(request: NextRequest) {
     `);
 
     let inserted = 0;
-    let errors: string[] = [];
+    const errors: string[] = [];
 
     const ingest = db.transaction(() => {
       for (const evt of events) {

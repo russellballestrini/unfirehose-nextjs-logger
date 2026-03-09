@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { getAllSettings } from '@unturf/unfirehose/db/ingest';
 
-let cache: { data: any; ts: number } | null = null;
+let cache: { data: DetectedProvider[]; ts: number } | null = null;
 const CACHE_TTL = 60_000; // 60 seconds
 
 interface DetectedProvider {

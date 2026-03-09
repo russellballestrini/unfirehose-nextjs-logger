@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
       WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter} LIMIT 1)
       GROUP BY harness
     `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
-    const sessionMap = new Map(harnessSessions.map(s => [s.harness, s.sessions]));
+    const _sessionMap = new Map(harnessSessions.map(s => [s.harness, s.sessions]));
 
     // Compute per-harness cost from harnessModelRows (no N+1!)
     const harnessCostMap = new Map<string, number>();

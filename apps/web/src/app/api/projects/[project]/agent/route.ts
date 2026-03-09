@@ -147,7 +147,7 @@ export async function POST(
   }
 }
 
-function buildStatus(git: GitSnapshot | null, prompts: any[], repoPath: string) {
+function buildStatus(git: GitSnapshot | null, prompts: any[], _repoPath: string) {
   const lines: string[] = [];
 
   if (!git) {
@@ -226,7 +226,7 @@ async function executeFinish(git: GitSnapshot | null, repoPath: string, message?
   return { summary: actions.join(', '), actions };
 }
 
-function buildBlockers(git: GitSnapshot | null, prompts: any[], repoPath: string) {
+function buildBlockers(git: GitSnapshot | null, prompts: any[], _repoPath: string) {
   const blockers: Array<{ type: string; description: string; severity: string }> = [];
 
   if (!git) {
