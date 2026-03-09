@@ -19,8 +19,9 @@ export async function GET(request: NextRequest) {
     const db = getDb();
     const params: any[] = [];
 
-    let where = `m.type IN (${types.map(() => '?').join(',')})`;
-    params.push(...types);
+    const allTypes = types.length === 3 && types.includes('user') && types.includes('assistant') && types.includes('system');
+    let where = allTypes ? '1=1' : `m.type IN (${types.map(() => '?').join(',')})`;
+    if (!allTypes) params.push(...types);
 
     if (projectFilter) {
       where += ' AND p.name = ?';
@@ -48,8 +49,9 @@ export async function GET(request: NextRequest) {
       params.push(`%${search}%`);
     }
 
+    const needsDistinct = !!search;
     const query = `
-      SELECT DISTINCT m.id, m.type, m.subtype, m.timestamp, m.model,
+      SELECT ${needsDistinct ? 'DISTINCT' : ''} m.id, m.type, m.subtype, m.timestamp, m.model,
              m.input_tokens, m.output_tokens,
              s.session_uuid, s.display_name as session_display,
              p.name as project_name, p.display_name as project_display
@@ -115,25 +117,30 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Total count for pagination
-    const countParams: any[] = [];
-    let countWhere = `m.type IN (${types.map(() => '?').join(',')})`;
-    countParams.push(...types);
-    if (projectFilter) { countWhere += ' AND p.name = ?'; countParams.push(projectFilter); }
-    if (session) { countWhere += ' AND s.session_uuid = ?'; countParams.push(session); }
-    if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
-    if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
-    if (search) { countWhere += ' AND cb_search.text_content LIKE ?'; countParams.push(`%${search}%`); }
+    // Total count for pagination — skip expensive count when not paginating
+    let total = 0;
+    if (messages.length === limit || offset > 0) {
+      const countParams: any[] = [];
+      let countWhere = allTypes ? '1=1' : `m.type IN (${types.map(() => '?').join(',')})`;
+      if (!allTypes) countParams.push(...types);
+      if (projectFilter) { countWhere += ' AND p.name = ?'; countParams.push(projectFilter); }
+      if (session) { countWhere += ' AND s.session_uuid = ?'; countParams.push(session); }
+      if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
+      if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
+      if (search) { countWhere += ' AND cb_search.text_content LIKE ?'; countParams.push(`%${search}%`); }
 
-    const countQuery = `
-      SELECT COUNT(DISTINCT m.id) as total
-      FROM messages m
-      JOIN sessions s ON m.session_id = s.id
-      JOIN projects p ON s.project_id = p.id
-      ${searchJoin}
-      WHERE ${countWhere}
-    `;
-    const { total } = db.prepare(countQuery).get(...countParams) as { total: number };
+      const countQuery = `
+        SELECT ${needsDistinct ? 'COUNT(DISTINCT m.id)' : 'COUNT(*)'} as total
+        FROM messages m
+        JOIN sessions s ON m.session_id = s.id
+        JOIN projects p ON s.project_id = p.id
+        ${searchJoin}
+        WHERE ${countWhere}
+      `;
+      total = (db.prepare(countQuery).get(...countParams) as { total: number }).total;
+    } else {
+      total = offset + messages.length;
+    }
 
     return NextResponse.json({ entries, total, limit, offset });
   } catch (err: any) {

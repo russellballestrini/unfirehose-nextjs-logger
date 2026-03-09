@@ -326,6 +326,16 @@ function migrate(db: Database.Database) {
     -- Speed up tool_use queries with tool_name
     CREATE INDEX IF NOT EXISTS idx_content_blocks_tool ON content_blocks(block_type, tool_name, message_id)
       WHERE block_type = 'tool_use';
+
+    -- Covering index for /api/logs: type filter + timestamp sort without temp B-tree
+    CREATE INDEX IF NOT EXISTS idx_messages_type_timestamp ON messages(type, timestamp DESC);
+
+    -- Covering index for /api/tokens: token aggregation by session+model
+    CREATE INDEX IF NOT EXISTS idx_messages_session_model_tokens ON messages(session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)
+      WHERE model IS NOT NULL;
+
+    -- Speed up content_blocks preview fetch (message_id + block_type filter + position sort)
+    CREATE INDEX IF NOT EXISTS idx_content_blocks_msg_type_pos ON content_blocks(message_id, block_type, position);
   `);
 
   // Schema migrations: add columns to existing tables

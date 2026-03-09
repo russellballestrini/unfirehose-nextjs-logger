@@ -115,13 +115,11 @@ export async function GET(request: NextRequest) {
       // We'll track it separately below
     }
 
-    // Session counts per harness — derive from same rows (approximate: sum of per-model distinct counts overcounts)
-    // Use a quick separate query since COUNT(DISTINCT) across groups needs it
+    // Session counts per harness — lightweight: query sessions with existence check
     const harnessSessions = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness, COUNT(DISTINCT s.id) as sessions
+      SELECT COALESCE(s.harness, 'unknown') as harness, COUNT(*) as sessions
       FROM sessions s
-      JOIN messages m ON m.session_id = s.id
-      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter} LIMIT 1)
       GROUP BY harness
     `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
     const sessionMap = new Map(harnessSessions.map(s => [s.harness, s.sessions]));
