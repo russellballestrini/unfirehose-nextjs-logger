@@ -262,10 +262,10 @@ export default function StyleguidePage() {
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { title: 'monitor', items: [['●', 'Live'], ['▸', 'Active']] },
-              { title: 'navigate', items: [['◇', 'Dashboard'], ['■', 'Projects'], ['☰', 'Todos'], ['◈', 'Graph']] },
-              { title: 'analyze', items: [['◎', 'Thinking'], ['≡', 'All Logs'], ['¤', 'Tokens'], ['△', 'Usage']] },
-              { title: 'configure', items: [['♪', 'Scrobble'], ['{', 'Schema'], ['◐', 'Styleguide'], ['⚙', 'Settings']] },
+              { title: 'monitor', items: [['●', 'Live'], ['▸', 'Active'], ['▹', 'Terminals']] },
+              { title: 'navigate', items: [['◇', 'Dashboard'], ['■', 'Projects'], ['☰', 'Todos']] },
+              { title: 'analyze', items: [['◆', 'Training'], ['◎', 'Thinking'], ['¤', 'Tokens'], ['△', 'Usage'], ['≡', 'All Logs']] },
+              { title: 'configure', items: [['♪', 'Scrobble'], ['▣', 'Permacomputer'], ['{', 'Schema'], ['◐', 'Styleguide'], ['⚙', 'Settings']] },
             ].map(group => (
               <div key={group.title}>
                 <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2">{group.title}</div>
@@ -280,6 +280,68 @@ export default function StyleguidePage() {
               </div>
             ))}
           </div>
+        </div>
+      </Section>
+
+      {/* Sitemap */}
+      <Section title="Sitemap — All Pages (30)">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Complete route inventory. Every page in the app, grouped by nav section. Dynamic routes shown with <code className="text-[var(--color-accent)]">[param]</code> segments.
+          </p>
+          {[
+            { section: 'monitor', routes: [
+              ['/', 'Dashboard', 'Home — aggregate stats, recent activity, cost breakdown'],
+              ['/live', 'Live', 'Real-time streaming of agent messages as they arrive'],
+              ['/active', 'Active', 'Currently running sessions with live token counters'],
+              ['/tmux', 'Terminals', 'Tmux session overview across all mesh nodes'],
+              ['/tmux/[session]', 'Terminal Detail', 'Individual tmux session pane viewer'],
+            ]},
+            { section: 'navigate', routes: [
+              ['/projects', 'Projects', 'All projects grid + Dynamic Commits tab (batch git ops)'],
+              ['/projects/[project]', 'Project Detail', 'Overview, Sessions, Commits, Todos, Activity, Tokens, Code tabs'],
+              ['/projects/[project]/kanban', 'Kanban Board', 'Drag-and-drop todo board per project'],
+              ['/projects/[project]/[sessionId]', 'Session Detail', 'Full conversation transcript with tool calls'],
+              ['/todos', 'Todos', 'Cross-project todo aggregation with filters'],
+              ['/todos/graph', 'Todos Graph', 'Visual dependency graph of todos'],
+            ]},
+            { section: 'analyze', routes: [
+              ['/training', 'Training', 'Loss curves, checkpoints, samples, evals — favorite/lock/delete runs'],
+              ['/thinking', 'Thinking', 'Extended thinking blocks extracted from sessions'],
+              ['/tokens', 'Tokens', 'Token usage breakdown by model, project, time range'],
+              ['/usage', 'Usage', 'Mesh-wide usage metrics, boot stats, node health'],
+              ['/usage/node/[hostname]', 'Node Detail', 'Per-node usage breakdown and history'],
+              ['/usage/review/[project]', 'Usage Review', 'Per-project cost review and approval'],
+              ['/usage/alert/[id]', 'Usage Alert', 'Individual usage alert detail'],
+              ['/alerts/[id]', 'Alert Detail', 'System alert detail page'],
+              ['/logs', 'All Logs', 'Raw log viewer with filtering and search'],
+            ]},
+            { section: 'configure', routes: [
+              ['/scrobble', 'Scrobble', 'Music scrobbling integration and history'],
+              ['/permacomputer', 'Permacomputer', 'Mesh node dashboard — CPU, memory, services'],
+              ['/permacomputer/[node]', 'Node Detail', 'Individual mesh node metrics and config'],
+              ['/permacomputer/unsandbox', 'Unsandbox', 'Unsandbox service status and management'],
+              ['/schema', 'Schema', 'Database schema explorer and documentation'],
+              ['/styleguide', 'Styleguide', 'This page — design system reference'],
+              ['/settings', 'Settings', 'App configuration, themes, API keys, vault'],
+              ['/keys', 'Keys', 'API key management'],
+              ['/login', 'Login', 'Authentication gate'],
+              ['/blog', 'Blog', 'Internal blog / notes'],
+            ]},
+          ].map(({ section, routes }) => (
+            <div key={section}>
+              <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2 mt-3">{section}</div>
+              <div className="space-y-1">
+                {routes.map(([path, label, desc]) => (
+                  <div key={path} className="grid grid-cols-[140px_120px_1fr] gap-2 items-baseline text-sm">
+                    <code className="text-[var(--color-accent)] text-xs truncate" title={path}>{path}</code>
+                    <span className="font-bold text-[var(--color-foreground)] text-xs">{label}</span>
+                    <span className="text-xs text-[var(--color-muted)]">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </Section>
 
