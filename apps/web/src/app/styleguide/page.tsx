@@ -1263,6 +1263,25 @@ Response:
             Focus rings: <code className="text-[var(--color-accent)]">1px solid var(--color-accent), offset -1px</code>.
             Checkbox accent tracks <code className="text-[var(--color-accent)]">var(--color-accent)</code>.
           </p>
+          <div className="mt-3 rounded border border-[#ef4444]/30 bg-[#ef4444]/5 p-3 space-y-2">
+            <h4 className="text-sm font-bold" style={{ color: '#ef4444' }}>Anti-pattern: hover-reveal actions</h4>
+            <p className="text-sm text-[var(--color-muted)]">
+              Never hide buttons/actions behind <code className="text-[var(--color-accent)]">opacity-0 group-hover:opacity-100</code>.
+              This is unusable on touch, invisible to keyboard users, and creates a jarring pop-in.
+              Instead: show actions inline at reduced opacity (0.5) and brighten on hover/focus.
+              For destructive actions in dense lists, use a right-click context menu or a dedicated action row.
+            </p>
+            <div className="grid grid-cols-2 gap-3 text-center text-xs">
+              <div className="rounded border border-[#ef4444]/30 p-2">
+                <div className="font-bold" style={{ color: '#ef4444' }}>Bad</div>
+                <code className="text-[var(--color-muted)]">opacity-0 group-hover:opacity-100</code>
+              </div>
+              <div className="rounded border border-[#22c55e]/30 p-2">
+                <div className="font-bold" style={{ color: '#22c55e' }}>Good</div>
+                <code className="text-[var(--color-muted)]">opacity-50 hover:opacity-100</code>
+              </div>
+            </div>
+          </div>
         </div>
       </Section>
 

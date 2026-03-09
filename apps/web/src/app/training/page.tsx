@@ -280,7 +280,7 @@ function RunsList({
         return (
           <div
             key={run.run_id}
-            className="group/run relative rounded-lg transition-colors"
+            className="relative rounded-lg transition-colors"
             style={{
               backgroundColor: active ? 'var(--color-surface)' : 'transparent',
               border: active ? '1px solid var(--color-border)' : '1px solid transparent',
@@ -291,9 +291,7 @@ function RunsList({
               className="w-full px-3 py-2.5 text-left"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-mono text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--color-foreground)' }}>
-                  {isFav && <span style={{ color: '#fbbf24' }} title="Favorite">★</span>}
-                  {isLocked && <span style={{ color: '#60a5fa' }} title="Locked">🔒</span>}
+                <span className="truncate font-mono text-sm font-medium" style={{ color: 'var(--color-foreground)' }}>
                   {run.model}
                 </span>
                 <StatusBadge status={run.status} />
@@ -303,25 +301,25 @@ function RunsList({
                 {run.latest_loss != null && <span>loss {run.latest_loss.toFixed(4)}</span>}
                 <span className="ml-auto">{formatWallTime(run.started_at)}</span>
               </div>
-              <div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--color-muted)', opacity: 0.6 }}>
-                {run.run_id}
+              <div className="mt-0.5 flex items-center gap-1 font-mono text-xs" style={{ color: 'var(--color-muted)', opacity: 0.6 }}>
+                <span className="truncate flex-1">{run.run_id}</span>
               </div>
             </button>
-            {/* Hover action buttons */}
-            <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover/run:opacity-100 transition-opacity">
+            {/* Always-visible action buttons */}
+            <div className="flex items-center gap-0.5 px-3 pb-2 -mt-1">
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleFlag(run.run_id, 'favorites'); }}
-                className="w-6 h-6 flex items-center justify-center rounded text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors"
                 title={isFav ? 'Unfavorite' : 'Favorite'}
-                style={{ color: isFav ? '#fbbf24' : 'var(--color-muted)' }}
+                style={{ color: isFav ? '#fbbf24' : 'var(--color-muted)', opacity: isFav ? 1 : 0.4 }}
               >
                 {isFav ? '★' : '☆'}
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleFlag(run.run_id, 'locked'); }}
-                className="w-6 h-6 flex items-center justify-center rounded text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors"
                 title={isLocked ? 'Unlock (allow deletion)' : 'Lock (prevent deletion)'}
-                style={{ color: isLocked ? '#60a5fa' : 'var(--color-muted)' }}
+                style={{ color: isLocked ? '#60a5fa' : 'var(--color-muted)', opacity: isLocked ? 1 : 0.4 }}
               >
                 {isLocked ? '🔒' : '🔓'}
               </button>
@@ -331,9 +329,9 @@ function RunsList({
                   if (isLocked) { alert('This run is locked. Unlock it first to delete.'); return; }
                   if (confirm(`Delete run "${run.model}" (${run.run_id})?`)) onDelete(run.run_id);
                 }}
-                className="w-6 h-6 flex items-center justify-center rounded text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors"
                 title={isLocked ? 'Locked — cannot delete' : 'Delete run'}
-                style={{ color: isLocked ? 'var(--color-muted)' : '#ef4444', opacity: isLocked ? 0.3 : 1 }}
+                style={{ color: isLocked ? 'var(--color-muted)' : '#ef4444', opacity: isLocked ? 0.2 : 0.4 }}
               >
                 ✕
               </button>

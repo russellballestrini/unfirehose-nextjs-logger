@@ -702,22 +702,22 @@ function DirtyReposTab({
                           {detail.files.map((f: any, i: number) => {
                             const s = STATUS_COLORS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
                             return (
-                              <div key={i} className="px-4 py-1.5 flex items-center gap-3 text-xs font-mono hover:bg-[var(--color-surface-hover)] border-t border-[var(--color-border)] group/file">
+                              <div key={i} className="px-4 py-1.5 flex items-center gap-3 text-xs font-mono hover:bg-[var(--color-surface-hover)] border-t border-[var(--color-border)]">
                                 <span className="w-4 h-4 rounded flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
                                   {s.label}
                                 </span>
                                 <span className="truncate flex-1">{f.file}</span>
-                                <div className="shrink-0 flex gap-1 opacity-0 group-hover/file:opacity-100 transition-opacity">
+                                <div className="shrink-0 flex gap-1">
                                   <button
                                     onClick={() => handleFileAction(project.name, f.file, 'gitignore')}
-                                    className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors bg-[var(--color-surface)]"
+                                    className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors bg-[var(--color-surface)] opacity-50 hover:opacity-100"
                                     title="Add to .gitignore"
                                   >
                                     .gitignore
                                   </button>
                                   <button
                                     onClick={() => handleFileAction(project.name, f.file, 'delete')}
-                                    className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] transition-colors bg-[var(--color-surface)]"
+                                    className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] transition-colors bg-[var(--color-surface)] opacity-50 hover:opacity-100"
                                     title="Delete file"
                                   >
                                     Delete

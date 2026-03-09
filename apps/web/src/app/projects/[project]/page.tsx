@@ -1352,7 +1352,7 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
                   {gitData.files.map((f: any, i: number) => {
                     const s = STATUS_LABELS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
                     return (
-                      <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm font-mono hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0 group">
+                      <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm font-mono hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0">
                         <span className="w-5 h-5 rounded flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
                           {s.label}
                         </span>
@@ -1362,17 +1362,17 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
                         >
                           {f.file}
                         </button>
-                        <div className="shrink-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="shrink-0 flex gap-1">
                           <button
                             onClick={() => handleFileAction(f.file, 'gitignore')}
-                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors opacity-50 hover:opacity-100"
                             title="Add to .gitignore"
                           >
                             .gitignore
                           </button>
                           <button
                             onClick={() => handleFileAction(f.file, 'delete')}
-                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] transition-colors"
+                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] transition-colors opacity-50 hover:opacity-100"
                             title="Delete file"
                           >
                             Delete
