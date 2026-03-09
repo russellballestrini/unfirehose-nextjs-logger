@@ -225,7 +225,7 @@ function EmptyState({ onScan, scanning, scanResult }: { onScan: () => void; scan
         )}
 
         <p className="text-xs mb-3" style={{ color: 'var(--color-muted)' }}>
-          Scans <code className="font-mono">~/.unfirehose/training/</code> and <code className="font-mono">~/git/uncloseai-cli/checkpoints/cuda/</code> on all mesh nodes.
+          Scans configured paths + live training proxies on all mesh nodes. Paths configurable in Settings → Training.
         </p>
 
         <details className="text-left">

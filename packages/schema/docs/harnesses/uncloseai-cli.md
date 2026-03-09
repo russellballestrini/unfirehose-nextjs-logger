@@ -1,8 +1,8 @@
 # uncloseai-cli — Harness Format
 
 **Provider**: Local (Hermes 3 via llama.cpp)
-**Status**: Supported (adapter live)
-**Adapter**: `packages/core/uncloseai-adapter.ts`
+**Status**: Native unfirehose/1.0 (no adapter needed)
+**Adapter**: `packages/core/uncloseai-adapter.ts` (legacy event format still supported)
 
 ## File Location
 
@@ -10,42 +10,64 @@
 ~/.uncloseai/sessions/{project-slug}/{session-uuid}.jsonl
 ```
 
-## Native Format
+## Native Format (unfirehose/1.0)
 
-uncloseai-cli uses an event-based format rather than the message-based format of Claude Code. Each line is a typed event:
+As of 2026-03-09, uncloseai-cli emits native unfirehose/1.0 JSONL. Each session file starts
+with a session header, followed by message entries with typed content blocks.
 
-### Session Start
+### Session Header
 
 ```jsonc
 {
-  "type": "session_start",
-  "timestamp": "2026-03-05T10:42:45.161Z",
-  "prompt": "Fix the login page",
-  "model": "hermes-3-8b",
-  "session_id": "abc123"
+  "$schema": "unfirehose/1.0",
+  "type": "session",
+  "id": "4e0f77f7-1b16-4adc-88bd-37f46790e2ae",
+  "projectId": "-home-fox-git-myproject",
+  "status": "active",
+  "createdAt": "2026-03-09T12:00:00.000Z",
+  "firstPrompt": "Fix the login page",
+  "harness": "uncloseai",
+  "cwd": "/home/fox/git/myproject",
+  "gitBranch": "main"
 }
 ```
 
-### Assistant Response
+### User Message
 
 ```jsonc
 {
-  "type": "assistant",
-  "timestamp": "2026-03-05T10:42:51.432Z",
-  "content": "I'll fix the login page. Let me check the files first.",
-  "session_id": "abc123"
+  "$schema": "unfirehose/1.0",
+  "type": "message",
+  "id": "msg-uuid",
+  "sessionId": "4e0f77f7-...",
+  "parentId": null,
+  "role": "user",
+  "timestamp": "2026-03-09T12:00:01.000Z",
+  "content": [{ "type": "text", "text": "Fix the login page" }],
+  "harness": "uncloseai",
+  "cwd": "/home/fox/git/myproject"
 }
 ```
 
-### Tool Call
+### Assistant Message (with tool call)
 
 ```jsonc
 {
-  "type": "tool_call",
-  "timestamp": "2026-03-05T10:42:52.100Z",
-  "tool": "bash",
-  "args": "{\"command\": \"ls src/\"}",
-  "session_id": "abc123"
+  "$schema": "unfirehose/1.0",
+  "type": "message",
+  "id": "msg-uuid-2",
+  "sessionId": "4e0f77f7-...",
+  "parentId": "msg-uuid",
+  "role": "assistant",
+  "timestamp": "2026-03-09T12:00:02.000Z",
+  "content": [
+    { "type": "text", "text": "Let me check the files." },
+    { "type": "tool-call", "toolCallId": "tc-abc123", "toolName": "bash", "input": { "command": "ls src/" } }
+  ],
+  "model": "adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic",
+  "provider": "local",
+  "usage": { "inputTokens": 0, "outputTokens": 0 },
+  "harness": "uncloseai"
 }
 ```
 
@@ -53,11 +75,17 @@ uncloseai-cli uses an event-based format rather than the message-based format of
 
 ```jsonc
 {
-  "type": "tool_result",
-  "timestamp": "2026-03-05T10:42:52.500Z",
-  "tool": "bash",
-  "output": "login.css\napp.js",
-  "session_id": "abc123"
+  "$schema": "unfirehose/1.0",
+  "type": "message",
+  "id": "msg-uuid-3",
+  "sessionId": "4e0f77f7-...",
+  "parentId": "msg-uuid-2",
+  "role": "user",
+  "timestamp": "2026-03-09T12:00:03.000Z",
+  "content": [
+    { "type": "tool-result", "toolCallId": "tc-abc123", "toolName": "bash", "output": "login.css\napp.js", "isError": false }
+  ],
+  "harness": "uncloseai"
 }
 ```
 
@@ -65,60 +93,27 @@ uncloseai-cli uses an event-based format rather than the message-based format of
 
 ```jsonc
 {
-  "type": "session_end",
-  "timestamp": "2026-03-05T11:00:00.000Z",
-  "session_id": "abc123"
+  "$schema": "unfirehose/1.0",
+  "type": "message",
+  "role": "system",
+  "subtype": "session_end",
+  "content": [],
+  "harness": "uncloseai"
 }
 ```
 
-## Field Mapping → Unfirehose
+## Ingestion
 
-| uncloseai Event | Unfirehose Message | Transform |
-|---|---|---|
-| `session_start` | `role: "user"`, text from `prompt` | event → message |
-| `assistant` | `role: "assistant"`, text from `content` | event → message |
-| `tool_call` | `role: "assistant"`, `tool-call` block | event → message + block |
-| `tool_result` | `role: "user"`, `tool-result` block | event → message + block |
-| `session_end` | `role: "system"`, `subtype: "session_end"` | event → message |
+Native entries (`$schema: "unfirehose/1.0"`) are normalized via `normalizeNativeEntry()` which
+maps unfirehose/1.0 field names to the internal DB format (role→type, id→uuid, tool-call→tool_use, etc).
+No canonical JSONL is generated since the source is already canonical.
 
-### Details
+Legacy event-based entries (without `$schema`) are still supported via `normalizeUncloseaiEntry()`.
 
-- Model hardcoded to `hermes-3-8b` (or whatever model is configured)
-- Token usage zeroed (not tracked by uncloseai-cli)
-- Provider set to `local`
-- No thinking blocks (Hermes 3 doesn't have extended thinking)
-- Tool names are lowercase (`bash`, `read_file`) — adapter normalizes to canonical names
+## Details
 
-## Tools
-
-| uncloseai Tool | Canonical Name |
-|----------------|---------------|
-| `bash` | `Bash` |
-| `read_file` | `Read` |
-| `write_file` | `Write` |
-| `edit_file` | `Edit` |
-| `list_dir` | `Glob` |
-| `search` | `Grep` |
-
-## Key Differences from Claude Code
-
-| Aspect | Claude Code | uncloseai-cli |
-|--------|------------|---------------|
-| Format | Message-based | Event-based |
-| Content | Block array | Flat string |
-| Tool calls | Inline in message | Separate events |
-| Token tracking | Full | None |
-| Thinking | Full extended thinking | Not supported |
-| Models | Claude (cloud) | Hermes 3 (local) |
-
-## Implementing unfirehose/1.0 Natively
-
-When uncloseai-cli adopts unfirehose/1.0, it would:
-
-1. Switch from event types to message roles
-2. Use content block arrays instead of flat strings
-3. Wrap tool calls in `tool-call` blocks within assistant messages
-4. Add `$schema: "unfirehose/1.0"` header
-5. Include session envelope as first JSONL line
-
-This eliminates the need for the adapter entirely.
+- Model set from `UNCLOSE_MODEL` env var (default: Hermes 3 8B FP8)
+- Token usage zeroed (local model, not tracked)
+- Provider: `local`
+- No thinking/reasoning blocks (Hermes 3 doesn't have extended thinking)
+- parentId threading: each message links to the previous via UUID chain

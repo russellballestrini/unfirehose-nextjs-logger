@@ -163,7 +163,7 @@ export default function SettingsPage() {
   const trainingDeleteSource = settings?.[SETTINGS_KEYS.trainingDeleteSource] === 'true'; // default: false
   const trainingAutoScan = settings?.[SETTINGS_KEYS.trainingAutoScan] === 'true'; // default: false
   const trainingScanPaths = settings?.[SETTINGS_KEYS.trainingScanPaths] ??
-    '.unfirehose/training/*.jsonl\ngit/uncloseai-cli/checkpoints/cuda/*.loss.json';
+    '.unfirehose/training/*.jsonl\ngit/uncloseai-cli/checkpoints/cuda/*.loss.json\n.uncloseai/sessions/*/*.jsonl\n.uncloseai/todos/*.json\n.agnt/data/_logs/*.log\n.unfirehose/triage.jsonl';
 
   const TABS = ['General', 'Appearance', 'Mesh', 'Training', 'Connection', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];
@@ -800,6 +800,15 @@ function hexToHue(hex: string): number {
   return Math.round(hue);
 }
 
+const RED_PRESETS = [
+  { label: 'unfirehose', hex: '#d40000', desc: 'Deep vermilion — our pivot' },
+  { label: 'Netflix', hex: '#e50914', desc: 'Streaming red' },
+  { label: 'YouTube', hex: '#ff0000', desc: 'Pure saturated' },
+  { label: 'Oxblood', hex: '#800020', desc: 'Dark, luxurious' },
+  { label: 'Crimson', hex: '#dc143c', desc: 'Classic warm red' },
+  { label: 'Brick', hex: '#cb4154', desc: 'Earthy, grounded' },
+];
+
 function HexColorPicker({ value, settingKey }: { value: string; settingKey: string }) {
   const [color, setColor] = useState(value);
   const [hexText, setHexText] = useState(value.replace('#', ''));
@@ -869,6 +878,51 @@ function HexColorPicker({ value, settingKey }: { value: string; settingKey: stri
           background: `linear-gradient(to right, ${Array.from({ length: 13 }, (_, i) => hslToHex(i * 30, 0.7, 0.55)).join(', ')})`,
         }}
       />
+      {/* Brand red presets */}
+      <div className="space-y-2">
+        <span className="text-sm text-[var(--color-muted)]">Brand reds</span>
+        <div className="flex flex-wrap gap-2">
+          {RED_PRESETS.map((p) => (
+            <button
+              key={p.hex}
+              onClick={() => save(p.hex)}
+              title={`${p.label} — ${p.desc}`}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-sm cursor-pointer transition-colors ${
+                color.toLowerCase() === p.hex.toLowerCase()
+                  ? 'border-[var(--color-accent)] text-[var(--color-foreground)]'
+                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
+              }`}
+            >
+              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: p.hex }} />
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Tonal scale preview */}
+      <div className="space-y-2">
+        <span className="text-sm text-[var(--color-muted)]">Tonal scale</span>
+        <div className="flex gap-0.5 rounded overflow-hidden">
+          {[
+            ['50', 'var(--color-red-50)'],
+            ['100', 'var(--color-red-100)'],
+            ['200', 'var(--color-red-200)'],
+            ['300', 'var(--color-red-300)'],
+            ['400', 'var(--color-red-400)'],
+            ['500', 'var(--color-red-500)'],
+            ['600', 'var(--color-red-600)'],
+            ['700', 'var(--color-red-700)'],
+            ['800', 'var(--color-red-800)'],
+            ['900', 'var(--color-red-900)'],
+            ['950', 'var(--color-red-950)'],
+          ].map(([step, cssVar]) => (
+            <div key={step} className="flex-1 text-center" title={`red-${step}`}>
+              <div className="h-6" style={{ backgroundColor: cssVar }} />
+              <div className="text-xs text-[var(--color-muted)] mt-0.5">{step}</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

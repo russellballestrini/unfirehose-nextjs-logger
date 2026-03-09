@@ -104,6 +104,29 @@ function hexToHue(hex: string): number {
   return Math.round(hue);
 }
 
+const RED_PRESETS = [
+  { label: 'unfirehose', hex: '#d40000', desc: 'Deep vermilion — our pivot' },
+  { label: 'Netflix', hex: '#e50914', desc: 'Streaming red' },
+  { label: 'YouTube', hex: '#ff0000', desc: 'Pure saturated' },
+  { label: 'Oxblood', hex: '#800020', desc: 'Dark, luxurious' },
+  { label: 'Crimson', hex: '#dc143c', desc: 'Classic warm red' },
+  { label: 'Brick', hex: '#cb4154', desc: 'Earthy, grounded' },
+];
+
+const RED_TONAL_SCALE = [
+  { step: '50', hex: '#fef2f2' },
+  { step: '100', hex: '#fde3e3' },
+  { step: '200', hex: '#fcc5c5' },
+  { step: '300', hex: '#ff9999' },
+  { step: '400', hex: '#ff5555' },
+  { step: '500', hex: '#e81a1a' },
+  { step: '600', hex: '#d40000' },
+  { step: '700', hex: '#af0000' },
+  { step: '800', hex: '#8b0000' },
+  { step: '900', hex: '#660000' },
+  { step: '950', hex: '#3a0000' },
+];
+
 function ThemeChooser() {
   const { data: settings, mutate } = useSWR('/api/settings', sgFetcher, {
     revalidateOnFocus: false,
@@ -169,6 +192,27 @@ function ThemeChooser() {
           background: `linear-gradient(to right, ${Array.from({ length: 13 }, (_, i) => hslToHex(i * 30, 0.7, 0.55)).join(', ')})`,
         }}
       />
+      {/* Brand red presets */}
+      <div className="space-y-2">
+        <span className="text-sm text-[var(--color-muted)]">Brand reds</span>
+        <div className="flex flex-wrap gap-2">
+          {RED_PRESETS.map((p) => (
+            <button
+              key={p.hex}
+              onClick={() => save(p.hex)}
+              title={`${p.label} — ${p.desc}`}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-sm cursor-pointer transition-colors ${
+                color.toLowerCase() === p.hex.toLowerCase()
+                  ? 'border-[var(--color-accent)] text-[var(--color-foreground)]'
+                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
+              }`}
+            >
+              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: p.hex }} />
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -384,6 +428,97 @@ export default function StyleguidePage() {
               <div className="text-base font-mono">{v.hex}</div>
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* Red Brand System */}
+      <Section title="Red Brand System">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Brand identity pivots on <code className="text-[var(--color-accent)]">#d40000</code> (deep vermilion).
+            80-90% neutral UI, 5-10% red accents. Brand red is distinct from error red.
+          </p>
+
+          {/* Tonal scale */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-bold text-[var(--color-muted)]">Tonal Scale (red-50 → red-950)</h4>
+            <div className="flex rounded overflow-hidden">
+              {RED_TONAL_SCALE.map((s) => (
+                <div key={s.step} className="flex-1 text-center group">
+                  <div className="h-10" style={{ backgroundColor: s.hex }} />
+                  <div className="text-xs text-[var(--color-muted)] mt-1">{s.step}</div>
+                  <div className="text-xs font-mono text-[var(--color-muted)] opacity-60">{s.hex}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Brand vs Error */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-bold text-[var(--color-muted)]">Brand Red vs Error Red</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded" style={{ backgroundColor: 'var(--color-accent)' }} />
+                  <span className="text-base font-bold">Brand (accent)</span>
+                </div>
+                <p className="text-sm text-[var(--color-muted)]">
+                  Identity, nav highlights, links, interactive elements, buttons.
+                  <code className="text-[var(--color-accent)]"> --color-accent</code>
+                </p>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded" style={{ backgroundColor: 'var(--color-error)' }} />
+                  <span className="text-base font-bold">Error</span>
+                </div>
+                <p className="text-sm text-[var(--color-muted)]">
+                  Destructive actions, validation failures, warnings.
+                  <code className="text-[var(--color-accent)]"> --color-error</code>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Brand presets */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-bold text-[var(--color-muted)]">Brand Presets</h4>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+              {RED_PRESETS.map((p) => (
+                <div key={p.hex} className="space-y-1 text-center">
+                  <div className="h-10 rounded border border-[var(--color-border)]" style={{ backgroundColor: p.hex }} />
+                  <div className="text-sm font-bold">{p.label}</div>
+                  <div className="text-xs font-mono text-[var(--color-muted)]">{p.hex}</div>
+                  <div className="text-xs text-[var(--color-muted)] opacity-60">{p.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Usage guide */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-bold text-[var(--color-muted)]">Usage</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div className="space-y-1">
+                <div className="font-bold text-[var(--color-foreground)]">DO</div>
+                <ul className="text-[var(--color-muted)] space-y-0.5">
+                  <li>Use <code className="text-[var(--color-accent)]">--color-accent</code> for nav, links, buttons</li>
+                  <li>Use <code className="text-[var(--color-accent)]">--color-red-50</code> for subtle brand tints</li>
+                  <li>Use <code className="text-[var(--color-accent)]">--color-red-900</code> for dark mode hover</li>
+                  <li>Keep red to 5-10% of screen area</li>
+                </ul>
+              </div>
+              <div className="space-y-1">
+                <div className="font-bold" style={{ color: 'var(--color-error)' }}>DON&apos;T</div>
+                <ul className="text-[var(--color-muted)] space-y-0.5">
+                  <li>Use brand red for error states (use <code className="text-[var(--color-accent)]">--color-error</code>)</li>
+                  <li>Use red backgrounds on large surfaces</li>
+                  <li>Mix red hues — pick one and stay consistent</li>
+                  <li>Use red text on red backgrounds (contrast)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       </Section>
 

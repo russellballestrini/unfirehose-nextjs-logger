@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 
@@ -13,9 +14,17 @@ import { discoverNodes } from '@unturf/unfirehose/mesh';
  * Scan local and remote homedirs for training data files.
  *
  * Discovers:
- * 1. ~/.unfirehose/training/*.jsonl (generic unfirehose format)
- * 2. ~/git/uncloseai-cli/checkpoints/cuda/*.loss.json (Double Dragon proxy format)
- * 3. Same paths on all SSH mesh nodes
+ * 1. Paths from settings (training_scan_paths), one per line with glob patterns
+ * 2. Live training proxies on port 8088 of SSH mesh nodes
+ * 3. Same paths on all SSH mesh nodes via SSH
+ *
+ * Default scan paths cover:
+ *   ~/.unfirehose/training/*.jsonl       — unfirehose training events
+ *   ~/git/uncloseai-cli/checkpoints/cuda/*.loss.json — Double Dragon proxy
+ *   ~/.uncloseai/sessions/**\/*.jsonl     — uncloseai agent sessions
+ *   ~/.uncloseai/todos/*.json            — uncloseai agent todos
+ *   ~/.agnt/data/_logs/*.log             — agnt agent logs
+ *   ~/.unfirehose/triage.jsonl           — triaged todos from all harnesses
  *
  * Auto-ingests discovered data into training_runs + training_events tables.
  *
@@ -23,12 +32,36 @@ import { discoverNodes } from '@unturf/unfirehose/mesh';
  * POST /api/training/scan — same, with optional { hosts: ["ai.foxhop.net"] } filter
  */
 
-const SCAN_PATHS = [
-  // Generic unfirehose training dir
-  { dir: '.unfirehose/training', pattern: '*.jsonl', format: 'jsonl' as const },
-  // Double Dragon proxy checkpoints
-  { dir: 'git/uncloseai-cli/checkpoints/cuda', pattern: '*.loss.json', format: 'loss-json' as const },
-];
+export const DEFAULT_SCAN_PATHS = [
+  '.unfirehose/training/*.jsonl',
+  'git/uncloseai-cli/checkpoints/cuda/*.loss.json',
+  '.uncloseai/sessions/*/*.jsonl',
+  '.uncloseai/todos/*.json',
+  '.agnt/data/_logs/*.log',
+  '.unfirehose/triage.jsonl',
+].join('\n');
+
+interface ScanPath {
+  dir: string;
+  pattern: string;
+  format: 'loss-json' | 'jsonl' | 'json' | 'log';
+}
+
+export function parseScanPaths(raw: string): ScanPath[] {
+  return raw
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+    .map(line => {
+      const dir = path.dirname(line);
+      const pattern = path.basename(line);
+      let format: ScanPath['format'] = 'jsonl';
+      if (pattern.endsWith('.loss.json')) format = 'loss-json';
+      else if (pattern.endsWith('.json')) format = 'json';
+      else if (pattern.endsWith('.log')) format = 'log';
+      return { dir, pattern, format };
+    });
+}
 
 interface ScanResult {
   host: string;
@@ -37,8 +70,23 @@ interface ScanResult {
   error?: string;
 }
 
-function scanLocalDir(baseDir: string, pattern: string): string[] {
+export function scanLocalDir(baseDir: string, pattern: string): string[] {
   try {
+    // If dir contains *, expand by listing parent and descending into each subdir
+    if (baseDir.includes('*')) {
+      const parts = baseDir.split(path.sep);
+      const starIdx = parts.findIndex(p => p.includes('*'));
+      const parent = parts.slice(0, starIdx).join(path.sep);
+      const rest = parts.slice(starIdx + 1).join(path.sep);
+      if (!existsSync(parent)) return [];
+      const results: string[] = [];
+      for (const sub of readdirSync(parent)) {
+        const full = rest ? path.join(parent, sub, rest) : path.join(parent, sub);
+        results.push(...scanLocalDir(full, pattern));
+      }
+      return results;
+    }
+
     if (!existsSync(baseDir)) return [];
     const suffix = pattern.replace('*', '');
     return readdirSync(baseDir)
@@ -47,7 +95,7 @@ function scanLocalDir(baseDir: string, pattern: string): string[] {
   } catch { return []; }
 }
 
-function modelFromFilename(filepath: string): string {
+export function modelFromFilename(filepath: string): string {
   const base = path.basename(filepath);
   // Strip .loss.json, .samples.json, .jsonl
   return base.replace(/\.(loss|samples)\.json$/, '').replace(/\.jsonl$/, '');
@@ -143,10 +191,10 @@ function ingestSamplesJson(db: any, filepath: string, host: string): number {
   return newSamples.length;
 }
 
-function scanRemoteHost(host: string): { files: { path: string; model: string; format: string }[] } {
+function scanRemoteHost(host: string, scanPaths: ScanPath[]): { files: { path: string; model: string; format: string }[] } {
   const files: { path: string; model: string; format: string }[] = [];
 
-  for (const sp of SCAN_PATHS) {
+  for (const sp of scanPaths) {
     try {
       const cmd = `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'ls ~/${sp.dir}/${sp.pattern} 2>/dev/null'`;
       const output = execSync(cmd, { encoding: 'utf-8', timeout: 10000 }).trim();
@@ -158,17 +206,20 @@ function scanRemoteHost(host: string): { files: { path: string; model: string; f
     } catch { /* host unreachable or no files */ }
   }
 
-  // Also scan for .samples.json
-  try {
-    const cmd = `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'ls ~/git/uncloseai-cli/checkpoints/cuda/*.samples.json 2>/dev/null'`;
-    const output = execSync(cmd, { encoding: 'utf-8', timeout: 10000 }).trim();
-    if (output) {
-      for (const line of output.split('\n')) {
-        if (!line.trim()) continue;
-        files.push({ path: line.trim(), model: modelFromFilename(line.trim()), format: 'samples-json' });
+  // Also scan for .samples.json alongside any loss-json paths
+  const lossJsonDirs = scanPaths.filter(sp => sp.format === 'loss-json').map(sp => sp.dir);
+  for (const dir of lossJsonDirs) {
+    try {
+      const cmd = `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'ls ~/${dir}/*.samples.json 2>/dev/null'`;
+      const output = execSync(cmd, { encoding: 'utf-8', timeout: 10000 }).trim();
+      if (output) {
+        for (const line of output.split('\n')) {
+          if (!line.trim()) continue;
+          files.push({ path: line.trim(), model: modelFromFilename(line.trim()), format: 'samples-json' });
+        }
       }
-    }
-  } catch { /* no samples */ }
+    } catch { /* no samples */ }
+  }
 
   return { files };
 }
@@ -191,9 +242,13 @@ async function scan(filterHosts?: string[]) {
   const results: ScanResult[] = [];
   const home = homedir();
 
+  // Load scan paths from settings, fall back to defaults
+  const rawPaths = getSetting('training_scan_paths') ?? DEFAULT_SCAN_PATHS;
+  const scanPaths = parseScanPaths(rawPaths);
+
   // 1. Scan local
   const localResult: ScanResult = { host: 'local', files: [], ingested: { runs: 0, events: 0 } };
-  for (const sp of SCAN_PATHS) {
+  for (const sp of scanPaths) {
     const dir = path.join(home, sp.dir);
     const found = scanLocalDir(dir, sp.pattern);
     for (const f of found) {
@@ -210,10 +265,18 @@ async function scan(filterHosts?: string[]) {
         } catch {
           localResult.files.push({ path: f, model, format: sp.format, lossPoints: 0, samples: 0 });
         }
+      } else {
+        // jsonl, json, log — count lines for display
+        let lineCount = 0;
+        try {
+          const content = readFileSync(f, 'utf-8');
+          lineCount = content.split('\n').filter(l => l.trim()).length;
+        } catch { /* unreadable */ }
+        localResult.files.push({ path: f, model, format: sp.format, lossPoints: lineCount, samples: 0 });
       }
     }
 
-    // Also scan for samples locally
+    // Also scan for samples locally alongside loss-json dirs
     if (sp.format === 'loss-json') {
       const samplesDir = dir;
       const samplesFiles = scanLocalDir(samplesDir, '*.samples.json');
@@ -238,7 +301,7 @@ async function scan(filterHosts?: string[]) {
   for (const host of hosts) {
     const nodeResult: ScanResult = { host, files: [], ingested: { runs: 0, events: 0 } };
     try {
-      const remoteScan = scanRemoteHost(host);
+      const remoteScan = scanRemoteHost(host, scanPaths);
       for (const f of remoteScan.files) {
         if (f.format === 'loss-json') {
           const r = ingestLossJson(db, f.path, host);
@@ -266,6 +329,92 @@ async function scan(filterHosts?: string[]) {
     results.push(nodeResult);
   }
 
+  // 3. Poll live training proxies via HTTP on each SSH host (port 8088)
+  //    Catches in-flight runs that haven't written .loss.json yet
+  const probePort = 8088;
+  const probeTimeout = 5000;
+  const probed = new Set<string>();
+
+  for (const host of hosts) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), probeTimeout);
+      const indexRes = await fetch(`http://${host}:${probePort}/loss`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!indexRes.ok) continue;
+
+      const index = await indexRes.json();
+      const liveModels = Object.keys(index.live ?? {});
+      if (!liveModels.length) continue;
+
+      probed.add(host);
+
+      for (const m of liveModels) {
+        const runId = `${host}/${m}`;
+
+        // Skip soft-deleted
+        const del = db.prepare('SELECT deleted_at FROM training_runs WHERE run_id = ?').get(runId) as any;
+        if (del?.deleted_at) continue;
+
+        // Fetch live loss points
+        try {
+          const ctrl2 = new AbortController();
+          const timer2 = setTimeout(() => ctrl2.abort(), probeTimeout);
+          const lossRes = await fetch(`http://${host}:${probePort}/loss/${encodeURIComponent(m)}`, { signal: ctrl2.signal });
+          clearTimeout(timer2);
+          if (!lossRes.ok) continue;
+
+          const lossData = await lossRes.json();
+          const points: [number, number][] = lossData.points ?? [];
+          if (!points.length) continue;
+
+          const now = new Date().toISOString();
+
+          // Ensure run exists — mark as 'running' since it's live
+          db.prepare(`
+            INSERT INTO training_runs (run_id, uuid, model, config, status, started_at, source, source_host)
+            VALUES (?, ?, ?, ?, 'running', ?, 'live-proxy', ?)
+            ON CONFLICT(run_id) DO UPDATE SET status = 'running'
+          `).run(runId, uuidv7(), m, JSON.stringify({ host, port: probePort }), now, host);
+
+          // Insert only new loss points
+          const existing = db.prepare(
+            'SELECT COALESCE(MAX(step), -1) as max_step FROM training_events WHERE run_id = ? AND event_type = ?'
+          ).get(runId, 'loss') as any;
+          const maxStep = existing?.max_step ?? -1;
+          const newPoints = points.filter(([step]) => step > maxStep);
+
+          if (newPoints.length) {
+            const insert = db.prepare(`
+              INSERT INTO training_events (run_id, event_type, step, loss, lr, text_content, checkpoint_path, size_bytes, eval_name, eval_score, ts)
+              VALUES (?, 'loss', ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?)
+            `);
+            const batch = db.transaction(() => {
+              for (const [step, loss] of newPoints) insert.run(runId, step, loss, now);
+            });
+            batch();
+          }
+
+          // Add to existing host result or create new one
+          let hostResult = results.find(r => r.host === host);
+          if (!hostResult) {
+            hostResult = { host, files: [], ingested: { runs: 0, events: 0 } };
+            results.push(hostResult);
+          }
+          hostResult.ingested.runs += 1;
+          hostResult.ingested.events += newPoints.length;
+          hostResult.files.push({
+            path: `live-proxy://${host}:${probePort}/loss/${m}`,
+            model: m,
+            format: 'live-proxy',
+            lossPoints: points.length,
+            samples: 0,
+          });
+        } catch { /* model fetch failed */ }
+      }
+    } catch { /* host not running a proxy on this port */ }
+  }
+
   const totalRuns = results.reduce((a, r) => a + r.ingested.runs, 0);
   const totalEvents = results.reduce((a, r) => a + r.ingested.events, 0);
   const totalFiles = results.reduce((a, r) => a + r.files.length, 0);
@@ -275,6 +424,7 @@ async function scan(filterHosts?: string[]) {
     total_files: totalFiles,
     total_runs: totalRuns,
     total_events_ingested: totalEvents,
+    probed_proxies: [...probed],
     results,
   });
 }

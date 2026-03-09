@@ -7,7 +7,7 @@ import { homedir } from 'os';
 import { getDb } from './schema';
 import { claudePaths, decodeProjectName } from '../claude-paths';
 import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
-import { normalizeUncloseaiEntry } from '../uncloseai-adapter';
+import { normalizeUncloseaiEntry, normalizeNativeEntry } from '../uncloseai-adapter';
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
@@ -964,24 +964,45 @@ async function ingestUncloseai(
           try {
             const raw = JSON.parse(line);
 
-            // Capture metadata from session_start
-            if (raw.type === 'session_start') {
-              db.prepare(
-                'UPDATE sessions SET first_prompt = COALESCE(first_prompt, ?) WHERE id = ?'
-              ).run(raw.prompt ?? null, sessionId);
-              if (raw.cwd) {
-                db.prepare(
-                  "UPDATE projects SET path = COALESCE(NULLIF(path, ''), ?) WHERE id = ?"
-                ).run(raw.cwd, projectId);
-              }
-            }
+            // Native unfirehose/1.0 format (new) vs legacy event format
+            const isNative = raw.$schema === 'unfirehose/1.0';
+            let normalized: any;
 
-            const normalized = normalizeUncloseaiEntry(raw);
+            if (isNative) {
+              // Capture metadata from session header
+              if (raw.type === 'session') {
+                db.prepare(
+                  'UPDATE sessions SET first_prompt = COALESCE(first_prompt, ?) WHERE id = ?'
+                ).run(raw.firstPrompt ?? null, sessionId);
+                if (raw.cwd) {
+                  db.prepare(
+                    "UPDATE projects SET path = COALESCE(NULLIF(path, ''), ?) WHERE id = ?"
+                  ).run(raw.cwd, projectId);
+                }
+                continue;
+              }
+              normalized = normalizeNativeEntry(raw);
+            } else {
+              // Legacy event format — capture metadata from session_start
+              if (raw.type === 'session_start') {
+                db.prepare(
+                  'UPDATE sessions SET first_prompt = COALESCE(first_prompt, ?) WHERE id = ?'
+                ).run(raw.prompt ?? null, sessionId);
+                if (raw.cwd) {
+                  db.prepare(
+                    "UPDATE projects SET path = COALESCE(NULLIF(path, ''), ?) WHERE id = ?"
+                  ).run(raw.cwd, projectId);
+                }
+              }
+              normalized = normalizeUncloseaiEntry(raw);
+            }
             if (!normalized) continue;
 
-            // Generate canonical event for non-compliant harness
-            const canonical = toCanonical(normalized, 'uncloseai');
-            if (canonical) canonicalBuffer.push(canonical);
+            // Generate canonical event only for legacy (non-native) entries
+            if (!isNative) {
+              const canonical = toCanonical(normalized, 'uncloseai');
+              if (canonical) canonicalBuffer.push(canonical);
+            }
 
             const messageId = insertMessage(db, sessionId, normalized);
             if (messageId === null) continue;

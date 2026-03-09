@@ -13,6 +13,20 @@
   --color-assistant: #d40000;
   --color-tool: #fbbf24;
   --color-error: #f87171;
+  /* Red tonal scale — pivot: #d40000 (red-600)
+     Brand red for identity/actions, error red for destructive/warnings.
+     80-90% neutral UI, 5-10% red accents. */
+  --color-red-50: #fef2f2;
+  --color-red-100: #fde3e3;
+  --color-red-200: #fcc5c5;
+  --color-red-300: #f99;
+  --color-red-400: #f55;
+  --color-red-500: #e81a1a;
+  --color-red-600: #d40000;
+  --color-red-700: #af0000;
+  --color-red-800: #8b0000;
+  --color-red-900: #600;
+  --color-red-950: #3a0000;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   /* 16px minimum — no text smaller than 1rem */
@@ -34,6 +48,18 @@
   --color-assistant: #059669;
   --color-tool: #d97706;
   --color-error: #dc2626;
+  /* Light mode tonal scale — slightly warmer */
+  --color-red-50: #fff5f5;
+  --color-red-100: #ffe0e0;
+  --color-red-200: #fcc5c5;
+  --color-red-300: #f99;
+  --color-red-400: #f55;
+  --color-red-500: #e81a1a;
+  --color-red-600: #d40000;
+  --color-red-700: #af0000;
+  --color-red-800: #8b0000;
+  --color-red-900: #600;
+  --color-red-950: #3a0000;
 }
 
 body {
