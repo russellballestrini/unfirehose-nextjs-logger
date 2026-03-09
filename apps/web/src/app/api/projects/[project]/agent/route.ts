@@ -309,10 +309,14 @@ function buildNudgePrompt(git: GitSnapshot | null, prompts: any[], diff: string)
   const sections: string[] = [];
 
   sections.push('You have been triggered by the unfirehose dashboard to finish stale work in this repo.');
-  sections.push('Review the state below and take ONE of these actions:');
-  sections.push('1. If the work is complete and safe to ship: commit all changes with a descriptive message, then push.');
-  sections.push('2. If the work is incomplete but you can finish it: finish it, commit, and push.');
-  sections.push('3. If you cannot finish (needs human decision, blocked, or risky): create TODO items describing exactly what remains and why it is blocked. Do NOT commit partial/broken work.');
+  sections.push('You MUST act, not just report. Do as much as you can, then create TODOs only for what remains.');
+  sections.push('');
+  sections.push('## Instructions (in order of priority)');
+  sections.push('1. Fix obvious hygiene: add .gitignore entries for generated/artifact files, remove accidental files from tracking.');
+  sections.push('2. If there are safe, complete changes: stage them, write a good commit message, commit, and push.');
+  sections.push('3. If work is incomplete but you can finish it quickly (< 2 min): do it, then commit and push.');
+  sections.push('4. For anything that genuinely needs a human decision: create a TODO with specific details on what is blocked and what the human needs to decide.');
+  sections.push('5. You can do MULTIPLE of the above. Gitignore a file AND commit other changes AND create TODOs — all in one run.');
   sections.push('');
 
   if (git) {
@@ -349,7 +353,7 @@ function buildNudgePrompt(git: GitSnapshot | null, prompts: any[], diff: string)
     sections.push('');
   }
 
-  sections.push('Now act. Be concise. If committing, write a good commit message. If creating TODOs, be specific about what is blocked and what a human needs to decide.');
+  sections.push('Now ACT. Do not just analyze — fix what you can, commit, push, then report what you did and what remains. Be concise.');
 
   return sections.join('\n');
 }
