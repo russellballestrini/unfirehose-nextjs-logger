@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import useSWR from 'swr';
 import {
   LineChart,
@@ -123,7 +123,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onScan, scanning, scanResult }: { onScan: () => void; scanning: boolean; scanResult: any }) {
   return (
     <div className="flex flex-1 items-center justify-center p-12">
       <div className="max-w-lg text-center" style={{ color: 'var(--color-muted)' }}>
@@ -132,30 +132,64 @@ function EmptyState() {
           No training runs yet
         </h2>
         <p className="mb-6 text-sm leading-relaxed">
-          Ingest training data by POSTing events to the training API endpoint.
-          Each event should include a <code className="rounded px-1 py-0.5 font-mono text-xs" style={{ backgroundColor: 'var(--color-surface)' }}>run_id</code>,{' '}
-          <code className="rounded px-1 py-0.5 font-mono text-xs" style={{ backgroundColor: 'var(--color-surface)' }}>step</code>, and{' '}
-          <code className="rounded px-1 py-0.5 font-mono text-xs" style={{ backgroundColor: 'var(--color-surface)' }}>loss</code>.
+          Scan local and remote nodes for training data, or POST events directly.
         </p>
-        <pre
-          className="rounded-lg p-4 text-left font-mono text-xs leading-relaxed"
-          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-foreground)', border: '1px solid var(--color-border)' }}
-        >
-{`# Start a run
-curl -X POST localhost:3000/api/training \\
-  -H 'Content-Type: application/json' \\
-  -d '{"type":"run.start","run_id":"run-001","model":"llama-3-8b","ts":"2026-03-09T00:00:00Z"}'
 
-# Log loss
-curl -X POST localhost:3000/api/training \\
-  -H 'Content-Type: application/json' \\
-  -d '{"type":"run.loss","run_id":"run-001","step":100,"loss":2.34,"ts":"2026-03-09T00:01:00Z"}'`}
-        </pre>
-        <p className="mt-4 text-xs" style={{ color: 'var(--color-muted)' }}>
-          Event types: <code className="font-mono">run.start</code>, <code className="font-mono">run.loss</code>,{' '}
-          <code className="font-mono">run.sample</code>, <code className="font-mono">run.checkpoint</code>,{' '}
-          <code className="font-mono">run.eval</code>, <code className="font-mono">run.end</code>
+        <button
+          onClick={onScan}
+          disabled={scanning}
+          className="mb-6 rounded-lg px-6 py-3 font-mono text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50"
+          style={{
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-background)',
+          }}
+        >
+          {scanning ? 'Scanning nodes...' : 'Scan for training data'}
+        </button>
+
+        {scanResult && !scanResult.error && (
+          <div className="mb-6 rounded-lg p-4 text-left font-mono text-xs" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <div style={{ color: 'var(--color-foreground)' }}>
+              Scanned {scanResult.scanned} node{scanResult.scanned !== 1 ? 's' : ''} — found {scanResult.total_files} file{scanResult.total_files !== 1 ? 's' : ''}
+            </div>
+            {scanResult.total_events_ingested > 0 && (
+              <div style={{ color: '#10b981' }} className="mt-1">
+                Ingested {scanResult.total_events_ingested} events across {scanResult.total_runs} run{scanResult.total_runs !== 1 ? 's' : ''}
+              </div>
+            )}
+            {scanResult.results?.map((r: any, i: number) => (
+              r.files?.length > 0 && (
+                <div key={i} className="mt-2" style={{ color: 'var(--color-muted)' }}>
+                  <span style={{ color: 'var(--color-foreground)' }}>{r.host}</span>: {r.files.map((f: any) => f.model).join(', ')}
+                </div>
+              )
+            ))}
+          </div>
+        )}
+
+        {scanResult?.error && (
+          <div className="mb-6 rounded-lg p-3 text-left font-mono text-xs" style={{ backgroundColor: '#991b1b22', color: '#f87171', border: '1px solid #991b1b' }}>
+            {scanResult.error}
+          </div>
+        )}
+
+        <p className="text-xs mb-3" style={{ color: 'var(--color-muted)' }}>
+          Scans <code className="font-mono">~/.unfirehose/training/</code> and <code className="font-mono">~/git/uncloseai-cli/checkpoints/cuda/</code> on all mesh nodes.
         </p>
+
+        <details className="text-left">
+          <summary className="cursor-pointer text-xs mb-2" style={{ color: 'var(--color-muted)' }}>Manual ingestion via API</summary>
+          <pre
+            className="rounded-lg p-4 font-mono text-xs leading-relaxed"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-foreground)', border: '1px solid var(--color-border)' }}
+          >
+{`curl -X POST localhost:3000/api/training \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"run.loss","run_id":"run-001",
+       "model":"llama-3","step":100,"loss":2.34,
+       "ts":"2026-03-09T00:01:00Z"}'`}
+          </pre>
+        </details>
       </div>
     </div>
   );
@@ -279,9 +313,11 @@ export default function TrainingPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [showEma, setShowEma] = useState(true);
   const [activeTab, setActiveTab] = useState<'loss' | 'checkpoints' | 'samples' | 'evals'>('loss');
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<any>(null);
 
   // Runs list — polls every 5s for live updates
-  const { data: runsData } = useSWR<{ runs: TrainingRun[] }>(
+  const { data: runsData, mutate: mutateRuns } = useSWR<{ runs: TrainingRun[] }>(
     '/api/training',
     fetcher,
     { refreshInterval: 5000 }
@@ -321,6 +357,21 @@ export default function TrainingPage() {
     return { lossEvents, checkpoints, samples, evals };
   }, [detailRaw]);
 
+  const runScan = useCallback(async () => {
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const res = await fetch('/api/training/scan');
+      const data = await res.json();
+      setScanResult(data);
+      mutateRuns();
+    } catch (e: any) {
+      setScanResult({ error: e.message });
+    } finally {
+      setScanning(false);
+    }
+  }, [mutateRuns]);
+
   if (!runs.length && !runsData) {
     return (
       <div className="flex h-full items-center justify-center" style={{ color: 'var(--color-muted)' }}>
@@ -330,7 +381,7 @@ export default function TrainingPage() {
   }
 
   if (!runs.length) {
-    return <EmptyState />;
+    return <EmptyState onScan={runScan} scanning={scanning} scanResult={scanResult} />;
   }
 
   return (
@@ -340,9 +391,20 @@ export default function TrainingPage() {
         className="w-72 shrink-0 overflow-y-auto rounded-xl p-3"
         style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
       >
-        <h2 className="mb-3 font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-muted)' }}>
-          Training Runs ({runs.length})
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-muted)' }}>
+            Runs ({runs.length})
+          </h2>
+          <button
+            onClick={runScan}
+            disabled={scanning}
+            className="rounded px-2 py-1 font-mono text-xs transition-colors cursor-pointer disabled:opacity-50"
+            style={{ color: 'var(--color-accent)', border: '1px solid var(--color-border)' }}
+            title="Scan local and remote nodes for training data"
+          >
+            {scanning ? '...' : 'Scan'}
+          </button>
+        </div>
         <RunsList runs={runs} selectedId={activeRunId} onSelect={setSelectedRunId} />
       </div>
 
