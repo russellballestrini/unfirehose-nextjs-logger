@@ -22,7 +22,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: '◇' },
   { href: '/projects', label: 'Projects', icon: '■' },
   { href: '/todos', label: 'Todos', icon: '☰' },
-  { href: '/todos/graph', label: 'Graph', icon: '◈' },
   // Analyze — deep dives
   { separator: 'analyze' },
   { href: '/training', label: 'Training', icon: '◆' },
