@@ -368,14 +368,21 @@ function DirtyReposTab({
   }
 
   // Auto-expand all on mount (or when cache was busted)
+  // Fetch sequentially so top (most recent) repos load first
   useEffect(() => {
     if (projects.length === 0) return;
-    // If we already have cached data, skip fetching
     if (Object.keys(details).length > 0) return;
     const allExpanded: Record<string, boolean> = {};
     for (const p of projects) allExpanded[p.name] = true;
     setExpanded(allExpanded);
-    for (const p of projects) fetchDetail(p.name);
+    let cancelled = false;
+    (async () => {
+      for (const p of projects) {
+        if (cancelled) break;
+        await fetchDetail(p.name);
+      }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects.length]);
 
