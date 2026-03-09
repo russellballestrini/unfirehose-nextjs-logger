@@ -4,6 +4,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { getAllSettings } from '@unturf/unfirehose/db/ingest';
 
+let cache: { data: any; ts: number } | null = null;
+const CACHE_TTL = 60_000; // 60 seconds
+
 interface DetectedProvider {
   id: string;
   name: string;
@@ -15,6 +18,10 @@ interface DetectedProvider {
 }
 
 export async function GET() {
+  if (cache && Date.now() - cache.ts < CACHE_TTL) {
+    return NextResponse.json(cache.data);
+  }
+
   const providers: DetectedProvider[] = [];
   const settings = getAllSettings() as Record<string, string>;
 
@@ -88,5 +95,7 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ providers });
+  const result = { providers };
+  cache = { data: result, ts: Date.now() };
+  return NextResponse.json(result);
 }
