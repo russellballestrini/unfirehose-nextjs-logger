@@ -82,6 +82,20 @@ digraph architecture {
     ssh_nodes [label="SSH Nodes\ncammy, blanka, ...\n~/.ssh/config" fillcolor="#2a2a4a" shape=hexagon]
   }
 
+  // In-memory cache layer
+  subgraph cluster_cache {
+    label="In-Memory TTL Caches\n(module-level, per process)"
+    style=dashed
+    color="#336633"
+    fontcolor="#669966"
+
+    cache_mesh [label="meshCache\n15s SWR + lock" fillcolor="#1a3a2a" shape=octagon]
+    cache_tree [label="treeCache\n10s Map+LRU(100)" fillcolor="#1a3a1a"]
+    cache_git [label="gitCache\n5s Map+invalidate" fillcolor="#1a3a1a"]
+    cache_proj [label="projectsCache 30s\ngitStatusCache 30s\nmetadataCache 60s" fillcolor="#1a2a3a"]
+    cache_ext [label="previewCache 5min\nprovidersCache 60s\nratesCache 1h\ngeoipCache 1h\nresumeCache 15min" fillcolor="#1a2a3a"]
+  }
+
   // API layer
   subgraph cluster_api {
     label="Next.js API Routes\napps/web"
@@ -182,6 +196,14 @@ digraph architecture {
   ssh_nodes -> api_mesh_node [label="deep\nprobe"]
   ssh_nodes -> api_tmux [label="tmux\ncapture"]
   api_mesh -> api_mesh_history [label="snapshot\nINSERT"]
+
+  // Cache -> API
+  cache_mesh -> api_mesh [style=dotted color="#336633"]
+  cache_tree -> api_projects [label="tree" style=dotted color="#336633"]
+  cache_git -> api_projects [label="git" style=dotted color="#336633"]
+  cache_proj -> api_projects [style=dotted color="#336633"]
+  cache_ext -> api_scrobble [style=dotted color="#336633"]
+  cache_ext -> api_llm_providers [style=dotted color="#336633"]
 
   // Page -> API
   pg_dash -> api_stats

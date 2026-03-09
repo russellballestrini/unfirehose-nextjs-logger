@@ -1,0 +1,122 @@
+digraph caching {
+  rankdir=LR
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [shape=box style="filled,rounded" fontname="monospace" fontsize=9 color="#333355" fontcolor="#e0e0e0"]
+  edge [color="#666688" fontcolor="#999999" fontsize=8]
+
+  // Data sources (truth)
+  subgraph cluster_sources {
+    label="Sources of Truth"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    ssh_nodes [label="SSH Nodes\ncammy, blanka, ...\n~/.ssh/config" fillcolor="#3a3a1a" shape=hexagon]
+    sqlite [label="SQLite DB\n~/.unfirehose/\nunfirehose.db" fillcolor="#2a2a4a" shape=cylinder]
+    git_repos [label="Git Repos\n~/git/*\nstatus + tree" fillcolor="#2a2a4a" shape=folder]
+    forge_apis [label="Forge APIs\nGitHub, GitLab\nCodeberg" fillcolor="#3a3a1a" shape=hexagon]
+    mesh_llm [label="Mesh LLM\nQwen, Hermes\nHTTP probes" fillcolor="#3a3a1a" shape=hexagon]
+    ext_http [label="External HTTP\nCoinGecko\nFrankfurter\nResume JSON" fillcolor="#3a3a1a" shape=hexagon]
+    geoip_svc [label="ip-api.com\nGeoIP lookup" fillcolor="#3a3a1a" shape=hexagon]
+  }
+
+  // Cache layer
+  subgraph cluster_caches {
+    label="In-Memory TTL Caches\n(module-level, per Next.js process)"
+    style=dashed
+    color="#336633"
+    fontcolor="#669966"
+
+    // Stale-while-revalidate
+    mesh_cache [label="meshCache\n15s SWR + lock\nsingleton" fillcolor="#1a3a2a" shape=octagon]
+
+    // Per-key Maps
+    tree_cache [label="treeCache\n10s per-path\nMap + LRU(100)" fillcolor="#1a3a1a"]
+    git_cache [label="gitCache\n5s per-project\nMap + invalidate" fillcolor="#1a3a1a"]
+    meta_cache [label="metadataCache\n60s per-project\nMap" fillcolor="#1a3a1a"]
+    geo_cache [label="geoipCache\n1h per-hostname\nMap" fillcolor="#1a3a1a"]
+
+    // Simple singletons
+    proj_cache [label="projectsCache\n30s singleton" fillcolor="#1a2a3a"]
+    gitstatus_cache [label="gitStatusCache\n30s singleton" fillcolor="#1a2a3a"]
+    preview_cache [label="previewCache\n5min singleton" fillcolor="#1a2a3a"]
+    providers_cache [label="providersCache\n60s singleton" fillcolor="#1a2a3a"]
+    rates_cache [label="ratesCache\n1h singleton" fillcolor="#1a2a3a"]
+    resume_cache [label="resumeCache\n15min singleton" fillcolor="#1a2a3a"]
+  }
+
+  // API routes
+  subgraph cluster_routes {
+    label="API Routes"
+    style=dashed
+    color="#444466"
+    fontcolor="#999999"
+
+    r_mesh [label="/api/mesh" fillcolor="#1a2a3a"]
+    r_tree [label="/api/projects/[p]/tree" fillcolor="#1a2a3a"]
+    r_git [label="/api/projects/[p]/git" fillcolor="#1a2a3a"]
+    r_meta [label="/api/projects/metadata" fillcolor="#1a2a3a"]
+    r_geo [label="/api/mesh/geoip" fillcolor="#1a2a3a"]
+    r_proj [label="/api/projects" fillcolor="#1a2a3a"]
+    r_gstat [label="/api/projects/git-status" fillcolor="#1a2a3a"]
+    r_prev [label="/api/scrobble/preview" fillcolor="#1a2a3a"]
+    r_prov [label="/api/llm/providers" fillcolor="#1a2a3a"]
+    r_rates [label="/api/mesh/rates" fillcolor="#1a2a3a"]
+    r_resume [label="/api/blog/resume" fillcolor="#1a2a3a"]
+  }
+
+  // Client (SWR)
+  subgraph cluster_client {
+    label="Client (SWR polling)"
+    style=dashed
+    color="#663366"
+    fontcolor="#996699"
+
+    browser [label="React SPA\nuseSWR\nrefreshInterval\nauto-dedup" fillcolor="#2a1a3a" shape=component]
+  }
+
+  // Source -> Cache
+  ssh_nodes -> mesh_cache [label="SSH probes\nPromise.all"]
+  git_repos -> tree_cache [label="git ls-tree\ngit show"]
+  git_repos -> git_cache [label="git status\ngit diff"]
+  git_repos -> meta_cache [label="git branch\ngit remote"]
+  sqlite -> proj_cache [label="SELECT\nprojects"]
+  git_repos -> gitstatus_cache [label="git status\n--porcelain"]
+  forge_apis -> preview_cache [label="curl API\nHTTP 200?"]
+  mesh_llm -> providers_cache [label="HTTP probe\nPromise.allSettled"]
+  ext_http -> rates_cache [label="fetch\nJSON"]
+  ext_http -> resume_cache [label="fetch\nJSON"]
+  geoip_svc -> geo_cache [label="HTTP\nlookup"]
+
+  // Cache -> Route
+  mesh_cache -> r_mesh
+  tree_cache -> r_tree
+  git_cache -> r_git
+  meta_cache -> r_meta
+  geo_cache -> r_geo
+  proj_cache -> r_proj
+  gitstatus_cache -> r_gstat
+  preview_cache -> r_prev
+  providers_cache -> r_prov
+  rates_cache -> r_rates
+  resume_cache -> r_resume
+
+  // Route -> Client
+  r_mesh -> browser [label="30s poll"]
+  r_tree -> browser [label="on-demand"]
+  r_git -> browser [label="5s poll"]
+  r_meta -> browser [label="on-demand"]
+  r_geo -> browser [label="on-demand"]
+  r_proj -> browser [label="30s poll"]
+  r_gstat -> browser [label="30s poll"]
+  r_prev -> browser [label="60s poll"]
+  r_prov -> browser [label="60s poll"]
+  r_rates -> browser [label="30s poll"]
+  r_resume -> browser [label="on-demand"]
+
+  // Invalidation edges (red)
+  r_git -> git_cache [label="POST/DELETE\nclear key" color="#cc4444" fontcolor="#cc4444" style=dashed]
+  tree_cache -> tree_cache [label="LRU evict\nat 100 entries" color="#cc8844" fontcolor="#cc8844" style=dashed]
+  mesh_cache -> mesh_cache [label="refresh lock\nprevents storms" color="#cc8844" fontcolor="#cc8844" style=dashed]
+}

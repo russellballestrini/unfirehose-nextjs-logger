@@ -112,6 +112,18 @@ digraph dataflow {
     mesh_snapshot [label="mesh_snapshots\ntime-series INSERT\nper-node" fillcolor="#1a2a3a"]
   }
 
+  // In-memory TTL cache layer
+  subgraph cluster_cache {
+    label="In-Memory TTL Caches\n(11 caches, 5s-1h TTL)"
+    style=dashed
+    color="#336633"
+    fontcolor="#669966"
+
+    cache_swr [label="meshCache 15s\nstale-while-revalidate\nrefresh lock" fillcolor="#1a3a2a" shape=octagon]
+    cache_map [label="treeCache 10s (LRU 100)\ngitCache 5s (invalidate)\nmetadataCache 60s\ngeoipCache 1h" fillcolor="#1a3a1a"]
+    cache_ttl [label="projectsCache 30s\ngitStatusCache 30s\npreviewCache 5min\nprovidersCache 60s\nratesCache 1h\nresumeCache 15min" fillcolor="#1a2a3a"]
+  }
+
   // Manual todo injection
   todo_ui [label="Todo UI\nform input" fillcolor="#1a3a2a"]
   todo_api [label="POST /api/todos\nvalidate + insert" fillcolor="#1a3a2a"]
@@ -145,8 +157,14 @@ digraph dataflow {
   index_files -> ingest [label="session\nmeta"]
   ingest -> normalize -> dedup -> sqlite
 
-  // DB to API
-  sqlite -> rest [label="prepared\nstatements"]
+  // DB to API (via cache)
+  sqlite -> cache_ttl [label="prepared\nstatements"]
+  cache_ttl -> rest [label="cache hit\nor refresh"]
+  cache_map -> rest [label="per-key\nlookup"]
+  cache_swr -> rest [label="serve stale\nrefresh bg"]
+
+  // Source -> cache
+  mesh_probe -> cache_swr [label="SSH result"]
 
   // Todo extraction flow
   dedup -> tool_use_scan [label="content_blocks\nwith tool_use"]
