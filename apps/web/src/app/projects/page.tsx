@@ -155,19 +155,13 @@ function ProjectCard({
   rangeDays: number;
   gitStatus?: GitStatus;
 }) {
-  const isActive = project.latestActivity
-    ? (Date.now() - new Date(project.latestActivity).getTime() < 1000 * 60 * 60) // eslint-disable-line react-hooks/purity
-    : false;
-
   return (
     <Link
       href={`/projects/${encodeURIComponent(project.name)}`}
       className="block rounded border p-4 transition-colors hover:border-[var(--color-accent)]"
       style={{
-        background: isActive
-          ? 'color-mix(in srgb, var(--color-accent) 8%, var(--color-surface))'
-          : 'var(--color-surface)',
-        borderColor: isActive ? 'var(--color-accent)' : 'var(--color-border)',
+        background: 'var(--color-surface)',
+        borderColor: 'var(--color-border)',
       }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -206,12 +200,6 @@ function ProjectCard({
             <span
               className="w-2 h-2 rounded-full bg-[var(--color-accent)]"
               title="Has MEMORY.md"
-            />
-          )}
-          {isActive && (
-            <span
-              className="w-2 h-2 rounded-full bg-green-400 animate-pulse"
-              title="Active in last hour"
             />
           )}
         </div>
