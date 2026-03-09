@@ -52,16 +52,18 @@ export default function ProjectsPage() {
 
   const { data: projects, error } = useSWR<ProjectInfo[]>(
     '/api/projects',
-    fetcher
+    fetcher,
+    { keepPreviousData: true }
   );
   const { data: activity } = useSWR<ProjectActivity[]>(
     `/api/projects/activity?days=${rangeDays}`,
-    fetcher
+    fetcher,
+    { keepPreviousData: true }
   );
   const { data: gitStatuses, mutate: mutateGit } = useSWR<Record<string, GitStatus>>(
     '/api/projects/git-status',
     fetcher,
-    { revalidateOnFocus: false, refreshInterval: 30000 }
+    { revalidateOnFocus: false, refreshInterval: 30000, keepPreviousData: true }
   );
 
   if (error) {
