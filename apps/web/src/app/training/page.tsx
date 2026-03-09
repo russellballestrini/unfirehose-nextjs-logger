@@ -10,6 +10,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  Area,
+  ComposedChart,
 } from 'recharts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -70,6 +72,22 @@ interface EvalResult {
   eval_name: string;
   score: number;
 }
+
+interface InfraSnapshot {
+  t: number; // epoch ms
+  gpu_util: number;
+  gpu_mem_used: number;
+  gpu_mem_total: number;
+  gpu_power_w: number;
+  gpu_power_limit_w: number;
+  gpu_temp_c: number;
+  cpu_pct: number; // load_1m / cores * 100
+  mem_used_gb: number;
+  mem_total_gb: number;
+  cost_usd: number; // cumulative
+}
+
+const COST_PER_KWH = 0.31;
 
 // ---------- helpers ----------
 
@@ -513,12 +531,181 @@ function FavoritesChart({ data, showEma, runs }: { data: Record<string, LossPoin
   );
 }
 
+// ---------- infra chart ----------
+
+function useInfraHistory(host: string | null, active: boolean) {
+  const history = useRef<InfraSnapshot[]>([]);
+  const cumCost = useRef(0);
+  const [data, setData] = useState<InfraSnapshot[]>([]);
+
+  useEffect(() => {
+    if (!host || !active) return;
+    let mounted = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/training/system?host=${encodeURIComponent(host)}`);
+        if (!res.ok) return;
+        const s = await res.json();
+        const now = Date.now();
+        // Incremental cost: power_w * interval_hours * $/kWh / 1000
+        const lastT = history.current.length > 0 ? history.current[history.current.length - 1].t : now - 5000;
+        const hoursElapsed = (now - lastT) / 3_600_000;
+        cumCost.current += (s.gpu_power_w ?? 0) * hoursElapsed * COST_PER_KWH / 1000;
+        const cpuCores = s.cpu_cores || 1;
+        const snap: InfraSnapshot = {
+          t: now,
+          gpu_util: s.gpu_util ?? 0,
+          gpu_mem_used: s.gpu_mem_used ?? 0,
+          gpu_mem_total: s.gpu_mem_total ?? 1,
+          gpu_power_w: s.gpu_power_w ?? 0,
+          gpu_power_limit_w: s.gpu_power_limit_w ?? 1,
+          gpu_temp_c: s.gpu_temp_c ?? 0,
+          cpu_pct: Math.min(100, ((s.cpu_load_1m ?? 0) / cpuCores) * 100),
+          mem_used_gb: (s.mem_used ?? 0) / 1073741824,
+          mem_total_gb: (s.mem_total ?? 1) / 1073741824,
+          cost_usd: cumCost.current,
+        };
+        history.current.push(snap);
+        // Keep last 720 points (~1hr at 5s intervals)
+        if (history.current.length > 720) history.current = history.current.slice(-720);
+        if (mounted) setData([...history.current]);
+      } catch { /* proxy down */ }
+    };
+    poll();
+    const iv = setInterval(poll, 5000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, [host, active]);
+
+  return data;
+}
+
+const INFRA_COLORS = {
+  gpuUtil: '#10b981',   // green
+  cpuUtil: '#60a5fa',   // blue
+  power: '#f59e0b',     // amber
+  gpuTemp: '#ef4444',   // red
+  vram: '#8b5cf6',      // purple
+  mem: '#6366f1',       // indigo
+};
+
+function InfraChart({ data }: { data: InfraSnapshot[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
+        Waiting for system data...
+      </div>
+    );
+  }
+
+  const latest = data[data.length - 1];
+  const vramPct = (latest.gpu_mem_used / latest.gpu_mem_total) * 100;
+  const vramGb = latest.gpu_mem_used / 1073741824;
+  const vramTotalGb = latest.gpu_mem_total / 1073741824;
+  const powerPct = (latest.gpu_power_w / latest.gpu_power_limit_w) * 100;
+
+  // Chart data: normalize everything to percentages for left axis, power in watts for right
+  const chartData = data.map((s) => ({
+    t: s.t,
+    label: new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    gpu: s.gpu_util,
+    cpu: s.cpu_pct,
+    vram: (s.gpu_mem_used / s.gpu_mem_total) * 100,
+    mem: (s.mem_used_gb / s.mem_total_gb) * 100,
+    power: s.gpu_power_w,
+    temp: s.gpu_temp_c,
+  }));
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Stats bar */}
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+        {[
+          { label: 'GPU', value: `${latest.gpu_util.toFixed(0)}%`, color: INFRA_COLORS.gpuUtil },
+          { label: 'CPU', value: `${latest.cpu_pct.toFixed(0)}%`, color: INFRA_COLORS.cpuUtil },
+          { label: 'Power', value: `${latest.gpu_power_w.toFixed(0)}W`, color: INFRA_COLORS.power },
+          { label: 'Temp', value: `${latest.gpu_temp_c.toFixed(0)}°C`, color: INFRA_COLORS.gpuTemp },
+          { label: 'VRAM', value: `${vramGb.toFixed(1)}/${vramTotalGb.toFixed(0)}G`, color: INFRA_COLORS.vram },
+          { label: 'Cost', value: `$${latest.cost_usd.toFixed(4)}`, color: '#fbbf24' },
+        ].map(({ label, value, color }) => (
+          <div
+            key={label}
+            className="rounded-lg px-3 py-2 text-center"
+            style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}
+          >
+            <div className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>{label}</div>
+            <div className="font-mono text-sm font-bold" style={{ color }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Utilization chart (%, left axis) */}
+      <div>
+        <div className="mb-1 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>Utilization</div>
+        <ResponsiveContainer width="100%" height={200}>
+          <ComposedChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" strokeOpacity={0.3} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} interval="preserveStartEnd" />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--color-muted)' }} tickFormatter={(v: number) => `${v}%`} width={40} />
+            <Tooltip
+              contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 12 }}
+              labelStyle={{ color: 'var(--color-foreground)', fontWeight: 600 }}
+              formatter={(v: any, name: any) => [`${Number(v).toFixed(1)}%`, String(name).toUpperCase()]}
+            />
+            <Area type="monotone" dataKey="vram" fill={`${INFRA_COLORS.vram}20`} stroke={INFRA_COLORS.vram} strokeWidth={1} dot={false} isAnimationActive={false} name="vram" />
+            <Area type="monotone" dataKey="mem" fill={`${INFRA_COLORS.mem}15`} stroke={INFRA_COLORS.mem} strokeWidth={1} dot={false} isAnimationActive={false} name="mem" />
+            <Line type="monotone" dataKey="gpu" stroke={INFRA_COLORS.gpuUtil} strokeWidth={2} dot={false} isAnimationActive={false} name="gpu" />
+            <Line type="monotone" dataKey="cpu" stroke={INFRA_COLORS.cpuUtil} strokeWidth={2} dot={false} isAnimationActive={false} name="cpu" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Power & temp chart */}
+      <div>
+        <div className="mb-1 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>Power &amp; Temperature</div>
+        <ResponsiveContainer width="100%" height={160}>
+          <ComposedChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" strokeOpacity={0.3} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} interval="preserveStartEnd" />
+            <YAxis yAxisId="power" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} tickFormatter={(v: number) => `${v}W`} width={45} />
+            <YAxis yAxisId="temp" orientation="right" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} tickFormatter={(v: number) => `${v}°`} width={35} />
+            <Tooltip
+              contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 12 }}
+              labelStyle={{ color: 'var(--color-foreground)', fontWeight: 600 }}
+              formatter={(v: any, name: any) => [name === 'temp' ? `${Number(v).toFixed(0)}°C` : `${Number(v).toFixed(0)}W`, name === 'temp' ? 'Temp' : 'Power']}
+            />
+            <Area type="monotone" dataKey="power" yAxisId="power" fill={`${INFRA_COLORS.power}20`} stroke={INFRA_COLORS.power} strokeWidth={2} dot={false} isAnimationActive={false} name="power" />
+            <Line type="monotone" dataKey="temp" yAxisId="temp" stroke={INFRA_COLORS.gpuTemp} strokeWidth={2} dot={false} isAnimationActive={false} name="temp" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Power efficiency bar */}
+      <div className="flex items-center gap-3 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+        <span>Power: {latest.gpu_power_w.toFixed(0)}W / {latest.gpu_power_limit_w.toFixed(0)}W</span>
+        <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${Math.min(100, powerPct)}%`, backgroundColor: powerPct > 90 ? INFRA_COLORS.gpuTemp : INFRA_COLORS.power }}
+          />
+        </div>
+        <span>VRAM: {vramPct.toFixed(0)}%</span>
+        <div className="w-24 h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${Math.min(100, vramPct)}%`, backgroundColor: vramPct > 90 ? INFRA_COLORS.gpuTemp : INFRA_COLORS.vram }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- page ----------
 
 export default function TrainingPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [showEma, setShowEma] = useState(true);
-  const [activeTab, setActiveTab] = useState<'favorites' | 'loss' | 'checkpoints' | 'samples' | 'evals'>('favorites');
+  const [activeTab, setActiveTab] = useState<'favorites' | 'loss' | 'checkpoints' | 'samples' | 'evals' | 'infra'>('favorites');
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
   const { flags, toggle: toggleFlag } = useRunFlags();
@@ -568,6 +755,10 @@ export default function TrainingPage() {
     }
     return { lossEvents, checkpoints, samples, evals };
   }, [detailRaw]);
+
+  // Infra monitoring — poll /system on the active run's host
+  const activeRunHost = detailRaw?.run?.source_host ?? null;
+  const infraData = useInfraHistory(activeRunHost, activeTab === 'infra');
 
   // Fetch loss data for all favorited runs (for overlay chart)
   const favRunIds = useMemo(() => [...flags.favorites].sort(), [flags.favorites]);
@@ -675,6 +866,7 @@ export default function TrainingPage() {
             ['checkpoints', 'Checkpoints', detail?.checkpoints?.length ?? 0],
             ['samples', 'Samples', detail?.samples?.length ?? 0],
             ['evals', 'Evals', detail?.evals?.length ?? 0],
+            ['infra', 'Infra', infraData.length],
           ] as const).map(([key, label, count]) => (
             <button
               key={key}
@@ -847,6 +1039,16 @@ export default function TrainingPage() {
             ) : (
               <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
                 No eval results recorded
+              </div>
+            )
+          )}
+
+          {activeTab === 'infra' && (
+            activeRunHost ? (
+              <InfraChart data={infraData} />
+            ) : (
+              <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
+                Select a live-proxy run to monitor infrastructure
               </div>
             )
           )}
