@@ -355,6 +355,7 @@ function buildNudgePrompt(git: GitSnapshot | null, prompts: any[], diff: string)
   }
 
   sections.push('Now ACT. Do not just analyze — fix what you can, commit, push, then report what you did and what remains. Be concise.');
+  sections.push('When you are completely done, output the exact text UNEOF as your final line.');
 
   return sections.join('\n');
 }
@@ -432,7 +433,7 @@ function spawnNudgeAgent(
       // claude -p reads prompt from stdin, respects CLAUDE.md in the repo
       // acceptEdits lets it write files and run git without prompting
       cmd = 'claude';
-      args = ['-p', '--model', 'sonnet', '--output-format', 'json', '--permission-mode', 'acceptEdits'];
+      args = ['-p', '--model', 'sonnet', '--output-format', 'json', '--permission-mode', 'acceptEdits', '--no-session-persistence'];
       break;
   }
 
@@ -490,10 +491,13 @@ function spawnNudgeAgent(
         costUsd: parsed?.cost_usd ?? null,
         duration: parsed?.duration_ms ?? null,
         todosCreated,
-        summary: code === 0
-          ? `Agent finished (${harness})` + (todosCreated > 0 ? ` — ${todosCreated} todo(s) created` : '')
-          : `Agent exited with code ${code}${stderrClean ? ': ' + stderrClean.split('\n')[0] : ''}`,
-        severity: code === 0 ? 'ok' : 'error',
+        killed,
+        summary: killed
+          ? `Agent killed after 5min timeout (${harness})` + (todosCreated > 0 ? ` — ${todosCreated} todo(s) created from partial output` : '')
+          : code === 0
+            ? `Agent finished (${harness})` + (todosCreated > 0 ? ` — ${todosCreated} todo(s) created` : '')
+            : `Agent exited with code ${code}${stderrClean ? ': ' + stderrClean.split('\n')[0] : ''}`,
+        severity: killed ? 'warning' : code === 0 ? 'ok' : 'error',
       };
 
       db.prepare(
