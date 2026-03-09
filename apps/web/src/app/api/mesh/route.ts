@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { execSync } from 'child_process';
+import { execSync, execFile } from 'child_process';
 import { readFileSync, readdirSync } from 'fs';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 
@@ -537,155 +537,155 @@ function getLocalStats(): MeshNode {
   }
 }
 
-function getRemoteStats(host: string): MeshNode {
-  try {
-    // Main stats command (includes cpuinfo model name and disk inventory)
-    const cmd = `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'hostname -f 2>/dev/null || hostname && nproc && grep -m1 "model name" /proc/cpuinfo && uname -m && lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null && echo "---LSBLK_END---" && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux | grep -i "[c]laude" | wc -l'`;
-    const output = execSync(cmd, { encoding: 'utf-8', timeout: 10000 });
-    const lines = output.trim().split('\n');
+/**
+ * Probe a remote node via a single SSH call that collects all stats,
+ * RAPL power readings, and nvidia-smi data in one round-trip.
+ */
+function getRemoteStatsAsync(host: string): Promise<MeshNode> {
+  // Single SSH command that gathers everything: stats, RAPL (with 100ms sleep), nvidia-smi
+  // Use ; between sections so RAPL/GPU failures don't break the chain
+  const remoteScript = [
+    // Stats section (&&-chained — all must succeed)
+    '{ hostname -f 2>/dev/null || hostname; } && nproc && grep -m1 "model name" /proc/cpuinfo && uname -m && { lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null; echo "---LSBLK_END---"; } && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux | grep -i "[c]laude" | wc -l && echo "---STATS_END---"',
+    // RAPL section (best-effort, semicolon-delimited)
+    'R1=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R1B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); sleep 0.1; R2=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R2B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); echo "$R1 $R1B $R2 $R2B"; echo "---RAPL_END---"',
+    // GPU section (best-effort)
+    'nvidia-smi --query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null; echo "---GPU_END---"',
+  ].join('; ');
 
-    // Prefer the SSH config host if it's a FQDN, otherwise use what the remote reported
-    const remoteHostname = lines[0];
-    const hostname = host.includes('.') ? host : (remoteHostname.includes('.') ? remoteHostname : host);
-    const cpuCores = parseInt(lines[1]);
-
-    // CPU model is on line 2 (grep output: "model name : ...")
-    const cpuModel = parseCpuModel(lines[2]);
-    // Architecture from uname -m (line 3)
-    const arch = lines[3]?.trim() || undefined;
-
-    // Find the lsblk section (between line 4 and ---LSBLK_END---)
-    const lsblkEndIdx = lines.findIndex(l => l.trim() === '---LSBLK_END---');
-    let spinningDisks = 0;
-    let ssdCount = 0;
-    if (lsblkEndIdx > 4) {
-      const lsblkText = lines.slice(4, lsblkEndIdx).join('\n');
-      spinningDisks = countSpinningDisks(lsblkText);
-      ssdCount = lsblkText.split('\n').filter(l => {
-        const p = l.trim().split(/\s+/);
-        return p[1] === 'disk' && p[p.length - 1] === '0';
-      }).length;
-    }
-
-    // Parse meminfo from remote (starts after lsblk end marker)
-    const meminfoLines = lines.slice(lsblkEndIdx > 0 ? lsblkEndIdx + 1 : 3);
-    const meminfoText = meminfoLines.join('\n');
-    const memTotal = parseInt(meminfoText.match(/MemTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-    const memAvailable = parseInt(meminfoText.match(/MemAvailable:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-    const swapTotal = parseInt(meminfoText.match(/SwapTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-    const swapFree = parseInt(meminfoText.match(/SwapFree:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-
-    // Find loadavg line (5 space-separated numbers/fractions)
-    const loadLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+/.test(l));
-    const loadParts = loadLine?.split(/\s+/) ?? ['0', '0', '0'];
-    const loadAvg: [number, number, number] = [
-      parseFloat(loadParts[0]),
-      parseFloat(loadParts[1]),
-      parseFloat(loadParts[2]),
-    ];
-
-    // Find uptime line (single or two numbers)
-    const uptimeLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+$/.test(l.trim()));
-    const uptimeSeconds = parseFloat(uptimeLine?.split(/\s/)[0] ?? '0');
-    const uptime = formatUptime(uptimeSeconds);
-
-    // Last line is claude count
-    const claudeProcesses = parseInt(lines[lines.length - 1]) || 0;
-
-    // Power monitoring
-    const cpuTdpWatts = cpuModel ? lookupCpuTdp(cpuModel) : null;
-    const isServer = cpuModel ? /xeon|epyc/i.test(cpuModel) : false;
-    const isLaptop = cpuModel ? /[0-9]U\b|[0-9]G[1-7]\b/i.test(cpuModel) : false;
-    let powerWatts: number | undefined;
-    let gpuPowerWatts: number | undefined;
-    let powerSource: MeshNode['powerSource'] | undefined;
-
-    // Try RAPL on remote (two readings 100ms apart)
-    try {
-      const raplCmd = `ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no ${host} 'R1=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R1B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); sleep 0.1; R2=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R2B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); echo "$R1 $R1B $R2 $R2B"'`;
-      const raplOut = execSync(raplCmd, { encoding: 'utf-8', timeout: 8000 }).trim();
-      const parts = raplOut.split(/\s+/).map(Number);
-      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[2])) {
-        let delta0 = parts[2] - parts[0];
-        if (delta0 < 0) delta0 += 2 ** 32;
-        let delta1 = 0;
-        if (!isNaN(parts[1]) && !isNaN(parts[3])) {
-          delta1 = parts[3] - parts[1];
-          if (delta1 < 0) delta1 += 2 ** 32;
+  return new Promise((resolve) => {
+    execFile('ssh', ['-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no', host, remoteScript],
+      { encoding: 'utf-8', timeout: 12000 },
+      (err, stdout) => {
+        if (err) {
+          resolve({
+            hostname: host,
+            reachable: false,
+            error: err.message?.includes('ETIMEDOUT') ? 'Connection timed out' : 'Unreachable',
+          });
+          return;
         }
-        const cpuWatts = round((delta0 + delta1) / (0.1 * 1e6));
-        if (cpuWatts > 0 && cpuWatts < 10000) { // sanity check
-          // RAPL = CPU package only — add RAM, disks, baseline, PSU loss
-          powerWatts = cpuWatts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
-          powerSource = 'rapl';
+
+        try {
+          const fullOutput = stdout.trim();
+          const statsEnd = fullOutput.indexOf('---STATS_END---');
+          const raplEnd = fullOutput.indexOf('---RAPL_END---');
+          const gpuEnd = fullOutput.indexOf('---GPU_END---');
+
+          const statsSection = fullOutput.slice(0, statsEnd).trim();
+          const raplSection = fullOutput.slice(statsEnd + '---STATS_END---'.length, raplEnd).trim();
+          const gpuSection = fullOutput.slice(raplEnd + '---RAPL_END---'.length, gpuEnd).trim();
+
+          const lines = statsSection.split('\n');
+
+          const remoteHostname = lines[0];
+          const hostname = host.includes('.') ? host : (remoteHostname.includes('.') ? remoteHostname : host);
+          const cpuCores = parseInt(lines[1]);
+          const cpuModel = parseCpuModel(lines[2]);
+          const arch = lines[3]?.trim() || undefined;
+
+          const lsblkEndIdx = lines.findIndex(l => l.trim() === '---LSBLK_END---');
+          let spinningDisks = 0;
+          let ssdCount = 0;
+          if (lsblkEndIdx > 4) {
+            const lsblkText = lines.slice(4, lsblkEndIdx).join('\n');
+            spinningDisks = countSpinningDisks(lsblkText);
+            ssdCount = lsblkText.split('\n').filter(l => {
+              const p = l.trim().split(/\s+/);
+              return p[1] === 'disk' && p[p.length - 1] === '0';
+            }).length;
+          }
+
+          const meminfoLines = lines.slice(lsblkEndIdx > 0 ? lsblkEndIdx + 1 : 3);
+          const meminfoText = meminfoLines.join('\n');
+          const memTotal = parseInt(meminfoText.match(/MemTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
+          const memAvailable = parseInt(meminfoText.match(/MemAvailable:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
+          const swapTotal = parseInt(meminfoText.match(/SwapTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
+          const swapFree = parseInt(meminfoText.match(/SwapFree:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
+
+          const loadLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+/.test(l));
+          const loadParts = loadLine?.split(/\s+/) ?? ['0', '0', '0'];
+          const loadAvg: [number, number, number] = [parseFloat(loadParts[0]), parseFloat(loadParts[1]), parseFloat(loadParts[2])];
+
+          const uptimeLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+$/.test(l.trim()));
+          const uptimeSeconds = parseFloat(uptimeLine?.split(/\s/)[0] ?? '0');
+          const uptime = formatUptime(uptimeSeconds);
+
+          const claudeProcesses = parseInt(lines[lines.length - 1]) || 0;
+
+          // Power
+          const cpuTdpWatts = cpuModel ? lookupCpuTdp(cpuModel) : null;
+          const isServer = cpuModel ? /xeon|epyc/i.test(cpuModel) : false;
+          const isLaptop = cpuModel ? /[0-9]U\b|[0-9]G[1-7]\b/i.test(cpuModel) : false;
+          let powerWatts: number | undefined;
+          let gpuPowerWatts: number | undefined;
+          let powerSource: MeshNode['powerSource'] | undefined;
+
+          // Parse RAPL
+          if (raplSection) {
+            const parts = raplSection.split(/\s+/).map(Number);
+            if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[2])) {
+              let delta0 = parts[2] - parts[0];
+              if (delta0 < 0) delta0 += 2 ** 32;
+              let delta1 = 0;
+              if (!isNaN(parts[1]) && !isNaN(parts[3])) {
+                delta1 = parts[3] - parts[1];
+                if (delta1 < 0) delta1 += 2 ** 32;
+              }
+              const cpuWatts = round((delta0 + delta1) / (0.1 * 1e6));
+              if (cpuWatts > 0 && cpuWatts < 10000) {
+                powerWatts = cpuWatts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
+                powerSource = 'rapl';
+              }
+            }
+          }
+
+          // Parse nvidia-smi
+          let gpuModel: string | undefined;
+          let gpuMemTotalMB: number | undefined;
+          let gpuMemUsedMB: number | undefined;
+          let gpuUtil: number | undefined;
+          if (gpuSection) {
+            let totalPower = 0;
+            for (const line of gpuSection.split('\n')) {
+              const parts = line.split(',').map(s => s.trim());
+              const w = parseFloat(parts[0]);
+              if (!isNaN(w)) totalPower += w;
+              if (!gpuModel && parts[1]) gpuModel = parts[1];
+              if (parts[2]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (parseFloat(parts[2]) || 0);
+              if (parts[3]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (parseFloat(parts[3]) || 0);
+              if (parts[4]) gpuUtil = Math.max(gpuUtil ?? 0, parseFloat(parts[4]) || 0);
+            }
+            if (totalPower > 0) gpuPowerWatts = round(totalPower);
+          }
+
+          // TDP fallback
+          if (!powerWatts && cpuTdpWatts !== null) {
+            powerWatts = calcSystemWatts({
+              tdpWatts: cpuTdpWatts, cores: cpuCores, load1m: loadAvg[0],
+              memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop,
+            });
+            powerSource = 'tdp';
+          }
+
+          resolve({
+            hostname, reachable: true,
+            cpuModel: cpuModel ?? undefined, cpuTdpWatts: cpuTdpWatts ?? undefined,
+            spinningDisks, ssdCount, cpuCores,
+            memTotalGB: round(memTotal), memUsedGB: round(memTotal - memAvailable), memAvailableGB: round(memAvailable),
+            loadAvg, uptime, claudeProcesses,
+            swapTotalGB: round(swapTotal), swapUsedGB: round(swapTotal - swapFree),
+            powerWatts, gpuPowerWatts: gpuPowerWatts ?? undefined,
+            gpuModel, gpuMemTotalMB: gpuMemTotalMB ? Math.round(gpuMemTotalMB) : undefined,
+            gpuMemUsedMB: gpuMemUsedMB ? Math.round(gpuMemUsedMB) : undefined,
+            gpuUtil, arch, powerSource,
+          });
+        } catch (parseErr: any) {
+          resolve({ hostname: host, reachable: false, error: parseErr.message });
         }
-      }
-    } catch { /* RAPL not available */ }
-
-    // Try nvidia-smi on remote — get power, name, memory, utilization
-    let gpuModel: string | undefined;
-    let gpuMemTotalMB: number | undefined;
-    let gpuMemUsedMB: number | undefined;
-    let gpuUtil: number | undefined;
-    try {
-      const nvCmd = `ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no ${host} 'nvidia-smi --query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null'`;
-      const nvOut = execSync(nvCmd, { encoding: 'utf-8', timeout: 8000 }).trim();
-      if (nvOut) {
-        let totalPower = 0;
-        for (const line of nvOut.split('\n')) {
-          const parts = line.split(',').map(s => s.trim());
-          const w = parseFloat(parts[0]);
-          if (!isNaN(w)) totalPower += w;
-          if (!gpuModel && parts[1]) gpuModel = parts[1];
-          if (parts[2]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (parseFloat(parts[2]) || 0);
-          if (parts[3]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (parseFloat(parts[3]) || 0);
-          if (parts[4]) gpuUtil = Math.max(gpuUtil ?? 0, parseFloat(parts[4]) || 0);
-        }
-        if (totalPower > 0) gpuPowerWatts = round(totalPower);
-      }
-    } catch { /* no nvidia-smi */ }
-
-    // Fall back to TDP-based system calculation
-    if (!powerWatts && cpuTdpWatts !== null) {
-      powerWatts = calcSystemWatts({
-        tdpWatts: cpuTdpWatts, cores: cpuCores, load1m: loadAvg[0],
-        memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop,
-      });
-      powerSource = 'tdp';
-    }
-
-    return {
-      hostname,
-      reachable: true,
-      cpuModel: cpuModel ?? undefined,
-      cpuTdpWatts: cpuTdpWatts ?? undefined,
-      spinningDisks,
-      ssdCount,
-      cpuCores,
-      memTotalGB: round(memTotal),
-      memUsedGB: round(memTotal - memAvailable),
-      memAvailableGB: round(memAvailable),
-      loadAvg,
-      uptime,
-      claudeProcesses,
-      swapTotalGB: round(swapTotal),
-      swapUsedGB: round(swapTotal - swapFree),
-      powerWatts,
-      gpuPowerWatts: gpuPowerWatts ?? undefined,
-      gpuModel,
-      gpuMemTotalMB: gpuMemTotalMB ? Math.round(gpuMemTotalMB) : undefined,
-      gpuMemUsedMB: gpuMemUsedMB ? Math.round(gpuMemUsedMB) : undefined,
-      gpuUtil,
-      arch,
-      powerSource,
-    };
-  } catch (e: any) {
-    return {
-      hostname: host,
-      reachable: false,
-      error: e.message?.includes('ETIMEDOUT') ? 'Connection timed out' : 'Unreachable',
-    };
-  }
+      },
+    );
+  });
 }
 
 function formatUptime(seconds: number): string {
@@ -704,15 +704,14 @@ function round(n: number): number {
 export async function GET() {
   const nodeHosts = discoverNodes();
 
-  const rawResults: MeshNode[] = [];
-
-  for (const host of nodeHosts) {
-    if (host === 'localhost') {
-      rawResults.push(getLocalStats());
-    } else {
-      rawResults.push(getRemoteStats(host));
-    }
-  }
+  // Probe all nodes in parallel — local is sync, remote is async
+  const rawResults = await Promise.all(
+    nodeHosts.map(host =>
+      host === 'localhost'
+        ? Promise.resolve(getLocalStats())
+        : getRemoteStatsAsync(host)
+    )
+  );
 
   const results = deduplicateNodes(rawResults);
 
