@@ -381,7 +381,7 @@ function spawnNudgeAgent(
   const child = spawn(cmd, args, {
     cwd: repoPath,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'nudge' },
+    env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'nudge', CLAUDECODE: '', CLAUDE_CODE: '' },
     detached: true,
   });
 

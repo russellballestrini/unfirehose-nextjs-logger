@@ -181,65 +181,23 @@ export default function UsageMonitorPage() {
   useEffect(() => { globalThis.location.hash = activeTab; }, [activeTab]);
   const [chartHostname, setChartHostname] = useState<string>('all');
   const currency = useCurrency();
-  const [expandedProject, setExpandedProject] = useState<string | null>(null);
-  const { data: projectDetail, mutate: mutateProjectDetail } = useSWR(
-    expandedProject ? `/api/projects/activity?project=${encodeURIComponent(expandedProject)}` : null,
-    fetcher
-  );
-  const [agentAction, setAgentAction] = useState<{ project: string; action: string; loading: boolean; result: any } | null>(null);
-
-  const dispatchAgentAction = useCallback(async (projectName: string, action: string) => {
-    setAgentAction({ project: projectName, action, loading: true, result: null });
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}/agent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        let msg: string;
-        try { msg = JSON.parse(text).error; } catch { msg = text.slice(0, 200); }
-        setAgentAction({ project: projectName, action, loading: false, result: { summary: msg, severity: 'error' } });
-        return;
-      }
-      const data = await res.json();
-
-      // Nudge is async — poll for completion
-      if (action === 'nudge' && data.status === 'spawned') {
-        setAgentAction({ project: projectName, action, loading: true, result: { summary: `Agent spawned (${data.harness})...`, severity: 'info' } });
-        const pollId = data.actionId;
-        const poll = async () => {
-          for (let i = 0; i < 120; i++) { // poll up to 10 min
-            await new Promise(r => setTimeout(r, 5000));
-            try {
-              const pr = await fetch(`/api/projects/${encodeURIComponent(projectName)}/agent`);
-              const pd = await pr.json();
-              const found = pd.actions?.find((a: any) => a.id === pollId);
-              if (found && found.status !== 'running') {
-                const parsed = typeof found.result === 'string' ? JSON.parse(found.result) : found.result;
-                setAgentAction({ project: projectName, action, loading: false, result: parsed });
-                mutateProjectDetail();
-                mutateProjects();
-                return;
-              }
-            } catch { /* retry */ }
-          }
-          setAgentAction({ project: projectName, action, loading: false, result: { summary: 'Agent timed out', severity: 'error' } });
-        };
-        poll();
-        return;
-      }
-
-      setAgentAction({ project: projectName, action, loading: false, result: data.result ?? data });
-      if (action === 'finish') {
-        mutateProjectDetail();
-        mutateProjects();
-      }
-    } catch (err: any) {
-      setAgentAction({ project: projectName, action, loading: false, result: { error: err.message } });
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const allExpanded = projectActivity ? projectActivity.every((p: any) => !collapsedProjects.has(p.name)) : true;
+  const toggleProject = useCallback((name: string) => {
+    setCollapsedProjects(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+  const toggleAll = useCallback(() => {
+    if (allExpanded && projectActivity) {
+      setCollapsedProjects(new Set(projectActivity.map((p: any) => p.name)));
+    } else {
+      setCollapsedProjects(new Set());
     }
-  }, [mutateProjectDetail, mutateProjects]);
+  }, [allExpanded, projectActivity]);
 
   const runIngest = useCallback(async () => {
     setIngesting(true);
@@ -456,18 +414,29 @@ export default function UsageMonitorPage() {
       <div className="grid grid-cols-2 gap-4 items-start">
         {/* Agent Standup — 30-day project activity */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-            Agent Standup ({window === 0 ? 'Lifetime' : window < 1440 ? `${window / 60}h` : `${standupDays}d`})
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-bold text-[var(--color-muted)]">
+              Agent Standup ({window === 0 ? 'Lifetime' : window < 1440 ? `${window / 60}h` : `${standupDays}d`})
+            </h3>
+            {projectActivity && projectActivity.length > 0 && (
+              <button
+                onClick={toggleAll}
+                className="text-xs px-2 py-1 rounded font-mono cursor-pointer transition-colors"
+                style={{ color: 'var(--color-muted)', border: '1px solid var(--color-border)' }}
+              >
+                {allExpanded ? 'Collapse all' : 'Expand all'}
+              </button>
+            )}
+          </div>
           {projectActivity && projectActivity.length > 0 ? (
             <div className="space-y-1">
               {projectActivity.map((p: any) => (
                 <div key={p.name}>
                   <div
                     className={`grid grid-cols-[auto_1fr_auto] items-center gap-2 text-base py-1.5 px-2 rounded cursor-pointer hover:bg-[var(--color-surface-hover)] ${
-                      expandedProject === p.name ? 'bg-[var(--color-surface-hover)]' : ''
+                      !collapsedProjects.has(p.name) ? 'bg-[var(--color-surface-hover)]' : ''
                     }`}
-                    onClick={() => setExpandedProject(expandedProject === p.name ? null : p.name)}
+                    onClick={() => toggleProject(p.name)}
                   >
                     <span className={`w-2 h-2 rounded-full shrink-0 ${
                       isActiveRecently(p.last_activity)
@@ -491,141 +460,8 @@ export default function UsageMonitorPage() {
                     </span>
                   </div>
 
-                  {expandedProject === p.name && projectDetail && (
-                    <div className="ml-5 pl-3 border-l-2 border-[var(--color-border)] py-2 space-y-1.5">
-                      {projectDetail.git && (projectDetail.git.isDirty || projectDetail.git.unpushedCount > 0) && (
-                        <div className="flex gap-2 mb-1">
-                          {projectDetail.git.isDirty && (
-                            <Link
-                              href={`/usage/review/${encodeURIComponent(p.name)}`}
-                              className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono hover:bg-yellow-500/30 transition-colors"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              uncommitted changes &rarr;
-                            </Link>
-                          )}
-                          {projectDetail.git.unpushedCount > 0 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
-                              {projectDetail.git.unpushedCount} unpushed
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {/* Agent action buttons */}
-                      {(() => {
-                        const aa = agentAction?.project === p.name ? agentAction : null;
-                        return (
-                          <>
-                            <div className="flex gap-1.5 mb-2">
-                              {(['status', 'blockers', 'finish', 'nudge'] as const).map((act) => (
-                                <button
-                                  key={act}
-                                  onClick={(e) => { e.stopPropagation(); dispatchAgentAction(p.name, act); }}
-                                  disabled={!!aa?.loading}
-                                  className="text-xs px-2 py-1 rounded font-mono cursor-pointer transition-colors disabled:opacity-50"
-                                  style={{
-                                    backgroundColor: act === 'finish' ? 'var(--color-accent)' : act === 'nudge' ? '#7c3aed' : 'var(--color-background)',
-                                    color: act === 'finish' || act === 'nudge' ? '#fff' : 'var(--color-foreground)',
-                                    border: `1px solid ${act === 'finish' ? 'var(--color-accent)' : act === 'nudge' ? '#7c3aed' : 'var(--color-border)'}`,
-                                  }}
-                                >
-                                  {aa?.action === act && aa.loading
-                                    ? act === 'nudge' ? 'Agent running...' : '...'
-                                    : act === 'status' ? 'Status' : act === 'blockers' ? 'Blockers' : act === 'finish' ? 'Finish & Push' : 'Nudge Agent'}
-                                </button>
-                              ))}
-                            </div>
-                            {aa?.result && !aa.loading && (
-                              <div
-                                className="text-xs font-mono rounded p-2 mb-2 whitespace-pre-wrap"
-                                style={{
-                                  backgroundColor: 'var(--color-background)',
-                                  border: `1px solid ${
-                                    aa.result.severity === 'error' || aa.result.needsHuman
-                                      ? 'var(--color-error)'
-                                      : aa.result.severity === 'warning'
-                                        ? '#f59e0b'
-                                        : 'var(--color-border)'
-                                  }`,
-                                  color: 'var(--color-foreground)',
-                                }}
-                              >
-                                <div className="font-bold mb-1" style={{
-                                  color: aa.result.error
-                                    ? 'var(--color-error)'
-                                    : aa.result.needsHuman
-                                      ? 'var(--color-error)'
-                                      : aa.result.severity === 'warning'
-                                        ? '#f59e0b'
-                                        : '#10b981',
-                                }}>
-                                  {aa.result.summary ?? aa.result.error ?? 'Done'}
-                                </div>
-                                {aa.result.lines?.map((l: string, i: number) => (
-                                  <div key={i} style={{ color: 'var(--color-muted)' }}>{l}</div>
-                                ))}
-                                {aa.result.blockers?.map((b: any, i: number) => (
-                                  <div key={i} className="flex gap-2 mt-1">
-                                    <span style={{ color: b.severity === 'error' ? 'var(--color-error)' : '#f59e0b' }}>
-                                      {b.severity === 'error' ? '!' : '?'}
-                                    </span>
-                                    <span>{b.description}</span>
-                                  </div>
-                                ))}
-                                {aa.result.actions?.map((a: string, i: number) => (
-                                  <div key={i} style={{ color: '#10b981' }}>{a}</div>
-                                ))}
-                                {aa.result.response && typeof aa.result.response === 'string' && (
-                                  <div className="mt-1 border-t border-[var(--color-border)] pt-1" style={{ color: 'var(--color-foreground)' }}>
-                                    {aa.result.response.slice(0, 2000)}
-                                  </div>
-                                )}
-                                {aa.result.stderr && (
-                                  <div className="mt-1 border-t border-[var(--color-border)] pt-1" style={{ color: 'var(--color-error)' }}>
-                                    {aa.result.stderr}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-
-                      {projectDetail.recentPrompts && projectDetail.recentPrompts.length > 0 ? (
-                        <>
-                          <div className="text-xs font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
-                          {projectDetail.recentPrompts.map((rp: any, i: number) => (
-                            <div key={i} className="text-xs grid grid-cols-[6rem_1fr] gap-2">
-                              <span className="text-[var(--color-muted)]">
-                                {rp.timestamp ? formatRelativeTime(rp.timestamp) : ''}
-                              </span>
-                              <div className="flex items-start gap-1.5">
-                                <span className="text-[var(--color-foreground)] break-words flex-1">
-                                  {rp.prompt}
-                                </span>
-                                {rp.commitHash && (
-                                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-green-500/20 text-green-400 font-mono" title={rp.commitSubject}>
-                                    {rp.commitHash}
-                                  </span>
-                                )}
-                                {rp.gitStatus === 'uncommitted' && (
-                                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono">
-                                    uncommitted
-                                  </span>
-                                )}
-                                {rp.gitStatus === 'unpushed' && (
-                                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
-                                    unpushed
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </>
-                      ) : (
-                        <div className="text-xs text-[var(--color-muted)]">No recent prompts found.</div>
-                      )}
-                    </div>
+                  {!collapsedProjects.has(p.name) && (
+                    <StandupProjectDetail projectName={p.name} displayName={p.display_name} mutateProjects={mutateProjects} />
                   )}
                 </div>
               ))}
@@ -1186,6 +1022,204 @@ export default function UsageMonitorPage() {
 
       </>)}
 
+    </div>
+  );
+}
+
+// ---------- standup project detail (own SWR per project) ----------
+
+function StandupProjectDetail({ projectName, displayName, mutateProjects }: {
+  projectName: string;
+  displayName: string;
+  mutateProjects: () => void;
+}) {
+  const { data: projectDetail, mutate: mutateDetail } = useSWR(
+    `/api/projects/activity?project=${encodeURIComponent(projectName)}`,
+    fetcher
+  );
+  const [agentAction, setAgentAction] = useState<{ action: string; loading: boolean; result: any } | null>(null);
+
+  const dispatch = useCallback(async (action: string) => {
+    setAgentAction({ action, loading: true, result: null });
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg: string;
+        try { msg = JSON.parse(text).error; } catch { msg = text.slice(0, 200); }
+        setAgentAction({ action, loading: false, result: { summary: msg, severity: 'error' } });
+        return;
+      }
+      const data = await res.json();
+
+      if (action === 'nudge' && data.status === 'spawned') {
+        setAgentAction({ action, loading: true, result: { summary: `Agent spawned (${data.harness})...`, severity: 'info' } });
+        const pollId = data.actionId;
+        (async () => {
+          for (let i = 0; i < 120; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+            try {
+              const pr = await fetch(`/api/projects/${encodeURIComponent(projectName)}/agent`);
+              const pd = await pr.json();
+              const found = pd.actions?.find((a: any) => a.id === pollId);
+              if (found && found.status !== 'running') {
+                const parsed = typeof found.result === 'string' ? JSON.parse(found.result) : found.result;
+                setAgentAction({ action, loading: false, result: parsed });
+                mutateDetail();
+                mutateProjects();
+                return;
+              }
+            } catch { /* retry */ }
+          }
+          setAgentAction({ action, loading: false, result: { summary: 'Agent timed out', severity: 'error' } });
+        })();
+        return;
+      }
+
+      setAgentAction({ action, loading: false, result: data.result ?? data });
+      if (action === 'finish') { mutateDetail(); mutateProjects(); }
+    } catch (err: any) {
+      setAgentAction({ action, loading: false, result: { error: err.message } });
+    }
+  }, [projectName, mutateDetail, mutateProjects]);
+
+  if (!projectDetail) {
+    return <div className="ml-5 pl-3 border-l-2 border-[var(--color-border)] py-2 text-xs text-[var(--color-muted)]">Loading...</div>;
+  }
+
+  const aa = agentAction;
+
+  return (
+    <div className="ml-5 pl-3 border-l-2 border-[var(--color-border)] py-2 space-y-1.5">
+      {projectDetail.git && (projectDetail.git.isDirty || projectDetail.git.unpushedCount > 0) && (
+        <div className="flex gap-2 mb-1">
+          {projectDetail.git.isDirty && (
+            <Link
+              href={`/usage/review/${encodeURIComponent(projectName)}`}
+              className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono hover:bg-yellow-500/30 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              uncommitted changes &rarr;
+            </Link>
+          )}
+          {projectDetail.git.unpushedCount > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
+              {projectDetail.git.unpushedCount} unpushed
+            </span>
+          )}
+        </div>
+      )}
+      {/* Agent action buttons */}
+      <div className="flex gap-1.5 mb-2">
+        {(['status', 'blockers', 'finish', 'nudge'] as const).map((act) => (
+          <button
+            key={act}
+            onClick={(e) => { e.stopPropagation(); dispatch(act); }}
+            disabled={!!aa?.loading}
+            className="text-xs px-2 py-1 rounded font-mono cursor-pointer transition-colors disabled:opacity-50"
+            style={{
+              backgroundColor: act === 'finish' ? 'var(--color-accent)' : act === 'nudge' ? '#7c3aed' : 'var(--color-background)',
+              color: act === 'finish' || act === 'nudge' ? '#fff' : 'var(--color-foreground)',
+              border: `1px solid ${act === 'finish' ? 'var(--color-accent)' : act === 'nudge' ? '#7c3aed' : 'var(--color-border)'}`,
+            }}
+          >
+            {aa?.action === act && aa.loading
+              ? act === 'nudge' ? 'Agent running...' : '...'
+              : act === 'status' ? 'Status' : act === 'blockers' ? 'Blockers' : act === 'finish' ? 'Finish & Push' : 'Nudge Agent'}
+          </button>
+        ))}
+      </div>
+      {aa?.result && !aa.loading && (
+        <div
+          className="text-xs font-mono rounded p-2 mb-2 whitespace-pre-wrap"
+          style={{
+            backgroundColor: 'var(--color-background)',
+            border: `1px solid ${
+              aa.result.severity === 'error' || aa.result.needsHuman
+                ? 'var(--color-error)'
+                : aa.result.severity === 'warning'
+                  ? '#f59e0b'
+                  : 'var(--color-border)'
+            }`,
+            color: 'var(--color-foreground)',
+          }}
+        >
+          <div className="font-bold mb-1" style={{
+            color: aa.result.error
+              ? 'var(--color-error)'
+              : aa.result.needsHuman
+                ? 'var(--color-error)'
+                : aa.result.severity === 'warning'
+                  ? '#f59e0b'
+                  : '#10b981',
+          }}>
+            {aa.result.summary ?? aa.result.error ?? 'Done'}
+          </div>
+          {aa.result.lines?.map((l: string, i: number) => (
+            <div key={i} style={{ color: 'var(--color-muted)' }}>{l}</div>
+          ))}
+          {aa.result.blockers?.map((b: any, i: number) => (
+            <div key={i} className="flex gap-2 mt-1">
+              <span style={{ color: b.severity === 'error' ? 'var(--color-error)' : '#f59e0b' }}>
+                {b.severity === 'error' ? '!' : '?'}
+              </span>
+              <span>{b.description}</span>
+            </div>
+          ))}
+          {aa.result.actions?.map((a: string, i: number) => (
+            <div key={i} style={{ color: '#10b981' }}>{a}</div>
+          ))}
+          {aa.result.response && typeof aa.result.response === 'string' && (
+            <div className="mt-1 border-t border-[var(--color-border)] pt-1" style={{ color: 'var(--color-foreground)' }}>
+              {aa.result.response.slice(0, 2000)}
+            </div>
+          )}
+          {aa.result.stderr && (
+            <div className="mt-1 border-t border-[var(--color-border)] pt-1" style={{ color: 'var(--color-error)' }}>
+              {aa.result.stderr}
+            </div>
+          )}
+        </div>
+      )}
+
+      {projectDetail.recentPrompts && projectDetail.recentPrompts.length > 0 ? (
+        <>
+          <div className="text-xs font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
+          {projectDetail.recentPrompts.map((rp: any, i: number) => (
+            <div key={i} className="text-xs grid grid-cols-[6rem_1fr] gap-2">
+              <span className="text-[var(--color-muted)]">
+                {rp.timestamp ? formatRelativeTime(rp.timestamp) : ''}
+              </span>
+              <div className="flex items-start gap-1.5">
+                <span className="text-[var(--color-foreground)] break-words flex-1">
+                  {rp.prompt}
+                </span>
+                {rp.commitHash && (
+                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-green-500/20 text-green-400 font-mono" title={rp.commitSubject}>
+                    {rp.commitHash}
+                  </span>
+                )}
+                {rp.gitStatus === 'uncommitted' && (
+                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-mono">
+                    uncommitted
+                  </span>
+                )}
+                {rp.gitStatus === 'unpushed' && (
+                  <span className="shrink-0 text-xs px-1 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
+                    unpushed
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </>
+      ) : (
+        <div className="text-xs text-[var(--color-muted)]">No recent prompts found.</div>
+      )}
     </div>
   );
 }
