@@ -235,8 +235,27 @@ export async function POST(
   }
 
   try {
-    const diff = await gitExec(repoPath, ['diff', 'HEAD']);
-    if (!diff.trim()) {
+    const statusRaw = await gitExec(repoPath, ['status', '--porcelain']);
+    if (!statusRaw.trim()) {
+      return NextResponse.json({ error: 'No changes to describe' }, { status: 400 });
+    }
+
+    // git diff HEAD for tracked changes, plus diff of untracked files
+    let diff = '';
+    try { diff = await gitExec(repoPath, ['diff', 'HEAD']); } catch {}
+
+    // For untracked files, try to show their content (first 2000 chars each)
+    const untrackedFiles = statusRaw.trim().split('\n')
+      .filter(l => l.startsWith('??'))
+      .map(l => l.slice(3));
+    for (const f of untrackedFiles.slice(0, 5)) {
+      try {
+        const raw = await readFile(repoPath + '/' + f, 'utf-8').catch(() => '(binary or unreadable)');
+        diff += `\n--- /dev/null\n+++ b/${f}\n${raw.slice(0, 2000).split('\n').map((l: string) => '+' + l).join('\n')}\n`;
+      } catch {}
+    }
+
+    if (!diff.trim() && !statusRaw.trim()) {
       return NextResponse.json({ error: 'No changes to describe' }, { status: 400 });
     }
 
@@ -245,8 +264,7 @@ export async function POST(
       ? diff.slice(0, maxDiffLen) + `\n\n... (diff truncated, ${diff.length - maxDiffLen} more characters)`
       : diff;
 
-    const statusRaw = await gitExec(repoPath, ['status', '--porcelain']);
-    const userContent = `Files changed:\n${statusRaw}\n\nDiff:\n${truncatedDiff}`;
+    const userContent = `Files changed:\n${statusRaw}\n\nDiff:\n${truncatedDiff || '(no diff available — files may be untracked/binary)'}`;
 
     const message = provider.type === 'anthropic'
       ? await callAnthropic(provider, userContent)

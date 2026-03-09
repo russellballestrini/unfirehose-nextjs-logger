@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ProjectInfo } from '@unturf/unfirehose/types';
@@ -22,6 +22,12 @@ interface ProjectActivity {
   cost_estimate: number;
 }
 
+interface GitStatus {
+  dirty: number;
+  unpushed: number;
+  branch: string;
+}
+
 export default function ProjectsPage() {
   const [range, setRange] = useTimeRange('projects_range', '28d');
   const rangeDays = Math.max(1, Math.ceil((getTimeRangeMinutes(range) || 60 * 24 * 365) / 60 / 24));
@@ -34,6 +40,11 @@ export default function ProjectsPage() {
   const { data: activity } = useSWR<ProjectActivity[]>(
     `/api/projects/activity?days=${rangeDays}`,
     fetcher
+  );
+  const { data: gitStatuses } = useSWR<Record<string, GitStatus>>(
+    '/api/projects/git-status',
+    fetcher,
+    { revalidateOnFocus: false, refreshInterval: 30000 }
   );
 
   if (error) {
@@ -57,11 +68,11 @@ export default function ProjectsPage() {
     return bTime.localeCompare(aTime);
   });
 
-  const filteredProjects = search.trim()
-    ? sortedProjects.filter((p) => {
-        const q = search.toLowerCase();
-        return p.displayName.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
-      })
+  const q = search.trim().toLowerCase();
+  const filteredProjects = q
+    ? sortedProjects.filter((p) =>
+        p.displayName.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
+      )
     : sortedProjects;
 
   const totalSessions = projects.reduce((s, p) => s + p.sessionCount, 0);
@@ -85,7 +96,7 @@ export default function ProjectsPage() {
         <h2 className="text-lg font-bold">
           Projects{' '}
           <span className="text-[var(--color-muted)] font-normal">
-            ({filteredProjects.length}{search ? ` / ${projects.length}` : ''})
+            ({filteredProjects.length}{q ? ` / ${projects.length}` : ''})
           </span>
         </h2>
         <div className="flex gap-3 text-sm text-[var(--color-muted)]">
@@ -100,13 +111,14 @@ export default function ProjectsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search projects..."
-              className="pl-8 pr-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] w-56"
+              autoComplete="off"
+              className="pl-8 pr-8 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] focus:outline-none focus:border-[var(--color-accent)] w-56"
             />
-            <svg className="absolute left-2.5 top-2 w-3.5 h-3.5 text-[var(--color-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="absolute left-2.5 top-2 w-3.5 h-3.5 text-[var(--color-muted)] pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1.5 text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-xs">✕</button>
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1.5 text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm px-1">✕</button>
             )}
           </div>
           <TimeRangeSelect value={range} onChange={setRange} />
@@ -119,10 +131,11 @@ export default function ProjectsPage() {
             project={project}
             activity={activityMap.get(project.name)}
             rangeDays={rangeDays}
+            gitStatus={gitStatuses?.[project.name]}
           />
         ))}
       </div>
-      {filteredProjects.length === 0 && search && (
+      {filteredProjects.length === 0 && q && (
         <div className="text-center py-12 text-[var(--color-muted)]">
           No projects matching &ldquo;{search}&rdquo;
         </div>
@@ -135,10 +148,12 @@ function ProjectCard({
   project,
   activity,
   rangeDays,
+  gitStatus,
 }: {
   project: ProjectInfo;
   activity?: ProjectActivity;
   rangeDays: number;
+  gitStatus?: GitStatus;
 }) {
   const isActive = project.latestActivity
     ? (Date.now() - new Date(project.latestActivity).getTime() < 1000 * 60 * 60) // eslint-disable-line react-hooks/purity
@@ -160,6 +175,33 @@ function ProjectCard({
           {project.displayName}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {gitStatus && gitStatus.dirty > 0 && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded font-bold"
+              style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}
+              title={`${gitStatus.dirty} uncommitted changes`}
+            >
+              {gitStatus.dirty} dirty
+            </span>
+          )}
+          {gitStatus && gitStatus.unpushed > 0 && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded font-bold"
+              style={{ backgroundColor: 'rgba(96,165,250,0.15)', color: '#60a5fa' }}
+              title={`${gitStatus.unpushed} unpushed commits`}
+            >
+              {gitStatus.unpushed} unpushed
+            </span>
+          )}
+          {gitStatus && gitStatus.dirty === 0 && gitStatus.unpushed === 0 && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: '#22c55e' }}
+              title="Working tree clean, up to date with remote"
+            >
+              clean
+            </span>
+          )}
           {project.hasMemory && (
             <span
               className="w-2 h-2 rounded-full bg-[var(--color-accent)]"
