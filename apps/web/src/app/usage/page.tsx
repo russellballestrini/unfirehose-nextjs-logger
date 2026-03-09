@@ -197,6 +197,33 @@ export default function UsageMonitorPage() {
         body: JSON.stringify({ action }),
       });
       const data = await res.json();
+
+      // Nudge is async — poll for completion
+      if (action === 'nudge' && data.status === 'spawned') {
+        setAgentAction({ project: projectName, action, loading: true, result: { summary: `Agent spawned (${data.harness})...`, severity: 'info' } });
+        const pollId = data.actionId;
+        const poll = async () => {
+          for (let i = 0; i < 120; i++) { // poll up to 10 min
+            await new Promise(r => setTimeout(r, 5000));
+            try {
+              const pr = await fetch(`/api/projects/${encodeURIComponent(projectName)}/agent`);
+              const pd = await pr.json();
+              const found = pd.actions?.find((a: any) => a.id === pollId);
+              if (found && found.status !== 'running') {
+                const parsed = typeof found.result === 'string' ? JSON.parse(found.result) : found.result;
+                setAgentAction({ project: projectName, action, loading: false, result: parsed });
+                mutateProjectDetail();
+                mutateProjects();
+                return;
+              }
+            } catch { /* retry */ }
+          }
+          setAgentAction({ project: projectName, action, loading: false, result: { summary: 'Agent timed out', severity: 'error' } });
+        };
+        poll();
+        return;
+      }
+
       setAgentAction({ project: projectName, action, loading: false, result: data.result ?? data });
       if (action === 'finish') {
         mutateProjectDetail();
@@ -483,21 +510,21 @@ export default function UsageMonitorPage() {
                         return (
                           <>
                             <div className="flex gap-1.5 mb-2">
-                              {(['status', 'blockers', 'finish'] as const).map((act) => (
+                              {(['status', 'blockers', 'finish', 'nudge'] as const).map((act) => (
                                 <button
                                   key={act}
                                   onClick={(e) => { e.stopPropagation(); dispatchAgentAction(p.name, act); }}
                                   disabled={!!aa?.loading}
                                   className="text-xs px-2 py-1 rounded font-mono cursor-pointer transition-colors disabled:opacity-50"
                                   style={{
-                                    backgroundColor: act === 'finish' ? 'var(--color-accent)' : 'var(--color-background)',
-                                    color: act === 'finish' ? '#fff' : 'var(--color-foreground)',
-                                    border: `1px solid ${act === 'finish' ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                                    backgroundColor: act === 'finish' ? 'var(--color-accent)' : act === 'nudge' ? '#7c3aed' : 'var(--color-background)',
+                                    color: act === 'finish' || act === 'nudge' ? '#fff' : 'var(--color-foreground)',
+                                    border: `1px solid ${act === 'finish' ? 'var(--color-accent)' : act === 'nudge' ? '#7c3aed' : 'var(--color-border)'}`,
                                   }}
                                 >
                                   {aa?.action === act && aa.loading
-                                    ? '...'
-                                    : act === 'status' ? 'Status' : act === 'blockers' ? 'Blockers' : 'Finish & Push'}
+                                    ? act === 'nudge' ? 'Agent running...' : '...'
+                                    : act === 'status' ? 'Status' : act === 'blockers' ? 'Blockers' : act === 'finish' ? 'Finish & Push' : 'Nudge Agent'}
                                 </button>
                               ))}
                             </div>
@@ -541,6 +568,11 @@ export default function UsageMonitorPage() {
                                 {aa.result.actions?.map((a: string, i: number) => (
                                   <div key={i} style={{ color: '#10b981' }}>{a}</div>
                                 ))}
+                                {aa.result.response && typeof aa.result.response === 'string' && (
+                                  <div className="mt-1 border-t border-[var(--color-border)] pt-1" style={{ color: 'var(--color-foreground)' }}>
+                                    {aa.result.response.slice(0, 2000)}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </>

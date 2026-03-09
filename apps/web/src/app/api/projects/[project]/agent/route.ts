@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { readFile } from 'fs/promises';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
@@ -95,8 +95,8 @@ export async function POST(
   const body = await request.json();
   const action = body.action as string;
 
-  if (!['status', 'finish', 'blockers'].includes(action)) {
-    return NextResponse.json({ error: 'action must be status, finish, or blockers' }, { status: 400 });
+  if (!['status', 'finish', 'blockers', 'nudge'].includes(action)) {
+    return NextResponse.json({ error: 'action must be status, finish, blockers, or nudge' }, { status: 400 });
   }
 
   const repoPath = await resolveRepoPath(project);
@@ -124,6 +124,13 @@ export async function POST(
       result = await executeFinish(git, repoPath, body.message);
     } else if (action === 'blockers') {
       result = buildBlockers(git, prompts, repoPath);
+    } else if (action === 'nudge') {
+      // Get project harness from most recent session
+      const harness = getProjectHarness(db, project);
+      const diff = git?.isDirty ? await gitExec(repoPath, ['diff', 'HEAD'], 15000).catch(() => '') : '';
+      // Fire and forget — spawn agent in background, update DB when done
+      spawnNudgeAgent(db, Number(actionId), repoPath, harness, git, prompts, diff);
+      return NextResponse.json({ ok: true, actionId, status: 'spawned', harness });
     }
 
     db.prepare(
@@ -282,4 +289,141 @@ function buildBlockers(git: GitSnapshot | null, prompts: any[], repoPath: string
     : `${blockers.length} blocker(s)` + (needsHuman ? ' — needs human decision' : '');
 
   return { blockers, summary, needsHuman };
+}
+
+function getProjectHarness(db: any, projectName: string): string {
+  // Get the most common harness from recent sessions
+  const row = db.prepare(`
+    SELECT s.harness, COUNT(*) as cnt
+    FROM sessions s
+    JOIN projects p ON s.project_id = p.id
+    WHERE p.name = ? AND s.harness IS NOT NULL
+    GROUP BY s.harness
+    ORDER BY cnt DESC
+    LIMIT 1
+  `).get(projectName) as any;
+  return row?.harness ?? 'claude-code';
+}
+
+function buildNudgePrompt(git: GitSnapshot | null, prompts: any[], diff: string): string {
+  const sections: string[] = [];
+
+  sections.push('You have been triggered by the unfirehose dashboard to finish stale work in this repo.');
+  sections.push('Review the state below and take ONE of these actions:');
+  sections.push('1. If the work is complete and safe to ship: commit all changes with a descriptive message, then push.');
+  sections.push('2. If the work is incomplete but you can finish it: finish it, commit, and push.');
+  sections.push('3. If you cannot finish (needs human decision, blocked, or risky): create TODO items describing exactly what remains and why it is blocked. Do NOT commit partial/broken work.');
+  sections.push('');
+
+  if (git) {
+    sections.push(`## Git State`);
+    sections.push(`Branch: ${git.branch}`);
+    sections.push(`Dirty files: ${git.dirtyFiles.length}`);
+    if (git.dirtyFiles.length > 0) {
+      sections.push(git.dirtyFiles.slice(0, 20).join('\n'));
+    }
+    sections.push(`Unpushed commits: ${git.unpushedCount}`);
+    if (git.unpushedCommits.length > 0) {
+      sections.push(git.unpushedCommits.slice(0, 5).join('\n'));
+    }
+    sections.push('');
+  }
+
+  if (diff) {
+    // Truncate diff to avoid token explosion
+    const maxDiff = 8000;
+    const truncated = diff.length > maxDiff ? diff.slice(0, maxDiff) + '\n... (diff truncated)' : diff;
+    sections.push('## Diff');
+    sections.push(truncated);
+    sections.push('');
+  }
+
+  if (prompts.length > 0) {
+    sections.push('## Recent prompts (what the human last asked for)');
+    for (const p of prompts.slice(0, 3)) {
+      sections.push(`- "${(p.prompt ?? '').slice(0, 200)}"`);
+      if (p.response) {
+        sections.push(`  Agent responded: "${(p.response ?? '').slice(0, 300)}"`);
+      }
+    }
+    sections.push('');
+  }
+
+  sections.push('Now act. Be concise. If committing, write a good commit message. If creating TODOs, be specific about what is blocked and what a human needs to decide.');
+
+  return sections.join('\n');
+}
+
+function spawnNudgeAgent(
+  db: any,
+  actionId: number,
+  repoPath: string,
+  harness: string,
+  git: GitSnapshot | null,
+  prompts: any[],
+  diff: string,
+) {
+  const prompt = buildNudgePrompt(git, prompts, diff);
+
+  // Determine the command based on harness
+  let cmd: string;
+  let args: string[];
+
+  switch (harness) {
+    case 'claude-code':
+    default:
+      // claude -p runs non-interactively, respects CLAUDE.md in the repo
+      cmd = 'claude';
+      args = ['-p', '--model', 'sonnet', '--output-format', 'json', prompt];
+      break;
+  }
+
+  const child = spawn(cmd, args, {
+    cwd: repoPath,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'nudge' },
+    detached: true,
+  });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
+  child.on('close', (code) => {
+    try {
+      let parsed: any = null;
+      try { parsed = JSON.parse(stdout); } catch { /* not JSON */ }
+
+      const result = {
+        harness,
+        exitCode: code,
+        response: parsed?.result ?? stdout.slice(0, 5000),
+        stderr: stderr.slice(0, 1000) || undefined,
+        costUsd: parsed?.cost_usd ?? null,
+        duration: parsed?.duration_ms ?? null,
+        summary: code === 0
+          ? `Agent finished (${harness})`
+          : `Agent exited with code ${code}`,
+      };
+
+      db.prepare(
+        "UPDATE agent_actions SET status = ?, result = ?, completed_at = datetime('now') WHERE id = ?"
+      ).run(code === 0 ? 'done' : 'failed', JSON.stringify(result), actionId);
+    } catch {
+      db.prepare(
+        "UPDATE agent_actions SET status = 'failed', result = ?, completed_at = datetime('now') WHERE id = ?"
+      ).run(JSON.stringify({ error: 'Failed to process agent output' }), actionId);
+    }
+  });
+
+  child.on('error', (err) => {
+    db.prepare(
+      "UPDATE agent_actions SET status = 'failed', result = ?, completed_at = datetime('now') WHERE id = ?"
+    ).run(JSON.stringify({ error: `Spawn failed: ${err.message}`, harness }), actionId);
+  });
+
+  // Unref so the Node process doesn't wait for the child
+  child.unref();
 }
