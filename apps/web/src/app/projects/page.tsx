@@ -70,9 +70,7 @@ export default function ProjectsPage() {
 
   const q = search.trim().toLowerCase();
   const filteredProjects = q
-    ? sortedProjects.filter((p) =>
-        p.displayName.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
-      )
+    ? sortedProjects.filter((p) => p.displayName.toLowerCase().includes(q))
     : sortedProjects;
 
   const totalSessions = projects.reduce((s, p) => s + p.sessionCount, 0);
@@ -125,13 +123,14 @@ export default function ProjectsPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-        {filteredProjects.map((project) => (
+        {filteredProjects.map((project, idx) => (
           <ProjectCard
             key={project.name}
             project={project}
             activity={activityMap.get(project.name)}
             rangeDays={rangeDays}
             gitStatus={gitStatuses?.[project.name]}
+            heat={1 - idx / Math.max(filteredProjects.length, 1)}
           />
         ))}
       </div>
@@ -144,24 +143,39 @@ export default function ProjectsPage() {
   );
 }
 
+// Heat color: hot (recent) → cold (stale)
+// 1.0 = most recent, 0.0 = oldest
+function heatColor(heat: number): string {
+  if (heat > 0.85) return '#ef4444';  // red — very hot
+  if (heat > 0.65) return '#f97316';  // orange
+  if (heat > 0.45) return '#eab308';  // yellow
+  if (heat > 0.25) return '#22c55e';  // green
+  if (heat > 0.10) return '#3b82f6';  // blue — cool
+  return '#6b7280';                    // gray — cold
+}
+
 function ProjectCard({
   project,
   activity,
   rangeDays,
   gitStatus,
+  heat,
 }: {
   project: ProjectInfo;
   activity?: ProjectActivity;
   rangeDays: number;
   gitStatus?: GitStatus;
+  heat: number;
 }) {
+  const borderHeat = heatColor(heat);
   return (
     <Link
       href={`/projects/${encodeURIComponent(project.name)}`}
-      className="block rounded border p-4 transition-colors hover:border-[var(--color-accent)]"
+      className="block rounded p-4 transition-all hover:border-[var(--color-accent)]"
       style={{
         background: 'var(--color-surface)',
-        borderColor: 'var(--color-border)',
+        border: `1px solid var(--color-border)`,
+        borderLeft: `3px solid ${borderHeat}`,
       }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -195,12 +209,6 @@ function ProjectCard({
             >
               clean
             </span>
-          )}
-          {project.hasMemory && (
-            <span
-              className="w-2 h-2 rounded-full bg-[var(--color-accent)]"
-              title="Has MEMORY.md"
-            />
           )}
         </div>
       </div>
