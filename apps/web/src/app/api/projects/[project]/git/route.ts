@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { readFile, stat } from 'fs/promises';
+import { readFile, stat, unlink, appendFile } from 'fs/promises';
+import { join } from 'path';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
@@ -169,5 +170,71 @@ export async function POST(
     });
   } catch (err) {
     return NextResponse.json({ error: 'Commit failed', detail: String(err) }, { status: 500 });
+  }
+}
+
+// DELETE: remove a file or add it to .gitignore
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ project: string }> }
+) {
+  const { project } = await params;
+  const repoPath = await resolveRepoPath(project);
+  if (!repoPath) {
+    return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
+  }
+
+  try {
+    const body = await request.json();
+    const { file, action } = body;
+
+    if (!file || typeof file !== 'string') {
+      return NextResponse.json({ error: 'File path required' }, { status: 400 });
+    }
+
+    // Prevent path traversal
+    if (file.includes('..') || file.startsWith('/')) {
+      return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+    }
+
+    if (action === 'gitignore') {
+      // Append to .gitignore
+      const gitignorePath = join(repoPath, '.gitignore');
+      const entry = file + '\n';
+      // Check if already in .gitignore
+      try {
+        const existing = await readFile(gitignorePath, 'utf-8');
+        if (existing.split('\n').some((l) => l.trim() === file.trim())) {
+          return NextResponse.json({ success: true, action: 'gitignore', note: 'Already in .gitignore' });
+        }
+        // Ensure we append on a new line
+        const needsNewline = existing.length > 0 && !existing.endsWith('\n');
+        await appendFile(gitignorePath, (needsNewline ? '\n' : '') + entry);
+      } catch {
+        // .gitignore doesn't exist yet
+        await appendFile(gitignorePath, entry);
+      }
+      // Remove from git tracking if tracked
+      try {
+        await gitExec(repoPath, ['rm', '--cached', file]);
+      } catch { /* not tracked — that's fine */ }
+      return NextResponse.json({ success: true, action: 'gitignore', file });
+    }
+
+    if (action === 'delete') {
+      const fullPath = join(repoPath, file);
+      // Remove from git index first (handles both tracked and staged)
+      try {
+        await gitExec(repoPath, ['rm', '-f', file]);
+      } catch {
+        // Not tracked — delete from filesystem directly
+        await unlink(fullPath);
+      }
+      return NextResponse.json({ success: true, action: 'delete', file });
+    }
+
+    return NextResponse.json({ error: 'Unknown action — use "delete" or "gitignore"' }, { status: 400 });
+  } catch (err) {
+    return NextResponse.json({ error: 'File operation failed', detail: String(err) }, { status: 500 });
   }
 }
