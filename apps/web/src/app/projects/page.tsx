@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ProjectInfo } from '@unturf/unfirehose/types';
@@ -24,6 +25,7 @@ interface ProjectActivity {
 export default function ProjectsPage() {
   const [range, setRange] = useTimeRange('projects_range', '28d');
   const rangeDays = Math.max(1, Math.ceil((getTimeRangeMinutes(range) || 60 * 24 * 365) / 60 / 24));
+  const [search, setSearch] = useState('');
 
   const { data: projects, error } = useSWR<ProjectInfo[]>(
     '/api/projects',
@@ -55,6 +57,13 @@ export default function ProjectsPage() {
     return bTime.localeCompare(aTime);
   });
 
+  const filteredProjects = search.trim()
+    ? sortedProjects.filter((p) => {
+        const q = search.toLowerCase();
+        return p.displayName.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
+      })
+    : sortedProjects;
+
   const totalSessions = projects.reduce((s, p) => s + p.sessionCount, 0);
   const totalMessages = projects.reduce((s, p) => s + p.totalMessages, 0);
   const totalCost = (activity ?? []).reduce((s, a) => s + (a.cost_estimate ?? 0), 0);
@@ -72,11 +81,11 @@ export default function ProjectsPage() {
         }}
         details={sortedProjects.map((p) => `${p.displayName}: ${p.sessionCount} sessions, ${p.totalMessages} messages${p.hasMemory ? ' [has memory]' : ''}`).join('\n')}
       />
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <h2 className="text-lg font-bold">
           Projects{' '}
           <span className="text-[var(--color-muted)] font-normal">
-            ({projects.length})
+            ({filteredProjects.length}{search ? ` / ${projects.length}` : ''})
           </span>
         </h2>
         <div className="flex gap-3 text-sm text-[var(--color-muted)]">
@@ -84,12 +93,27 @@ export default function ProjectsPage() {
           <span>{totalMessages.toLocaleString()} messages</span>
           {totalCost > 0 && <span className="text-[var(--color-accent)]">${totalCost.toFixed(0)} / {rangeDays}d</span>}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search projects..."
+              className="pl-8 pr-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] w-56"
+            />
+            <svg className="absolute left-2.5 top-2 w-3.5 h-3.5 text-[var(--color-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1.5 text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-xs">✕</button>
+            )}
+          </div>
           <TimeRangeSelect value={range} onChange={setRange} />
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-        {sortedProjects.map((project) => (
+        {filteredProjects.map((project) => (
           <ProjectCard
             key={project.name}
             project={project}
@@ -98,6 +122,11 @@ export default function ProjectsPage() {
           />
         ))}
       </div>
+      {filteredProjects.length === 0 && search && (
+        <div className="text-center py-12 text-[var(--color-muted)]">
+          No projects matching &ldquo;{search}&rdquo;
+        </div>
+      )}
     </div>
   );
 }

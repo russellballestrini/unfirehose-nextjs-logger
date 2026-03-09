@@ -133,6 +133,13 @@ export default function ProjectPage({
     fetcher
   );
 
+  // File tree data (for code tab)
+  const [treePath, setTreePath] = useState('');
+  const { data: treeData } = useSWR<any>(
+    tab === 'code' ? `/api/projects/${project}/tree?path=${encodeURIComponent(treePath)}` : null,
+    fetcher
+  );
+
   function resolveHarness(): string {
     if (harness === 'custom') return customCmd.trim() || 'claude';
     return HARNESSES.find(h => h.value === harness)?.cmd ?? 'claude';
@@ -399,7 +406,7 @@ export default function ProjectPage({
         <TokensTab full={full} thisActivity={thisActivity} globalTotals={globalTotals} />
       )}
       {tab === 'code' && (
-        <CodeTab gitData={gitData} mutateGit={mutateGit} project={project} />
+        <CodeTab gitData={gitData} mutateGit={mutateGit} project={project} treeData={treeData} treePath={treePath} setTreePath={setTreePath} />
       )}
     </div>
   );
@@ -1033,11 +1040,12 @@ function TokensTab({ full, thisActivity, globalTotals }: any) {
 }
 
 /* ─── CODE TAB ─── */
-function CodeTab({ gitData, mutateGit, project }: any) {
+function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath }: any) {
   const [commitMsg, setCommitMsg] = useState('');
   const [committing, setCommitting] = useState(false);
   const [commitResult, setCommitResult] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+  const [codeView, setCodeView] = useState<'files' | 'changes'>('files');
 
   async function handleCommit(addAll: boolean) {
     if (!commitMsg.trim() || committing) return;
@@ -1081,128 +1089,338 @@ function CodeTab({ gitData, mutateGit, project }: any) {
     setCommitting(false);
   }
 
-  if (!gitData) return <p className="text-[var(--color-muted)]">Loading git status...</p>;
-  if (gitData.error) return <p className="text-[var(--color-error)]">{gitData.error}</p>;
-
   const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-    'M': { label: 'Modified', color: '#fbbf24' },
-    'A': { label: 'Added', color: '#22c55e' },
-    'D': { label: 'Deleted', color: '#ef4444' },
-    '??': { label: 'Untracked', color: '#8b5cf6' },
-    'R': { label: 'Renamed', color: '#60a5fa' },
-    'MM': { label: 'Modified', color: '#fbbf24' },
-    'AM': { label: 'Added+Modified', color: '#22c55e' },
+    'M': { label: 'M', color: '#fbbf24' },
+    'A': { label: 'A', color: '#22c55e' },
+    'D': { label: 'D', color: '#ef4444' },
+    '??': { label: '?', color: '#8b5cf6' },
+    'R': { label: 'R', color: '#60a5fa' },
+    'MM': { label: 'M', color: '#fbbf24' },
+    'AM': { label: 'A', color: '#22c55e' },
   };
 
+  const FILE_ICONS: Record<string, string> = {
+    tree: '📁', ts: '🟦', tsx: '⚛️', js: '🟨', jsx: '⚛️',
+    py: '🐍', rs: '🦀', go: '🐹', c: '⚙️', h: '⚙️', cu: '🟩',
+    md: '📝', json: '📋', yaml: '📋', yml: '📋', toml: '📋',
+    css: '🎨', html: '🌐', sh: '🐚', sql: '🗄️', mojo: '🔥',
+    txt: '📄', Makefile: '🔧', Dockerfile: '🐳',
+  };
+
+  function fileIcon(name: string, type: string) {
+    if (type === 'tree') return FILE_ICONS.tree;
+    const ext = name.includes('.') ? name.split('.').pop()! : name;
+    return FILE_ICONS[ext] || '📄';
+  }
+
+  function fmtSize(bytes: number) {
+    if (bytes === 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  // Breadcrumb from treePath
+  const pathParts = treePath ? treePath.split('/') : [];
+  const breadcrumbs = pathParts.map((part: string, i: number) => ({
+    name: part,
+    path: pathParts.slice(0, i + 1).join('/'),
+  }));
+
+  const changedCount = gitData?.files?.length ?? 0;
+
   return (
-    <div className="space-y-6">
-      {/* Branch + status */}
+    <div className="space-y-4">
+      {/* Branch bar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="font-mono text-sm bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-1 rounded">
-          {gitData.branch}
-        </span>
-        {gitData.isDirty ? (
-          <span className="text-xs px-2 py-1 rounded bg-yellow-400/10 text-yellow-400">{gitData.files.length} changed files</span>
-        ) : (
-          <span className="text-xs px-2 py-1 rounded bg-green-400/10 text-green-400">working tree clean</span>
+        {(gitData?.branch || treeData?.branch) && (
+          <span className="font-mono text-sm bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2.5 py-1 rounded flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg>
+            {gitData?.branch || treeData?.branch}
+          </span>
         )}
-        <span className="text-xs text-[var(--color-muted)] font-mono">{gitData.repoPath}</span>
+        {gitData && gitData.isDirty ? (
+          <span className="text-xs px-2 py-1 rounded bg-yellow-400/10 text-yellow-400 font-bold">{changedCount} changed</span>
+        ) : gitData && !gitData.error ? (
+          <span className="text-xs px-2 py-1 rounded bg-green-400/10 text-green-400">clean</span>
+        ) : null}
+        {(gitData?.repoPath || treeData?.repoPath) && (
+          <span className="text-xs text-[var(--color-muted)] font-mono ml-auto">{gitData?.repoPath || treeData?.repoPath}</span>
+        )}
       </div>
 
-      {/* Changed files */}
-      {gitData.files.length > 0 && (
-        <div className="border border-[var(--color-border)] rounded">
-          <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
-            <h3 className="text-sm font-bold text-[var(--color-muted)]">Changed Files</h3>
-            <button onClick={() => setShowDiff(!showDiff)} className="text-xs text-[var(--color-accent)] hover:underline">
-              {showDiff ? 'Hide diff' : 'Show diff'}
-            </button>
-          </div>
-          <div className="divide-y divide-[var(--color-border)]">
-            {gitData.files.map((f: any, i: number) => {
-              const s = STATUS_LABELS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
-              return (
-                <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm font-mono hover:bg-[var(--color-surface-hover)]">
-                  <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
-                    {s.label}
-                  </span>
-                  <span className="truncate">{f.file}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Diff */}
-      {showDiff && gitData.diff && (
-        <div className="border border-[var(--color-border)] rounded">
-          <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-            <h3 className="text-sm font-bold text-[var(--color-muted)]">Diff</h3>
-          </div>
-          <pre className="text-xs p-4 overflow-auto max-h-[500px] font-mono leading-relaxed">
-            {gitData.diff.split('\n').map((line: string, i: number) => {
-              let color = 'inherit';
-              if (line.startsWith('+') && !line.startsWith('+++')) color = '#22c55e';
-              else if (line.startsWith('-') && !line.startsWith('---')) color = '#ef4444';
-              else if (line.startsWith('@@')) color = '#60a5fa';
-              else if (line.startsWith('diff ') || line.startsWith('index ')) color = 'var(--color-muted)';
-              return <div key={i} style={{ color }}>{line || ' '}</div>;
-            })}
-          </pre>
-        </div>
-      )}
-
-      {/* Diff stat */}
-      {gitData.diffStat && (
-        <div className="text-xs font-mono text-[var(--color-muted)] whitespace-pre">{gitData.diffStat}</div>
-      )}
-
-      {/* Commit form */}
-      {gitData.isDirty && (
-        <div className="border border-[var(--color-border)] rounded p-4 bg-[var(--color-surface)] space-y-3">
-          <h3 className="text-sm font-bold text-[var(--color-muted)]">Commit</h3>
-          <input
-            type="text"
-            value={commitMsg}
-            onChange={(e) => setCommitMsg(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCommit(true); } }}
-            placeholder="Commit message..."
-            className="w-full px-3 py-2 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)]"
-          />
-          <div className="flex gap-2">
-            <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || committing}
-              className="px-3 py-1.5 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
-              Commit tracked
-            </button>
-            <button onClick={() => handleCommit(true)} disabled={!commitMsg.trim() || committing}
-              className="px-3 py-1.5 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40">
-              Commit all
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Push button */}
-      {!gitData.isDirty && gitData.recentCommits && (
-        <button onClick={handlePush} disabled={committing}
-          className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
-          Push
+      {/* View toggle: Files / Changes */}
+      <div className="flex gap-1 border-b border-[var(--color-border)]">
+        <button
+          onClick={() => setCodeView('files')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${codeView === 'files' ? 'border-[var(--color-accent)] text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+        >
+          <span className="flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z"/></svg>
+            Files
+          </span>
         </button>
+        <button
+          onClick={() => setCodeView('changes')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${codeView === 'changes' ? 'border-[var(--color-accent)] text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+        >
+          <span className="flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/></svg>
+            Changes {changedCount > 0 && <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-yellow-400/20 text-yellow-400">{changedCount}</span>}
+          </span>
+        </button>
+      </div>
+
+      {/* ─── FILE BROWSER ─── */}
+      {codeView === 'files' && (
+        <div className="space-y-4">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1 text-sm font-mono flex-wrap">
+            <button onClick={() => setTreePath('')} className="text-[var(--color-accent)] hover:underline font-bold">
+              root
+            </button>
+            {breadcrumbs.map((bc: any) => (
+              <span key={bc.path} className="flex items-center gap-1">
+                <span className="text-[var(--color-muted)]">/</span>
+                <button onClick={() => setTreePath(bc.path)} className="text-[var(--color-accent)] hover:underline">
+                  {bc.name}
+                </button>
+              </span>
+            ))}
+          </div>
+
+          {/* Tree loading / error */}
+          {!treeData && <div className="text-[var(--color-muted)] py-8 text-center">Loading file tree...</div>}
+          {treeData?.error && <div className="text-[var(--color-error)] py-4">{treeData.error}</div>}
+
+          {/* Directory listing */}
+          {treeData?.type === 'tree' && (
+            <div className="border border-[var(--color-border)] rounded overflow-hidden">
+              {/* Header: last commit */}
+              {treeData.lastCommit && (
+                <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
+                  <span className="font-mono text-xs text-[var(--color-accent)]">{treeData.lastCommit.hash?.slice(0, 7)}</span>
+                  <span className="text-[var(--color-foreground)] truncate flex-1">{treeData.lastCommit.message}</span>
+                  <span className="text-[var(--color-muted)] shrink-0">{treeData.lastCommit.age}</span>
+                </div>
+              )}
+              {/* Go up */}
+              {treePath && (
+                <button
+                  onClick={() => {
+                    const parts = treePath.split('/');
+                    parts.pop();
+                    setTreePath(parts.join('/'));
+                  }}
+                  className="w-full px-4 py-2 text-sm font-mono text-left hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] text-[var(--color-muted)] flex items-center gap-3"
+                >
+                  <span>📁</span>
+                  <span>..</span>
+                </button>
+              )}
+              {/* Entries */}
+              {treeData.entries?.map((entry: any) => (
+                <button
+                  key={entry.name}
+                  onClick={() => {
+                    const newPath = treePath ? `${treePath}/${entry.name}` : entry.name;
+                    setTreePath(newPath);
+                  }}
+                  className="w-full px-4 py-2 text-sm font-mono text-left hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0 flex items-center gap-3 group"
+                >
+                  <span className="w-5 text-center shrink-0">{fileIcon(entry.name, entry.type)}</span>
+                  <span className={`flex-1 truncate ${entry.type === 'tree' ? 'font-bold text-[var(--color-foreground)]' : 'text-[var(--color-foreground)]'} group-hover:text-[var(--color-accent)]`}>
+                    {entry.name}
+                  </span>
+                  {entry.size > 0 && (
+                    <span className="text-xs text-[var(--color-muted)] shrink-0">{fmtSize(entry.size)}</span>
+                  )}
+                </button>
+              ))}
+              {treeData.entries?.length === 0 && (
+                <div className="px-4 py-8 text-center text-[var(--color-muted)]">Empty directory</div>
+              )}
+            </div>
+          )}
+
+          {/* File content viewer */}
+          {treeData?.type === 'file' && (
+            <div className="border border-[var(--color-border)] rounded overflow-hidden">
+              {/* File header */}
+              <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
+                <span>{fileIcon(treeData.name, 'blob')}</span>
+                <span className="font-mono font-bold">{treeData.name}</span>
+                <span className="text-[var(--color-muted)]">{fmtSize(treeData.size)}</span>
+                {treeData.language && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">{treeData.language}</span>
+                )}
+                {treeData.lastCommit && (
+                  <span className="ml-auto text-xs text-[var(--color-muted)]">
+                    <span className="font-mono text-[var(--color-accent)]">{treeData.lastCommit.hash?.slice(0, 7)}</span>
+                    {' '}{treeData.lastCommit.message} · {treeData.lastCommit.age}
+                  </span>
+                )}
+              </div>
+              {/* Line-numbered content */}
+              <div className="overflow-auto max-h-[700px]">
+                <table className="w-full text-xs font-mono border-collapse">
+                  <tbody>
+                    {(treeData.content || '').split('\n').map((line: string, i: number) => (
+                      <tr key={i} className="hover:bg-[var(--color-surface-hover)]">
+                        <td className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] w-1 whitespace-nowrap opacity-50">
+                          {i + 1}
+                        </td>
+                        <td className="px-3 py-0 whitespace-pre">{line || ' '}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* README */}
+          {treeData?.readme && !treePath && (
+            <div className="border border-[var(--color-border)] rounded overflow-hidden">
+              <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-2 text-sm">
+                <span>📝</span>
+                <span className="font-bold">README.md</span>
+              </div>
+              <pre className="text-sm p-4 overflow-auto max-h-[400px] font-mono leading-relaxed whitespace-pre-wrap">{treeData.readme}</pre>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Commit result */}
-      {commitResult && (
-        <p className={`text-sm font-mono ${commitResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
-          {commitResult}
-        </p>
-      )}
+      {/* ─── CHANGES VIEW (git status + commit) ─── */}
+      {codeView === 'changes' && (
+        <div className="space-y-4">
+          {!gitData && <div className="text-[var(--color-muted)] py-8 text-center">Loading git status...</div>}
+          {gitData?.error && <div className="text-[var(--color-error)] py-4">{gitData.error}</div>}
 
-      {/* Recent commits (from git log) */}
-      {gitData.recentCommits && (
-        <div className="border border-[var(--color-border)] rounded p-4">
-          <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">Recent Commits</h3>
-          <pre className="text-xs font-mono text-[var(--color-muted)] whitespace-pre-wrap">{gitData.recentCommits}</pre>
+          {gitData && !gitData.error && (
+            <>
+              {/* Changed files */}
+              {gitData.files?.length > 0 ? (
+                <div className="border border-[var(--color-border)] rounded overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
+                    <h3 className="text-sm font-bold">{changedCount} changed files</h3>
+                    <button onClick={() => setShowDiff(!showDiff)} className="text-xs text-[var(--color-accent)] hover:underline">
+                      {showDiff ? 'Hide diff' : 'Show diff'}
+                    </button>
+                  </div>
+                  {gitData.files.map((f: any, i: number) => {
+                    const s = STATUS_LABELS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
+                    return (
+                      <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm font-mono hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0">
+                        <span className="w-5 h-5 rounded flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
+                          {s.label}
+                        </span>
+                        <button
+                          onClick={() => { setTreePath(f.file); setCodeView('files'); }}
+                          className="truncate text-left hover:text-[var(--color-accent)] hover:underline"
+                        >
+                          {f.file}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="border border-[var(--color-border)] rounded p-8 text-center text-[var(--color-muted)]">
+                  <div className="text-2xl mb-2">✓</div>
+                  Working tree clean — nothing to commit
+                </div>
+              )}
+
+              {/* Diff */}
+              {showDiff && gitData.diff && (
+                <div className="border border-[var(--color-border)] rounded overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                    <h3 className="text-sm font-bold">Unified Diff</h3>
+                  </div>
+                  <pre className="text-xs p-4 overflow-auto max-h-[600px] font-mono leading-relaxed">
+                    {gitData.diff.split('\n').map((line: string, i: number) => {
+                      let color = 'inherit';
+                      let bg = 'transparent';
+                      if (line.startsWith('+') && !line.startsWith('+++')) { color = '#22c55e'; bg = 'rgba(34,197,94,0.08)'; }
+                      else if (line.startsWith('-') && !line.startsWith('---')) { color = '#ef4444'; bg = 'rgba(239,68,68,0.08)'; }
+                      else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96,165,250,0.06)'; }
+                      else if (line.startsWith('diff ') || line.startsWith('index ')) color = 'var(--color-muted)';
+                      return <div key={i} style={{ color, backgroundColor: bg, marginLeft: '-16px', marginRight: '-16px', paddingLeft: '16px', paddingRight: '16px' }}>{line || ' '}</div>;
+                    })}
+                  </pre>
+                </div>
+              )}
+
+              {/* Commit form */}
+              {gitData.isDirty && (
+                <div className="border border-[var(--color-border)] rounded p-4 bg-[var(--color-surface)] space-y-3">
+                  <h3 className="text-sm font-bold">Commit changes</h3>
+                  <input
+                    type="text"
+                    value={commitMsg}
+                    onChange={(e) => setCommitMsg(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCommit(true); } }}
+                    placeholder="Commit message..."
+                    className="w-full px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || committing}
+                      className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
+                      Commit tracked
+                    </button>
+                    <button onClick={() => handleCommit(true)} disabled={!commitMsg.trim() || committing}
+                      className="px-4 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40">
+                      Commit all
+                    </button>
+                    <button onClick={handlePush} disabled={committing}
+                      className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 ml-auto">
+                      Push
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Push when clean */}
+              {!gitData.isDirty && gitData.recentCommits && (
+                <div className="flex gap-2">
+                  <button onClick={handlePush} disabled={committing}
+                    className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
+                    Push
+                  </button>
+                </div>
+              )}
+
+              {/* Commit result */}
+              {commitResult && (
+                <p className={`text-sm font-mono ${commitResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
+                  {commitResult}
+                </p>
+              )}
+
+              {/* Recent commits */}
+              {gitData.recentCommits && (
+                <div className="border border-[var(--color-border)] rounded overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                    <h3 className="text-sm font-bold">Recent commits</h3>
+                  </div>
+                  <div className="divide-y divide-[var(--color-border)]">
+                    {gitData.recentCommits.split('\n').filter(Boolean).map((line: string, i: number) => {
+                      const hash = line.slice(0, 7);
+                      const msg = line.slice(8);
+                      return (
+                        <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm hover:bg-[var(--color-surface-hover)]">
+                          <span className="font-mono text-xs text-[var(--color-accent)] shrink-0">{hash}</span>
+                          <span className="truncate">{msg}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

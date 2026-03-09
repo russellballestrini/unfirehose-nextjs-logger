@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { readFile } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
@@ -16,14 +16,39 @@ function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> 
   });
 }
 
+async function resolvePathFromName(name: string): Promise<string | null> {
+  const parts = name.replace(/^-/, '').split('-');
+  const gitIdx = parts.lastIndexOf('git');
+  if (gitIdx < 0 || gitIdx >= parts.length - 1) return null;
+  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
+  const projectParts = parts.slice(gitIdx + 1);
+
+  // Try exact dash-joined name
+  const dashJoined = prefix + '/' + projectParts.join('-');
+  try { if ((await stat(dashJoined)).isDirectory()) return dashJoined; } catch {}
+
+  // Try TLD patterns (e.g. unsandbox-com → unsandbox.com)
+  if (projectParts.length >= 2) {
+    const lastPart = projectParts[projectParts.length - 1];
+    if (['com', 'net', 'org', 'io', 'dev', 'ai', 'app'].includes(lastPart)) {
+      const dotted = prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + lastPart;
+      try { if ((await stat(dotted)).isDirectory()) return dotted; } catch {}
+      const allDots = prefix + '/' + projectParts.join('.');
+      try { if ((await stat(allDots)).isDirectory()) return allDots; } catch {}
+    }
+  }
+  return null;
+}
+
 async function resolveRepoPath(projectName: string): Promise<string | null> {
+  // Try sessions-index.json first
   try {
     const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
     const index: SessionsIndex = JSON.parse(raw);
-    return index.originalPath ?? null;
-  } catch {
-    return null;
-  }
+    if (index.originalPath) return index.originalPath;
+  } catch {}
+  // Fall back to deriving from project directory name
+  return resolvePathFromName(projectName);
 }
 
 // GET: return git status + diff for a project
