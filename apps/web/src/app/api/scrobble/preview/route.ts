@@ -83,6 +83,7 @@ export async function GET() {
       SELECT p.id, p.name, p.display_name, p.path,
              COALESCE(pv.visibility, 'private') as visibility,
              pv.auto_detected,
+             pv.updated_at as vis_updated_at,
              COUNT(DISTINCT s.id) as session_count,
              COUNT(m.id) as message_count,
              SUM(m.input_tokens) as total_input,
@@ -97,8 +98,9 @@ export async function GET() {
       ORDER BY p.display_name
     `).all() as any[];
 
-    // Only detect remotes for projects that haven't been checked yet (no auto_detected value)
-    const unchecked = projects.filter(p => p.path && !p.auto_detected);
+    // Re-check projects with no auto_detected, or where detection is >24h stale
+    const staleThreshold = new Date(Date.now() - 24 * 3600000).toISOString();
+    const unchecked = projects.filter(p => p.path && (!p.auto_detected || (p.vis_updated_at && p.vis_updated_at < staleThreshold)));
 
     if (unchecked.length > 0) {
       const upsertVis = db.prepare(`
