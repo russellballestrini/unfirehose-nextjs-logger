@@ -13,9 +13,11 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlparse
 
 BASE = "http://localhost:3000"
 
@@ -23,28 +25,28 @@ def update_base(url: str):
     global BASE
     BASE = url
 
-# ─── Route definitions ───────────────────────────────────────────────
 
-# Pages (GET, expect HTML)
-PAGES = [
-    "/",
-    "/live",
-    "/active",
-    "/logs",
-    "/thinking",
-    "/todos",
-    "/todos/graph",
-    "/projects",
-    "/tokens",
-    "/settings",
-    "/styleguide",
-    "/schema",
-    "/scrobble",
-    "/training",
-    "/permacomputer",
-    "/permacomputer/unsandbox",
-    "/blog",
-    "/keys",
+def discover_pages_from_sitemap() -> list[str]:
+    """Pull page list from /sitemap?format=xml instead of hardcoding."""
+    try:
+        req = urllib.request.Request(f"{BASE}/sitemap?format=xml")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            root = ET.fromstring(resp.read())
+        ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+        pages = []
+        for loc in root.findall('.//s:url/s:loc', ns):
+            path = urlparse(loc.text).path
+            pages.append(path if path else "/")
+        return pages
+    except Exception as e:
+        print(f"  Warning: sitemap unavailable ({e}), using fallback list")
+        return PAGES_FALLBACK
+
+
+# Fallback if sitemap is unreachable
+PAGES_FALLBACK = [
+    "/", "/live", "/active", "/logs", "/thinking", "/todos",
+    "/projects", "/tokens", "/settings", "/schema", "/permacomputer",
 ]
 
 # API routes (GET, expect JSON)
@@ -368,10 +370,17 @@ def main():
         print(f"ERROR: Server not reachable at {BASE}")
         sys.exit(1)
 
+    print(f"Discovering pages from sitemap...")
+    pages = discover_pages_from_sitemap()
+    # Add pages not in sitemap (sub-routes, graph views)
+    extra_pages = ["/todos/graph"]
+    pages = pages + [p for p in extra_pages if p not in pages]
+    print(f"  {len(pages)} pages from sitemap")
+
     print(f"Resolving dynamic routes...")
     dynamic = resolve_dynamic_routes()
 
-    all_urls = PAGES + API_ROUTES + dynamic
+    all_urls = pages + API_ROUTES + dynamic
 
     # Deduplicate
     seen = set()
