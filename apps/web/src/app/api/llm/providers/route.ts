@@ -64,25 +64,28 @@ export async function GET() {
     { id: 'qwen-mesh', name: 'Qwen 3 Coder (mesh)', url: 'https://qwen.ai.unturf.com' },
     { id: 'hermes-mesh', name: 'Hermes 3 (mesh)', url: 'https://hermes.ai.unturf.com' },
   ];
-  for (const ep of meshEndpoints) {
-    try {
+  const meshResults = await Promise.allSettled(
+    meshEndpoints.map(async (ep) => {
       const res = await fetch(`${ep.url}/v1/models`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const data = await res.json();
-        const model = data?.data?.[0]?.id;
-        if (model) {
-          providers.push({
-            id: ep.id,
-            name: ep.name,
-            source: 'filesystem',
-            type: 'openai-compatible',
-            model,
-            ready: true,
-            detail: `${ep.url} — local mesh inference, no API key`,
-          });
-        }
-      }
-    } catch { /* mesh unreachable */ }
+      if (!res.ok) return null;
+      const data = await res.json();
+      const model = data?.data?.[0]?.id;
+      if (!model) return null;
+      return {
+        id: ep.id,
+        name: ep.name,
+        source: 'filesystem' as const,
+        type: 'openai-compatible' as const,
+        model,
+        ready: true,
+        detail: `${ep.url} — local mesh inference, no API key`,
+      };
+    })
+  );
+  for (const result of meshResults) {
+    if (result.status === 'fulfilled' && result.value) {
+      providers.push(result.value);
+    }
   }
 
   return NextResponse.json({ providers });
