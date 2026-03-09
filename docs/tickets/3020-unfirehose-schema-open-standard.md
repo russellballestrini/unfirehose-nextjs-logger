@@ -25,7 +25,7 @@ unfirehose/1.0 proposes to fix this: one append-only JSONL schema that any harne
 The spec exists as `@unturf/unfirehose-schema` 1.0.0 on npm:
 - 8 JSON Schema files (message, session, content-block, usage, todo, project, metric, tool-definition)
 - TypeScript type definitions
-- 16 harness adapter docs (claude-code, gemini-cli, codex, aider, cursor, continue.dev, ollama, agnt, etc.)
+- 17 harness adapter docs (claude-code, gemini-cli, codex, aider, cursor, continue.dev, ollama, pi, agnt, etc.)
 - Canonical format doc with field maps for Anthropic, OpenAI, and Google APIs
 
 The spec was proposed by Claude Opus using unfirehose's collection needs as the driving use case — a pragmatic mirror of what you'd want from a harness at rest.
@@ -65,13 +65,15 @@ export default function (pi: ExtensionAPI) {
 
 Extensions can add/replace tools, intercept events (`tool_call`, lifecycle hooks), add sub-agents, plan mode, MCP integration, custom compaction, permission gates, UI widgets, git checkpointing. Discovery from `~/.pi/agent/extensions/`, `.pi/extensions/`, or npm packages with `pi.extensions` manifest.
 
-**Key insight: extensions are a distribution strategy for the spec.** Instead of asking harness maintainers to rewrite their logging core, ship an extension that bolts on:
+**Revised insight: replace, don't mirror.** Writing two JSONL files (native + unfirehose/1.0) violates single source of truth. One diverges, both rot. Three tiers, one source of truth each:
 
-- **For harnesses with extension systems** (pi, potentially agnt, continue.dev): ship `@unturf/unfirehose-extension-{harness}` that hooks lifecycle events and writes unfirehose/1.0 JSONL. Zero changes to the harness core.
-- **For uncloseai-cli**: an unfirehose extension could hook `tool_call` events to write JSONL in real-time, register `session_start`/`session_end` lifecycle for envelopes, attach usage/metric data per assistant response.
-- **For unfirehose itself**: the pattern applies to ingestion plugins (parse new harness formats) and output plugins (forward data to eval systems, training pipelines, Nathan's continuous learning loop).
+**Tier 1 — Native adopters** (agnt, uncloseai-cli): Write unfirehose/1.0 as their only session format. No adapter, no transform, best performance. These harnesses are ours or allied — we control the output.
 
-This is lower friction than "rewrite your logger" — it's "install this extension."
+**Tier 2 — Extension-capable harnesses** (pi, potentially continue.dev): Extension **replaces** the session writer, not mirrors it. pi's extension system can swap built-in components. The session file IS unfirehose/1.0. One file, one format. The harness adopts our format or the read-side adapter handles the difference — but never two write paths.
+
+**Tier 3 — Closed harnesses** (Claude Code, Cursor, Gemini CLI, aider): They write what they write. Unfirehose ingests with a read-side adapter. No duplication — the adapter is a transform on read, not a parallel write. Already built for 16 harnesses.
+
+The incentive structure: Tier 1 gets zero-overhead ingestion. Tier 2 gets near-zero with one extension install. Tier 3 pays the adapter tax on every read. Harnesses that care about observability performance move up tiers.
 
 ### 5. Community adoption path
 - Which harnesses are closest to native adoption? (agnt = native target, uncloseai-cli = planned)
@@ -107,4 +109,4 @@ This is lower friction than "rewrite your logger" — it's "install this extensi
 - The spec was born from pragmatic needs (unfirehose needed to ingest 16 different harness formats), not from committee design. That's a strength.
 - Nathan's eval/continuous learning angle is the most compelling adoption driver — if the spec can carry eval data alongside session traces, it becomes the substrate for self-improving agents, not just a logging format.
 - tryingET's pointer to pi-mono extensions is worth investigating for the "agent that modifies its own training harness" pattern that fox explicitly wants an overagent to handle.
-- **pi-mono extension pattern is the adoption play.** Don't ask harness maintainers to change their core — ship an extension/plugin that bolts on. For harnesses without extension systems, ship adapters. Two-track strategy: extensions where possible, adapters where necessary.
+- **Three-tier adoption, one source of truth each.** Tier 1 (native: agnt, uncloseai-cli) writes unfirehose/1.0 directly. Tier 2 (extensible: pi) replaces the session writer via extension. Tier 3 (closed: Claude Code, Cursor) gets a read-side adapter. Never write two files. The incentive: higher tier = less overhead.

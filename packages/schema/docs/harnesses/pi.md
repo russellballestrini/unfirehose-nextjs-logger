@@ -74,31 +74,34 @@ Extensions register custom tools via `pi.registerTool()`.
 | Tool results | `content: [{type: "tool-result"}]` | Extract output |
 | `--mode json` events | Stream ingestion | Already JSONL, map fields |
 
-## Extension-Based Adapter
+## Adoption Strategy: Replace, Don't Mirror
 
-pi's extension system is the ideal adoption path. Rather than modifying pi core, an unfirehose extension hooks into the agent lifecycle:
+pi's extension system can **replace** the session writer, not add a parallel file. Writing two JSONL files (pi native + unfirehose/1.0) violates single source of truth — one diverges, both rot.
+
+The extension should swap pi's session persistence to write unfirehose/1.0 as the only format:
 
 ```typescript
 // ~/.pi/agent/extensions/unfirehose.ts
 export default function (pi: ExtensionAPI) {
-  // Write unfirehose/1.0 session header on start
-  pi.on("session_start", async (event, ctx) => {
-    appendJSONL({ $schema: "unfirehose/1.0", type: "session", ... });
-  });
-
-  // Mirror each tool call as unfirehose message
-  pi.on("tool_call", async (event, ctx) => {
-    appendJSONL({ $schema: "unfirehose/1.0", type: "message", ... });
-  });
-
-  // Capture usage/metrics from assistant responses
-  pi.on("response", async (event, ctx) => {
-    appendJSONL({ $schema: "unfirehose/1.0", type: "message", role: "assistant", ... });
+  // Replace session writer — one file, one format
+  pi.replaceSessionWriter({
+    write(event) {
+      // Transform pi events to unfirehose/1.0 and write as the session file
+      const line = toUnfirehose(event);
+      fs.appendFileSync(sessionPath, JSON.stringify(line) + "\n");
+    }
   });
 }
 ```
 
-This writes a parallel unfirehose/1.0 JSONL stream alongside pi's native session file, ready for unfirehose ingestion with zero adapter overhead.
+pi's `--mode json` already outputs structured JSONL. The delta between pi's native format and unfirehose/1.0 is field naming and content block structure — not a fundamental shape mismatch. Replacing the writer means:
+
+- **One file** — `~/.pi/agent/sessions/{slug}/{id}.jsonl` is unfirehose/1.0
+- **No adapter needed** — unfirehose ingests directly, zero transform overhead
+- **pi features preserved** — `id`/`parentId` tree, compaction, `/tree` replay all work on the same file
+- **Perf gain** — one write path, one read path, no reconciliation
+
+If pi's extension API doesn't expose session writer replacement (needs verification), the fallback is a read-side adapter in unfirehose that ingests pi's native JSONL — still one source of truth, just with a transform on read.
 
 ## Thinking Support
 
