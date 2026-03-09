@@ -580,6 +580,11 @@ export default function UsageMonitorPage() {
                                     {aa.result.response.slice(0, 2000)}
                                   </div>
                                 )}
+                                {aa.result.stderr && (
+                                  <div className="mt-1 border-t border-[var(--color-border)] pt-1" style={{ color: 'var(--color-error)' }}>
+                                    {aa.result.stderr}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </>

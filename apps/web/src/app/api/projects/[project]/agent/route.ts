@@ -405,18 +405,22 @@ function spawnNudgeAgent(
   switch (harness) {
     case 'claude-code':
     default:
-      // claude -p runs non-interactively, respects CLAUDE.md in the repo
+      // claude -p reads prompt from stdin, respects CLAUDE.md in the repo
       cmd = 'claude';
-      args = ['-p', '--model', 'sonnet', '--output-format', 'json', prompt];
+      args = ['-p', '--model', 'sonnet', '--output-format', 'json'];
       break;
   }
 
   const child = spawn(cmd, args, {
     cwd: repoPath,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'nudge' },
     detached: true,
   });
+
+  // Pipe the prompt via stdin to avoid CLI argument length limits
+  child.stdin.write(prompt);
+  child.stdin.end();
 
   let stdout = '';
   let stderr = '';
@@ -429,16 +433,18 @@ function spawnNudgeAgent(
       let parsed: any = null;
       try { parsed = JSON.parse(stdout); } catch { /* not JSON */ }
 
+      const stderrClean = stderr.trim().slice(0, 1500);
       const result = {
         harness,
         exitCode: code,
         response: parsed?.result ?? stdout.slice(0, 5000),
-        stderr: stderr.slice(0, 1000) || undefined,
+        stderr: stderrClean || undefined,
         costUsd: parsed?.cost_usd ?? null,
         duration: parsed?.duration_ms ?? null,
         summary: code === 0
           ? `Agent finished (${harness})`
-          : `Agent exited with code ${code}`,
+          : `Agent exited with code ${code}${stderrClean ? ': ' + stderrClean.split('\n')[0] : ''}`,
+        severity: code === 0 ? 'ok' : 'error',
       };
 
       db.prepare(
