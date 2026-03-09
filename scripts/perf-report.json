@@ -1,0 +1,597 @@
+{
+  "timestamp": "2026-03-09T17:40:34Z",
+  "threshold_ms": 500.0,
+  "runs": 3,
+  "total_endpoints": 58,
+  "errors": 6,
+  "slow": 10,
+  "critical": 4,
+  "summary": {
+    "avg_ms": 449.3,
+    "p50_ms": 126.9,
+    "p95_ms": 1754.7,
+    "p99_ms": 7316.5
+  },
+  "results": [
+    {
+      "url": "/api/scrobble/preview",
+      "category": "api",
+      "status": 200,
+      "best_ms": 7316.5,
+      "avg_ms": 9168.3,
+      "size_bytes": 14470,
+      "error": null,
+      "severity": "CRITICAL"
+    },
+    {
+      "url": "/api/mesh",
+      "category": "api",
+      "status": 200,
+      "best_ms": 3666.4,
+      "avg_ms": 11486.6,
+      "size_bytes": 2360,
+      "error": null,
+      "severity": "CRITICAL"
+    },
+    {
+      "url": "/api/projects/-home-fox-git-unsandbox-com/tree",
+      "category": "api",
+      "status": 200,
+      "best_ms": 1754.7,
+      "avg_ms": 1822.0,
+      "size_bytes": 6395,
+      "error": null,
+      "severity": "CRITICAL"
+    },
+    {
+      "url": "/api/llm/providers",
+      "category": "api",
+      "status": 200,
+      "best_ms": 1571.8,
+      "avg_ms": 10875.4,
+      "size_bytes": 227,
+      "error": null,
+      "severity": "CRITICAL"
+    },
+    {
+      "url": "/api/projects/-home-fox-git-unsandbox-com/git",
+      "category": "api",
+      "status": 200,
+      "best_ms": 1014.4,
+      "avg_ms": 1414.5,
+      "size_bytes": 508,
+      "error": null,
+      "severity": "SLOW"
+    },
+    {
+      "url": "/projects/-home-fox-git-unsandbox-com/f3ac4f7c-8646-4291-8563-582aeb5f65db",
+      "category": "page",
+      "status": 200,
+      "best_ms": 911.6,
+      "avg_ms": 1198.6,
+      "size_bytes": 24133,
+      "error": null,
+      "severity": "SLOW"
+    },
+    {
+      "url": "/api/sessions/f3ac4f7c-8646-4291-8563-582aeb5f65db",
+      "category": "api",
+      "status": 400,
+      "best_ms": 797.9,
+      "avg_ms": 975.6,
+      "size_bytes": 0,
+      "error": "Bad Request",
+      "severity": "SLOW"
+    },
+    {
+      "url": "/api/tokens",
+      "category": "api",
+      "status": 200,
+      "best_ms": 714.9,
+      "avg_ms": 1412.3,
+      "size_bytes": 14825,
+      "error": null,
+      "severity": "SLOW"
+    },
+    {
+      "url": "/api/logs?limit=50",
+      "category": "api",
+      "status": 200,
+      "best_ms": 642.4,
+      "avg_ms": 884.4,
+      "size_bytes": 17166,
+      "error": null,
+      "severity": "SLOW"
+    },
+    {
+      "url": "/api/thinking?limit=50",
+      "category": "api",
+      "status": 200,
+      "best_ms": 588.8,
+      "avg_ms": 959.5,
+      "size_bytes": 35107,
+      "error": null,
+      "severity": "SLOW"
+    },
+    {
+      "url": "/api/projects/metadata",
+      "category": "api",
+      "status": 400,
+      "best_ms": 342.8,
+      "avg_ms": 619.4,
+      "size_bytes": 0,
+      "error": "Bad Request",
+      "severity": "ok"
+    },
+    {
+      "url": "/api/projects/activity",
+      "category": "api",
+      "status": 200,
+      "best_ms": 300.4,
+      "avg_ms": 405.7,
+      "size_bytes": 14413,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/usage/node/neoblanka",
+      "category": "page",
+      "status": 200,
+      "best_ms": 297.4,
+      "avg_ms": 812.1,
+      "size_bytes": 22470,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/dashboard",
+      "category": "api",
+      "status": 200,
+      "best_ms": 287.1,
+      "avg_ms": 311.8,
+      "size_bytes": 6739,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/alerts",
+      "category": "api",
+      "status": 200,
+      "best_ms": 277.7,
+      "avg_ms": 391.4,
+      "size_bytes": 840,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/usage",
+      "category": "api",
+      "status": 200,
+      "best_ms": 276.8,
+      "avg_ms": 614.5,
+      "size_bytes": 4849,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/projects/-home-fox-git-unsandbox-com",
+      "category": "page",
+      "status": 200,
+      "best_ms": 238.6,
+      "avg_ms": 10024.8,
+      "size_bytes": 22955,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/blog",
+      "category": "page",
+      "status": 200,
+      "best_ms": 238.0,
+      "avg_ms": 453.4,
+      "size_bytes": 21289,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/projects/-home-fox-git-unsandbox-com/kanban",
+      "category": "page",
+      "status": 200,
+      "best_ms": 235.5,
+      "avg_ms": 980.0,
+      "size_bytes": 23983,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/live",
+      "category": "page",
+      "status": 200,
+      "best_ms": 188.6,
+      "avg_ms": 379.8,
+      "size_bytes": 21708,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/",
+      "category": "page",
+      "status": 200,
+      "best_ms": 173.1,
+      "avg_ms": 326.5,
+      "size_bytes": 23078,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/todos/graph?project=-home-fox-git-unsandbox-com",
+      "category": "api",
+      "status": 200,
+      "best_ms": 169.9,
+      "avg_ms": 344.6,
+      "size_bytes": 199951,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/active",
+      "category": "page",
+      "status": 200,
+      "best_ms": 156.2,
+      "avg_ms": 319.3,
+      "size_bytes": 21721,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/todos",
+      "category": "page",
+      "status": 200,
+      "best_ms": 136.6,
+      "avg_ms": 347.9,
+      "size_bytes": 21713,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/scrobble",
+      "category": "page",
+      "status": 200,
+      "best_ms": 133.2,
+      "avg_ms": 214.0,
+      "size_bytes": 21744,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/todos/graph",
+      "category": "page",
+      "status": 200,
+      "best_ms": 132.4,
+      "avg_ms": 339.2,
+      "size_bytes": 22369,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/settings",
+      "category": "page",
+      "status": 200,
+      "best_ms": 131.3,
+      "avg_ms": 342.3,
+      "size_bytes": 21318,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/permacomputer",
+      "category": "page",
+      "status": 200,
+      "best_ms": 126.9,
+      "avg_ms": 216.7,
+      "size_bytes": 21359,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/logs",
+      "category": "page",
+      "status": 200,
+      "best_ms": 125.5,
+      "avg_ms": 307.4,
+      "size_bytes": 21714,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/styleguide",
+      "category": "page",
+      "status": 200,
+      "best_ms": 123.7,
+      "avg_ms": 333.7,
+      "size_bytes": 27248,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/training",
+      "category": "page",
+      "status": 200,
+      "best_ms": 122.3,
+      "avg_ms": 222.3,
+      "size_bytes": 24110,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/schema",
+      "category": "page",
+      "status": 200,
+      "best_ms": 122.2,
+      "avg_ms": 328.1,
+      "size_bytes": 21304,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/permacomputer/unsandbox",
+      "category": "page",
+      "status": 200,
+      "best_ms": 120.2,
+      "avg_ms": 216.9,
+      "size_bytes": 22618,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/todos",
+      "category": "api",
+      "status": 200,
+      "best_ms": 118.0,
+      "avg_ms": 141.4,
+      "size_bytes": 1507680,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/projects",
+      "category": "page",
+      "status": 200,
+      "best_ms": 118.0,
+      "avg_ms": 280.5,
+      "size_bytes": 21740,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/tokens",
+      "category": "page",
+      "status": 200,
+      "best_ms": 110.5,
+      "avg_ms": 342.4,
+      "size_bytes": 24412,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/mesh/node?hostname=neoblanka",
+      "category": "api",
+      "status": 400,
+      "best_ms": 100.4,
+      "avg_ms": 508.9,
+      "size_bytes": 0,
+      "error": "Bad Request",
+      "severity": "ok"
+    },
+    {
+      "url": "/api/sessions/f3ac4f7c-8646-4291-8563-582aeb5f65db/thinking",
+      "category": "api",
+      "status": 400,
+      "best_ms": 99.4,
+      "avg_ms": 842.6,
+      "size_bytes": 0,
+      "error": "Bad Request",
+      "severity": "ok"
+    },
+    {
+      "url": "/thinking",
+      "category": "page",
+      "status": 200,
+      "best_ms": 95.6,
+      "avg_ms": 339.2,
+      "size_bytes": 21736,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/blog",
+      "category": "api",
+      "status": 500,
+      "best_ms": 79.5,
+      "avg_ms": 185.1,
+      "size_bytes": 0,
+      "error": "Internal Server Error",
+      "severity": "ok"
+    },
+    {
+      "url": "/api/stats",
+      "category": "api",
+      "status": 200,
+      "best_ms": 75.0,
+      "avg_ms": 337.1,
+      "size_bytes": 7505,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/keys",
+      "category": "page",
+      "status": 200,
+      "best_ms": 74.5,
+      "avg_ms": 339.7,
+      "size_bytes": 21374,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/active-sessions",
+      "category": "api",
+      "status": 200,
+      "best_ms": 68.9,
+      "avg_ms": 91.9,
+      "size_bytes": 676,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/keys",
+      "category": "api",
+      "status": 404,
+      "best_ms": 62.4,
+      "avg_ms": 133.9,
+      "size_bytes": 0,
+      "error": "Not Found",
+      "severity": "ok"
+    },
+    {
+      "url": "/api/todos/summary",
+      "category": "api",
+      "status": 200,
+      "best_ms": 62.1,
+      "avg_ms": 88.6,
+      "size_bytes": 183,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/schema",
+      "category": "api",
+      "status": 200,
+      "best_ms": 47.6,
+      "avg_ms": 78.0,
+      "size_bytes": 1820,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/projects",
+      "category": "api",
+      "status": 200,
+      "best_ms": 41.6,
+      "avg_ms": 143.0,
+      "size_bytes": 10659,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/settings",
+      "category": "api",
+      "status": 200,
+      "best_ms": 38.1,
+      "avg_ms": 743.8,
+      "size_bytes": 1694,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/todos/pending?limit=20",
+      "category": "api",
+      "status": 200,
+      "best_ms": 33.6,
+      "avg_ms": 101.1,
+      "size_bytes": 2,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/projects/-home-fox-git-unsandbox-com/sessions",
+      "category": "api",
+      "status": 200,
+      "best_ms": 29.1,
+      "avg_ms": 437.2,
+      "size_bytes": 45098,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/todos/triage?project=-home-fox-git-unsandbox-com",
+      "category": "api",
+      "status": 200,
+      "best_ms": 22.7,
+      "avg_ms": 263.3,
+      "size_bytes": 86,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/todos/stale?days=7",
+      "category": "api",
+      "status": 200,
+      "best_ms": 20.7,
+      "avg_ms": 133.2,
+      "size_bytes": 45,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/mesh/rates",
+      "category": "api",
+      "status": 200,
+      "best_ms": 20.5,
+      "avg_ms": 20.9,
+      "size_bytes": 462,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/mesh/geoip",
+      "category": "api",
+      "status": 200,
+      "best_ms": 19.6,
+      "avg_ms": 459.8,
+      "size_bytes": 1413,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/sessions/stale",
+      "category": "api",
+      "status": 200,
+      "best_ms": 19.6,
+      "avg_ms": 114.0,
+      "size_bytes": 23804,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/mesh/history",
+      "category": "api",
+      "status": 200,
+      "best_ms": 18.0,
+      "avg_ms": 21.0,
+      "size_bytes": 16183,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/training",
+      "category": "api",
+      "status": 200,
+      "best_ms": 18.0,
+      "avg_ms": 47.7,
+      "size_bytes": 531,
+      "error": null,
+      "severity": "ok"
+    },
+    {
+      "url": "/api/ssh-config",
+      "category": "api",
+      "status": 200,
+      "best_ms": 15.6,
+      "avg_ms": 84.7,
+      "size_bytes": 798,
+      "error": null,
+      "severity": "ok"
+    }
+  ]
+}
