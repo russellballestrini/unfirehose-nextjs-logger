@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { ProjectInfo } from '@unturf/unfirehose/types';
@@ -312,21 +312,53 @@ function DirtyReposTab({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [details, setDetails] = useState<Record<string, RepoGitDetail | null>>({});
 
+  // Fetch git details for a single project
+  async function fetchDetail(name: string) {
+    try {
+      const res = await fetch(`/api/projects/${name}/git`);
+      const data = await res.json();
+      if (!data.error) {
+        setDetails((prev) => ({ ...prev, [name]: data }));
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Auto-expand all on mount
+  useEffect(() => {
+    if (projects.length === 0) return;
+    const allExpanded: Record<string, boolean> = {};
+    for (const p of projects) allExpanded[p.name] = true;
+    setExpanded(allExpanded);
+    // Fetch details for all projects in parallel
+    for (const p of projects) {
+      if (!details[p.name]) fetchDetail(p.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects.length]);
+
   // Toggle expand + lazy-fetch git details
   async function toggleExpand(project: ProjectInfo) {
     const name = project.name;
     const isOpen = expanded[name];
     setExpanded((prev) => ({ ...prev, [name]: !isOpen }));
     if (!isOpen && !details[name]) {
-      try {
-        const res = await fetch(`/api/projects/${name}/git`);
-        const data = await res.json();
-        if (!data.error) {
-          setDetails((prev) => ({ ...prev, [name]: data }));
-        }
-      } catch { /* ignore */ }
+      fetchDetail(name);
     }
   }
+
+  // Expand/collapse all
+  function expandAll() {
+    const allExpanded: Record<string, boolean> = {};
+    for (const p of projects) {
+      allExpanded[p.name] = true;
+      if (!details[p.name]) fetchDetail(p.name);
+    }
+    setExpanded(allExpanded);
+  }
+  function collapseAll() {
+    setExpanded({});
+  }
+  const allExpanded = projects.length > 0 && projects.every((p) => expanded[p.name]);
 
   const getAction = useCallback((name: string): RepoAction => {
     return actions[name] ?? { status: 'idle', message: '', commitMsg: '', result: '', provider: '' };
@@ -458,6 +490,15 @@ function DirtyReposTab({
           {totalReady > 0 && <>{' · '}<span className="font-bold" style={{ color: '#22c55e' }}>{totalReady}</span> ready to commit</>}
         </div>
         <div className="ml-auto flex gap-2">
+          <button
+            onClick={allExpanded ? collapseAll : expandAll}
+            className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] transition-colors flex items-center gap-1.5"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ transform: allExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+              <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" />
+            </svg>
+            {allExpanded ? 'Collapse All' : 'Expand All'}
+          </button>
           <button
             onClick={batchSuggest}
             disabled={batchRunning || totalDirty === 0}
