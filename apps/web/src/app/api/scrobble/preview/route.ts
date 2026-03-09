@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** Max unchecked projects to re-probe per request to bound response time */
-const MAX_RECHECK_BATCH = 5;
+const MAX_RECHECK_BATCH = 7;
 
 /** Parse a remote URL into a forge API check. Returns null if unsupported. */
 function parseRemoteForCheck(url: string): { apiUrl: string; webUrl: string } | null {
