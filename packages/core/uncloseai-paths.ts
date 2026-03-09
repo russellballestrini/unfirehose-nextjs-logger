@@ -17,4 +17,4 @@ export const uncloseaiPaths = {
 };
 
 // Re-export from canonical location — same encoding as Claude Code
-export { decodeProjectName as decodeUncloseaiProjectName } from './project-name.ts';
+export { decodeProjectName as decodeUncloseaiProjectName } from './project-name';

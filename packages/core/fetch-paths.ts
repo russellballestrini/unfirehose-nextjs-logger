@@ -24,4 +24,4 @@ export const fetchPaths = {
 };
 
 // Re-export from canonical location
-export { decodeProjectName as decodeFetchProjectName } from './project-name.ts';
+export { decodeProjectName as decodeFetchProjectName } from './project-name';

@@ -35,4 +35,4 @@ export const claudePaths = {
 };
 
 // Re-export from canonical location
-export { decodeProjectName, encodeProjectName, resolveProjectPath } from './project-name.ts';
+export { decodeProjectName, encodeProjectName, resolveProjectPath } from './project-name';
