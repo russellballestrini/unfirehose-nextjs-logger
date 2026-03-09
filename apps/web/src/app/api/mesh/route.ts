@@ -701,7 +701,12 @@ function round(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-export async function GET() {
+// ── Stale-while-revalidate cache ──────────────────────────────
+let meshCache: { data: any; ts: number } | null = null;
+let refreshing = false;
+const MESH_CACHE_TTL = 15_000; // 15 seconds
+
+async function probeMesh() {
   const nodeHosts = discoverNodes();
 
   // Probe all nodes in parallel — local is sync, remote is async
@@ -727,7 +732,7 @@ export async function GET() {
   let localHostname: string | undefined;
   try { localHostname = execSync('hostname', { encoding: 'utf-8' }).trim(); } catch {}
 
-  return NextResponse.json({
+  return {
     nodes: results,
     localHostname,
     summary: {
@@ -739,5 +744,32 @@ export async function GET() {
       totalMemUsedGB: round(totalMemUsedGB),
       totalPowerWatts: round(totalPowerWatts),
     },
-  });
+  };
+}
+
+export async function GET() {
+  const now = Date.now();
+
+  // Fresh cache — serve immediately
+  if (meshCache && (now - meshCache.ts) < MESH_CACHE_TTL) {
+    return NextResponse.json(meshCache.data);
+  }
+
+  // Stale cache — serve stale, trigger background refresh
+  if (meshCache && !refreshing) {
+    refreshing = true;
+    probeMesh().then(data => {
+      meshCache = { data, ts: Date.now() };
+      refreshing = false;
+    }).catch(() => {
+      refreshing = false;
+    });
+    return NextResponse.json(meshCache.data);
+  }
+
+  // Cold start (or stale + already refreshing) — probe synchronously
+  const data = await probeMesh();
+  meshCache = { data, ts: Date.now() };
+  refreshing = false;
+  return NextResponse.json(data);
 }
