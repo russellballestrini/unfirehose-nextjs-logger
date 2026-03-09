@@ -6,6 +6,94 @@ import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const PROXY_PORT = 8088;
+const PROXY_TIMEOUT = 5000;
+
+/**
+ * Refresh a live-proxy run's data from the training proxy.
+ * Called inline during detail GET so the 5s SWR poll always gets fresh data.
+ */
+async function refreshFromProxy(db: any, run: any) {
+  const host = run.source_host;
+  const model = run.model;
+  const runId = run.run_id;
+  const now = new Date().toISOString();
+
+  const maxStep = (field: string) => {
+    const row = db.prepare(
+      'SELECT COALESCE(MAX(step), -1) as v FROM training_events WHERE run_id = ? AND event_type = ?'
+    ).get(runId, field) as any;
+    return row?.v ?? -1;
+  };
+
+  // Loss
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROXY_TIMEOUT);
+    const res = await fetch(`http://${host}:${PROXY_PORT}/loss/${encodeURIComponent(model)}`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (res.ok) {
+      const data = await res.json();
+      const pts: [number, number][] = data.points ?? [];
+      const ms = maxStep('loss');
+      const fresh = pts.filter(([s]) => s > ms);
+      if (fresh.length) {
+        const ins = db.prepare(`
+          INSERT INTO training_events (run_id, event_type, step, loss, lr, text_content, checkpoint_path, size_bytes, eval_name, eval_score, ts)
+          VALUES (?, 'loss', ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?)
+        `);
+        db.transaction(() => { for (const [s, l] of fresh) ins.run(runId, s, l, now); })();
+      }
+    }
+  } catch { /* proxy unreachable */ }
+
+  // Checkpoints
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROXY_TIMEOUT);
+    const res = await fetch(`http://${host}:${PROXY_PORT}/checkpoints`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (res.ok) {
+      const data = await res.json();
+      const cps: any[] = (data.checkpoints ?? []).filter((cp: any) => !cp.model || cp.model === model);
+      const ms = maxStep('checkpoint');
+      const fresh = cps.filter((cp: any) => (cp.step ?? 0) > ms);
+      if (fresh.length) {
+        const ins = db.prepare(`
+          INSERT INTO training_events (run_id, event_type, step, loss, lr, text_content, checkpoint_path, size_bytes, eval_name, eval_score, ts)
+          VALUES (?, 'checkpoint', ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?)
+        `);
+        db.transaction(() => {
+          for (const cp of fresh) ins.run(runId, cp.step ?? 0, cp.type ?? null, cp.path ?? '', cp.size_bytes ?? null, now);
+        })();
+      }
+    }
+  } catch { /* */ }
+
+  // Samples
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROXY_TIMEOUT);
+    const res = await fetch(`http://${host}:${PROXY_PORT}/samples/${encodeURIComponent(model)}`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (res.ok) {
+      const data = await res.json();
+      const samples: any[] = data.samples ?? [];
+      const ms = maxStep('sample');
+      const fresh = samples.filter((s: any) => (s.step ?? 0) > ms);
+      if (fresh.length) {
+        const ins = db.prepare(`
+          INSERT INTO training_events (run_id, event_type, step, loss, lr, text_content, checkpoint_path, size_bytes, eval_name, eval_score, ts)
+          VALUES (?, 'sample', ?, ?, NULL, ?, NULL, NULL, NULL, NULL, ?)
+        `);
+        db.transaction(() => {
+          for (const s of fresh) ins.run(runId, s.step ?? 0, s.loss ?? null, s.text ?? s.content ?? '', now);
+        })();
+      }
+    }
+  } catch { /* */ }
+}
+
 interface TrainingEvent {
   type?: string;        // schema uses "type": "run.start" etc.
   event_type?: string;  // also accept event_type for flexibility
@@ -43,9 +131,14 @@ export async function GET(request: NextRequest) {
 
     // Single run detail
     if (runId) {
-      const run = db.prepare('SELECT * FROM training_runs WHERE run_id = ?').get(runId);
+      const run = db.prepare('SELECT * FROM training_runs WHERE run_id = ?').get(runId) as any;
       if (!run) {
         return NextResponse.json({ error: 'run not found' }, { status: 404 });
+      }
+
+      // Live-refresh from proxy for running runs (makes 5s polling work)
+      if (run.status === 'running' && run.source === 'live-proxy' && run.source_host) {
+        await refreshFromProxy(db, run);
       }
 
       const events = db.prepare(
