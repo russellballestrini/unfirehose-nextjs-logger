@@ -62,6 +62,15 @@
   --color-red-950: #3a0000;
 }
 
+/* Accent-tinted surface hover — derived from theme accent via color-mix.
+   This can't live in @theme inline (static values only), so we override here. */
+:root {
+  --color-surface-hover: color-mix(in srgb, var(--color-accent) 8%, #27272a);
+}
+:root.light {
+  --color-surface-hover: color-mix(in srgb, var(--color-accent) 8%, #e4e4e7);
+}
+
 body {
   background: var(--color-background);
   color: var(--color-foreground);
@@ -84,50 +93,50 @@ body {
   background: var(--color-muted);
 }
 
-/* Recharts overrides — force light text on dark backgrounds */
+/* Recharts overrides — use theme variables */
 .recharts-tooltip-wrapper {
   z-index: 100 !important;
 }
 .recharts-default-tooltip {
-  background: #18181b !important;
-  border: 1px solid #3f3f46 !important;
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
   border-radius: 6px !important;
   padding: 8px 12px !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
 }
 .recharts-tooltip-label {
-  color: #fafafa !important;
+  color: var(--color-foreground) !important;
   font-weight: bold !important;
   font-size: 16px !important;
   margin-bottom: 4px !important;
 }
 .recharts-tooltip-item {
-  color: #e4e4e7 !important;
+  color: var(--color-foreground) !important;
   font-size: 16px !important;
   padding: 1px 0 !important;
 }
 .recharts-tooltip-item-name {
-  color: #a1a1aa !important;
+  color: var(--color-muted) !important;
 }
 .recharts-tooltip-item-value {
-  color: #fafafa !important;
+  color: var(--color-foreground) !important;
   font-weight: 600 !important;
 }
 .recharts-legend-item-text {
-  color: #d4d4d8 !important;
+  color: var(--color-border) !important;
   font-size: 16px !important;
 }
 .recharts-cartesian-axis-tick-value {
-  fill: #71717a !important;
+  fill: var(--color-muted) !important;
   font-size: 16px !important;
 }
 .recharts-label {
-  fill: #a1a1aa !important;
+  fill: var(--color-muted) !important;
 }
 
 /* recharts pie label text */
 .recharts-pie-label-text {
-  fill: #d4d4d8 !important;
+  fill: var(--color-border) !important;
   font-size: 16px !important;
 }
 

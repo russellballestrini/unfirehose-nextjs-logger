@@ -76,7 +76,7 @@ export function Sidebar() {
               className={`flex items-center gap-3 px-3 py-1.5 rounded text-base transition-colors ${
                 isActive
                   ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                  : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                  : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]/8'
               }`}
             >
               <span className={`font-bold w-4 text-center ${isActive ? 'text-[var(--color-accent)]' : 'text-[var(--color-border)]'}`}>
