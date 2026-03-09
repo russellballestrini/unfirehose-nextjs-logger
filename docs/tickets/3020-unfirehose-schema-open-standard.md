@@ -50,13 +50,36 @@ The spec was proposed by Claude Opus using unfirehose's collection needs as the 
 - How does unfirehose's training data feed back into eval? What's the interface?
 - tryingET's pi-mono extensions model — relevant for self-modifying agent pipelines?
 
-### 4. Community adoption path
+### 4. Extension-based adoption (pi-mono pattern)
+
+tryingET pointed to [badlogic/pi-mono](https://github.com/badlogic/pi-mono), Mario Zechner's agent toolkit. The coding agent (`@mariozechner/pi-coding-agent`) is deliberately minimal — almost everything is an extension:
+
+```typescript
+// pi extension — hooks into agent lifecycle
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({ name: "deploy", ... });
+  pi.registerCommand("stats", { ... });
+  pi.on("tool_call", async (event, ctx) => { ... });
+}
+```
+
+Extensions can add/replace tools, intercept events (`tool_call`, lifecycle hooks), add sub-agents, plan mode, MCP integration, custom compaction, permission gates, UI widgets, git checkpointing. Discovery from `~/.pi/agent/extensions/`, `.pi/extensions/`, or npm packages with `pi.extensions` manifest.
+
+**Key insight: extensions are a distribution strategy for the spec.** Instead of asking harness maintainers to rewrite their logging core, ship an extension that bolts on:
+
+- **For harnesses with extension systems** (pi, potentially agnt, continue.dev): ship `@unturf/unfirehose-extension-{harness}` that hooks lifecycle events and writes unfirehose/1.0 JSONL. Zero changes to the harness core.
+- **For uncloseai-cli**: an unfirehose extension could hook `tool_call` events to write JSONL in real-time, register `session_start`/`session_end` lifecycle for envelopes, attach usage/metric data per assistant response.
+- **For unfirehose itself**: the pattern applies to ingestion plugins (parse new harness formats) and output plugins (forward data to eval systems, training pipelines, Nathan's continuous learning loop).
+
+This is lower friction than "rewrite your logger" — it's "install this extension."
+
+### 5. Community adoption path
 - Which harnesses are closest to native adoption? (agnt = native target, uncloseai-cli = planned)
-- Should we ship adapter libraries (e.g. `@unturf/unfirehose-adapter-agnt`) or just a spec + examples?
+- Extension-first strategy: ship plugins for harnesses that support them, adapters for those that don't
 - What's the pitch to open source harness maintainers? (aider, continue.dev, opencode)
 - karpathy/autoresearch pattern: execute → eval → enhance loop. Does the spec capture all three phases?
 
-### 5. Brand and positioning
+### 6. Brand and positioning
 - unfirehose: the collection/observation layer
 - unwiretap.com/org: potential consumer-facing brand (wiretap analogy for agent observability)
 - "local-first langfuse" (Nathan's framing) — accurate positioning?
@@ -84,3 +107,4 @@ The spec was proposed by Claude Opus using unfirehose's collection needs as the 
 - The spec was born from pragmatic needs (unfirehose needed to ingest 16 different harness formats), not from committee design. That's a strength.
 - Nathan's eval/continuous learning angle is the most compelling adoption driver — if the spec can carry eval data alongside session traces, it becomes the substrate for self-improving agents, not just a logging format.
 - tryingET's pointer to pi-mono extensions is worth investigating for the "agent that modifies its own training harness" pattern that fox explicitly wants an overagent to handle.
+- **pi-mono extension pattern is the adoption play.** Don't ask harness maintainers to change their core — ship an extension/plugin that bolts on. For harnesses without extension systems, ship adapters. Two-track strategy: extensions where possible, adapters where necessary.
