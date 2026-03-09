@@ -430,8 +430,9 @@ function spawnNudgeAgent(
     case 'claude-code':
     default:
       // claude -p reads prompt from stdin, respects CLAUDE.md in the repo
+      // acceptEdits lets it write files and run git without prompting
       cmd = 'claude';
-      args = ['-p', '--model', 'sonnet', '--output-format', 'json'];
+      args = ['-p', '--model', 'sonnet', '--output-format', 'json', '--permission-mode', 'acceptEdits'];
       break;
   }
 
