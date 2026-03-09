@@ -1092,8 +1092,26 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
     setCommitting(false);
   }
 
-  async function handleFileAction(file: string, action: 'delete' | 'gitignore') {
-    if (!confirm(`${action === 'delete' ? 'Delete' : 'Add to .gitignore'}: ${file}?`)) return;
+  const [pendingFileAction, setPendingFileAction] = useState<string | null>(null);
+
+  // Auto-clear pending after 3s
+  useEffect(() => {
+    if (!pendingFileAction) return;
+    const t = setTimeout(() => setPendingFileAction(null), 3000);
+    return () => clearTimeout(t);
+  }, [pendingFileAction]);
+
+  function requestFileAction(file: string, action: 'delete' | 'gitignore') {
+    const key = `${file}:${action}`;
+    if (pendingFileAction === key) {
+      setPendingFileAction(null);
+      executeFileAction(file, action);
+    } else {
+      setPendingFileAction(key);
+    }
+  }
+
+  async function executeFileAction(file: string, action: 'delete' | 'gitignore') {
     try {
       const res = await fetch(`/api/projects/${project}/git`, {
         method: 'DELETE',
@@ -1364,18 +1382,18 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
                         </button>
                         <div className="shrink-0 flex gap-1">
                           <button
-                            onClick={() => handleFileAction(f.file, 'gitignore')}
-                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors opacity-50 hover:opacity-100"
+                            onClick={() => requestFileAction(f.file, 'gitignore')}
+                            className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:gitignore` ? 'border-[var(--color-accent)] text-[var(--color-accent)] opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] opacity-50 hover:opacity-100'}`}
                             title="Add to .gitignore"
                           >
-                            .gitignore
+                            {pendingFileAction === `${f.file}:gitignore` ? 'confirm?' : '.gitignore'}
                           </button>
                           <button
-                            onClick={() => handleFileAction(f.file, 'delete')}
-                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] transition-colors opacity-50 hover:opacity-100"
+                            onClick={() => requestFileAction(f.file, 'delete')}
+                            className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:delete` ? 'bg-[#ef4444] border-[#ef4444] text-white opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] opacity-50 hover:opacity-100'}`}
                             title="Delete file"
                           >
-                            Delete
+                            {pendingFileAction === `${f.file}:delete` ? 'confirm?' : 'Delete'}
                           </button>
                         </div>
                       </div>

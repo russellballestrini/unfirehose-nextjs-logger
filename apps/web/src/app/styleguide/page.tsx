@@ -1282,6 +1282,17 @@ Response:
               </div>
             </div>
           </div>
+          <div className="mt-3 rounded border border-[#ef4444]/30 bg-[#ef4444]/5 p-3 space-y-2">
+            <h4 className="text-sm font-bold" style={{ color: '#ef4444' }}>Anti-pattern: confirm() / alert()</h4>
+            <p className="text-sm text-[var(--color-muted)]">
+              Never use <code className="text-[var(--color-accent)]">window.confirm()</code> or{' '}
+              <code className="text-[var(--color-accent)]">window.alert()</code>. Browsers let users
+              permanently block these per-origin with no way to undo except DevTools. Use inline
+              two-click confirmation instead: first click arms (button text changes to
+              {' '}<code className="text-[var(--color-accent)]">&quot;confirm?&quot;</code>), second click executes.
+              Auto-disarm after 3 seconds.
+            </p>
+          </div>
         </div>
       </Section>
 

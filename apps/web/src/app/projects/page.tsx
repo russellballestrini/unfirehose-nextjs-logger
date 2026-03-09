@@ -332,6 +332,15 @@ function DirtyReposTab({
     stale ? {} : cache.current.details
   );
 
+  const [pendingFileAction, setPendingFileAction] = useState<string | null>(null);
+
+  // Auto-clear pending after 3s
+  useEffect(() => {
+    if (!pendingFileAction) return;
+    const t = setTimeout(() => setPendingFileAction(null), 3000);
+    return () => clearTimeout(t);
+  }, [pendingFileAction]);
+
   // Persist to cache ref on every change
   useEffect(() => {
     cache.current.details = details;
@@ -339,9 +348,18 @@ function DirtyReposTab({
     cache.current.gitSnap = gitSnap;
   }, [details, expanded, gitSnap, cache]);
 
-  // Delete or gitignore a file in a project
-  async function handleFileAction(projectName: string, file: string, action: 'delete' | 'gitignore') {
-    if (!confirm(`${action === 'delete' ? 'Delete' : 'Add to .gitignore'}: ${file}?`)) return;
+  // Delete or gitignore a file — two-click: first sets pending, second executes
+  function requestFileAction(projectName: string, file: string, action: 'delete' | 'gitignore') {
+    const key = `${projectName}:${file}:${action}`;
+    if (pendingFileAction === key) {
+      setPendingFileAction(null);
+      executeFileAction(projectName, file, action);
+    } else {
+      setPendingFileAction(key);
+    }
+  }
+
+  async function executeFileAction(projectName: string, file: string, action: 'delete' | 'gitignore') {
     try {
       const res = await fetch(`/api/projects/${projectName}/git`, {
         method: 'DELETE',
@@ -709,18 +727,18 @@ function DirtyReposTab({
                                 <span className="truncate flex-1">{f.file}</span>
                                 <div className="shrink-0 flex gap-1">
                                   <button
-                                    onClick={() => handleFileAction(project.name, f.file, 'gitignore')}
-                                    className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors bg-[var(--color-surface)] opacity-50 hover:opacity-100"
+                                    onClick={() => requestFileAction(project.name, f.file, 'gitignore')}
+                                    className={`px-1.5 py-0.5 text-xs rounded border transition-colors bg-[var(--color-surface)] ${pendingFileAction === `${project.name}:${f.file}:gitignore` ? 'border-[var(--color-accent)] text-[var(--color-accent)] opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] opacity-50 hover:opacity-100'}`}
                                     title="Add to .gitignore"
                                   >
-                                    .gitignore
+                                    {pendingFileAction === `${project.name}:${f.file}:gitignore` ? 'confirm?' : '.gitignore'}
                                   </button>
                                   <button
-                                    onClick={() => handleFileAction(project.name, f.file, 'delete')}
-                                    className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] transition-colors bg-[var(--color-surface)] opacity-50 hover:opacity-100"
+                                    onClick={() => requestFileAction(project.name, f.file, 'delete')}
+                                    className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${project.name}:${f.file}:delete` ? 'bg-[#ef4444] border-[#ef4444] text-white opacity-100 font-bold' : 'bg-[var(--color-surface)] border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] opacity-50 hover:opacity-100'}`}
                                     title="Delete file"
                                   >
-                                    Delete
+                                    {pendingFileAction === `${project.name}:${f.file}:delete` ? 'confirm?' : 'Delete'}
                                   </button>
                                 </div>
                               </div>

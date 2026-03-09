@@ -261,6 +261,15 @@ function RunsList({
   onToggleFlag: (runId: string, field: 'favorites' | 'locked') => void;
   onDelete: (runId: string) => void;
 }) {
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  // Auto-clear pending delete after 3s
+  useEffect(() => {
+    if (!pendingDelete) return;
+    const t = setTimeout(() => setPendingDelete(null), 3000);
+    return () => clearTimeout(t);
+  }, [pendingDelete]);
+
   // Sort: favorites first, then by started_at (already desc from API)
   const sorted = useMemo(() => {
     return [...runs].sort((a, b) => {
@@ -323,18 +332,28 @@ function RunsList({
               >
                 {isLocked ? '🔒' : '🔓'}
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isLocked) { alert('This run is locked. Unlock it first to delete.'); return; }
-                  if (confirm(`Delete run "${run.model}" (${run.run_id})?`)) onDelete(run.run_id);
-                }}
-                className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors"
-                title={isLocked ? 'Locked — cannot delete' : 'Delete run'}
-                style={{ color: isLocked ? 'var(--color-muted)' : '#ef4444', opacity: isLocked ? 0.2 : 0.4 }}
-              >
-                ✕
-              </button>
+              {pendingDelete === run.run_id ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setPendingDelete(null); onDelete(run.run_id); }}
+                  className="h-6 px-1.5 flex items-center justify-center rounded text-xs font-bold transition-colors"
+                  style={{ color: '#fff', backgroundColor: '#ef4444' }}
+                >
+                  confirm?
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isLocked) return;
+                    setPendingDelete(run.run_id);
+                  }}
+                  className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors"
+                  title={isLocked ? 'Locked — unlock first' : 'Delete run'}
+                  style={{ color: isLocked ? 'var(--color-muted)' : '#ef4444', opacity: isLocked ? 0.2 : 0.4 }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
         );
