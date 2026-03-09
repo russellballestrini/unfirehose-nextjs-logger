@@ -1046,6 +1046,27 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
   const [commitResult, setCommitResult] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [codeView, setCodeView] = useState<'files' | 'changes'>('files');
+  const [suggesting, setSuggesting] = useState(false);
+
+  async function handleSuggest() {
+    setSuggesting(true);
+    setCommitResult(null);
+    try {
+      const res = await fetch(`/api/projects/${project}/git/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const result = await res.json();
+      if (result.message) {
+        setCommitMsg(result.message);
+      } else {
+        setCommitResult(`Error: ${result.error || 'No suggestion returned'}`);
+      }
+    } catch (err) {
+      setCommitResult(`Error: ${String(err)}`);
+    }
+    setSuggesting(false);
+  }
 
   async function handleCommit(addAll: boolean) {
     if (!commitMsg.trim() || committing) return;
@@ -1357,14 +1378,26 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
               {gitData.isDirty && (
                 <div className="border border-[var(--color-border)] rounded p-4 bg-[var(--color-surface)] space-y-3">
                   <h3 className="text-sm font-bold">Commit changes</h3>
-                  <input
-                    type="text"
-                    value={commitMsg}
-                    onChange={(e) => setCommitMsg(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCommit(true); } }}
-                    placeholder="Commit message..."
-                    className="w-full px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={commitMsg}
+                      onChange={(e) => setCommitMsg(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCommit(true); } }}
+                      placeholder="Commit message..."
+                      className="flex-1 px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
+                    />
+                    <button onClick={handleSuggest} disabled={suggesting}
+                      className="px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 shrink-0 flex items-center gap-1.5"
+                      title="Generate commit message with LLM">
+                      {suggesting ? (
+                        <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-[var(--color-muted)] border-t-[var(--color-accent)] rounded-full" />
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L17 7m-10 10l-1.5 1.5M20.5 17.5L19 17M5 7l-1.5-1.5"/></svg>
+                      )}
+                      Generate
+                    </button>
+                  </div>
                   <div className="flex gap-2">
                     <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || committing}
                       className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
