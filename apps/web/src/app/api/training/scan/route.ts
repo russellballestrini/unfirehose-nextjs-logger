@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -57,6 +58,10 @@ function ingestLossJson(db: any, filepath: string, host: string): { runs: number
   const runId = `${host}/${model}`;
   const now = new Date().toISOString();
 
+  // Skip if this run was soft-deleted (don't re-ingest)
+  const deletedCheck = db.prepare('SELECT deleted_at FROM training_runs WHERE run_id = ?').get(runId) as any;
+  if (deletedCheck?.deleted_at) return { runs: 0, events: 0 };
+
   let data: [number, number][];
   try {
     const raw = host === 'local'
@@ -66,11 +71,11 @@ function ingestLossJson(db: any, filepath: string, host: string): { runs: number
     if (!Array.isArray(data)) return { runs: 0, events: 0 };
   } catch { return { runs: 0, events: 0 }; }
 
-  // Ensure run exists
+  // Ensure run exists with uuid and source metadata
   db.prepare(`
-    INSERT OR IGNORE INTO training_runs (run_id, model, config, status, started_at, source)
-    VALUES (?, ?, ?, 'completed', ?, 'scan')
-  `).run(runId, model, JSON.stringify({ host, path: filepath }), now);
+    INSERT OR IGNORE INTO training_runs (run_id, uuid, model, config, status, started_at, source, source_path, source_host)
+    VALUES (?, ?, ?, ?, 'completed', ?, 'scan', ?, ?)
+  `).run(runId, uuidv7(), model, JSON.stringify({ host, path: filepath }), now, filepath, host === 'local' ? null : host);
 
   // Check what we already have
   const existing = db.prepare(
@@ -100,6 +105,10 @@ function ingestSamplesJson(db: any, filepath: string, host: string): number {
   const model = modelFromFilename(filepath);
   const runId = `${host}/${model}`;
   const now = new Date().toISOString();
+
+  // Skip if this run was soft-deleted
+  const deletedCheck2 = db.prepare('SELECT deleted_at FROM training_runs WHERE run_id = ?').get(runId) as any;
+  if (deletedCheck2?.deleted_at) return 0;
 
   let data: any[];
   try {

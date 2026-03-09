@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { execSync } from 'child_process';
+import { unlinkSync } from 'fs';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,9 +66,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // List runs with aggregated data
+    // List runs with aggregated data (exclude soft-deleted)
     const params: any[] = [];
-    let where = '1=1';
+    let where = 'r.deleted_at IS NULL';
 
     if (statusFilter) {
       where += ' AND r.status = ?';
@@ -122,14 +125,46 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const url = new URL(request.url);
   const runId = url.searchParams.get('run_id');
+  const deleteSource = url.searchParams.get('delete_source') === 'true';
   if (!runId) {
     return NextResponse.json({ error: 'run_id required' }, { status: 400 });
   }
   try {
     const db = getDb();
-    db.prepare('DELETE FROM training_events WHERE run_id = ?').run(runId);
-    db.prepare('DELETE FROM training_runs WHERE run_id = ?').run(runId);
-    return NextResponse.json({ ok: true, deleted: runId });
+
+    // Get run info before soft-deleting (need source_path/source_host for file deletion)
+    const run = db.prepare('SELECT * FROM training_runs WHERE run_id = ?').get(runId) as any;
+    if (!run) {
+      return NextResponse.json({ error: 'run not found' }, { status: 404 });
+    }
+
+    // Soft delete — set deleted_at timestamp
+    db.prepare("UPDATE training_runs SET deleted_at = datetime('now') WHERE run_id = ?").run(runId);
+
+    // Optionally delete source files
+    let sourceDeleted = false;
+    if (deleteSource) {
+      const host = run.source_host;
+      const sourcePath = run.source_path;
+      if (sourcePath) {
+        try {
+          if (!host || host === 'local') {
+            unlinkSync(sourcePath);
+            // Also try to delete corresponding .samples.json
+            const samplesPath = sourcePath.replace(/\.loss\.json$/, '.samples.json');
+            try { unlinkSync(samplesPath); } catch { /* no samples file */ }
+          } else {
+            execSync(
+              `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'rm -f "${sourcePath}" "${sourcePath.replace(/\\.loss\\.json$/, '.samples.json')}"'`,
+              { encoding: 'utf-8', timeout: 10000 }
+            );
+          }
+          sourceDeleted = true;
+        } catch { /* file already gone or inaccessible */ }
+      }
+    }
+
+    return NextResponse.json({ ok: true, deleted: runId, soft: true, source_deleted: sourceDeleted });
   } catch (err: any) {
     console.error('Training DELETE error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -148,8 +183,8 @@ export async function POST(request: NextRequest) {
     }
 
     const insertRun = db.prepare(`
-      INSERT OR IGNORE INTO training_runs (run_id, model, config, status, started_at, source)
-      VALUES (?, ?, ?, 'running', ?, ?)
+      INSERT OR IGNORE INTO training_runs (run_id, uuid, model, config, status, started_at, source)
+      VALUES (?, ?, ?, ?, 'running', ?, ?)
     `);
 
     const insertEvent = db.prepare(`
@@ -184,6 +219,7 @@ export async function POST(request: NextRequest) {
             }
             insertRun.run(
               evt.run_id,
+              uuidv7(),
               evt.model,
               evt.config ? JSON.stringify(evt.config) : null,
               evt.ts,

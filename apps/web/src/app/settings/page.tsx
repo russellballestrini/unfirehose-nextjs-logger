@@ -74,6 +74,11 @@ const SETTINGS_KEYS = {
   meshCurrencyOracle: 'mesh_currency_oracle',
   meshGeoipAuto: 'mesh_geoip_auto',
   displayCurrency: 'display_currency',
+  // Training
+  trainingScanRemote: 'training_scan_remote',
+  trainingDeleteSource: 'training_delete_source',
+  trainingAutoScan: 'training_auto_scan',
+  trainingScanPaths: 'training_scan_paths',
 };
 
 export default function SettingsPage() {
@@ -153,7 +158,14 @@ export default function SettingsPage() {
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
-  const TABS = ['General', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
+  // Training defaults
+  const trainingScanRemote = settings?.[SETTINGS_KEYS.trainingScanRemote] !== 'false'; // default: true
+  const trainingDeleteSource = settings?.[SETTINGS_KEYS.trainingDeleteSource] === 'true'; // default: false
+  const trainingAutoScan = settings?.[SETTINGS_KEYS.trainingAutoScan] === 'true'; // default: false
+  const trainingScanPaths = settings?.[SETTINGS_KEYS.trainingScanPaths] ??
+    '.unfirehose/training/*.jsonl\ngit/uncloseai-cli/checkpoints/cuda/*.loss.json';
+
+  const TABS = ['General', 'Appearance', 'Mesh', 'Training', 'Connection', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];
   const [activeTab, setActiveTabRaw] = useState<SettingsTab>(() => {
     if (typeof window !== 'undefined') {
@@ -430,6 +442,96 @@ export default function SettingsPage() {
             </div>
 
             <GeoRegionOverrides settings={settings} saveSetting={saveSetting} />
+          </div>
+        </div>
+      )}
+
+      {/* ===== TRAINING TAB ===== */}
+      {activeTab === 'Training' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            {/* Scan behavior */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+              <h3 className="text-base font-bold">Scan Behavior</h3>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trainingScanRemote}
+                  onChange={(e) => saveSetting(SETTINGS_KEYS.trainingScanRemote, String(e.target.checked))}
+                  className="accent-[var(--color-accent)]"
+                />
+                <div>
+                  <div className="text-base font-medium">Scan remote nodes</div>
+                  <div className="text-sm text-[var(--color-muted)]">SSH into mesh nodes to discover training data</div>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trainingAutoScan}
+                  onChange={(e) => saveSetting(SETTINGS_KEYS.trainingAutoScan, String(e.target.checked))}
+                  className="accent-[var(--color-accent)]"
+                />
+                <div>
+                  <div className="text-base font-medium">Auto-scan on page load</div>
+                  <div className="text-sm text-[var(--color-muted)]">Automatically scan for new training data when opening /training</div>
+                </div>
+              </label>
+            </div>
+
+            {/* Delete behavior */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+              <h3 className="text-base font-bold">Delete Behavior</h3>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trainingDeleteSource}
+                  onChange={(e) => saveSetting(SETTINGS_KEYS.trainingDeleteSource, String(e.target.checked))}
+                  className="accent-[var(--color-accent)]"
+                />
+                <div>
+                  <div className="text-base font-medium">Delete source files on remove</div>
+                  <div className="text-sm text-[var(--color-muted)]">When deleting a run, also remove the .loss.json and .samples.json files from the source host</div>
+                </div>
+              </label>
+
+              <div className="rounded border border-[var(--color-border)] p-3 text-sm" style={{ backgroundColor: 'var(--color-background)' }}>
+                <div className="text-[var(--color-muted)] mb-1">Default behavior</div>
+                <div>Deleted runs are <strong>soft-deleted</strong> — metadata is preserved but hidden from the UI. Subsequent scans will not re-ingest soft-deleted runs.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Scan paths */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+            <h3 className="text-base font-bold">Scan Paths</h3>
+            <p className="text-sm text-[var(--color-muted)]">
+              Paths relative to home directory, one per line. Supports glob patterns. Scanned on both local and remote nodes.
+            </p>
+            <textarea
+              defaultValue={trainingScanPaths}
+              rows={4}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 font-mono text-sm"
+              onBlur={(e) => {
+                if (e.target.value !== trainingScanPaths) {
+                  saveSetting(SETTINGS_KEYS.trainingScanPaths, e.target.value);
+                }
+              }}
+            />
+          </div>
+
+          {/* Info */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
+            <h3 className="text-base font-bold">How It Works</h3>
+            <ul className="text-sm text-[var(--color-muted)] space-y-1 list-disc list-inside">
+              <li>Each training run gets a UUIDv7 for stable identity across re-scans</li>
+              <li>Runs are identified by <code className="font-mono text-xs px-1 py-0.5 rounded" style={{ backgroundColor: 'var(--color-background)' }}>host/model-name</code> — duplicate files won&apos;t create duplicate runs</li>
+              <li>Soft-deleted runs are permanently hidden from scans — they won&apos;t come back</li>
+              <li>Supported formats: <code className="font-mono text-xs">.loss.json</code> (step/loss arrays), <code className="font-mono text-xs">.samples.json</code> (training samples), <code className="font-mono text-xs">.jsonl</code> (unfirehose events)</li>
+            </ul>
           </div>
         </div>
       )}

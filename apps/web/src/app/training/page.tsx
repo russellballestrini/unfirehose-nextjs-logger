@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import {
   LineChart,
@@ -523,6 +523,11 @@ export default function TrainingPage() {
   const [scanResult, setScanResult] = useState<any>(null);
   const { flags, toggle: toggleFlag } = useRunFlags();
 
+  // Training settings
+  const { data: settings } = useSWR('/api/settings', fetcher);
+  const deleteSourceDefault = settings?.training_delete_source === 'true';
+  const autoScan = settings?.training_auto_scan === 'true';
+
   // Runs list — polls every 5s for live updates
   const { data: runsData, mutate: mutateRuns } = useSWR<{ runs: TrainingRun[] }>(
     '/api/training',
@@ -604,14 +609,25 @@ export default function TrainingPage() {
 
   const deleteRun = useCallback(async (runId: string) => {
     try {
-      const res = await fetch(`/api/training?run_id=${encodeURIComponent(runId)}`, { method: 'DELETE' });
+      const params = new URLSearchParams({ run_id: runId });
+      if (deleteSourceDefault) params.set('delete_source', 'true');
+      const res = await fetch(`/api/training?${params}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.ok) {
         mutateRuns();
         if (selectedRunId === runId) setSelectedRunId(null);
       }
     } catch { /* ignore */ }
-  }, [mutateRuns, selectedRunId]);
+  }, [mutateRuns, selectedRunId, deleteSourceDefault]);
+
+  // Auto-scan on page load if enabled in settings
+  const autoScanned = useRef(false);
+  useEffect(() => {
+    if (autoScan && !autoScanned.current && runsData) {
+      autoScanned.current = true;
+      runScan();
+    }
+  }, [autoScan, runsData, runScan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!runs.length && !runsData) {
     return (

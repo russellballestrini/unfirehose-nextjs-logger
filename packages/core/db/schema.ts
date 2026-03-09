@@ -324,6 +324,10 @@ function migrate(db: Database.Database) {
   addColumn('mesh_snapshots', 'gpu_util', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_used_mb', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_total_mb', 'REAL');
+  addColumn('training_runs', 'uuid', 'TEXT');
+  addColumn('training_runs', 'deleted_at', 'TEXT');
+  addColumn('training_runs', 'source_path', 'TEXT');
+  addColumn('training_runs', 'source_host', 'TEXT');
 
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
