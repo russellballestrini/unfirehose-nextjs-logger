@@ -226,6 +226,21 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_deployments_status ON agent_deployments(status);
 
+    -- Agent actions: dispatch commands to projects (status, finish, unblock)
+    CREATE TABLE IF NOT EXISTS agent_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_name TEXT NOT NULL,
+      action TEXT NOT NULL,                -- 'status' | 'finish' | 'blockers'
+      status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'running' | 'done' | 'failed'
+      trigger_type TEXT NOT NULL DEFAULT 'manual', -- 'manual' | 'auto'
+      request_context TEXT,                -- JSON: git state, prompt context at dispatch time
+      result TEXT,                         -- JSON: action output (summary, commit hash, blockers list)
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_actions_project ON agent_actions(project_name, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_actions_status ON agent_actions(status);
+
     -- Project visibility for scrobbling
     CREATE TABLE IF NOT EXISTS project_visibility (
       project_id INTEGER PRIMARY KEY REFERENCES projects(id),

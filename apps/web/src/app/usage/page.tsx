@@ -182,10 +182,30 @@ export default function UsageMonitorPage() {
   const [chartHostname, setChartHostname] = useState<string>('all');
   const currency = useCurrency();
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
-  const { data: projectDetail } = useSWR(
+  const { data: projectDetail, mutate: mutateProjectDetail } = useSWR(
     expandedProject ? `/api/projects/activity?project=${encodeURIComponent(expandedProject)}` : null,
     fetcher
   );
+  const [agentAction, setAgentAction] = useState<{ project: string; action: string; loading: boolean; result: any } | null>(null);
+
+  const dispatchAgentAction = useCallback(async (projectName: string, action: string) => {
+    setAgentAction({ project: projectName, action, loading: true, result: null });
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      setAgentAction({ project: projectName, action, loading: false, result: data.result ?? data });
+      if (action === 'finish') {
+        mutateProjectDetail();
+        mutateProjects();
+      }
+    } catch (err: any) {
+      setAgentAction({ project: projectName, action, loading: false, result: { error: err.message } });
+    }
+  }, [mutateProjectDetail, mutateProjects]);
 
   const runIngest = useCallback(async () => {
     setIngesting(true);
@@ -457,6 +477,76 @@ export default function UsageMonitorPage() {
                           )}
                         </div>
                       )}
+                      {/* Agent action buttons */}
+                      {(() => {
+                        const aa = agentAction?.project === p.name ? agentAction : null;
+                        return (
+                          <>
+                            <div className="flex gap-1.5 mb-2">
+                              {(['status', 'blockers', 'finish'] as const).map((act) => (
+                                <button
+                                  key={act}
+                                  onClick={(e) => { e.stopPropagation(); dispatchAgentAction(p.name, act); }}
+                                  disabled={!!aa?.loading}
+                                  className="text-xs px-2 py-1 rounded font-mono cursor-pointer transition-colors disabled:opacity-50"
+                                  style={{
+                                    backgroundColor: act === 'finish' ? 'var(--color-accent)' : 'var(--color-background)',
+                                    color: act === 'finish' ? '#fff' : 'var(--color-foreground)',
+                                    border: `1px solid ${act === 'finish' ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                                  }}
+                                >
+                                  {aa?.action === act && aa.loading
+                                    ? '...'
+                                    : act === 'status' ? 'Status' : act === 'blockers' ? 'Blockers' : 'Finish & Push'}
+                                </button>
+                              ))}
+                            </div>
+                            {aa?.result && !aa.loading && (
+                              <div
+                                className="text-xs font-mono rounded p-2 mb-2 whitespace-pre-wrap"
+                                style={{
+                                  backgroundColor: 'var(--color-background)',
+                                  border: `1px solid ${
+                                    aa.result.severity === 'error' || aa.result.needsHuman
+                                      ? 'var(--color-error)'
+                                      : aa.result.severity === 'warning'
+                                        ? '#f59e0b'
+                                        : 'var(--color-border)'
+                                  }`,
+                                  color: 'var(--color-foreground)',
+                                }}
+                              >
+                                <div className="font-bold mb-1" style={{
+                                  color: aa.result.error
+                                    ? 'var(--color-error)'
+                                    : aa.result.needsHuman
+                                      ? 'var(--color-error)'
+                                      : aa.result.severity === 'warning'
+                                        ? '#f59e0b'
+                                        : '#10b981',
+                                }}>
+                                  {aa.result.summary ?? aa.result.error ?? 'Done'}
+                                </div>
+                                {aa.result.lines?.map((l: string, i: number) => (
+                                  <div key={i} style={{ color: 'var(--color-muted)' }}>{l}</div>
+                                ))}
+                                {aa.result.blockers?.map((b: any, i: number) => (
+                                  <div key={i} className="flex gap-2 mt-1">
+                                    <span style={{ color: b.severity === 'error' ? 'var(--color-error)' : '#f59e0b' }}>
+                                      {b.severity === 'error' ? '!' : '?'}
+                                    </span>
+                                    <span>{b.description}</span>
+                                  </div>
+                                ))}
+                                {aa.result.actions?.map((a: string, i: number) => (
+                                  <div key={i} style={{ color: '#10b981' }}>{a}</div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+
                       {projectDetail.recentPrompts && projectDetail.recentPrompts.length > 0 ? (
                         <>
                           <div className="text-xs font-bold text-[var(--color-muted)] mb-1">Recent prompts:</div>
