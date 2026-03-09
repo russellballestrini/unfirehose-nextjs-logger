@@ -146,7 +146,7 @@ export default function ProjectsPage() {
           onClick={() => setTab('dirty')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${tab === 'dirty' ? 'border-[var(--color-accent)] text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
         >
-          Merge Requests
+          Dynamic Commits
           {dirtyCount > 0 && (
             <span className="px-1.5 py-0.5 text-xs rounded-full font-bold" style={{ backgroundColor: 'rgba(251,191,36,0.2)', color: '#fbbf24' }}>
               {dirtyCount}
@@ -271,7 +271,7 @@ function ProjectCard({
   );
 }
 
-// ─── DIRTY REPOS TAB ───
+// ─── DYNAMIC COMMITS TAB ───
 interface RepoAction {
   status: 'idle' | 'suggesting' | 'committing' | 'pushing' | 'done' | 'error';
   message: string;
@@ -279,6 +279,24 @@ interface RepoAction {
   result: string;
   provider: string;
 }
+
+interface RepoGitDetail {
+  files: { status: string; file: string }[];
+  diff: string;
+  branch: string;
+  repoPath: string;
+  recentCommits: string;
+}
+
+const STATUS_COLORS: Record<string, { label: string; color: string }> = {
+  'M': { label: 'M', color: '#fbbf24' },
+  'A': { label: 'A', color: '#22c55e' },
+  'D': { label: 'D', color: '#ef4444' },
+  '??': { label: '?', color: '#8b5cf6' },
+  'R': { label: 'R', color: '#60a5fa' },
+  'MM': { label: 'M', color: '#fbbf24' },
+  'AM': { label: 'A', color: '#22c55e' },
+};
 
 function DirtyReposTab({
   projects,
@@ -291,6 +309,24 @@ function DirtyReposTab({
 }) {
   const [actions, setActions] = useState<Record<string, RepoAction>>({});
   const [batchRunning, setBatchRunning] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [details, setDetails] = useState<Record<string, RepoGitDetail | null>>({});
+
+  // Toggle expand + lazy-fetch git details
+  async function toggleExpand(project: ProjectInfo) {
+    const name = project.name;
+    const isOpen = expanded[name];
+    setExpanded((prev) => ({ ...prev, [name]: !isOpen }));
+    if (!isOpen && !details[name]) {
+      try {
+        const res = await fetch(`/api/projects/${name}/git`);
+        const data = await res.json();
+        if (!data.error) {
+          setDetails((prev) => ({ ...prev, [name]: data }));
+        }
+      } catch { /* ignore */ }
+    }
+  }
 
   const getAction = useCallback((name: string): RepoAction => {
     return actions[name] ?? { status: 'idle', message: '', commitMsg: '', result: '', provider: '' };
@@ -454,92 +490,186 @@ function DirtyReposTab({
           const action = getAction(project.name);
           const isDirty = (gs?.dirty ?? 0) > 0;
           const isUnpushed = (gs?.unpushed ?? 0) > 0;
+          const isExpanded = expanded[project.name] ?? false;
+          const detail = details[project.name];
 
           return (
-            <div key={project.name} className="p-4 bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] transition-colors">
-              {/* Row 1: name + status + actions */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <Link
-                  href={`/projects/${encodeURIComponent(project.name)}#code`}
-                  className="font-bold text-sm hover:text-[var(--color-accent)] hover:underline"
-                >
-                  {project.displayName}
-                </Link>
-                <span className="font-mono text-xs text-[var(--color-muted)]">{gs?.branch}</span>
+            <div key={project.name} className="bg-[var(--color-surface)]">
+              {/* Header row — clickable to expand */}
+              <div className="p-4 hover:bg-[var(--color-surface-hover)] transition-colors">
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Expand toggle */}
+                  <button
+                    onClick={() => toggleExpand(project)}
+                    className="text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors shrink-0"
+                    title={isExpanded ? 'Collapse' : 'Expand to see files & diff'}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+                      <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" />
+                    </svg>
+                  </button>
 
-                {isDirty && (
-                  <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>
-                    {gs!.dirty} uncommitted
-                  </span>
-                )}
-                {isUnpushed && (
-                  <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: 'rgba(96,165,250,0.15)', color: '#60a5fa' }}>
-                    {gs!.unpushed} unpushed
-                  </span>
-                )}
+                  <button
+                    onClick={() => toggleExpand(project)}
+                    className="font-bold text-sm hover:text-[var(--color-accent)] transition-colors text-left"
+                  >
+                    {project.displayName}
+                  </button>
+                  <span className="font-mono text-xs text-[var(--color-muted)]">{gs?.branch}</span>
 
-                <div className="ml-auto flex items-center gap-2">
-                  {isDirty && action.status !== 'done' && (
-                    <button
-                      onClick={() => suggestOne(project)}
-                      disabled={action.status === 'suggesting' || action.status === 'committing'}
-                      className="px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 flex items-center gap-1"
-                      title="Generate commit message"
-                    >
-                      {action.status === 'suggesting' ? (
-                        <span className="animate-spin inline-block w-3 h-3 border-2 border-[var(--color-muted)] border-t-[var(--color-accent)] rounded-full" />
-                      ) : (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L17 7m-10 10l-1.5 1.5M20.5 17.5L19 17M5 7l-1.5-1.5"/></svg>
-                      )}
-                      Generate
-                    </button>
+                  {isDirty && (
+                    <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>
+                      {gs!.dirty} uncommitted
+                    </span>
                   )}
-                  {isDirty && action.status !== 'done' && (
-                    <button
-                      onClick={() => commitOne(project)}
-                      disabled={!action.commitMsg.trim() || action.status === 'committing' || action.status === 'suggesting'}
-                      className="px-2.5 py-1 text-xs font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-40"
-                    >
-                      {action.status === 'committing' ? 'Committing...' : 'Commit + Push'}
-                    </button>
+                  {isUnpushed && (
+                    <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: 'rgba(96,165,250,0.15)', color: '#60a5fa' }}>
+                      {gs!.unpushed} unpushed
+                    </span>
                   )}
-                  {!isDirty && isUnpushed && action.status !== 'done' && (
-                    <button
-                      onClick={() => pushOne(project)}
-                      disabled={action.status === 'pushing'}
-                      className="px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40"
-                    >
-                      {action.status === 'pushing' ? 'Pushing...' : 'Push'}
-                    </button>
-                  )}
-                  {action.status === 'done' && (
-                    <span className="text-xs font-bold" style={{ color: '#22c55e' }}>✓ Done</span>
-                  )}
+
+                  <div className="ml-auto flex items-center gap-2">
+                    {isDirty && action.status !== 'done' && (
+                      <button
+                        onClick={() => suggestOne(project)}
+                        disabled={action.status === 'suggesting' || action.status === 'committing'}
+                        className="px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 flex items-center gap-1"
+                        title="Generate commit message"
+                      >
+                        {action.status === 'suggesting' ? (
+                          <span className="animate-spin inline-block w-3 h-3 border-2 border-[var(--color-muted)] border-t-[var(--color-accent)] rounded-full" />
+                        ) : (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L17 7m-10 10l-1.5 1.5M20.5 17.5L19 17M5 7l-1.5-1.5"/></svg>
+                        )}
+                        Generate
+                      </button>
+                    )}
+                    {isDirty && action.status !== 'done' && (
+                      <button
+                        onClick={() => commitOne(project)}
+                        disabled={!action.commitMsg.trim() || action.status === 'committing' || action.status === 'suggesting'}
+                        className="px-2.5 py-1 text-xs font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-40"
+                      >
+                        {action.status === 'committing' ? 'Committing...' : 'Commit + Push'}
+                      </button>
+                    )}
+                    {!isDirty && isUnpushed && action.status !== 'done' && (
+                      <button
+                        onClick={() => pushOne(project)}
+                        disabled={action.status === 'pushing'}
+                        className="px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40"
+                      >
+                        {action.status === 'pushing' ? 'Pushing...' : 'Push'}
+                      </button>
+                    )}
+                    {action.status === 'done' && (
+                      <span className="text-xs font-bold" style={{ color: '#22c55e' }}>✓ Done</span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Commit message input */}
+                {isDirty && action.status !== 'done' && (
+                  <div className="mt-2 flex gap-2 pl-6">
+                    <input
+                      type="text"
+                      value={action.commitMsg}
+                      onChange={(e) => updateAction(project.name, { commitMsg: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && action.commitMsg.trim()) commitOne(project); }}
+                      placeholder="Commit message..."
+                      className="flex-1 px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
+                    />
+                  </div>
+                )}
+
+                {/* Result */}
+                {action.result && (
+                  <div className={`mt-2 pl-6 text-xs font-mono ${action.status === 'error' ? 'text-[var(--color-error)]' : 'text-[var(--color-muted)]'}`}>
+                    {action.result}
+                  </div>
+                )}
+                {action.provider && action.status !== 'error' && (
+                  <div className="mt-1 pl-6 text-xs text-[var(--color-muted)]">via {action.provider}</div>
+                )}
               </div>
 
-              {/* Row 2: commit message input (for dirty repos) */}
-              {isDirty && action.status !== 'done' && (
-                <div className="mt-2 flex gap-2">
-                  <input
-                    type="text"
-                    value={action.commitMsg}
-                    onChange={(e) => updateAction(project.name, { commitMsg: e.target.value })}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && action.commitMsg.trim()) commitOne(project); }}
-                    placeholder="Commit message..."
-                    className="flex-1 px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
-                  />
-                </div>
-              )}
+              {/* Expanded: file list + diff */}
+              {isExpanded && (
+                <div className="border-t border-[var(--color-border)] bg-[var(--color-background)]">
+                  {!detail && (
+                    <div className="p-4 text-sm text-[var(--color-muted)]">Loading diff...</div>
+                  )}
 
-              {/* Row 3: result */}
-              {action.result && (
-                <div className={`mt-2 text-xs font-mono ${action.status === 'error' ? 'text-[var(--color-error)]' : 'text-[var(--color-muted)]'}`}>
-                  {action.result}
+                  {detail && (
+                    <>
+                      {/* Changed files */}
+                      {detail.files && detail.files.length > 0 && (
+                        <div className="border-b border-[var(--color-border)]">
+                          <div className="px-4 py-2 text-xs font-bold text-[var(--color-muted)] bg-[var(--color-surface)]">
+                            {detail.files.length} changed files
+                          </div>
+                          {detail.files.map((f: any, i: number) => {
+                            const s = STATUS_COLORS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
+                            return (
+                              <div key={i} className="px-4 py-1.5 flex items-center gap-3 text-xs font-mono hover:bg-[var(--color-surface-hover)] border-t border-[var(--color-border)]">
+                                <span className="w-4 h-4 rounded flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
+                                  {s.label}
+                                </span>
+                                <span className="truncate">{f.file}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Unified diff */}
+                      {detail.diff && (
+                        <div>
+                          <div className="px-4 py-2 text-xs font-bold text-[var(--color-muted)] bg-[var(--color-surface)] border-b border-[var(--color-border)]">
+                            Diff
+                          </div>
+                          <pre className="text-xs p-0 overflow-auto max-h-[500px] font-mono leading-relaxed">
+                            {detail.diff.split('\n').map((line: string, i: number) => {
+                              let color = 'inherit';
+                              let bg = 'transparent';
+                              if (line.startsWith('+') && !line.startsWith('+++')) { color = '#22c55e'; bg = 'rgba(34,197,94,0.08)'; }
+                              else if (line.startsWith('-') && !line.startsWith('---')) { color = '#ef4444'; bg = 'rgba(239,68,68,0.08)'; }
+                              else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96,165,250,0.06)'; }
+                              else if (line.startsWith('diff ') || line.startsWith('index ')) color = 'var(--color-muted)';
+                              return <div key={i} style={{ color, backgroundColor: bg, paddingLeft: '16px', paddingRight: '16px' }}>{line || ' '}</div>;
+                            })}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* No diff (unpushed only) */}
+                      {!detail.diff?.trim() && detail.files?.length === 0 && (
+                        <div className="p-4 text-sm text-[var(--color-muted)]">
+                          Working tree clean — {gs?.unpushed ?? 0} commits ahead of remote
+                        </div>
+                      )}
+
+                      {/* Recent commits */}
+                      {detail.recentCommits && (
+                        <div className="border-t border-[var(--color-border)]">
+                          <div className="px-4 py-2 text-xs font-bold text-[var(--color-muted)] bg-[var(--color-surface)]">
+                            Recent commits
+                          </div>
+                          {detail.recentCommits.split('\n').filter(Boolean).map((line: string, i: number) => {
+                            const hash = line.slice(0, 7);
+                            const msg = line.slice(8);
+                            return (
+                              <div key={i} className="px-4 py-1.5 flex items-center gap-3 text-xs hover:bg-[var(--color-surface-hover)] border-t border-[var(--color-border)]">
+                                <span className="font-mono text-[var(--color-accent)] shrink-0">{hash}</span>
+                                <span className="truncate">{msg}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              )}
-              {action.provider && action.status !== 'error' && (
-                <div className="mt-1 text-xs text-[var(--color-muted)]">via {action.provider}</div>
               )}
             </div>
           );
