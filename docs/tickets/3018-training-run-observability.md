@@ -1,9 +1,9 @@
 # 3018: Training Run Observability — Generic Schema + Ingestion
 
-**Status:** open
+**Status:** implemented (Phase 1-3 complete, Phase 4 partial)
 **Project:** unfirehose
 **Estimated:** 4-6h across multiple sessions
-**Blocked by:** fox approval on schema design and adapter priority
+**Implemented:** 2026-03-09
 
 ## Context
 
