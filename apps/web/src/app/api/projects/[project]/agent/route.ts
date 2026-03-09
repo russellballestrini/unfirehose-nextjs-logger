@@ -449,11 +449,24 @@ function spawnNudgeAgent(
 
   let stdout = '';
   let stderr = '';
+  let killed = false;
 
   child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
   child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
+  // Hard timeout: kill agent after 5 minutes
+  const NUDGE_TIMEOUT_MS = 5 * 60 * 1000;
+  const killTimer = setTimeout(() => {
+    killed = true;
+    try { process.kill(-child.pid!, 'SIGTERM'); } catch { /* already dead */ }
+    // If SIGTERM doesn't work, SIGKILL after 10s
+    setTimeout(() => {
+      try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* already dead */ }
+    }, 10000);
+  }, NUDGE_TIMEOUT_MS);
+
   child.on('close', (code) => {
+    clearTimeout(killTimer);
     try {
       let parsed: any = null;
       try { parsed = JSON.parse(stdout); } catch { /* not JSON */ }
