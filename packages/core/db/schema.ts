@@ -256,6 +256,39 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_ts ON mesh_snapshots(timestamp);
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_host ON mesh_snapshots(hostname, timestamp);
 
+    -- Training runs: one row per training run
+    CREATE TABLE IF NOT EXISTS training_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT UNIQUE NOT NULL,
+      model TEXT NOT NULL,
+      config TEXT,                          -- JSON training config
+      status TEXT NOT NULL DEFAULT 'running', -- running, completed, failed
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      final_loss REAL,
+      wall_ms INTEGER,
+      source TEXT                           -- adapter that produced this (http, stdout, jsonl, wandb)
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_runs_status ON training_runs(status);
+
+    -- Training events: loss, samples, checkpoints, evals
+    CREATE TABLE IF NOT EXISTS training_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL REFERENCES training_runs(run_id),
+      event_type TEXT NOT NULL,             -- loss, sample, checkpoint, eval
+      step INTEGER NOT NULL,
+      loss REAL,
+      lr REAL,
+      text_content TEXT,                    -- sample text
+      checkpoint_path TEXT,
+      size_bytes INTEGER,
+      eval_name TEXT,
+      eval_score REAL,
+      ts TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_events_run ON training_events(run_id, step);
+    CREATE INDEX IF NOT EXISTS idx_training_events_type ON training_events(event_type);
+
     -- Indexes for fast queries
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);

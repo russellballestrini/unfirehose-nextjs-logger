@@ -52,7 +52,8 @@
     "./tiers": "./tiers.ts",
     "./auth": "./auth.ts",
     "./rate-limit": "./rate-limit.ts",
-    "./apmonitor-adapter": "./apmonitor-adapter.ts"
+    "./apmonitor-adapter": "./apmonitor-adapter.ts",
+    "./training": "./training.ts"
   },
   "scripts": {
     "test": "vitest run",

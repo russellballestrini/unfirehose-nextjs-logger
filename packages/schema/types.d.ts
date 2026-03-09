@@ -217,6 +217,74 @@ export interface AlertThreshold {
   enabled: boolean;
 }
 
+// === Training Run Events ===
+
+export interface TrainingRunStart {
+  $schema?: "unfirehose/1.0";
+  type: "run.start";
+  run_id: string;
+  model: string;
+  config?: Record<string, unknown>;
+  ts: string;
+}
+
+export interface TrainingRunLoss {
+  $schema?: "unfirehose/1.0";
+  type: "run.loss";
+  run_id: string;
+  step: number;
+  loss: number;
+  lr?: number;
+  ts: string;
+}
+
+export interface TrainingRunSample {
+  $schema?: "unfirehose/1.0";
+  type: "run.sample";
+  run_id: string;
+  step: number;
+  text: string;
+  loss?: number;
+  ts: string;
+}
+
+export interface TrainingRunCheckpoint {
+  $schema?: "unfirehose/1.0";
+  type: "run.checkpoint";
+  run_id: string;
+  step: number;
+  path: string;
+  size_bytes?: number;
+  ts: string;
+}
+
+export interface TrainingRunEval {
+  $schema?: "unfirehose/1.0";
+  type: "run.eval";
+  run_id: string;
+  step: number;
+  eval: string;
+  score: number;
+  ts: string;
+}
+
+export interface TrainingRunEnd {
+  $schema?: "unfirehose/1.0";
+  type: "run.end";
+  run_id: string;
+  final_loss?: number;
+  wall_ms?: number;
+  ts: string;
+}
+
+export type TrainingRunEvent =
+  | TrainingRunStart
+  | TrainingRunLoss
+  | TrainingRunSample
+  | TrainingRunCheckpoint
+  | TrainingRunEval
+  | TrainingRunEnd;
+
 // === Union of all top-level objects ===
 
 export type UnfirehoseObject =
@@ -227,7 +295,8 @@ export type UnfirehoseObject =
   | Metric
   | Project
   | ToolDefinition
-  | AlertThreshold;
+  | AlertThreshold
+  | TrainingRunEvent;
 
 // === Standard Tool Registry ===
 

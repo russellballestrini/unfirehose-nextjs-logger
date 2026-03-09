@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unfirehose.org/schema/1.0/training-run-event.json",
+  "title": "unfirehose/1.0 Training Run Event",
+  "description": "Events emitted during machine learning training runs. Six event types cover the full training lifecycle.",
+  "type": "object",
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "run.start" },
+        "run_id": { "type": "string" },
+        "model": { "type": "string" },
+        "config": { "type": "object" },
+        "ts": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "run_id", "model", "ts"]
+    },
+    {
+      "properties": {
+        "type": { "const": "run.loss" },
+        "run_id": { "type": "string" },
+        "step": { "type": "integer", "minimum": 0 },
+        "loss": { "type": "number" },
+        "lr": { "type": "number" },
+        "ts": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "run_id", "step", "loss", "ts"]
+    },
+    {
+      "properties": {
+        "type": { "const": "run.sample" },
+        "run_id": { "type": "string" },
+        "step": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string" },
+        "loss": { "type": "number" },
+        "ts": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "run_id", "step", "text", "ts"]
+    },
+    {
+      "properties": {
+        "type": { "const": "run.checkpoint" },
+        "run_id": { "type": "string" },
+        "step": { "type": "integer", "minimum": 0 },
+        "path": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "run_id", "step", "path", "ts"]
+    },
+    {
+      "properties": {
+        "type": { "const": "run.eval" },
+        "run_id": { "type": "string" },
+        "step": { "type": "integer", "minimum": 0 },
+        "eval": { "type": "string" },
+        "score": { "type": "number" },
+        "ts": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "run_id", "step", "eval", "score", "ts"]
+    },
+    {
+      "properties": {
+        "type": { "const": "run.end" },
+        "run_id": { "type": "string" },
+        "final_loss": { "type": "number" },
+        "wall_ms": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "run_id", "ts"]
+    }
+  ],
+  "additionalProperties": true
+}
