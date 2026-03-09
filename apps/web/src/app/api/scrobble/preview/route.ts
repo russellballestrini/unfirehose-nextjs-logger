@@ -7,6 +7,9 @@ const execAsync = promisify(exec);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+let previewCache: { data: any; ts: number } | null = null;
+const PREVIEW_CACHE_TTL = 300_000; // 5 minutes
+
 /** Max unchecked projects to re-probe per request to bound response time */
 const MAX_RECHECK_BATCH = 7;
 
@@ -88,6 +91,10 @@ async function detectPublicRemotes(projectPath: string | null): Promise<{ isPubl
 }
 
 export async function GET() {
+  if (previewCache && Date.now() - previewCache.ts < PREVIEW_CACHE_TTL) {
+    return NextResponse.json(previewCache.data);
+  }
+
   try {
     const db = getDb();
 
@@ -181,7 +188,7 @@ export async function GET() {
       'Any PII (already sanitized at ingest)',
     ];
 
-    return NextResponse.json({
+    const result = {
       projects: projects.map((p: any) => ({
         name: p.name,
         displayName: p.display_name,
@@ -196,7 +203,11 @@ export async function GET() {
       })),
       included,
       excluded,
-    });
+    };
+
+    previewCache = { data: result, ts: Date.now() };
+
+    return NextResponse.json(result);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
