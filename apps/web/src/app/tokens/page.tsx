@@ -108,6 +108,9 @@ export default function TokensPage() {
     blockTypes,
     harnessData,
     harnessModelBreakdown,
+    harnessSessions,
+    toolsByHarness,
+    dailyByHarness,
   } = data;
 
   // Data for token type pie chart
@@ -372,8 +375,44 @@ export default function TokensPage() {
         </table>
       </div>
 
-      {/* Row: Harness breakdown */}
+      {/* Harness section header */}
+      <div className="border-t border-[var(--color-border)] pt-4 mt-2">
+        <h2 className="text-lg font-bold">Harness Breakdown</h2>
+        <p className="text-base text-[var(--color-muted)]">
+          Token usage split by originating harness (claude-code, fetch, uncloseai, hermes, agnt)
+        </p>
+      </div>
+
+      {/* Harness stat cards */}
       {harnessData && harnessData.length > 0 && (
+        <div className="grid grid-cols-5 gap-4">
+          {harnessData
+            .filter((h: any) => h.totalTokens > 0)
+            .sort((a: any, b: any) => b.totalTokens - a.totalTokens)
+            .slice(0, 5)
+            .map((h: any) => {
+              const sessions = (harnessSessions ?? []).find((s: any) => s.harness === h.harness);
+              return (
+                <div key={h.harness} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full shrink-0"
+                      style={{ background: getHarnessColor(h.harness) }}
+                    />
+                    <span className="text-base text-[var(--color-muted)]">{h.harness}</span>
+                  </div>
+                  <div className="text-2xl font-bold">{formatTokens(h.totalTokens)}</div>
+                  <div className="text-base text-[var(--color-muted)] mt-1">
+                    {formatCost(h.costUSD)} · {sessions?.sessions ?? 0} sessions · {h.cacheEfficiency.toFixed(0)}x cache
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+
+      {/* Row: Harness charts */}
+      {harnessData && harnessData.length > 0 ? (
         <div className="grid grid-cols-3 gap-4">
           {/* Tokens by Harness donut */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -406,16 +445,46 @@ export default function TokensPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* Harness × Model stacked bar */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 col-span-2">
+          {/* Cost by Harness donut */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
-              Harness × Model Breakdown
+              Cost by Harness
+            </h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={harnessData.filter((h: any) => h.costUSD > 0).map((h: any) => ({
+                    name: h.harness,
+                    value: h.costUSD,
+                    color: getHarnessColor(h.harness),
+                  }))}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={35}
+                  outerRadius={75}
+                  strokeWidth={0}
+                >
+                  {harnessData.filter((h: any) => h.costUSD > 0).map((h: any, i: number) => (
+                    <Cell key={i} fill={getHarnessColor(h.harness)} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v) => formatCost(Number(v ?? 0))} />
+                <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Harness × Model stacked bar */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
+              Harness × Model
             </h3>
             {(() => {
-              // Build stacked bar data: one row per harness, columns for each model
-              const harnesses = [...new Set((harnessModelBreakdown ?? []).map((r: any) => r.harness))];
-              const models = [...new Set((harnessModelBreakdown ?? []).map((r: any) => r.model))];
-              const barData = harnesses.map((h: string) => {
+              const harnesses = [...new Set((harnessModelBreakdown ?? []).map((r: any) => r.harness))] as string[];
+              const models = [...new Set((harnessModelBreakdown ?? []).map((r: any) => r.model))] as string[];
+              const barData = harnesses.map((h) => {
                 const row: any = { harness: h };
                 for (const m of models) {
                   const match = (harnessModelBreakdown ?? []).find((r: any) => r.harness === h && r.model === m);
@@ -442,7 +511,7 @@ export default function TokensPage() {
                     />
                     <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
                     <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-                    {models.map((m: string) => (
+                    {models.map((m) => (
                       <Bar
                         key={m}
                         dataKey={m}
@@ -457,6 +526,49 @@ export default function TokensPage() {
             })()}
           </div>
         </div>
+      ) : (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 text-[var(--color-muted)] text-base">
+          No harness data yet. Sessions need the <code>harness</code> field populated during ingestion.
+        </div>
+      )}
+
+      {/* Daily tokens by harness */}
+      {dailyByHarness && dailyByHarness.length > 0 && (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+            Daily Tokens by Harness
+          </h3>
+          {(() => {
+            // Pivot: { date, claude-code: N, fetch: N, uncloseai: N, ... }
+            const harnesses = [...new Set(dailyByHarness.map((r: any) => r.harness))] as string[];
+            const byDate: Record<string, any> = {};
+            for (const r of dailyByHarness) {
+              if (!byDate[r.date]) byDate[r.date] = { date: r.date };
+              byDate[r.date][r.harness] = r.tokens;
+            }
+            const chartData = Object.values(byDate).slice(-30);
+            return (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={chartData}>
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: '#71717a', fontSize: 16 }}
+                    tickFormatter={(d: string) => d.slice(5)}
+                  />
+                  <YAxis
+                    tick={{ fill: '#71717a', fontSize: 16 }}
+                    tickFormatter={(v: number) => formatTokens(v)}
+                  />
+                  <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
+                  {harnesses.map((h) => (
+                    <Bar key={h} dataKey={h} stackId="a" fill={getHarnessColor(h)} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          })()}
+        </div>
       )}
 
       {/* Harness breakdown table */}
@@ -469,45 +581,96 @@ export default function TokensPage() {
             <thead>
               <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
                 <th className="pb-2">Harness</th>
+                <th className="pb-2 text-right">Sessions</th>
                 <th className="pb-2 text-right">Input</th>
                 <th className="pb-2 text-right">Output</th>
                 <th className="pb-2 text-right">Cache Read</th>
                 <th className="pb-2 text-right">Cache Write</th>
                 <th className="pb-2 text-right">Total</th>
+                <th className="pb-2 text-right">Cache Eff</th>
+                <th className="pb-2 text-right">Cost (equiv)</th>
               </tr>
             </thead>
             <tbody>
               {harnessData
                 .filter((h: any) => h.totalTokens > 0)
                 .sort((a: any, b: any) => b.totalTokens - a.totalTokens)
-                .map((h: any) => (
-                  <tr key={h.harness} className="border-b border-[var(--color-border)]">
-                    <td className="py-2 flex items-center gap-2">
-                      <span
-                        className="inline-block w-2 h-2 rounded-full shrink-0"
-                        style={{ background: getHarnessColor(h.harness) }}
-                      />
-                      {h.harness}
-                    </td>
-                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
-                      {formatTokens(h.inputTokens)}
-                    </td>
-                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
-                      {formatTokens(h.outputTokens)}
-                    </td>
-                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
-                      {formatTokens(h.cacheReadTokens)}
-                    </td>
-                    <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
-                      {formatTokens(h.cacheCreationTokens)}
-                    </td>
-                    <td className="py-2 text-right font-bold">
-                      {formatTokens(h.totalTokens)}
-                    </td>
-                  </tr>
-                ))}
+                .map((h: any) => {
+                  const sessions = (harnessSessions ?? []).find((s: any) => s.harness === h.harness);
+                  return (
+                    <tr key={h.harness} className="border-b border-[var(--color-border)]">
+                      <td className="py-2 flex items-center gap-2">
+                        <span
+                          className="inline-block w-2 h-2 rounded-full shrink-0"
+                          style={{ background: getHarnessColor(h.harness) }}
+                        />
+                        {h.harness}
+                      </td>
+                      <td className="py-2 text-right">{sessions?.sessions ?? 0}</td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
+                        {formatTokens(h.inputTokens)}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
+                        {formatTokens(h.outputTokens)}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                        {formatTokens(h.cacheReadTokens)}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
+                        {formatTokens(h.cacheCreationTokens)}
+                      </td>
+                      <td className="py-2 text-right font-bold">
+                        {formatTokens(h.totalTokens)}
+                      </td>
+                      <td className="py-2 text-right">
+                        {h.cacheEfficiency.toFixed(0)}x
+                      </td>
+                      <td className="py-2 text-right text-[var(--color-accent)]">
+                        {formatCost(h.costUSD)}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Top tools by harness */}
+      {toolsByHarness && toolsByHarness.length > 0 && (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+            Top Tools by Harness
+          </h3>
+          {(() => {
+            // Group by harness, show top 5 tools each
+            const grouped: Record<string, { tool_name: string; count: number }[]> = {};
+            for (const r of toolsByHarness) {
+              if (!grouped[r.harness]) grouped[r.harness] = [];
+              if (grouped[r.harness].length < 5) grouped[r.harness].push(r);
+            }
+            return (
+              <div className="grid grid-cols-3 gap-4">
+                {Object.entries(grouped).map(([harness, tools]) => (
+                  <div key={harness}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ background: getHarnessColor(harness) }}
+                      />
+                      <span className="font-bold">{harness}</span>
+                    </div>
+                    {tools.map((t) => (
+                      <div key={t.tool_name} className="flex justify-between text-base py-0.5">
+                        <span className="text-[var(--color-muted)]">{t.tool_name}</span>
+                        <span>{t.count.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

@@ -131,6 +131,24 @@ export async function GET(request: NextRequest) {
 
     const harnessData = harnessBreakdown.map((h) => {
       const total = h.input_tokens + h.output_tokens + h.cache_read_tokens + h.cache_creation_tokens;
+      // Sum cost across all models for this harness (approximate using weighted average)
+      const harnessModels = (db.prepare(`
+        SELECT m.model,
+               SUM(m.input_tokens) as input_tokens,
+               SUM(m.output_tokens) as output_tokens,
+               SUM(m.cache_read_tokens) as cache_read_tokens,
+               SUM(m.cache_creation_tokens) as cache_creation_tokens
+        FROM messages m
+        JOIN sessions s ON s.id = m.session_id
+        WHERE m.model IS NOT NULL AND m.model != '<synthetic>'
+          AND COALESCE(s.harness, 'unknown') = ?${dateFilter}
+        GROUP BY m.model
+      `).all(h.harness, ...dateParams)) as Array<{
+        model: string; input_tokens: number; output_tokens: number;
+        cache_read_tokens: number; cache_creation_tokens: number;
+      }>;
+      const costUSD = harnessModels.reduce((s, m) =>
+        s + calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens), 0);
       return {
         harness: h.harness,
         inputTokens: h.input_tokens,
@@ -138,8 +156,45 @@ export async function GET(request: NextRequest) {
         cacheReadTokens: h.cache_read_tokens,
         cacheCreationTokens: h.cache_creation_tokens,
         totalTokens: total,
+        costUSD,
+        cacheEfficiency: h.input_tokens > 0 ? h.cache_read_tokens / h.input_tokens : 0,
       };
     });
+
+    // Session counts by harness
+    const harnessSessions = db.prepare(`
+      SELECT COALESCE(s.harness, 'unknown') as harness, COUNT(DISTINCT s.id) as sessions
+      FROM sessions s
+      JOIN messages m ON m.session_id = s.id
+      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      GROUP BY harness
+    `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
+
+    // Tool calls by harness
+    const toolsByHarness = db.prepare(`
+      SELECT COALESCE(s.harness, 'unknown') as harness,
+             cb.tool_name,
+             COUNT(*) as count
+      FROM content_blocks cb
+      JOIN messages m ON m.id = cb.message_id
+      JOIN sessions s ON s.id = m.session_id
+      WHERE cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL${dateFilter}
+      GROUP BY harness, cb.tool_name
+      ORDER BY harness, count DESC
+    `).all(...dateParams) as Array<{ harness: string; tool_name: string; count: number }>;
+
+    // Daily tokens by harness
+    const dailyByHarness = db.prepare(`
+      SELECT DATE(m.timestamp) as date,
+             COALESCE(s.harness, 'unknown') as harness,
+             SUM(m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens) as tokens,
+             COUNT(*) as messages
+      FROM messages m
+      JOIN sessions s ON s.id = m.session_id
+      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      GROUP BY date, harness
+      ORDER BY date
+    `).all(...dateParams) as Array<{ date: string; harness: string; tokens: number; messages: number }>;
 
     // Harness × model cross-breakdown
     const harnessModelBreakdown = db.prepare(`
@@ -195,6 +250,9 @@ export async function GET(request: NextRequest) {
       blockTypes,
       harnessData,
       harnessModelBreakdown,
+      harnessSessions,
+      toolsByHarness,
+      dailyByHarness,
     });
   } catch (err) {
     return NextResponse.json(
