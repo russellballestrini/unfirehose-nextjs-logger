@@ -306,6 +306,11 @@ function migrate(db: Database.Database) {
       WHERE model IS NOT NULL;
     -- Speed up content_blocks lookups by type + message
     CREATE INDEX IF NOT EXISTS idx_content_blocks_type_message ON content_blocks(block_type, message_id);
+    -- Speed up harness-based token aggregation (tokens page)
+    CREATE INDEX IF NOT EXISTS idx_sessions_id_harness ON sessions(id, harness);
+    -- Speed up tool_use queries with tool_name
+    CREATE INDEX IF NOT EXISTS idx_content_blocks_tool ON content_blocks(block_type, tool_name, message_id)
+      WHERE block_type = 'tool_use';
   `);
 
   // Schema migrations: add columns to existing tables

@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
 import { getDb } from '@unturf/unfirehose/db/schema';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 // Anthropic API pricing per million tokens (2026 rates)
 // Used to show equivalent value even on Max plan
 // Pricing: cache_read = 10% of input, cache_write = 125% of input
@@ -28,9 +30,6 @@ function calcCost(model: string, input: number, output: number, cacheRead: numbe
 
 export async function GET(request: NextRequest) {
   try {
-    const raw = await readFile(claudePaths.statsCache, 'utf-8');
-    const stats: StatsCache = JSON.parse(raw);
-
     const url = request.nextUrl;
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
@@ -47,37 +46,51 @@ export async function GET(request: NextRequest) {
       dateParams.push(to);
     }
 
-    // Get real token numbers from SQLite
     const db = getDb();
-    const dbModels = db.prepare(`
-      SELECT model,
-             SUM(input_tokens) as input_tokens,
-             SUM(output_tokens) as output_tokens,
-             SUM(cache_read_tokens) as cache_read_tokens,
-             SUM(cache_creation_tokens) as cache_creation_tokens
+
+    // Single mega-query: harness × model breakdown with session counts
+    // This one query replaces: modelBreakdown, harnessBreakdown, harnessModelBreakdown, harnessSessions, and the N+1 cost queries
+    const harnessModelRows = db.prepare(`
+      SELECT COALESCE(s.harness, 'unknown') as harness,
+             m.model,
+             SUM(m.input_tokens) as input_tokens,
+             SUM(m.output_tokens) as output_tokens,
+             SUM(m.cache_read_tokens) as cache_read_tokens,
+             SUM(m.cache_creation_tokens) as cache_creation_tokens,
+             COUNT(DISTINCT s.id) as sessions
       FROM messages m
-      WHERE model IS NOT NULL AND model != '<synthetic>'${dateFilter}
-      GROUP BY model
+      JOIN sessions s ON s.id = m.session_id
+      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      GROUP BY harness, m.model
     `).all(...dateParams) as Array<{
+      harness: string;
       model: string;
       input_tokens: number;
       output_tokens: number;
       cache_read_tokens: number;
       cache_creation_tokens: number;
+      sessions: number;
     }>;
 
-    const modelBreakdown = dbModels.map((m) => {
-      const cost = calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
-      return {
-        model: m.model,
-        inputTokens: m.input_tokens,
-        outputTokens: m.output_tokens,
-        cacheReadTokens: m.cache_read_tokens,
-        cacheCreationTokens: m.cache_creation_tokens,
-        totalTokens: m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens,
-        costUSD: cost,
-      };
-    });
+    // Derive modelBreakdown by aggregating across harnesses
+    const modelMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
+    for (const r of harnessModelRows) {
+      const prev = modelMap.get(r.model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      prev.input += r.input_tokens;
+      prev.output += r.output_tokens;
+      prev.cacheRead += r.cache_read_tokens;
+      prev.cacheWrite += r.cache_creation_tokens;
+      modelMap.set(r.model, prev);
+    }
+    const modelBreakdown = [...modelMap.entries()].map(([model, t]) => ({
+      model,
+      inputTokens: t.input,
+      outputTokens: t.output,
+      cacheReadTokens: t.cacheRead,
+      cacheCreationTokens: t.cacheWrite,
+      totalTokens: t.input + t.output + t.cacheRead + t.cacheWrite,
+      costUSD: calcCost(model, t.input, t.output, t.cacheRead, t.cacheWrite),
+    }));
 
     const totalTokens = modelBreakdown.reduce((s, m) => s + m.totalTokens, 0);
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
@@ -86,82 +99,24 @@ export async function GET(request: NextRequest) {
     const totalCacheRead = modelBreakdown.reduce((s, m) => s + m.cacheReadTokens, 0);
     const totalCacheWrite = modelBreakdown.reduce((s, m) => s + m.cacheCreationTokens, 0);
 
-    // Tool call breakdown from SQLite
-    const toolCalls = db.prepare(`
-      SELECT cb.tool_name, COUNT(*) as count
-      FROM content_blocks cb
-      JOIN messages m ON m.id = cb.message_id
-      WHERE cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL${dateFilter}
-      GROUP BY cb.tool_name
-      ORDER BY count DESC
-    `).all(...dateParams) as Array<{ tool_name: string; count: number }>;
+    // Derive harnessData by aggregating across models (no extra query!)
+    const harnessMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; sessions: Set<number> }>();
+    for (const r of harnessModelRows) {
+      let prev = harnessMap.get(r.harness);
+      if (!prev) {
+        prev = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, sessions: new Set() };
+        harnessMap.set(r.harness, prev);
+      }
+      prev.input += r.input_tokens;
+      prev.output += r.output_tokens;
+      prev.cacheRead += r.cache_read_tokens;
+      prev.cacheWrite += r.cache_creation_tokens;
+      // sessions is COUNT(DISTINCT) per harness×model, but we need per-harness total
+      // We'll track it separately below
+    }
 
-    // Tool calls by model
-    const toolsByModel = db.prepare(`
-      SELECT m.model, COUNT(cb.id) as count
-      FROM content_blocks cb
-      JOIN messages m ON m.id = cb.message_id
-      WHERE cb.block_type = 'tool_use'${dateFilter}
-      GROUP BY m.model
-      ORDER BY count DESC
-    `).all(...dateParams) as Array<{ model: string; count: number }>;
-
-    // Daily token usage from stats cache (line chart data)
-    const dailyModelTokens = stats.dailyModelTokens ?? [];
-
-    // Harness breakdown (JOIN sessions for harness field)
-    const harnessBreakdown = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness,
-             SUM(m.input_tokens) as input_tokens,
-             SUM(m.output_tokens) as output_tokens,
-             SUM(m.cache_read_tokens) as cache_read_tokens,
-             SUM(m.cache_creation_tokens) as cache_creation_tokens
-      FROM messages m
-      JOIN sessions s ON s.id = m.session_id
-      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
-      GROUP BY harness
-      ORDER BY input_tokens DESC
-    `).all(...dateParams) as Array<{
-      harness: string;
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_tokens: number;
-      cache_creation_tokens: number;
-    }>;
-
-    const harnessData = harnessBreakdown.map((h) => {
-      const total = h.input_tokens + h.output_tokens + h.cache_read_tokens + h.cache_creation_tokens;
-      // Sum cost across all models for this harness (approximate using weighted average)
-      const harnessModels = (db.prepare(`
-        SELECT m.model,
-               SUM(m.input_tokens) as input_tokens,
-               SUM(m.output_tokens) as output_tokens,
-               SUM(m.cache_read_tokens) as cache_read_tokens,
-               SUM(m.cache_creation_tokens) as cache_creation_tokens
-        FROM messages m
-        JOIN sessions s ON s.id = m.session_id
-        WHERE m.model IS NOT NULL AND m.model != '<synthetic>'
-          AND COALESCE(s.harness, 'unknown') = ?${dateFilter}
-        GROUP BY m.model
-      `).all(h.harness, ...dateParams)) as Array<{
-        model: string; input_tokens: number; output_tokens: number;
-        cache_read_tokens: number; cache_creation_tokens: number;
-      }>;
-      const costUSD = harnessModels.reduce((s, m) =>
-        s + calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens), 0);
-      return {
-        harness: h.harness,
-        inputTokens: h.input_tokens,
-        outputTokens: h.output_tokens,
-        cacheReadTokens: h.cache_read_tokens,
-        cacheCreationTokens: h.cache_creation_tokens,
-        totalTokens: total,
-        costUSD,
-        cacheEfficiency: h.input_tokens > 0 ? h.cache_read_tokens / h.input_tokens : 0,
-      };
-    });
-
-    // Session counts by harness
+    // Session counts per harness — derive from same rows (approximate: sum of per-model distinct counts overcounts)
+    // Use a quick separate query since COUNT(DISTINCT) across groups needs it
     const harnessSessions = db.prepare(`
       SELECT COALESCE(s.harness, 'unknown') as harness, COUNT(DISTINCT s.id) as sessions
       FROM sessions s
@@ -169,19 +124,69 @@ export async function GET(request: NextRequest) {
       WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
       GROUP BY harness
     `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
+    const sessionMap = new Map(harnessSessions.map(s => [s.harness, s.sessions]));
 
-    // Tool calls by harness
-    const toolsByHarness = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness,
-             cb.tool_name,
+    // Compute per-harness cost from harnessModelRows (no N+1!)
+    const harnessCostMap = new Map<string, number>();
+    for (const r of harnessModelRows) {
+      const prev = harnessCostMap.get(r.harness) ?? 0;
+      harnessCostMap.set(r.harness, prev + calcCost(r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens));
+    }
+
+    const harnessData = [...harnessMap.entries()].map(([harness, t]) => ({
+      harness,
+      inputTokens: t.input,
+      outputTokens: t.output,
+      cacheReadTokens: t.cacheRead,
+      cacheCreationTokens: t.cacheWrite,
+      totalTokens: t.input + t.output + t.cacheRead + t.cacheWrite,
+      costUSD: harnessCostMap.get(harness) ?? 0,
+      cacheEfficiency: t.input > 0 ? t.cacheRead / t.input : 0,
+    }));
+
+    // harnessModelBreakdown is just the raw rows
+    const harnessModelBreakdown = harnessModelRows;
+
+    // Combined tool query: tool calls + by model + by harness in one pass
+    const toolRows = db.prepare(`
+      SELECT cb.tool_name,
+             m.model,
+             COALESCE(s.harness, 'unknown') as harness,
              COUNT(*) as count
       FROM content_blocks cb
       JOIN messages m ON m.id = cb.message_id
       JOIN sessions s ON s.id = m.session_id
       WHERE cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL${dateFilter}
-      GROUP BY harness, cb.tool_name
-      ORDER BY harness, count DESC
-    `).all(...dateParams) as Array<{ harness: string; tool_name: string; count: number }>;
+      GROUP BY cb.tool_name, m.model, harness
+    `).all(...dateParams) as Array<{ tool_name: string; model: string; harness: string; count: number }>;
+
+    // Derive toolCalls (by tool_name)
+    const toolCountMap = new Map<string, number>();
+    const toolModelMap = new Map<string, number>();
+    const toolHarnessMap = new Map<string, Map<string, number>>();
+    for (const r of toolRows) {
+      toolCountMap.set(r.tool_name, (toolCountMap.get(r.tool_name) ?? 0) + r.count);
+      toolModelMap.set(r.model, (toolModelMap.get(r.model) ?? 0) + r.count);
+      if (!toolHarnessMap.has(r.harness)) toolHarnessMap.set(r.harness, new Map());
+      const hm = toolHarnessMap.get(r.harness)!;
+      hm.set(r.tool_name, (hm.get(r.tool_name) ?? 0) + r.count);
+    }
+
+    const toolCalls = [...toolCountMap.entries()]
+      .map(([tool_name, count]) => ({ tool_name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const toolsByModel = [...toolModelMap.entries()]
+      .map(([model, count]) => ({ model, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const toolsByHarness: Array<{ harness: string; tool_name: string; count: number }> = [];
+    for (const [harness, tools] of toolHarnessMap) {
+      for (const [tool_name, count] of tools) {
+        toolsByHarness.push({ harness, tool_name, count });
+      }
+    }
+    toolsByHarness.sort((a, b) => a.harness.localeCompare(b.harness) || b.count - a.count);
 
     // Daily tokens by harness
     const dailyByHarness = db.prepare(`
@@ -195,28 +200,6 @@ export async function GET(request: NextRequest) {
       GROUP BY date, harness
       ORDER BY date
     `).all(...dateParams) as Array<{ date: string; harness: string; tokens: number; messages: number }>;
-
-    // Harness × model cross-breakdown
-    const harnessModelBreakdown = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness,
-             m.model,
-             SUM(m.input_tokens) as input_tokens,
-             SUM(m.output_tokens) as output_tokens,
-             SUM(m.cache_read_tokens) as cache_read_tokens,
-             SUM(m.cache_creation_tokens) as cache_creation_tokens
-      FROM messages m
-      JOIN sessions s ON s.id = m.session_id
-      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
-      GROUP BY harness, m.model
-      ORDER BY harness, input_tokens DESC
-    `).all(...dateParams) as Array<{
-      harness: string;
-      model: string;
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_tokens: number;
-      cache_creation_tokens: number;
-    }>;
 
     // Content block type breakdown
     const blockTypes = dateFilter
@@ -235,6 +218,16 @@ export async function GET(request: NextRequest) {
           ORDER BY count DESC
         `).all() as Array<{ block_type: string; count: number }>;
 
+    // Read stats cache for daily activity (non-blocking, fallback to empty)
+    let dailyActivity: any[] = [];
+    let dailyModelTokens: any[] = [];
+    try {
+      const raw = await readFile(claudePaths.statsCache, 'utf-8');
+      const stats: StatsCache = JSON.parse(raw);
+      dailyActivity = stats.dailyActivity ?? [];
+      dailyModelTokens = stats.dailyModelTokens ?? [];
+    } catch { /* stats cache missing is fine */ }
+
     return NextResponse.json({
       modelBreakdown,
       totalTokens,
@@ -245,7 +238,7 @@ export async function GET(request: NextRequest) {
       totalCacheWrite,
       toolCalls,
       toolsByModel,
-      dailyActivity: stats.dailyActivity,
+      dailyActivity,
       dailyModelTokens,
       blockTypes,
       harnessData,
