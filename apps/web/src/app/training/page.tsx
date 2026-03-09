@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import {
   LineChart,
@@ -103,6 +103,57 @@ const STATUS_COLORS: Record<string, string> = {
   failed: '#f87171',
 };
 
+// ---------- localStorage run flags ----------
+
+interface RunFlags {
+  favorites: Set<string>;
+  locked: Set<string>;
+}
+
+function loadRunFlags(): RunFlags {
+  try {
+    const raw = localStorage.getItem('training_run_flags');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        favorites: new Set(parsed.favorites ?? []),
+        locked: new Set(parsed.locked ?? []),
+      };
+    }
+  } catch { /* ignore */ }
+  return { favorites: new Set(), locked: new Set() };
+}
+
+function saveRunFlags(flags: RunFlags) {
+  localStorage.setItem('training_run_flags', JSON.stringify({
+    favorites: [...flags.favorites],
+    locked: [...flags.locked],
+  }));
+}
+
+function useRunFlags() {
+  const [flags, setFlags] = useState<RunFlags>({ favorites: new Set(), locked: new Set() });
+
+  useEffect(() => {
+    setFlags(loadRunFlags());
+  }, []);
+
+  const toggle = useCallback((runId: string, field: 'favorites' | 'locked') => {
+    setFlags((prev) => {
+      const next = {
+        favorites: new Set(prev.favorites),
+        locked: new Set(prev.locked),
+      };
+      if (next[field].has(runId)) next[field].delete(runId);
+      else next[field].add(runId);
+      saveRunFlags(next);
+      return next;
+    });
+  }, []);
+
+  return { flags, toggle };
+}
+
 // ---------- components ----------
 
 function StatusBadge({ status }: { status: string }) {
@@ -199,40 +250,95 @@ function RunsList({
   runs,
   selectedId,
   onSelect,
+  flags,
+  onToggleFlag,
+  onDelete,
 }: {
   runs: TrainingRun[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  flags: RunFlags;
+  onToggleFlag: (runId: string, field: 'favorites' | 'locked') => void;
+  onDelete: (runId: string) => void;
 }) {
+  // Sort: favorites first, then by started_at (already desc from API)
+  const sorted = useMemo(() => {
+    return [...runs].sort((a, b) => {
+      const af = flags.favorites.has(a.run_id) ? 0 : 1;
+      const bf = flags.favorites.has(b.run_id) ? 0 : 1;
+      if (af !== bf) return af - bf;
+      return 0; // preserve original order within same group
+    });
+  }, [runs, flags.favorites]);
+
   return (
     <div className="flex flex-col gap-1">
-      {runs.map((run) => {
+      {sorted.map((run) => {
         const active = run.run_id === selectedId;
+        const isFav = flags.favorites.has(run.run_id);
+        const isLocked = flags.locked.has(run.run_id);
         return (
-          <button
+          <div
             key={run.run_id}
-            onClick={() => onSelect(run.run_id)}
-            className="w-full rounded-lg px-3 py-2.5 text-left transition-colors"
+            className="group/run relative rounded-lg transition-colors"
             style={{
               backgroundColor: active ? 'var(--color-surface)' : 'transparent',
               border: active ? '1px solid var(--color-border)' : '1px solid transparent',
             }}
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-mono text-sm font-medium" style={{ color: 'var(--color-foreground)' }}>
-                {run.model}
-              </span>
-              <StatusBadge status={run.status} />
+            <button
+              onClick={() => onSelect(run.run_id)}
+              className="w-full px-3 py-2.5 text-left"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-mono text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--color-foreground)' }}>
+                  {isFav && <span style={{ color: '#fbbf24' }} title="Favorite">★</span>}
+                  {isLocked && <span style={{ color: '#60a5fa' }} title="Locked">🔒</span>}
+                  {run.model}
+                </span>
+                <StatusBadge status={run.status} />
+              </div>
+              <div className="mt-1 flex items-center gap-3 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+                {run.latest_step != null && <span>step {run.latest_step.toLocaleString()}</span>}
+                {run.latest_loss != null && <span>loss {run.latest_loss.toFixed(4)}</span>}
+                <span className="ml-auto">{formatWallTime(run.started_at)}</span>
+              </div>
+              <div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--color-muted)', opacity: 0.6 }}>
+                {run.run_id}
+              </div>
+            </button>
+            {/* Hover action buttons */}
+            <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover/run:opacity-100 transition-opacity">
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleFlag(run.run_id, 'favorites'); }}
+                className="w-6 h-6 flex items-center justify-center rounded text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                title={isFav ? 'Unfavorite' : 'Favorite'}
+                style={{ color: isFav ? '#fbbf24' : 'var(--color-muted)' }}
+              >
+                {isFav ? '★' : '☆'}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleFlag(run.run_id, 'locked'); }}
+                className="w-6 h-6 flex items-center justify-center rounded text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                title={isLocked ? 'Unlock (allow deletion)' : 'Lock (prevent deletion)'}
+                style={{ color: isLocked ? '#60a5fa' : 'var(--color-muted)' }}
+              >
+                {isLocked ? '🔒' : '🔓'}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isLocked) { alert('This run is locked. Unlock it first to delete.'); return; }
+                  if (confirm(`Delete run "${run.model}" (${run.run_id})?`)) onDelete(run.run_id);
+                }}
+                className="w-6 h-6 flex items-center justify-center rounded text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                title={isLocked ? 'Locked — cannot delete' : 'Delete run'}
+                style={{ color: isLocked ? 'var(--color-muted)' : '#ef4444', opacity: isLocked ? 0.3 : 1 }}
+              >
+                ✕
+              </button>
             </div>
-            <div className="mt-1 flex items-center gap-3 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-              {run.latest_step != null && <span>step {run.latest_step.toLocaleString()}</span>}
-              {run.latest_loss != null && <span>loss {run.latest_loss.toFixed(4)}</span>}
-              <span className="ml-auto">{formatWallTime(run.started_at)}</span>
-            </div>
-            <div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--color-muted)', opacity: 0.6 }}>
-              {run.run_id}
-            </div>
-          </button>
+          </div>
         );
       })}
     </div>
@@ -315,6 +421,7 @@ export default function TrainingPage() {
   const [activeTab, setActiveTab] = useState<'loss' | 'checkpoints' | 'samples' | 'evals'>('loss');
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
+  const { flags, toggle: toggleFlag } = useRunFlags();
 
   // Runs list — polls every 5s for live updates
   const { data: runsData, mutate: mutateRuns } = useSWR<{ runs: TrainingRun[] }>(
@@ -372,6 +479,17 @@ export default function TrainingPage() {
     }
   }, [mutateRuns]);
 
+  const deleteRun = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/training?run_id=${encodeURIComponent(runId)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        mutateRuns();
+        if (selectedRunId === runId) setSelectedRunId(null);
+      }
+    } catch { /* ignore */ }
+  }, [mutateRuns, selectedRunId]);
+
   if (!runs.length && !runsData) {
     return (
       <div className="flex h-full items-center justify-center" style={{ color: 'var(--color-muted)' }}>
@@ -405,7 +523,7 @@ export default function TrainingPage() {
             {scanning ? '...' : 'Scan'}
           </button>
         </div>
-        <RunsList runs={runs} selectedId={activeRunId} onSelect={setSelectedRunId} />
+        <RunsList runs={runs} selectedId={activeRunId} onSelect={setSelectedRunId} flags={flags} onToggleFlag={toggleFlag} onDelete={deleteRun} />
       </div>
 
       {/* Main area */}

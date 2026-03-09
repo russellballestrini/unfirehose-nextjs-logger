@@ -119,6 +119,23 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  const url = new URL(request.url);
+  const runId = url.searchParams.get('run_id');
+  if (!runId) {
+    return NextResponse.json({ error: 'run_id required' }, { status: 400 });
+  }
+  try {
+    const db = getDb();
+    db.prepare('DELETE FROM training_events WHERE run_id = ?').run(runId);
+    db.prepare('DELETE FROM training_runs WHERE run_id = ?').run(runId);
+    return NextResponse.json({ ok: true, deleted: runId });
+  } catch (err: any) {
+    console.error('Training DELETE error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const db = getDb();
