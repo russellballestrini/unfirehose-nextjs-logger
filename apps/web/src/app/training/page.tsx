@@ -430,12 +430,95 @@ function LossCurve({ data, showEma }: { data: LossPoint[]; showEma: boolean }) {
   );
 }
 
+const OVERLAY_COLORS = ['#60a5fa', '#f87171', '#10b981', '#fbbf24', '#a78bfa', '#f472b6', '#22d3ee', '#fb923c'];
+
+function FavoritesChart({ data, showEma, runs }: { data: Record<string, LossPoint[]>; showEma: boolean; runs: TrainingRun[] }) {
+  const chartData = useMemo(() => {
+    const entries = Object.entries(data);
+    if (!entries.length) return [];
+
+    // Merge all runs into step-indexed rows
+    const stepMap = new Map<number, Record<string, number>>();
+    for (const [runId, points] of entries) {
+      let ema = points[0]?.loss ?? 0;
+      for (const p of points) {
+        ema = 0.1 * p.loss + 0.9 * ema;
+        const row = stepMap.get(p.step) ?? { step: p.step };
+        row[`${runId}_loss`] = p.loss;
+        row[`${runId}_ema`] = ema;
+        stepMap.set(p.step, row);
+      }
+    }
+    return [...stepMap.values()].sort((a, b) => a.step - b.step);
+  }, [data]);
+
+  const runIds = Object.keys(data);
+  const runLabel = (id: string) => runs.find(r => r.run_id === id)?.model ?? id;
+
+  if (!chartData.length) {
+    return (
+      <div className="flex h-80 items-center justify-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
+        Star some runs to compare their loss curves
+      </div>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={400}>
+      <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+        <XAxis
+          dataKey="step"
+          stroke="#737373"
+          tick={{ fill: '#737373', fontSize: 12 }}
+          tickFormatter={(v: number) => v.toLocaleString()}
+        />
+        <YAxis
+          stroke="#737373"
+          tick={{ fill: '#737373', fontSize: 12 }}
+          tickFormatter={(v: number) => v.toFixed(2)}
+        />
+        <Tooltip
+          contentStyle={{
+            backgroundColor: '#1a1a1a',
+            border: '1px solid #333',
+            borderRadius: '8px',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+          }}
+          labelStyle={{ color: '#a3a3a3' }}
+          labelFormatter={(v: any) => `Step ${Number(v).toLocaleString()}`}
+          formatter={(value: any, name: any) => {
+            const id = name.replace(/_loss$|_ema$/, '');
+            const isEma = name.endsWith('_ema');
+            return [Number(value).toFixed(6), `${runLabel(id)}${isEma ? ' EMA' : ''}`];
+          }}
+        />
+        {runIds.map((id, i) => {
+          const color = OVERLAY_COLORS[i % OVERLAY_COLORS.length];
+          return showEma ? (
+            <Line key={`${id}_ema`} type="monotone" dataKey={`${id}_ema`} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} name={`${id}_ema`} connectNulls />
+          ) : (
+            <Line key={`${id}_loss`} type="monotone" dataKey={`${id}_loss`} stroke={color} strokeWidth={1.5} dot={false} isAnimationActive={false} name={`${id}_loss`} connectNulls />
+          );
+        })}
+        {showEma && runIds.map((id, i) => {
+          const color = OVERLAY_COLORS[i % OVERLAY_COLORS.length];
+          return (
+            <Line key={`${id}_loss_dim`} type="monotone" dataKey={`${id}_loss`} stroke={`${color}33`} strokeWidth={1} dot={false} isAnimationActive={false} name={`${id}_loss`} connectNulls />
+          );
+        })}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 // ---------- page ----------
 
 export default function TrainingPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [showEma, setShowEma] = useState(true);
-  const [activeTab, setActiveTab] = useState<'loss' | 'checkpoints' | 'samples' | 'evals'>('loss');
+  const [activeTab, setActiveTab] = useState<'favorites' | 'loss' | 'checkpoints' | 'samples' | 'evals'>('favorites');
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
   const { flags, toggle: toggleFlag } = useRunFlags();
@@ -480,6 +563,29 @@ export default function TrainingPage() {
     }
     return { lossEvents, checkpoints, samples, evals };
   }, [detailRaw]);
+
+  // Fetch loss data for all favorited runs (for overlay chart)
+  const favRunIds = useMemo(() => [...flags.favorites].sort(), [flags.favorites]);
+  const { data: favData } = useSWR<Record<string, LossPoint[]>>(
+    favRunIds.length > 0 ? `/api/training/favorites?ids=${favRunIds.map(encodeURIComponent).join(',')}` : null,
+    async (url: string) => {
+      // Fetch each run's events in parallel
+      const results: Record<string, LossPoint[]> = {};
+      await Promise.all(favRunIds.map(async (id) => {
+        try {
+          const res = await fetch(`/api/training?run_id=${encodeURIComponent(id)}`);
+          const data = await res.json();
+          if (data?.events) {
+            results[id] = data.events
+              .filter((ev: any) => (ev.event_type === 'loss' || ev.event_type === 'run.loss') && ev.loss != null)
+              .map((ev: any) => ({ step: ev.step, loss: ev.loss }));
+          }
+        } catch { /* skip */ }
+      }));
+      return results;
+    },
+    { refreshInterval: 10000 }
+  );
 
   const runScan = useCallback(async () => {
     setScanning(true);
@@ -548,6 +654,7 @@ export default function TrainingPage() {
         {/* Tabs */}
         <div className="flex items-center gap-1">
           {([
+            ['favorites', '★ Favorites', favRunIds.length],
             ['loss', 'Loss', detail?.lossEvents?.length ?? 0],
             ['checkpoints', 'Checkpoints', detail?.checkpoints?.length ?? 0],
             ['samples', 'Samples', detail?.samples?.length ?? 0],
@@ -582,6 +689,38 @@ export default function TrainingPage() {
           className="flex-1 rounded-xl p-4"
           style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
         >
+          {activeTab === 'favorites' && (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-mono text-sm font-semibold" style={{ color: 'var(--color-foreground)' }}>
+                  Favorites — Loss Comparison
+                </h2>
+                <div className="flex items-center gap-4">
+                  {favRunIds.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {favRunIds.map((id, i) => (
+                        <span key={id} className="flex items-center gap-1 font-mono text-xs">
+                          <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: OVERLAY_COLORS[i % OVERLAY_COLORS.length] }} />
+                          <span style={{ color: 'var(--color-muted)' }}>{runs.find(r => r.run_id === id)?.model ?? id}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <label className="flex cursor-pointer items-center gap-2 font-mono text-xs shrink-0" style={{ color: 'var(--color-muted)' }}>
+                    <input
+                      type="checkbox"
+                      checked={showEma}
+                      onChange={(e) => setShowEma(e.target.checked)}
+                      className="accent-blue-500"
+                    />
+                    EMA
+                  </label>
+                </div>
+              </div>
+              <FavoritesChart data={favData ?? {}} showEma={showEma} runs={runs} />
+            </>
+          )}
+
           {activeTab === 'loss' && (
             <>
               <div className="mb-3 flex items-center justify-between">
