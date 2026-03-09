@@ -395,6 +395,67 @@ async function scan(filterHosts?: string[]) {
             batch();
           }
 
+          let samplesIngested = 0;
+          let checkpointsIngested = 0;
+
+          // Fetch checkpoints
+          try {
+            const cpCtrl = new AbortController();
+            const cpTimer = setTimeout(() => cpCtrl.abort(), probeTimeout);
+            const cpRes = await fetch(`http://${host}:${probePort}/checkpoints`, { signal: cpCtrl.signal });
+            clearTimeout(cpTimer);
+            if (cpRes.ok) {
+              const cpData = await cpRes.json();
+              const checkpoints: any[] = (cpData.checkpoints ?? []).filter((cp: any) => !cp.model || cp.model === m);
+              const maxCpStep = (db.prepare(
+                'SELECT COALESCE(MAX(step), -1) as max_step FROM training_events WHERE run_id = ? AND event_type = ?'
+              ).get(runId, 'checkpoint') as any)?.max_step ?? -1;
+              const newCps = checkpoints.filter((cp: any) => (cp.step ?? 0) > maxCpStep);
+              if (newCps.length) {
+                const cpInsert = db.prepare(`
+                  INSERT INTO training_events (run_id, event_type, step, loss, lr, text_content, checkpoint_path, size_bytes, eval_name, eval_score, ts)
+                  VALUES (?, 'checkpoint', ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?)
+                `);
+                const cpBatch = db.transaction(() => {
+                  for (const cp of newCps) {
+                    cpInsert.run(runId, cp.step ?? 0, cp.type ?? null, cp.path ?? cp.filename ?? '', cp.size_bytes ?? cp.size ?? null, now);
+                    checkpointsIngested++;
+                  }
+                });
+                cpBatch();
+              }
+            }
+          } catch { /* no checkpoints */ }
+
+          // Fetch samples
+          try {
+            const sCtrl = new AbortController();
+            const sTimer = setTimeout(() => sCtrl.abort(), probeTimeout);
+            const sRes = await fetch(`http://${host}:${probePort}/samples/${encodeURIComponent(m)}`, { signal: sCtrl.signal });
+            clearTimeout(sTimer);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              const samples: any[] = sData.samples ?? [];
+              const maxSampleStep = (db.prepare(
+                'SELECT COALESCE(MAX(step), -1) as max_step FROM training_events WHERE run_id = ? AND event_type = ?'
+              ).get(runId, 'sample') as any)?.max_step ?? -1;
+              const newSamples = samples.filter((s: any) => (s.step ?? 0) > maxSampleStep);
+              if (newSamples.length) {
+                const sInsert = db.prepare(`
+                  INSERT INTO training_events (run_id, event_type, step, loss, lr, text_content, checkpoint_path, size_bytes, eval_name, eval_score, ts)
+                  VALUES (?, 'sample', ?, ?, NULL, ?, NULL, NULL, NULL, NULL, ?)
+                `);
+                const sBatch = db.transaction(() => {
+                  for (const s of newSamples) {
+                    sInsert.run(runId, s.step ?? 0, s.loss ?? null, s.text ?? s.content ?? '', now);
+                    samplesIngested++;
+                  }
+                });
+                sBatch();
+              }
+            }
+          } catch { /* no samples */ }
+
           // Add to existing host result or create new one
           let hostResult = results.find(r => r.host === host);
           if (!hostResult) {
@@ -402,13 +463,13 @@ async function scan(filterHosts?: string[]) {
             results.push(hostResult);
           }
           hostResult.ingested.runs += 1;
-          hostResult.ingested.events += newPoints.length;
+          hostResult.ingested.events += newPoints.length + checkpointsIngested + samplesIngested;
           hostResult.files.push({
             path: `live-proxy://${host}:${probePort}/loss/${m}`,
             model: m,
             format: 'live-proxy',
             lossPoints: points.length,
-            samples: 0,
+            samples: samplesIngested,
           });
         } catch { /* model fetch failed */ }
       }
