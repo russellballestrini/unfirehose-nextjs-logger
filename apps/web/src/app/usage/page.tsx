@@ -1133,30 +1133,35 @@ function StandupProjectDetail({ projectName, displayName, mutateProjects }: {
           </button>
         ))}
       </div>
-      {aa?.result && !aa.loading && (
+      {aa?.result && (
         <div
           className="text-xs font-mono rounded p-2 mb-2 whitespace-pre-wrap"
           style={{
             backgroundColor: 'var(--color-background)',
             border: `1px solid ${
-              aa.result.severity === 'error' || aa.result.needsHuman
-                ? 'var(--color-error)'
-                : aa.result.severity === 'warning'
-                  ? '#f59e0b'
-                  : 'var(--color-border)'
+              aa.loading
+                ? '#7c3aed'
+                : aa.result.severity === 'error' || aa.result.needsHuman
+                  ? 'var(--color-error)'
+                  : aa.result.severity === 'warning'
+                    ? '#f59e0b'
+                    : 'var(--color-border)'
             }`,
             color: 'var(--color-foreground)',
           }}
         >
-          <div className="font-bold mb-1" style={{
-            color: aa.result.error
-              ? 'var(--color-error)'
-              : aa.result.needsHuman
+          <div className="font-bold mb-1 flex items-center gap-2" style={{
+            color: aa.loading
+              ? '#7c3aed'
+              : aa.result.error
                 ? 'var(--color-error)'
-                : aa.result.severity === 'warning'
-                  ? '#f59e0b'
-                  : '#10b981',
+                : aa.result.needsHuman
+                  ? 'var(--color-error)'
+                  : aa.result.severity === 'warning'
+                    ? '#f59e0b'
+                    : '#10b981',
           }}>
+            {aa.loading && <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#7c3aed' }} />}
             {aa.result.summary ?? aa.result.error ?? 'Done'}
           </div>
           {aa.result.lines?.map((l: string, i: number) => (
