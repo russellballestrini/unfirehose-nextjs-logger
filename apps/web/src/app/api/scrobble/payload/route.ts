@@ -24,37 +24,51 @@ function calcCost(model: string, input: number, output: number, cacheRead: numbe
   );
 }
 
-/**
- * GET /api/scrobble/payload
- *
- * Generates the scrobble payload — metrics-only, NO content/PII/training data.
- * This is what gets sent to the unfirehose.org endpoint when scrobble is enabled.
- *
- * The last.fm model: share what you listened to (usage patterns), not the music itself (content).
- */
 export async function GET() {
   try {
     const db = getDb();
     const handle = getSetting('unfirehose_handle') ?? 'anonymous';
     const displayName = getSetting('unfirehose_display_name') ?? handle;
 
-    // --- Lifetime stats ---
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString();
+    const twelveWeeksAgo = new Date(Date.now() - 84 * 86400000).toISOString();
+
+    // --- Combined lifetime + model breakdown in one query ---
+    const modelRows = db.prepare(`
+      SELECT model,
+             COUNT(*) as messages,
+             SUM(input_tokens) as inp, SUM(output_tokens) as out,
+             SUM(cache_read_tokens) as cr, SUM(cache_creation_tokens) as cw
+      FROM messages
+      WHERE model IS NOT NULL AND model != '<synthetic>'
+      GROUP BY model ORDER BY messages DESC
+    `).all() as any[];
+
+    // Derive lifetime totals from model rows
+    let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalCost = 0;
+    const models = modelRows.map((m: any) => {
+      totalInput += m.inp ?? 0;
+      totalOutput += m.out ?? 0;
+      totalCacheRead += m.cr ?? 0;
+      totalCacheWrite += m.cw ?? 0;
+      const cost = calcCost(m.model, m.inp, m.out, m.cr, m.cw);
+      totalCost += cost;
+      return { model: m.model, messages: m.messages, inputTokens: m.inp, outputTokens: m.out };
+    });
+
+    // --- Lifetime counts (sessions, active days, date range) ---
     const lifetime = db.prepare(`
-      SELECT
-        COUNT(DISTINCT s.id) as total_sessions,
-        COUNT(DISTINCT m.id) as total_messages,
-        COUNT(DISTINCT DATE(m.timestamp)) as active_days,
-        MIN(m.timestamp) as first_activity,
-        MAX(m.timestamp) as last_activity,
-        SUM(m.input_tokens) as total_input_tokens,
-        SUM(m.output_tokens) as total_output_tokens,
-        SUM(m.cache_read_tokens) as total_cache_read,
-        SUM(m.cache_creation_tokens) as total_cache_write
+      SELECT COUNT(DISTINCT s.id) as total_sessions,
+             COUNT(DISTINCT m.id) as total_messages,
+             COUNT(DISTINCT DATE(m.timestamp)) as active_days,
+             MIN(m.timestamp) as first_activity,
+             MAX(m.timestamp) as last_activity
       FROM messages m
       JOIN sessions s ON m.session_id = s.id
     `).get() as any;
 
-    // --- Streak calculation ---
+    // --- Combined activity: streaks + hour + dow + heatmap ---
+    // Streaks need distinct dates
     const activeDates = db.prepare(`
       SELECT DISTINCT DATE(timestamp) as d FROM messages
       WHERE timestamp IS NOT NULL ORDER BY d DESC
@@ -62,45 +76,54 @@ export async function GET() {
 
     const { currentStreak, longestStreak } = calcStreaks(activeDates.map(r => r.d));
 
-    // --- Daily cost for last 90 days ---
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString();
-    const dailyCosts = db.prepare(`
+    // Combined hour×dow heatmap (derive hour-of-day and day-of-week from it)
+    const heatmapRows = db.prepare(`
+      SELECT CAST(strftime('%w', timestamp) AS INTEGER) as dow,
+             CAST(strftime('%H', timestamp) AS INTEGER) as hour,
+             COUNT(*) as count
+      FROM messages WHERE timestamp IS NOT NULL
+      GROUP BY dow, hour
+    `).all() as any[];
+
+    // Derive hour-of-day and day-of-week aggregates from heatmap
+    const hourMap = new Map<number, number>();
+    const dowMap = new Map<number, number>();
+    for (const r of heatmapRows) {
+      hourMap.set(r.hour, (hourMap.get(r.hour) ?? 0) + r.count);
+      dowMap.set(r.dow, (dowMap.get(r.dow) ?? 0) + r.count);
+    }
+    const hourActivity = [...hourMap.entries()].sort((a, b) => a[0] - b[0]).map(([hour, count]) => ({ hour, count }));
+    const dowActivity = [...dowMap.entries()].sort((a, b) => a[0] - b[0]).map(([dow, count]) => ({
+      day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow],
+      count,
+    }));
+
+    // --- Combined time series: daily cost + messages (90 days) ---
+    const dailyRows = db.prepare(`
       SELECT DATE(timestamp) as date, model,
+             COUNT(*) as msg_count,
              SUM(input_tokens) as inp, SUM(output_tokens) as out,
              SUM(cache_read_tokens) as cr, SUM(cache_creation_tokens) as cw
       FROM messages
       WHERE timestamp >= ? AND model IS NOT NULL AND model != '<synthetic>'
-      GROUP BY date, model
-      ORDER BY date
+      GROUP BY date, model ORDER BY date
     `).all(ninetyDaysAgo) as any[];
 
-    const costByDay: Record<string, number> = {};
-    for (const r of dailyCosts) {
-      costByDay[r.date] = (costByDay[r.date] ?? 0) + calcCost(r.model, r.inp, r.out, r.cr, r.cw);
+    const dailyAgg: Record<string, { cost: number; count: number }> = {};
+    for (const r of dailyRows) {
+      if (!dailyAgg[r.date]) dailyAgg[r.date] = { cost: 0, count: 0 };
+      dailyAgg[r.date].cost += calcCost(r.model, r.inp, r.out, r.cr, r.cw);
+      dailyAgg[r.date].count += r.msg_count;
     }
-    const dailyCostSeries = Object.entries(costByDay)
-      .map(([date, cost]) => ({ date, costUSD: Math.round(cost * 100) / 100 }))
+    const dailyCostSeries = Object.entries(dailyAgg)
+      .map(([date, d]) => ({ date, costUSD: Math.round(d.cost * 100) / 100 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const dailyMessages = Object.entries(dailyAgg)
+      .map(([date, d]) => ({ date, count: d.count }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const totalCostAllTime = (() => {
-      const allModels = db.prepare(`
-        SELECT model, SUM(input_tokens) as inp, SUM(output_tokens) as out,
-               SUM(cache_read_tokens) as cr, SUM(cache_creation_tokens) as cw
-        FROM messages WHERE model IS NOT NULL AND model != '<synthetic>'
-        GROUP BY model
-      `).all() as any[];
-      return allModels.reduce((s, m) => s + calcCost(m.model, m.inp, m.out, m.cr, m.cw), 0);
-    })();
-
-    // --- Model breakdown (names + token counts only) ---
-    const models = db.prepare(`
-      SELECT model, COUNT(*) as messages,
-             SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens
-      FROM messages WHERE model IS NOT NULL AND model != '<synthetic>'
-      GROUP BY model ORDER BY messages DESC
-    `).all() as any[];
-
-    // --- Harness breakdown ---
+    // --- Harness + weekly velocity + tools + project stats + session duration ---
+    // Run remaining lightweight queries
     const harnesses = db.prepare(`
       SELECT COALESCE(s.harness, 'claude-code') as harness,
              COUNT(DISTINCT s.id) as sessions, COUNT(m.id) as messages
@@ -109,37 +132,16 @@ export async function GET() {
       GROUP BY harness ORDER BY sessions DESC
     `).all() as any[];
 
-    // --- Hour-of-day heatmap (sleep schedule proxy) ---
-    const hourActivity = db.prepare(`
-      SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count
-      FROM messages WHERE timestamp IS NOT NULL
-      GROUP BY hour ORDER BY hour
-    `).all() as any[];
+    const weeklyVelocity = db.prepare(`
+      SELECT strftime('%Y-W%W', m.timestamp) as week,
+             COUNT(DISTINCT s.id) as sessions,
+             COUNT(m.id) as messages
+      FROM messages m
+      JOIN sessions s ON m.session_id = s.id
+      WHERE m.timestamp >= ?
+      GROUP BY week ORDER BY week
+    `).all(twelveWeeksAgo) as any[];
 
-    // --- Day-of-week activity ---
-    const dowActivity = db.prepare(`
-      SELECT CAST(strftime('%w', timestamp) AS INTEGER) as dow, COUNT(*) as count
-      FROM messages WHERE timestamp IS NOT NULL
-      GROUP BY dow ORDER BY dow
-    `).all() as any[];
-
-    // --- DOW x Hour heatmap ---
-    const dowHourHeatmap = db.prepare(`
-      SELECT CAST(strftime('%w', timestamp) AS INTEGER) as dow,
-             CAST(strftime('%H', timestamp) AS INTEGER) as hour,
-             COUNT(*) as count
-      FROM messages WHERE timestamp IS NOT NULL
-      GROUP BY dow, hour ORDER BY dow, hour
-    `).all() as any[];
-
-    // --- Daily message counts (activity chart, 90 days) ---
-    const dailyMessages = db.prepare(`
-      SELECT DATE(timestamp) as date, COUNT(*) as count
-      FROM messages WHERE timestamp >= ?
-      GROUP BY date ORDER BY date
-    `).all(ninetyDaysAgo) as any[];
-
-    // --- Tool usage (names + counts, no arguments) ---
     const tools = db.prepare(`
       SELECT tool_name, COUNT(*) as count
       FROM content_blocks
@@ -147,7 +149,6 @@ export async function GET() {
       GROUP BY tool_name ORDER BY count DESC LIMIT 30
     `).all() as any[];
 
-    // --- Per-project stats (public/unlisted only) ---
     const projectStats = db.prepare(`
       SELECT p.name, p.display_name,
              COALESCE(pv.visibility, 'private') as visibility,
@@ -167,19 +168,6 @@ export async function GET() {
       ORDER BY messages DESC
     `).all() as any[];
 
-    // --- Weekly velocity (sessions per week, last 12 weeks) ---
-    const twelveWeeksAgo = new Date(Date.now() - 84 * 86400000).toISOString();
-    const weeklyVelocity = db.prepare(`
-      SELECT strftime('%Y-W%W', m.timestamp) as week,
-             COUNT(DISTINCT s.id) as sessions,
-             COUNT(m.id) as messages
-      FROM messages m
-      JOIN sessions s ON m.session_id = s.id
-      WHERE m.timestamp >= ?
-      GROUP BY week ORDER BY week
-    `).all(twelveWeeksAgo) as any[];
-
-    // --- Average session duration (from turn_duration messages) ---
     const avgSessionLen = db.prepare(`
       SELECT AVG(duration_ms) as avg_ms
       FROM (
@@ -191,14 +179,14 @@ export async function GET() {
       )
     `).get() as any;
 
-    // --- Gamification: badges/achievements ---
+    // --- Badges ---
     const badges = computeBadges({
       totalSessions: lifetime.total_sessions ?? 0,
       totalMessages: lifetime.total_messages ?? 0,
       activeDays: lifetime.active_days ?? 0,
       currentStreak,
       longestStreak,
-      totalCost: totalCostAllTime,
+      totalCost,
       projectCount: projectStats.length,
       toolCount: tools.length,
       harnessCount: harnesses.length,
@@ -209,69 +197,29 @@ export async function GET() {
       generatedAt: new Date().toISOString(),
       handle,
       displayName,
-
-      // Lifetime summary
       lifetime: {
         totalSessions: lifetime.total_sessions ?? 0,
         totalMessages: lifetime.total_messages ?? 0,
         activeDays: lifetime.active_days ?? 0,
         firstActivity: lifetime.first_activity,
         lastActivity: lifetime.last_activity,
-        totalInputTokens: lifetime.total_input_tokens ?? 0,
-        totalOutputTokens: lifetime.total_output_tokens ?? 0,
-        totalCacheRead: lifetime.total_cache_read ?? 0,
-        totalCacheWrite: lifetime.total_cache_write ?? 0,
-        totalCostUSD: Math.round(totalCostAllTime * 100) / 100,
+        totalInputTokens: totalInput,
+        totalOutputTokens: totalOutput,
+        totalCacheRead: totalCacheRead,
+        totalCacheWrite: totalCacheWrite,
+        totalCostUSD: Math.round(totalCost * 100) / 100,
       },
-
-      // Streaks
-      streaks: {
-        current: currentStreak,
-        longest: longestStreak,
-      },
-
-      // Gamification
+      streaks: { current: currentStreak, longest: longestStreak },
       badges,
-
-      // Activity patterns (sleep schedule proxy)
       activity: {
-        hourOfDay: hourActivity.map((h: any) => ({ hour: h.hour, count: h.count })),
-        dayOfWeek: dowActivity.map((d: any) => ({
-          day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.dow],
-          count: d.count,
-        })),
-        heatmap: dowHourHeatmap.map((d: any) => ({
-          dow: d.dow,
-          hour: d.hour,
-          count: d.count,
-        })),
+        hourOfDay: hourActivity,
+        dayOfWeek: dowActivity,
+        heatmap: heatmapRows.map((d: any) => ({ dow: d.dow, hour: d.hour, count: d.count })),
       },
-
-      // Time series (90 days)
-      timeSeries: {
-        dailyMessages,
-        dailyCost: dailyCostSeries,
-        weeklyVelocity,
-      },
-
-      // Breakdowns (no content, just counts)
-      models: models.map((m: any) => ({
-        model: m.model,
-        messages: m.messages,
-        inputTokens: m.input_tokens,
-        outputTokens: m.output_tokens,
-      })),
-      harnesses: harnesses.map((h: any) => ({
-        harness: h.harness,
-        sessions: h.sessions,
-        messages: h.messages,
-      })),
-      tools: tools.map((t: any) => ({
-        name: t.tool_name,
-        count: t.count,
-      })),
-
-      // Per-project (public/unlisted only — no private project names)
+      timeSeries: { dailyMessages, dailyCost: dailyCostSeries, weeklyVelocity },
+      models,
+      harnesses: harnesses.map((h: any) => ({ harness: h.harness, sessions: h.sessions, messages: h.messages })),
+      tools: tools.map((t: any) => ({ name: t.tool_name, count: t.count })),
       projects: projectStats.map((p: any) => ({
         name: p.display_name || p.name,
         visibility: p.visibility,
@@ -283,25 +231,19 @@ export async function GET() {
         firstActivity: p.first_activity,
         lastActivity: p.last_activity,
       })),
-
-      // Session stats
-      sessionStats: {
-        avgDurationMs: Math.round(avgSessionLen?.avg_ms ?? 0),
-      },
+      sessionStats: { avgDurationMs: Math.round(avgSessionLen?.avg_ms ?? 0) },
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-// --- Streak calculation ---
 function calcStreaks(sortedDatesDesc: string[]): { currentStreak: number; longestStreak: number } {
   if (sortedDatesDesc.length === 0) return { currentStreak: 0, longestStreak: 0 };
 
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-  // Current streak: must include today or yesterday
   let currentStreak = 0;
   if (sortedDatesDesc[0] === today || sortedDatesDesc[0] === yesterday) {
     currentStreak = 1;
@@ -314,7 +256,6 @@ function calcStreaks(sortedDatesDesc: string[]): { currentStreak: number; longes
     }
   }
 
-  // Longest streak: scan all dates ascending
   const asc = [...sortedDatesDesc].reverse();
   let longestStreak = 1;
   let run = 1;
@@ -333,7 +274,6 @@ function calcStreaks(sortedDatesDesc: string[]): { currentStreak: number; longes
   return { currentStreak, longestStreak };
 }
 
-// --- Badge/achievement system ---
 interface BadgeInput {
   totalSessions: number;
   totalMessages: number;
@@ -352,125 +292,72 @@ interface Badge {
   description: string;
   earned: boolean;
   tier?: 'bronze' | 'silver' | 'gold' | 'diamond';
-  progress?: number; // 0-1
+  progress?: number;
 }
 
 function computeBadges(input: BadgeInput): Badge[] {
   const badges: Badge[] = [];
 
-  // Session milestones
-  const sessionTiers = [
-    { n: 10, tier: 'bronze' as const, name: 'First Steps', desc: '10 sessions' },
-    { n: 100, tier: 'silver' as const, name: 'Regular', desc: '100 sessions' },
-    { n: 500, tier: 'gold' as const, name: 'Power User', desc: '500 sessions' },
-    { n: 1000, tier: 'diamond' as const, name: 'Machine Whisperer', desc: '1000 sessions' },
-  ];
-  for (const t of sessionTiers) {
-    badges.push({
-      id: `sessions-${t.n}`,
-      name: t.name,
-      description: t.desc,
-      earned: input.totalSessions >= t.n,
-      tier: t.tier,
-      progress: Math.min(1, input.totalSessions / t.n),
-    });
-  }
+  const tiered = (metric: number, tiers: { n: number; tier: Badge['tier']; name: string; desc: string }[]) => {
+    for (const t of tiers) {
+      badges.push({
+        id: `${t.name.toLowerCase().replace(/\s+/g, '-')}-${t.n}`,
+        name: t.name,
+        description: t.desc,
+        earned: metric >= t.n,
+        tier: t.tier,
+        progress: Math.min(1, metric / t.n),
+      });
+    }
+  };
 
-  // Message milestones
-  const msgTiers = [
-    { n: 1000, tier: 'bronze' as const, name: 'Chatty', desc: '1K messages' },
-    { n: 10000, tier: 'silver' as const, name: 'Prolific', desc: '10K messages' },
-    { n: 100000, tier: 'gold' as const, name: 'Torrent', desc: '100K messages' },
-    { n: 500000, tier: 'diamond' as const, name: 'Firehose', desc: '500K messages' },
-  ];
-  for (const t of msgTiers) {
-    badges.push({
-      id: `messages-${t.n}`,
-      name: t.name,
-      description: t.desc,
-      earned: input.totalMessages >= t.n,
-      tier: t.tier,
-      progress: Math.min(1, input.totalMessages / t.n),
-    });
-  }
+  tiered(input.totalSessions, [
+    { n: 10, tier: 'bronze', name: 'First Steps', desc: '10 sessions' },
+    { n: 100, tier: 'silver', name: 'Regular', desc: '100 sessions' },
+    { n: 500, tier: 'gold', name: 'Power User', desc: '500 sessions' },
+    { n: 1000, tier: 'diamond', name: 'Machine Whisperer', desc: '1000 sessions' },
+  ]);
 
-  // Streak badges
-  const streakTiers = [
-    { n: 3, tier: 'bronze' as const, name: 'Consistent', desc: '3-day streak' },
-    { n: 7, tier: 'silver' as const, name: 'Weekly Warrior', desc: '7-day streak' },
-    { n: 30, tier: 'gold' as const, name: 'Monthly Machine', desc: '30-day streak' },
-    { n: 100, tier: 'diamond' as const, name: 'Unstoppable', desc: '100-day streak' },
-  ];
-  for (const t of streakTiers) {
-    badges.push({
-      id: `streak-${t.n}`,
-      name: t.name,
-      description: t.desc,
-      earned: input.longestStreak >= t.n,
-      tier: t.tier,
-      progress: Math.min(1, input.longestStreak / t.n),
-    });
-  }
+  tiered(input.totalMessages, [
+    { n: 1000, tier: 'bronze', name: 'Chatty', desc: '1K messages' },
+    { n: 10000, tier: 'silver', name: 'Prolific', desc: '10K messages' },
+    { n: 100000, tier: 'gold', name: 'Torrent', desc: '100K messages' },
+    { n: 500000, tier: 'diamond', name: 'Firehose', desc: '500K messages' },
+  ]);
 
-  // Cost milestones
-  const costTiers = [
-    { n: 10, tier: 'bronze' as const, name: 'Penny Pincher', desc: '$10 spent' },
-    { n: 100, tier: 'silver' as const, name: 'Investor', desc: '$100 spent' },
-    { n: 1000, tier: 'gold' as const, name: 'Whale', desc: '$1K spent' },
-    { n: 10000, tier: 'diamond' as const, name: 'Deep Pocket', desc: '$10K spent' },
-  ];
-  for (const t of costTiers) {
-    badges.push({
-      id: `cost-${t.n}`,
-      name: t.name,
-      description: t.desc,
-      earned: input.totalCost >= t.n,
-      tier: t.tier,
-      progress: Math.min(1, input.totalCost / t.n),
-    });
-  }
+  tiered(input.longestStreak, [
+    { n: 3, tier: 'bronze', name: 'Consistent', desc: '3-day streak' },
+    { n: 7, tier: 'silver', name: 'Weekly Warrior', desc: '7-day streak' },
+    { n: 30, tier: 'gold', name: 'Monthly Machine', desc: '30-day streak' },
+    { n: 100, tier: 'diamond', name: 'Unstoppable', desc: '100-day streak' },
+  ]);
 
-  // Active days
-  const dayTiers = [
-    { n: 7, tier: 'bronze' as const, name: 'Week One', desc: '7 active days' },
-    { n: 30, tier: 'silver' as const, name: 'Monthly', desc: '30 active days' },
-    { n: 100, tier: 'gold' as const, name: 'Centurion', desc: '100 active days' },
-    { n: 365, tier: 'diamond' as const, name: 'Year Round', desc: '365 active days' },
-  ];
-  for (const t of dayTiers) {
-    badges.push({
-      id: `days-${t.n}`,
-      name: t.name,
-      description: t.desc,
-      earned: input.activeDays >= t.n,
-      tier: t.tier,
-      progress: Math.min(1, input.activeDays / t.n),
-    });
-  }
+  tiered(input.totalCost, [
+    { n: 10, tier: 'bronze', name: 'Penny Pincher', desc: '$10 spent' },
+    { n: 100, tier: 'silver', name: 'Investor', desc: '$100 spent' },
+    { n: 1000, tier: 'gold', name: 'Whale', desc: '$1K spent' },
+    { n: 10000, tier: 'diamond', name: 'Deep Pocket', desc: '$10K spent' },
+  ]);
 
-  // Multi-project
-  if (input.projectCount >= 5) {
+  tiered(input.activeDays, [
+    { n: 7, tier: 'bronze', name: 'Week One', desc: '7 active days' },
+    { n: 30, tier: 'silver', name: 'Monthly', desc: '30 active days' },
+    { n: 100, tier: 'gold', name: 'Centurion', desc: '100 active days' },
+    { n: 365, tier: 'diamond', name: 'Year Round', desc: '365 active days' },
+  ]);
+
+  if (input.projectCount >= 5)
     badges.push({ id: 'polyglot', name: 'Polyglot', description: '5+ public projects', earned: true, tier: 'silver' });
-  }
-  if (input.projectCount >= 20) {
+  if (input.projectCount >= 20)
     badges.push({ id: 'architect', name: 'Architect', description: '20+ public projects', earned: true, tier: 'gold' });
-  }
-
-  // Multi-harness
-  if (input.harnessCount >= 2) {
+  if (input.harnessCount >= 2)
     badges.push({ id: 'multi-harness', name: 'Multi-Harness', description: '2+ harness types', earned: true, tier: 'silver' });
-  }
-  if (input.harnessCount >= 4) {
+  if (input.harnessCount >= 4)
     badges.push({ id: 'harness-collector', name: 'Harness Collector', description: '4+ harness types', earned: true, tier: 'gold' });
-  }
-
-  // Tool diversity
-  if (input.toolCount >= 10) {
+  if (input.toolCount >= 10)
     badges.push({ id: 'toolsmith', name: 'Toolsmith', description: '10+ distinct tools used', earned: true, tier: 'silver' });
-  }
-  if (input.toolCount >= 25) {
+  if (input.toolCount >= 25)
     badges.push({ id: 'swiss-army', name: 'Swiss Army', description: '25+ distinct tools used', earned: true, tier: 'gold' });
-  }
 
   return badges;
 }

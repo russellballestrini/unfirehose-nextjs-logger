@@ -78,7 +78,7 @@ export async function GET() {
   try {
     const db = getDb();
 
-    // Get all projects with their visibility
+    // Get all projects with their visibility in one query
     const projects = db.prepare(`
       SELECT p.id, p.name, p.display_name, p.path,
              COALESCE(pv.visibility, 'private') as visibility,
@@ -97,72 +97,43 @@ export async function GET() {
       ORDER BY p.display_name
     `).all() as any[];
 
-    // Auto-detect public repos by git remotes
-    const upsertVis = db.prepare(`
-      INSERT INTO project_visibility (project_id, visibility, auto_detected, updated_at)
-      VALUES (?, ?, ?, datetime('now'))
-      ON CONFLICT(project_id) DO UPDATE SET
-        auto_detected = excluded.auto_detected,
-        updated_at = excluded.updated_at
-      WHERE project_visibility.auto_detected IS NULL
-        OR project_visibility.auto_detected != excluded.auto_detected
-    `);
+    // Only detect remotes for projects that haven't been checked yet (no auto_detected value)
+    const unchecked = projects.filter(p => p.path && !p.auto_detected);
 
-    // Auto-set visibility to public for projects with public forge remotes
-    const autoSetVis = db.prepare(`
-      UPDATE project_visibility
-      SET visibility = 'public', updated_at = datetime('now')
-      WHERE project_id = ? AND visibility = 'private' AND auto_detected LIKE 'public_repo:%'
-    `);
+    if (unchecked.length > 0) {
+      const upsertVis = db.prepare(`
+        INSERT INTO project_visibility (project_id, visibility, auto_detected, updated_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(project_id) DO UPDATE SET
+          auto_detected = excluded.auto_detected,
+          updated_at = excluded.updated_at
+        WHERE project_visibility.auto_detected IS NULL
+          OR project_visibility.auto_detected != excluded.auto_detected
+      `);
 
-    for (const p of projects) {
-      if (!p.path) continue;
-      const { isPublic, remotes, publicRepo } = detectPublicRemotes(p.path);
-      if (remotes.length > 0) {
-        const detection = isPublic ? `public_repo:${publicRepo}` : 'private_remote';
-        upsertVis.run(p.id, p.visibility ?? 'private', detection);
-        if (isPublic && p.visibility === 'private') {
-          autoSetVis.run(p.id);
-          p.visibility = 'public';
-          p.auto_detected = detection;
+      const autoSetVis = db.prepare(`
+        UPDATE project_visibility
+        SET visibility = 'public', updated_at = datetime('now')
+        WHERE project_id = ? AND visibility = 'private' AND auto_detected LIKE 'public_repo:%'
+      `);
+
+      for (const p of unchecked) {
+        const { isPublic, remotes, publicRepo } = detectPublicRemotes(p.path);
+        if (remotes.length > 0) {
+          const detection = isPublic ? `public_repo:${publicRepo}` : 'private_remote';
+          upsertVis.run(p.id, p.visibility ?? 'private', detection);
+          if (isPublic && p.visibility === 'private') {
+            autoSetVis.run(p.id);
+            p.visibility = 'public';
+            p.auto_detected = detection;
+          }
+        } else {
+          // No remotes — mark as checked so we don't re-scan
+          upsertVis.run(p.id, p.visibility ?? 'private', 'no_remotes');
+          p.auto_detected = 'no_remotes';
         }
       }
     }
-
-    // Re-query to get updated visibility after auto-detection
-    const updatedProjects = db.prepare(`
-      SELECT p.id, p.name, p.display_name, p.path,
-             COALESCE(pv.visibility, 'private') as visibility,
-             pv.auto_detected,
-             COUNT(DISTINCT s.id) as session_count,
-             COUNT(m.id) as message_count,
-             SUM(m.input_tokens) as total_input,
-             SUM(m.output_tokens) as total_output,
-             MIN(m.timestamp) as first_activity,
-             MAX(m.timestamp) as last_activity
-      FROM projects p
-      LEFT JOIN project_visibility pv ON pv.project_id = p.id
-      LEFT JOIN sessions s ON s.project_id = p.id
-      LEFT JOIN messages m ON m.session_id = s.id
-      GROUP BY p.id
-      ORDER BY p.display_name
-    `).all() as any[];
-
-    // Model usage summary (no per-message detail)
-    const modelSummary = db.prepare(`
-      SELECT model, COUNT(*) as messages,
-             SUM(input_tokens) as input, SUM(output_tokens) as output
-      FROM messages WHERE model IS NOT NULL
-      GROUP BY model ORDER BY messages DESC
-    `).all() as any[];
-
-    // Tool usage summary (names and counts only)
-    const toolSummary = db.prepare(`
-      SELECT tool_name, COUNT(*) as count
-      FROM content_blocks
-      WHERE block_type = 'tool_use' AND tool_name IS NOT NULL
-      GROUP BY tool_name ORDER BY count DESC LIMIT 20
-    `).all() as any[];
 
     // What's included vs excluded
     const included = [
@@ -186,7 +157,7 @@ export async function GET() {
     ];
 
     return NextResponse.json({
-      projects: updatedProjects.map((p: any) => ({
+      projects: projects.map((p: any) => ({
         name: p.name,
         displayName: p.display_name,
         visibility: p.visibility,
@@ -198,8 +169,6 @@ export async function GET() {
         firstActivity: p.first_activity,
         lastActivity: p.last_activity,
       })),
-      modelSummary,
-      toolSummary,
       included,
       excluded,
     });
