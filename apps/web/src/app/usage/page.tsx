@@ -1112,8 +1112,8 @@ function StandupProjectDetail({ projectName, mutateProjects }: {
           )}
         </div>
       )}
-      {/* Agent action buttons */}
-      <div className="flex gap-1.5 mb-2">
+      {/* Agent action buttons — only when filesystem is dirty or has unpushed commits */}
+      {projectDetail.git && (projectDetail.git.isDirty || projectDetail.git.unpushedCount > 0) && <div className="flex gap-1.5 mb-2">
         {(['status', 'blockers', 'finish', 'nudge'] as const).map((act) => (
           <button
             key={act}
@@ -1131,7 +1131,7 @@ function StandupProjectDetail({ projectName, mutateProjects }: {
               : act === 'status' ? 'Status' : act === 'blockers' ? 'Blockers' : act === 'finish' ? 'Finish & Push' : 'Nudge Agent'}
           </button>
         ))}
-      </div>
+      </div>}
       {aa?.result && (
         <div
           className="text-xs font-mono rounded p-2 mb-2 whitespace-pre-wrap"
