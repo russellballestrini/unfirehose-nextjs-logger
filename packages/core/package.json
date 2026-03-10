@@ -56,7 +56,8 @@
     "./training": "./training.ts",
     "./project-name": "./project-name.ts",
     "./agnt-paths": "./agnt-paths.ts",
-    "./agnt-adapter": "./agnt-adapter.ts"
+    "./agnt-adapter": "./agnt-adapter.ts",
+    "./claude-code-adapter": "./claude-code-adapter.ts"
   },
   "scripts": {
     "test": "vitest run",

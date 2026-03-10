@@ -10,7 +10,7 @@ import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
 import { normalizeUncloseaiEntry, normalizeNativeEntry } from '../uncloseai-adapter';
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
 import { agntPaths, decodeAgntProjectName } from '../agnt-paths';
-import { normalizeUnfirehoseEntry } from '../agnt-adapter';
+import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
@@ -202,18 +202,21 @@ function getOrCreateSession(
   return result.lastInsertRowid as number;
 }
 
+/**
+ * Insert a message from unfirehose/1.0 format.
+ * Expects: { type: "message", role, id, parentId, timestamp, subtype, durationMs, sidechain, model, usage }
+ */
 function insertMessage(
   db: ReturnType<typeof getDb>,
   sessionId: number,
   entry: any
 ): number | null {
-  const type = entry.type;
-  if (!['user', 'assistant', 'system'].includes(type)) return null;
+  const role = entry.role;
+  if (!role || !['user', 'assistant', 'system'].includes(role)) return null;
 
-  const usage = entry.message?.usage;
+  const usage = entry.usage;
 
   // Use INSERT OR IGNORE — the unique index on message_uuid handles dedup at DB level.
-  // For entries without uuid, we still insert (null uuid doesn't trigger the unique constraint).
   const result = db
     .prepare(
       `INSERT OR IGNORE INTO messages (
@@ -224,18 +227,18 @@ function insertMessage(
     )
     .run(
       sessionId,
-      entry.uuid ?? null,
-      entry.parentUuid ?? null,
-      type,
+      entry.id ?? null,
+      entry.parentId ?? null,
+      role,
       entry.subtype ?? null,
       entry.timestamp ?? null,
-      entry.message?.model ?? null,
-      usage?.input_tokens ?? 0,
-      usage?.output_tokens ?? 0,
-      usage?.cache_read_input_tokens ?? 0,
-      usage?.cache_creation_input_tokens ?? 0,
+      entry.model ?? null,
+      usage?.inputTokens ?? 0,
+      usage?.outputTokens ?? 0,
+      usage?.inputTokenDetails?.cacheReadTokens ?? 0,
+      usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
       entry.durationMs ?? null,
-      entry.isSidechain ? 1 : 0
+      entry.sidechain ? 1 : 0
     );
 
   // changes === 0 means the row was ignored (duplicate uuid)
@@ -243,6 +246,10 @@ function insertMessage(
   return result.lastInsertRowid as number;
 }
 
+/**
+ * Insert content blocks from unfirehose/1.0 format.
+ * Handles: text, reasoning, tool-call, tool-result, image
+ */
 function insertContentBlocks(
   db: ReturnType<typeof getDb>,
   messageId: number,
@@ -273,21 +280,21 @@ function insertContentBlocks(
       case 'text':
         textContent = block.text ?? null;
         break;
-      case 'thinking':
-        textContent = block.thinking ?? null;
+      case 'reasoning':
+        textContent = block.text ?? null;
         break;
-      case 'tool_use':
-        toolName = block.name ?? null;
+      case 'tool-call':
+        toolName = block.toolName ?? null;
         toolInput = block.input ? JSON.stringify(block.input) : null;
-        toolUseId = block.id ?? null;
+        toolUseId = block.toolCallId ?? null;
         break;
-      case 'tool_result':
+      case 'tool-result':
         textContent =
-          typeof block.content === 'string'
-            ? block.content
-            : JSON.stringify(block.content);
-        toolUseId = block.tool_use_id ?? null;
-        isError = block.is_error ? 1 : 0;
+          typeof block.output === 'string'
+            ? block.output
+            : JSON.stringify(block.output);
+        toolUseId = block.toolCallId ?? null;
+        isError = block.isError ? 1 : 0;
         break;
       default:
         textContent = JSON.stringify(block);
@@ -821,7 +828,7 @@ async function ingestFetch(
 
       if (!offset) result.sessionsAdded++;
 
-      // Fetch JSONL is already in Claude Code format — process directly
+      // Fetch JSONL is in Claude Code format — normalize to unfirehose/1.0
       const stream = createReadStream(filePath, {
         start: startByte,
         encoding: 'utf-8',
@@ -833,30 +840,28 @@ async function ingestFetch(
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            const messageId = insertMessage(db, sessionId, entry);
+            const normalized = normalizeClaudeCodeEntry(entry);
+            if (!normalized) continue;
+
+            const messageId = insertMessage(db, sessionId, normalized);
             if (messageId === null) continue;
 
             result.messagesAdded++;
 
-            const content =
-              entry.message?.content ??
-              (entry.type === 'user' && typeof entry.message?.content === 'string'
-                ? [{ type: 'text', text: entry.message.content }]
-                : []);
-            if (Array.isArray(content)) {
-              result.blocksAdded += insertContentBlocks(db, messageId, content);
+            if (Array.isArray(normalized.content)) {
+              result.blocksAdded += insertContentBlocks(db, messageId, normalized.content);
             }
 
             // Extract todos from TaskCreate/TaskUpdate/TodoWrite tool calls
             extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
 
-            const usage = entry.message?.usage;
-            if (usage && entry.timestamp) {
-              updateUsageMinutes(db, projectId, entry.timestamp, {
-                inputTokens: usage.input_tokens ?? 0,
-                outputTokens: usage.output_tokens ?? 0,
-                cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-                cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+            const usage = normalized.usage;
+            if (usage && normalized.timestamp) {
+              updateUsageMinutes(db, projectId, normalized.timestamp, {
+                inputTokens: usage.inputTokens ?? 0,
+                outputTokens: usage.outputTokens ?? 0,
+                cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+                cacheCreationTokens: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
               });
             }
           } catch {
@@ -1006,17 +1011,20 @@ async function ingestUncloseai(
               if (canonical) canonicalBuffer.push(canonical);
             }
 
-            const messageId = insertMessage(db, sessionId, normalized);
+            // Transform Claude Code format → unfirehose/1.0 for canonical ingest
+            const uf = normalizeClaudeCodeEntry(normalized);
+            if (!uf) continue;
+
+            const messageId = insertMessage(db, sessionId, uf);
             if (messageId === null) continue;
 
             result.messagesAdded++;
 
-            const content = normalized.message?.content ?? [];
-            if (Array.isArray(content)) {
+            if (Array.isArray(uf.content)) {
               result.blocksAdded += insertContentBlocks(
                 db,
                 messageId,
-                content
+                uf.content
               );
             }
 
@@ -1139,31 +1147,29 @@ async function ingestAgnt(
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
-            const raw = JSON.parse(line);
-            // Normalize unfirehose/1.0 → Claude Code ingest format
-            const entry = normalizeUnfirehoseEntry(raw);
-            if (!entry) continue; // Skip session envelopes, training events, etc.
+            const entry = JSON.parse(line);
+            // agnt writes unfirehose/1.0 natively — pass directly to ingest
+            if (entry.type !== 'message') continue; // Skip session envelopes, training events, etc.
 
             const messageId = insertMessage(db, sessionId, entry);
             if (messageId === null) continue;
 
             result.messagesAdded++;
 
-            const content = entry.message?.content ?? [];
-            if (Array.isArray(content)) {
-              result.blocksAdded += insertContentBlocks(db, messageId, content);
+            if (Array.isArray(entry.content)) {
+              result.blocksAdded += insertContentBlocks(db, messageId, entry.content);
             }
 
             // Extract todos
             extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
 
-            const usage = entry.message?.usage;
+            const usage = entry.usage;
             if (usage && entry.timestamp) {
               updateUsageMinutes(db, projectId, entry.timestamp, {
-                inputTokens: usage.input_tokens ?? 0,
-                outputTokens: usage.output_tokens ?? 0,
-                cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-                cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+                inputTokens: usage.inputTokens ?? 0,
+                outputTokens: usage.outputTokens ?? 0,
+                cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+                cacheCreationTokens: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
               });
             }
           } catch {
@@ -1347,34 +1353,33 @@ export async function ingestAll(): Promise<IngestResult> {
                 }
               }
 
-              const messageId = insertMessage(db, sessionId, entry);
+              // Transform Claude Code native → unfirehose/1.0
+              const normalized = normalizeClaudeCodeEntry(entry);
+              if (!normalized) continue;
+
+              const messageId = insertMessage(db, sessionId, normalized);
               if (messageId === null) continue; // skipped (duplicate or non-message type)
 
               result.messagesAdded++;
 
-              // Insert content blocks
-              const content =
-                entry.message?.content ??
-                (entry.type === 'user' && typeof entry.message?.content === 'string'
-                  ? [{ type: 'text', text: entry.message.content }]
-                  : []);
-              if (Array.isArray(content)) {
-                result.blocksAdded += insertContentBlocks(db, messageId, content);
+              // Insert content blocks (already in unfirehose/1.0 format from normalizer)
+              if (Array.isArray(normalized.content)) {
+                result.blocksAdded += insertContentBlocks(db, messageId, normalized.content);
               }
 
               // Update usage minutes for assistant messages with token data
               // Skip usage rollups for delegated sessions (parent already counted)
-              const usage = entry.message?.usage;
-              if (usage && entry.timestamp && !detectedDelegatedFrom) {
-                updateUsageMinutes(db, projectId, entry.timestamp, {
-                  inputTokens: usage.input_tokens ?? 0,
-                  outputTokens: usage.output_tokens ?? 0,
-                  cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-                  cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+              const usage = normalized.usage;
+              if (usage && normalized.timestamp && !detectedDelegatedFrom) {
+                updateUsageMinutes(db, projectId, normalized.timestamp, {
+                  inputTokens: usage.inputTokens ?? 0,
+                  outputTokens: usage.outputTokens ?? 0,
+                  cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+                  cacheCreationTokens: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
                 });
               }
 
-              // Extract todos from this entry
+              // Extract todos from this entry (pass original for tool_use detection)
               extractTodosFromEntry(db, projectId, sessionId, entry, meta.sessionId);
             } catch {
               // skip malformed lines
@@ -2111,7 +2116,14 @@ export function ingestJsonlLines(
     for (const line of batch) {
       if (!line.trim()) continue;
       try {
-        const entry = JSON.parse(line);
+        const raw = JSON.parse(line);
+        // Auto-detect format: unfirehose/1.0 has type:"message" + role, Claude Code has type:"user"|"assistant"
+        const entry = (raw.type === 'message' && raw.role) ? raw : normalizeClaudeCodeEntry(raw);
+        if (!entry) {
+          result.errors++;
+          continue;
+        }
+
         const messageId = insertMessage(db, sessionId, entry);
         if (messageId === null) {
           result.errors++;
@@ -2119,26 +2131,21 @@ export function ingestJsonlLines(
         }
         result.accepted++;
 
-        const content =
-          entry.message?.content ??
-          (entry.type === 'user' && typeof entry.message?.content === 'string'
-            ? [{ type: 'text', text: entry.message.content }]
-            : []);
-        if (Array.isArray(content)) {
-          insertContentBlocks(db, messageId, content);
+        if (Array.isArray(entry.content)) {
+          insertContentBlocks(db, messageId, entry.content);
         }
 
-        const usage = entry.message?.usage;
+        const usage = entry.usage;
         if (usage && entry.timestamp) {
           updateUsageMinutes(db, projectId, entry.timestamp, {
-            inputTokens: usage.input_tokens ?? 0,
-            outputTokens: usage.output_tokens ?? 0,
-            cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-            cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+            inputTokens: usage.inputTokens ?? 0,
+            outputTokens: usage.outputTokens ?? 0,
+            cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+            cacheCreationTokens: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
           });
         }
 
-        extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
+        extractTodosFromEntry(db, projectId, sessionId, raw, sessionUuid);
       } catch {
         result.errors++;
       }

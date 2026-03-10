@@ -95,22 +95,22 @@ export default function TokensPage() {
   }
 
   const {
-    modelBreakdown,
-    totalTokens,
-    totalCost,
-    totalInput,
-    totalOutput,
-    totalCacheRead,
-    totalCacheWrite,
-    toolCalls,
-    toolsByModel,
-    dailyActivity,
-    blockTypes,
-    harnessData,
-    harnessModelBreakdown,
-    harnessSessions,
-    toolsByHarness,
-    dailyByHarness,
+    modelBreakdown = [],
+    totalTokens = 0,
+    totalCost = 0,
+    totalInput = 0,
+    totalOutput = 0,
+    totalCacheRead = 0,
+    totalCacheWrite = 0,
+    toolCalls = [],
+    toolsByModel = [],
+    dailyActivity = [],
+    blockTypes = [],
+    harnessData = [],
+    harnessModelBreakdown = [],
+    harnessSessions = [],
+    toolsByHarness = [],
+    dailyByHarness = [],
   } = data;
 
   // Data for token type pie chart

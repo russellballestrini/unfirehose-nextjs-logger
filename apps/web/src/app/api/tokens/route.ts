@@ -136,6 +136,17 @@ export async function GET(request: NextRequest) {
     // harnessModelBreakdown is just the raw rows
     const harnessModelBreakdown = harnessModelRows;
 
+    // Derive harnessSessions: distinct session count per harness
+    const harnessSessionRows = db.prepare(`
+      SELECT COALESCE(s.harness, 'unknown') as harness,
+             COUNT(DISTINCT s.id) as sessions
+      FROM messages m
+      JOIN sessions s ON s.id = m.session_id
+      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
+      GROUP BY harness
+    `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
+    const harnessSessions = harnessSessionRows;
+
     // Combined tool query: tool calls + by model + by harness in one pass
     const toolRows = db.prepare(`
       SELECT cb.tool_name,
