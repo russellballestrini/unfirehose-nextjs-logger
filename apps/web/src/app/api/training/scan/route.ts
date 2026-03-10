@@ -106,9 +106,11 @@ function ingestLossJson(db: any, filepath: string, host: string): { runs: number
   const runId = `${host}/${model}`;
   const now = new Date().toISOString();
 
-  // Skip if this run was soft-deleted (don't re-ingest)
+  // Resurrect soft-deleted runs when new data is found
   const deletedCheck = db.prepare('SELECT deleted_at FROM training_runs WHERE run_id = ?').get(runId) as any;
-  if (deletedCheck?.deleted_at) return { runs: 0, events: 0 };
+  if (deletedCheck?.deleted_at) {
+    db.prepare('UPDATE training_runs SET deleted_at = NULL WHERE run_id = ?').run(runId);
+  }
 
   let data: [number, number][];
   try {
@@ -154,9 +156,11 @@ function ingestSamplesJson(db: any, filepath: string, host: string): number {
   const runId = `${host}/${model}`;
   const now = new Date().toISOString();
 
-  // Skip if this run was soft-deleted
+  // Resurrect soft-deleted runs when new data is found
   const deletedCheck2 = db.prepare('SELECT deleted_at FROM training_runs WHERE run_id = ?').get(runId) as any;
-  if (deletedCheck2?.deleted_at) return 0;
+  if (deletedCheck2?.deleted_at) {
+    db.prepare('UPDATE training_runs SET deleted_at = NULL WHERE run_id = ?').run(runId);
+  }
 
   let data: any[];
   try {
@@ -370,11 +374,11 @@ async function scan(filterHosts?: string[]) {
 
           const now = new Date().toISOString();
 
-          // Ensure run exists — mark as 'running' since it's live
+          // Ensure run exists — mark as 'running' since it's live (resurrect if soft-deleted)
           db.prepare(`
             INSERT INTO training_runs (run_id, uuid, model, config, status, started_at, source, source_host)
             VALUES (?, ?, ?, ?, 'running', ?, 'live-proxy', ?)
-            ON CONFLICT(run_id) DO UPDATE SET status = 'running'
+            ON CONFLICT(run_id) DO UPDATE SET status = 'running', deleted_at = NULL
           `).run(runId, uuidv7(), m, JSON.stringify({ host, port: probePort }), now, host);
 
           // Insert only new loss points
