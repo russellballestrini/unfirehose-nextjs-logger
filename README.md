@@ -153,9 +153,10 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
 ### Requirements
 
 - Node.js 18+
-- Graphviz (`brew install graphviz` on macOS, `sudo apt install graphviz` on Ubuntu/Debian) — for rendering dependency graphs
 - An existing `~/.claude/` directory (you need to have used Claude Code at least once)
 - That's it
+
+Optional: install Graphviz (`apt install graphviz` / `brew install graphviz`) to enable the Graph Explorer view. The dashboard works fully without it.
 
 ## Architecture
 
