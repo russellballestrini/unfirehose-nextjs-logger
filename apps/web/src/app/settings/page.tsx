@@ -8,13 +8,41 @@ import { useVault } from '@unturf/unfirehose-ui/VaultProvider';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
+const STRIPE_LINKS: Record<string, string> = {
+  // Starter
+  starter_monthly: 'https://buy.stripe.com/starter_monthly',
+  starter_1yr: 'https://buy.stripe.com/starter_1yr',
+  starter_2yr: 'https://buy.stripe.com/starter_2yr',
+  starter_3yr: 'https://buy.stripe.com/starter_3yr',
+  // Team
+  team_monthly: 'https://buy.stripe.com/team_monthly',
+  team_1yr: 'https://buy.stripe.com/team_1yr',
+  team_2yr: 'https://buy.stripe.com/team_2yr',
+  team_3yr: 'https://buy.stripe.com/team_3yr',
+};
+
+const BILLING_OPTIONS = [
+  { key: 'monthly', label: 'Monthly', discount: 0 },
+  { key: '1yr', label: '1 Year', discount: 14 },
+  { key: '2yr', label: '2 Year', discount: 28 },
+  { key: '3yr', label: '3 Year', discount: 42 },
+] as const;
+
+function calcPrice(monthlyRate: number, period: typeof BILLING_OPTIONS[number]): string {
+  const months = period.key === 'monthly' ? 1 : period.key === '1yr' ? 12 : period.key === '2yr' ? 24 : 36;
+  if (months === 1) return `$${monthlyRate}/mo`;
+  const total = Math.round(monthlyRate * months * (1 - period.discount / 100));
+  return `$${total.toLocaleString()}`;
+}
+
+function calcMonthly(monthlyRate: number, period: typeof BILLING_OPTIONS[number]): string | null {
+  const months = period.key === 'monthly' ? 1 : period.key === '1yr' ? 12 : period.key === '2yr' ? 24 : 36;
+  if (months === 1) return null;
+  const total = Math.round(monthlyRate * months * (1 - period.discount / 100));
+  return `$${(total / months).toFixed(0)}/mo`;
+}
+
 const PLANS = [
-  {
-    value: '',
-    label: 'Select a plan...',
-    features: [],
-    price: '',
-  },
   {
     value: 'free',
     label: 'Free',
@@ -27,22 +55,22 @@ const PLANS = [
       'Social analytics',
       'AGPL-3.0 — self-host forever',
     ],
-    price: '$0',
+    monthlyRate: 0,
   },
   {
     value: 'starter',
-    label: 'Starter — $14/mo',
+    label: 'Starter',
     features: [
       'Everything in Free',
       'Scrobble feed (unlimited history)',
       'Status posts & microblog',
       'API access + 1 custom hose',
     ],
-    price: '$14/mo or $97/yr (42% off)',
+    monthlyRate: 14,
   },
   {
     value: 'team',
-    label: 'Team — $420/mo',
+    label: 'Team',
     features: [
       'Everything in Starter',
       'Unlimited seats',
@@ -51,7 +79,7 @@ const PLANS = [
       'SSO & role management',
       'Priority support & SLA',
     ],
-    price: '$420/mo or $2,920/yr (42% off)',
+    monthlyRate: 420,
   },
 ];
 
@@ -273,12 +301,17 @@ export default function SettingsPage() {
             {/* Plan */}
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Plan</h3>
-              <div className="grid grid-cols-1 gap-2">
-                {PLANS.filter((p) => p.value).map((plan) => (
+              <p className="text-sm text-[var(--color-muted)]">
+                Pre-order for the upcoming unfirehose cloud offering. Your data stays local — the cloud adds sync, team features, and hosted scrobble feeds. Currently being grown and secured.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                {PLANS.map((plan) => (
                   <div
                     key={plan.value}
-                    onClick={() => saveSetting(SETTINGS_KEYS.plan, plan.value)}
-                    className={`rounded border p-3 cursor-pointer transition-colors ${
+                    onClick={() => plan.monthlyRate === 0 ? saveSetting(SETTINGS_KEYS.plan, plan.value) : undefined}
+                    className={`rounded border p-3 transition-colors ${
+                      plan.monthlyRate === 0 ? 'cursor-pointer' : ''
+                    } ${
                       currentPlan === plan.value
                         ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
                         : 'border-[var(--color-border)] hover:border-[var(--color-muted)]'
@@ -286,22 +319,40 @@ export default function SettingsPage() {
                   >
                     <div className="flex items-center justify-between">
                       <span className={`text-base font-bold ${currentPlan === plan.value ? 'text-[var(--color-accent)]' : ''}`}>
-                        {plan.label}
+                        {plan.label}{plan.monthlyRate > 0 ? ` — $${plan.monthlyRate}/mo` : ''}
                       </span>
-                      <div className="flex items-center gap-2">
-                        {plan.price && plan.price !== '$0' && (
-                          <span className="text-base text-[var(--color-muted)]">{plan.price}</span>
-                        )}
-                        {currentPlan === plan.value && (
-                          <span className="text-base text-[var(--color-accent)] font-bold">current</span>
-                        )}
-                      </div>
+                      {currentPlan === plan.value && (
+                        <span className="text-base text-[var(--color-accent)] font-bold">current</span>
+                      )}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                       {plan.features.map((f, i) => (
                         <span key={i} className="text-base text-[var(--color-muted)]">{f}</span>
                       ))}
                     </div>
+                    {plan.monthlyRate > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {BILLING_OPTIONS.map((period) => (
+                          <a
+                            key={period.key}
+                            href={STRIPE_LINKS[`${plan.value}_${period.key}`]}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex flex-col items-center px-3 py-2 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors text-sm"
+                          >
+                            <span className="font-bold text-[var(--color-foreground)]">{calcPrice(plan.monthlyRate, period)}</span>
+                            <span className="text-[var(--color-muted)] text-xs">{period.label}</span>
+                            {period.discount > 0 && (
+                              <span className="text-[var(--color-accent)] text-xs font-bold">{period.discount}% off</span>
+                            )}
+                            {calcMonthly(plan.monthlyRate, period) && (
+                              <span className="text-[var(--color-muted)] text-xs">{calcMonthly(plan.monthlyRate, period)}</span>
+                            )}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
