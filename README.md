@@ -299,27 +299,77 @@ Built by humans and agents working together. 165 commits from first `create-next
 
 ## Gallery
 
-### Project Dashboard
-Task dispatch, open todos with status indicators, recent prompts, session history, usage share, git integration.
+### Dashboard
+Time-range filtered overview: session count, message volume, model distribution, equivalent API cost. Activity charts by day and hour with automatic timezone detection. Model usage donut with per-model cost breakdown.
 
-![Project Dashboard](docs/screenshots/project-dashboard.png)
-
-### Kanban Board
-Cross-session todo tracking. Pending, in-progress, and completed columns across all projects with agent assignment.
-
-![Kanban Board](docs/screenshots/kanban-board.png)
+![Dashboard](docs/screenshots/dashboard.png)
 
 ### Live Feed
-Real-time streaming of agent activity. Tool calls, commits, thinking blocks, errors — as they happen across all sessions.
+Real-time SSE stream of all active sessions. Watch agents work as they stream responses, make tool calls, and think. Color-coded by harness (Claude Code, Fetch, uncloseai, agnt). Doom-scrollable feed design.
 
 ![Live Feed](docs/screenshots/live-feed.png)
 
+### Active Sessions
+Grid of currently running agent sessions. Each card shows harness type, project, model, message count, and elapsed time. Quick-glance fleet status.
+
+![Active Sessions](docs/screenshots/active-sessions.png)
+
+### Projects
+All discovered projects with session count, message volume, and 30-day cost. Dynamic commit badges show git activity.
+
+![Projects](docs/screenshots/projects.png)
+
+### Project Detail
+Single project deep-dive: agent prompt dispatch, open tasks, recent sessions, in-day usage share. Boot agents directly from the card.
+
+![Project Detail](docs/screenshots/project-detail.png)
+
+### Kanban Board
+Cross-session todo tracking extracted from all harness JSONL. Drag-and-drop columns (pending, in-progress, completed) with inline editing, time estimates, and file attachments.
+
+![Kanban Board](docs/screenshots/kanban-board.png)
+
+### Scrobble
+GitHub-style activity heatmap (rows = days, columns = hours), hour-of-day distribution, daily cost chart, streak tracking. Your coding pattern at a glance.
+
+![Scrobble](docs/screenshots/scrobble.png)
+
 ### Token Usage
-Per-model token breakdown with cache efficiency metrics. Cost estimation at API-equivalent rates.
+Per-model token breakdown: input, output, cache read, cache write. Equivalent API cost at current rates. 5036x cache efficiency shown here. Harness breakdown by originating tool.
 
 ![Token Usage](docs/screenshots/token-usage.png)
 
 ### Usage Monitor
-Permacomputer mesh overview, per-node resource tracking, token timeline, per-project activity bars, and alert thresholds.
+Operational monitoring: per-minute token timeline, configurable alert thresholds, agent standup with per-project bars. Red banner when usage spikes exceed limits.
 
 ![Usage Monitor](docs/screenshots/usage-monitor.png)
+
+### Usage Monitor — Infrastructure
+Permacomputer mesh tab: 11 nodes across the fleet with CPU, memory, disk, GPU, and power draw. Per-node status cards with SSH probe results.
+
+![Usage Infrastructure](docs/screenshots/usage-infrastructure.png)
+
+### Training
+Training run explorer with perplexity and loss curves. Track fine-tuning jobs, compare runs, visualize convergence.
+
+![Training](docs/screenshots/training.png)
+
+### Thinking Stream
+Browse and search thinking blocks across all sessions. See what your agents are actually reasoning about — full extended thinking with syntax highlighting.
+
+![Thinking](docs/screenshots/thinking.png)
+
+### Permacomputer Mesh
+Mesh overview: node economics (cost/mo, $/core), power consumption, resource allocation bars. Bootstrap panel for deploying harnesses to SSH nodes via tmux.
+
+![Permacomputer](docs/screenshots/permacomputer.png)
+
+### Schema Browser
+Browse the unfirehose/1.0 spec directly in the dashboard. Object types, harness adapter docs, field mapping tables. Published as `@unturf/unfirehose-schema` on npm.
+
+![Schema](docs/screenshots/schema.png)
+
+### Settings
+Profile, plan tiers (Free/Starter/Team), local data paths, git auto-push config. Self-hosted AGPL-3.0 — your data stays on your machine.
+
+![Settings](docs/screenshots/settings.png)
