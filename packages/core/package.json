@@ -54,7 +54,9 @@
     "./rate-limit": "./rate-limit.ts",
     "./apmonitor-adapter": "./apmonitor-adapter.ts",
     "./training": "./training.ts",
-    "./project-name": "./project-name.ts"
+    "./project-name": "./project-name.ts",
+    "./agnt-paths": "./agnt-paths.ts",
+    "./agnt-adapter": "./agnt-adapter.ts"
   },
   "scripts": {
     "test": "vitest run",

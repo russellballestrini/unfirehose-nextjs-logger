@@ -9,6 +9,8 @@ import { claudePaths, decodeProjectName } from '../claude-paths';
 import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
 import { normalizeUncloseaiEntry, normalizeNativeEntry } from '../uncloseai-adapter';
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
+import { agntPaths, decodeAgntProjectName } from '../agnt-paths';
+import { normalizeUnfirehoseEntry } from '../agnt-adapter';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
@@ -1062,6 +1064,142 @@ async function ingestUncloseai(
   return result;
 }
 
+/**
+ * Ingest native unfirehose/1.0 JSONL from agnt.
+ * agnt is a Tier 1 adopter — writes unfirehose/1.0 directly.
+ * The adapter normalizes unfirehose/1.0 → Claude Code ingest shape.
+ */
+async function ingestAgnt(
+  db: ReturnType<typeof getDb>
+): Promise<Omit<IngestResult, 'alertsTriggered'>> {
+  const result = {
+    projectsAdded: 0,
+    sessionsAdded: 0,
+    messagesAdded: 0,
+    blocksAdded: 0,
+    filesScanned: 0,
+  };
+
+  if (!agntPaths.root) return result;
+
+  const projectDirs = await readdir(agntPaths.root).catch(() => []);
+
+  for (const slug of projectDirs) {
+    const projDir = agntPaths.projectDir(slug);
+    const dirStat = await stat(projDir).catch(() => null);
+    if (!dirStat?.isDirectory()) continue;
+
+    const projectName = `agnt:${slug}`;
+    const displayName = `[agnt] ${decodeAgntProjectName(slug)}`;
+
+    let files: string[];
+    try {
+      files = (await readdir(projDir)).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    if (files.length === 0) continue;
+
+    const projectId = getOrCreateProject(db, projectName, displayName);
+
+    const prevCount = db
+      .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
+      .get(projectId) as { c: number };
+    if (prevCount.c === 0 && files.length > 0) result.projectsAdded++;
+
+    for (const file of files) {
+      const sessionUuid = file.replace('.jsonl', '');
+      const filePath = agntPaths.sessionFile(slug, sessionUuid);
+      const fstat = await stat(filePath).catch(() => null);
+      if (!fstat) continue;
+
+      const offset = db
+        .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
+        .get(filePath) as { byte_offset: number } | undefined;
+      const startByte = offset?.byte_offset ?? 0;
+
+      if (fstat.size <= startByte) continue;
+
+      result.filesScanned++;
+
+      const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
+        cliVersion: 'agnt',
+        harness: 'agnt',
+      });
+
+      if (!offset) result.sessionsAdded++;
+
+      const stream = createReadStream(filePath, {
+        start: startByte,
+        encoding: 'utf-8',
+      });
+      const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+      const batchInsert = db.transaction((lines: string[]) => {
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const raw = JSON.parse(line);
+            // Normalize unfirehose/1.0 → Claude Code ingest format
+            const entry = normalizeUnfirehoseEntry(raw);
+            if (!entry) continue; // Skip session envelopes, training events, etc.
+
+            const messageId = insertMessage(db, sessionId, entry);
+            if (messageId === null) continue;
+
+            result.messagesAdded++;
+
+            const content = entry.message?.content ?? [];
+            if (Array.isArray(content)) {
+              result.blocksAdded += insertContentBlocks(db, messageId, content);
+            }
+
+            // Extract todos
+            extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
+
+            const usage = entry.message?.usage;
+            if (usage && entry.timestamp) {
+              updateUsageMinutes(db, projectId, entry.timestamp, {
+                inputTokens: usage.input_tokens ?? 0,
+                outputTokens: usage.output_tokens ?? 0,
+                cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+                cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+              });
+            }
+          } catch {
+            // skip malformed lines
+          }
+        }
+      });
+
+      const batch: string[] = [];
+      for await (const line of rl) {
+        batch.push(line);
+        if (batch.length >= 500) {
+          batchInsert(batch.splice(0));
+        }
+      }
+      if (batch.length > 0) {
+        batchInsert(batch);
+      }
+
+      db.prepare(
+        `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(file_path) DO UPDATE SET
+           byte_offset = excluded.byte_offset,
+           last_ingested = excluded.last_ingested`
+      ).run(filePath, fstat.size);
+
+      db.prepare(
+        'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
+      ).run(new Date().toISOString(), sessionUuid);
+    }
+  }
+
+  return result;
+}
+
 export async function ingestAll(): Promise<IngestResult> {
   const db = getDb();
   const result: IngestResult = {
@@ -1301,6 +1439,14 @@ export async function ingestAll(): Promise<IngestResult> {
     result.blocksAdded += fetchResult.blocksAdded;
     result.filesScanned += fetchResult.filesScanned;
   }
+
+  // Ingest agnt sessions (native unfirehose/1.0)
+  const agntResult = await ingestAgnt(db);
+  result.projectsAdded += agntResult.projectsAdded;
+  result.sessionsAdded += agntResult.sessionsAdded;
+  result.messagesAdded += agntResult.messagesAdded;
+  result.blocksAdded += agntResult.blocksAdded;
+  result.filesScanned += agntResult.filesScanned;
 
   // Backfill display_name for sessions without one OR with preamble names
   const needsName = db.prepare(
