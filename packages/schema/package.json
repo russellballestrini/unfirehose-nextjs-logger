@@ -16,6 +16,7 @@
     "codex",
     "aider",
     "cursor",
+    "pi",
     "jsonl",
     "schema",
     "agent",
@@ -33,6 +34,7 @@
     "json-schema",
     "types.d.ts",
     "docs",
+    "extensions",
     "README.md"
   ],
   "exports": {

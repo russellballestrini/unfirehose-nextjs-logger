@@ -1,8 +1,8 @@
 # pi — Harness Format
 
 **Provider**: Multi-provider (OpenAI, Anthropic, Google)
-**Status**: Researched (extension-based adapter proposed)
-**Adapter**: Extension — `@unturf/unfirehose-extension-pi` (proposed)
+**Status**: Extension implemented
+**Adapter**: `extensions/pi-unfirehose.ts` (ships with `@unturf/unfirehose-schema`)
 **Source**: https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent
 
 ## Overview
@@ -74,34 +74,51 @@ Extensions register custom tools via `pi.registerTool()`.
 | Tool results | `content: [{type: "tool-result"}]` | Extract output |
 | `--mode json` events | Stream ingestion | Already JSONL, map fields |
 
-## Adoption Strategy: Replace, Don't Mirror
+## Extension: `pi-unfirehose.ts`
 
-pi's extension system can **replace** the session writer, not add a parallel file. Writing two JSONL files (pi native + unfirehose/1.0) violates single source of truth — one diverges, both rot.
+pi's extension API does NOT expose session writer replacement — the session manager is internal. So the extension hooks lifecycle events and writes unfirehose/1.0 JSONL to a separate path that unfirehose ingests. Pi's native session file still exists (pi needs it for `/tree`, compaction, branching), but unfirehose reads from the extension's output — one source of truth per consumer.
 
-The extension should swap pi's session persistence to write unfirehose/1.0 as the only format:
+### Install
 
-```typescript
-// ~/.pi/agent/extensions/unfirehose.ts
-export default function (pi: ExtensionAPI) {
-  // Replace session writer — one file, one format
-  pi.replaceSessionWriter({
-    write(event) {
-      // Transform pi events to unfirehose/1.0 and write as the session file
-      const line = toUnfirehose(event);
-      fs.appendFileSync(sessionPath, JSON.stringify(line) + "\n");
-    }
-  });
-}
+```bash
+# copy
+cp node_modules/@unturf/unfirehose-schema/extensions/pi-unfirehose.ts ~/.pi/agent/extensions/unfirehose.ts
+
+# or symlink
+ln -s $(npm root)/@unturf/unfirehose-schema/extensions/pi-unfirehose.ts ~/.pi/agent/extensions/unfirehose.ts
 ```
 
-pi's `--mode json` already outputs structured JSONL. The delta between pi's native format and unfirehose/1.0 is field naming and content block structure — not a fundamental shape mismatch. Replacing the writer means:
+### Output
 
-- **One file** — `~/.pi/agent/sessions/{slug}/{id}.jsonl` is unfirehose/1.0
-- **No adapter needed** — unfirehose ingests directly, zero transform overhead
-- **pi features preserved** — `id`/`parentId` tree, compaction, `/tree` replay all work on the same file
-- **Perf gain** — one write path, one read path, no reconciliation
+```
+~/.pi/projects/{project-slug}/{session-uuid}.jsonl
+```
 
-If pi's extension API doesn't expose session writer replacement (needs verification), the fallback is a read-side adapter in unfirehose that ingests pi's native JSONL — still one source of truth, just with a transform on read.
+Configurable via `~/.pi/agent/settings.json`:
+```json
+{ "unfirehose": { "outputDir": "~/.pi/projects" } }
+```
+
+### What it captures
+
+| pi Event | unfirehose/1.0 Output |
+|----------|----------------------|
+| `session_start` | Session envelope (`type: "session"`) |
+| `message_end` (user) | User message with text content blocks |
+| `message_end` (assistant) | Assistant message with text, reasoning, tool-call blocks + usage |
+| `message_end` (toolResult) | User message with tool-result content blocks |
+| `model_select` | System message with `subtype: "model_change"` |
+| `session_shutdown` | System message with `subtype: "session_end"` |
+
+### Transforms applied
+
+- `thinking` → `reasoning` (provider-neutral naming)
+- `toolCall` → `tool-call` (kebab-case)
+- Tool names canonicalized: `read` → `Read`, `bash` → `Bash`, `find` → `Glob`
+- Provider normalized: `"anthropic"` / `"google"` / `"openai"` / `"local"`
+- Stop reason normalized: `"end_turn"` / `"tool_calls"` / `"length"`
+- Session IDs are UUIDv7 (time-ordered)
+- Cache token details preserved in `inputTokenDetails`
 
 ## Thinking Support
 

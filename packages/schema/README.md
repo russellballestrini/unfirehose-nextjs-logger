@@ -71,7 +71,7 @@ The `docs/` directory contains the full spec:
 | [llama.cpp](docs/harnesses/llama-cpp.md) | Local | Researched |
 | [vLLM](docs/harnesses/vllm.md) | Local/self-hosted | Researched |
 | [text-generation-webui](docs/harnesses/text-generation-webui.md) | Local | Researched |
-| [pi](docs/harnesses/pi.md) | Multi-provider | Researched |
+| [pi](docs/harnesses/pi.md) | Multi-provider | Extension implemented |
 | [agnt](docs/harnesses/agnt.md) | Multi-provider | Native target |
 
 ## Quick example
@@ -98,12 +98,29 @@ A minimal unfirehose/1.0 JSONL session:
 
 ## Implementing the standard
 
+Three tiers of adoption, one source of truth each:
+
+| Tier | Strategy | Example |
+|------|----------|---------|
+| 1 — Native | Harness writes unfirehose/1.0 as its only format | agnt, uncloseai-cli |
+| 2 — Extension | Extension hooks harness lifecycle, writes unfirehose/1.0 | pi (`extensions/pi-unfirehose.ts`) |
+| 3 — Adapter | Unfirehose reads harness native format, transforms on ingest | Claude Code, Cursor, aider |
+
 To adopt unfirehose/1.0 in a new harness:
 
 1. Log JSONL with `$schema: "unfirehose/1.0"` header
 2. Use canonical content block types (`text`, `reasoning`, `tool-call`, `tool-result`)
 3. Include session envelope as first line (optional but recommended)
 4. Store at `~/.{harness}/projects/{slug}/{session-uuid}.jsonl`
+
+### Extensions (Tier 2)
+
+For harnesses with extension/plugin systems, this package ships ready-to-use extensions:
+
+```bash
+# pi coding agent
+cp node_modules/@unturf/unfirehose-schema/extensions/pi-unfirehose.ts ~/.pi/agent/extensions/unfirehose.ts
+```
 
 See the [harness adapter guide](docs/all-logs.md) for the full pipeline.
 
