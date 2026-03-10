@@ -115,15 +115,6 @@ export async function GET(request: NextRequest) {
       // We'll track it separately below
     }
 
-    // Session counts per harness — lightweight: query sessions with existence check
-    const harnessSessions = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness, COUNT(*) as sessions
-      FROM sessions s
-      WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter} LIMIT 1)
-      GROUP BY harness
-    `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
-    const _sessionMap = new Map(harnessSessions.map(s => [s.harness, s.sessions]));
-
     // Compute per-harness cost from harnessModelRows (no N+1!)
     const harnessCostMap = new Map<string, number>();
     for (const r of harnessModelRows) {

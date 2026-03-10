@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 
@@ -104,8 +104,8 @@ export default function UnsandboxNodePage() {
   const [sessionProcs, setSessionProcs] = useState<Record<string, any[]>>({});
   const [probingSessions, setProbingSessions] = useState(false);
 
-  const serviceList: any[] = services?.services ?? [];
-  const sessionList: any[] = sessions?.sessions ?? [];
+  const serviceList: any[] = useMemo(() => services?.services ?? [], [services]);
+  const sessionList: any[] = useMemo(() => sessions?.sessions ?? [], [sessions]);
 
   const unfirehoseService = serviceList.find((s: any) =>
     (s.name || '').includes('unfirehose') || (s.name || '').includes('firehose')

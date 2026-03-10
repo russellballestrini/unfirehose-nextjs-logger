@@ -141,7 +141,7 @@ export default function TmuxViewerPage() {
     };
 
     return es;
-  }, [session, activeWindow, hostParam]);
+  }, [session, activeWindow, hostParam, paintContent]);
 
   useEffect(() => {
     // Set initial text

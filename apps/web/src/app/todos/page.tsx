@@ -391,7 +391,7 @@ export default function TodosPage() {
         bootAgent(group.projectPath, `todo-${todo.id}`, `Work on this task: ${todo.content}`);
       }
     }
-  }, [draggedTodo, updateTodo, byProject, bootAgent]);
+  }, [draggedTodo, updateTodo, byProject, bootAgent, canDropOnColumn]);
 
   // Stats
   const unestimated = [...(columns.pending ?? []), ...(columns.in_progress ?? [])].filter(t => t.estimatedMinutes === null);
@@ -476,6 +476,7 @@ export default function TodosPage() {
               {newFiles.map((f, i) => (
                 <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--color-surface-hover)] text-xs">
                   {f.type.startsWith('image/') ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- blob URL
                     <img src={URL.createObjectURL(f)} alt={f.name} className="w-8 h-8 rounded object-cover" />
                   ) : (
                     <span className="text-[var(--color-muted)]">{f.name}</span>
@@ -746,6 +747,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
           {todo.attachments.map(a => (
             a.mimeType.startsWith('image/') ? (
               <a key={a.id} href={`/api/todos/attachments/${a.hash}`} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- content-addressed attachment */}
                 <img src={`/api/todos/attachments/${a.hash}`} alt={a.filename} className="w-8 h-8 rounded object-cover border border-[var(--color-border)]" />
               </a>
             ) : (

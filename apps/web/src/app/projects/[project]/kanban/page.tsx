@@ -248,7 +248,7 @@ export default function ProjectKanbanPage({ params }: { params: Promise<{ projec
     if (targetStatus === 'in_progress' && todo.status === 'pending' && projectData?.originalPath) {
       bootAgent(projectData.originalPath, `todo-${todo.id}`, `Work on this task: ${todo.content}`);
     }
-  }, [draggedTodo, updateTodo, projectData, bootAgent]);
+  }, [draggedTodo, updateTodo, projectData, bootAgent, canDropOnColumn]);
 
   const projectPath = projectData?.originalPath ?? null;
   const displayName = full?.project?.displayName ?? decodedProject;

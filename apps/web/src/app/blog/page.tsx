@@ -170,6 +170,7 @@ export default function BlogPage() {
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <div className="flex items-start gap-4">
           {activeBasics?.image ? (
+            // eslint-disable-next-line @next/next/no-img-element -- dynamic remote avatar URL
             <img
               src={activeBasics.image}
               alt={activeBasics.name ?? ''}

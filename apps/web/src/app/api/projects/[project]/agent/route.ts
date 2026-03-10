@@ -120,11 +120,11 @@ export async function POST(
     let result: any;
 
     if (action === 'status') {
-      result = buildStatus(git, prompts, repoPath);
+      result = buildStatus(git, prompts);
     } else if (action === 'finish') {
       result = await executeFinish(git, repoPath, body.message);
     } else if (action === 'blockers') {
-      result = buildBlockers(git, prompts, repoPath);
+      result = buildBlockers(git, prompts);
     } else if (action === 'nudge') {
       // Get project harness from most recent session
       const harness = getProjectHarness(db, project);
@@ -147,7 +147,7 @@ export async function POST(
   }
 }
 
-function buildStatus(git: GitSnapshot | null, prompts: any[], _repoPath: string) {
+function buildStatus(git: GitSnapshot | null, prompts: any[]) {
   const lines: string[] = [];
 
   if (!git) {
@@ -226,7 +226,7 @@ async function executeFinish(git: GitSnapshot | null, repoPath: string, message?
   return { summary: actions.join(', '), actions };
 }
 
-function buildBlockers(git: GitSnapshot | null, prompts: any[], _repoPath: string) {
+function buildBlockers(git: GitSnapshot | null, prompts: any[]) {
   const blockers: Array<{ type: string; description: string; severity: string }> = [];
 
   if (!git) {

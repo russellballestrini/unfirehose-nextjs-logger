@@ -308,8 +308,8 @@ export default function PermacomputerPage() {
     fetcher,
     { refreshInterval: 0, revalidateOnFocus: false }
   );
-  const hosts = sshData?.hosts ?? [];
-  const meshNodes: any[] = mesh?.nodes ?? [];
+  const hosts = useMemo(() => sshData?.hosts ?? [], [sshData]);
+  const meshNodes: any[] = useMemo(() => mesh?.nodes ?? [], [mesh]);
   const localHostname: string | undefined = mesh?.localHostname;
   const reachable = meshNodes.filter((n: any) => n.reachable);
 
@@ -396,7 +396,7 @@ export default function PermacomputerPage() {
     return nodes;
   }, [meshNodes, hosts]);
 
-  const geoipNodes: any[] = geoipData?.nodes ?? [];
+  const geoipNodes: any[] = useMemo(() => geoipData?.nodes ?? [], [geoipData]);
   const firstMeshHostname = meshNodes[0]?.hostname;
   const egressGroups = useMemo(() => computeEgressGroups(
     allNodes.map(n => ({ hostname: n.key, sshHostname: n.sshHost?.hostname })),
@@ -987,7 +987,7 @@ function ProcessesTab({ detail }: { detail: any }) {
   const [filter, setFilter] = useState('');
   const [showAll, setShowAll] = useState(false);
 
-  const allProcesses: any[] = detail.processes ?? [];
+  const allProcesses: any[] = useMemo(() => detail.processes ?? [], [detail.processes]);
   const claudePs: any[] = detail.claudeProcesses ?? [];
 
   const filtered = useMemo(() => {
