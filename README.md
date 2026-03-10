@@ -68,9 +68,6 @@ Deep token breakdown by model with:
 ### Todos / Kanban
 Cross-session todo tracking extracted from all harness JSONL. Drag-and-drop kanban board with particle effects, inline editing, time estimates, and agent boot on card drop. Grouped by project with triage workflow. File attachments via drag-drop upload with image thumbnails.
 
-### Graph Explorer
-4-view DOT/SVG graph visualization of session relationships, project dependencies, and todo graphs. Raw `.dot` download support.
-
 ### Schema Browser
 Browse the [unfirehose/1.0](packages/schema/docs/README.md) spec and harness adapter documentation directly in the dashboard. The spec is also published as [`@unturf/unfirehose-schema`](https://www.npmjs.com/package/@unturf/unfirehose-schema) with JSON Schema files and TypeScript types.
 
@@ -155,8 +152,6 @@ The first load triggers an ingestion of your `~/.claude/` session data into SQLi
 - Node.js 18+
 - An existing `~/.claude/` directory (you need to have used Claude Code at least once)
 - That's it
-
-Optional: install Graphviz (`apt install graphviz` / `brew install graphviz`) to enable the Graph Explorer view. The dashboard works fully without it.
 
 ## Architecture
 
@@ -255,13 +250,11 @@ Shows equivalent API cost even on Max plan ($200/mo). Uses 2026 Anthropic API ra
 | `GET /api/todos/pending` | Active todos with search and filters |
 | `GET /api/todos/stale` | Todos not touched in N days |
 | `GET /api/todos/triage` | Triage recommendations |
-| `GET /api/todos/graph` | Todo dependency graph |
 | `POST/GET/DELETE /api/todos/attachments` | Upload, list, serve, delete file attachments on todos |
 | `POST /api/boot` | Boot agent in tmux session |
 | `POST /api/boot/mega` | Fleet deploy: spawn agents across projects |
 | `POST /api/boot/finished` | Agent signals completion |
 | `GET /api/mesh` | Permacomputer mesh status |
-| `GET /api/graph` | DOT/SVG graph generation |
 | `GET /api/schema` | Serve unfirehose/1.0 spec docs |
 | `GET /api/triage` | Triage analysis |
 | `GET /api/scrobble/preview` | Scrobble data preview with auto-detection |
