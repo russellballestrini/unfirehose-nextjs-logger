@@ -52,7 +52,9 @@ function migrate(db: Database.Database) {
       cli_version TEXT,
       created_at TEXT,
       updated_at TEXT,
-      is_sidechain INTEGER DEFAULT 0
+      is_sidechain INTEGER DEFAULT 0,
+      delegated_from TEXT,
+      harness TEXT
     );
 
     -- Messages: one row per JSONL entry (user/assistant/system)

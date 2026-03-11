@@ -32,7 +32,9 @@ export function createTestDb(): Database.Database {
       display_name TEXT,
       status TEXT DEFAULT 'active',
       closed_at TEXT,
-      last_message_at TEXT
+      last_message_at TEXT,
+      delegated_from TEXT,
+      harness TEXT
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -157,6 +159,93 @@ export function createTestDb(): Database.Database {
       new_status TEXT NOT NULL,
       message_id INTEGER REFERENCES messages(id),
       event_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS todo_attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      todo_id INTEGER NOT NULL REFERENCES todos(id),
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_attachments_todo ON todo_attachments(todo_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_attachments_hash ON todo_attachments(hash);
+
+    CREATE TABLE IF NOT EXISTS agent_deployments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tmux_session TEXT NOT NULL,
+      tmux_window TEXT,
+      project_id INTEGER NOT NULL REFERENCES projects(id),
+      todo_ids TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      stopped_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_deployments_status ON agent_deployments(status);
+
+    CREATE TABLE IF NOT EXISTS agent_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      trigger_type TEXT NOT NULL DEFAULT 'manual',
+      request_context TEXT,
+      result TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS mesh_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      hostname TEXT NOT NULL,
+      cpu_cores INTEGER,
+      load_avg_1 REAL,
+      load_avg_5 REAL,
+      load_avg_15 REAL,
+      mem_total_gb REAL,
+      mem_used_gb REAL,
+      power_watts REAL,
+      gpu_power_watts REAL,
+      gpu_util REAL,
+      gpu_mem_used_mb REAL,
+      gpu_mem_total_mb REAL,
+      power_source TEXT,
+      claude_processes INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS training_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT UNIQUE NOT NULL,
+      model TEXT NOT NULL,
+      config TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      final_loss REAL,
+      wall_ms INTEGER,
+      source TEXT,
+      uuid TEXT,
+      deleted_at TEXT,
+      source_path TEXT,
+      source_host TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS training_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL REFERENCES training_runs(run_id),
+      event_type TEXT NOT NULL,
+      step INTEGER NOT NULL,
+      loss REAL,
+      lr REAL,
+      text_content TEXT,
+      checkpoint_path TEXT,
+      size_bytes INTEGER,
+      eval_name TEXT,
+      eval_score REAL,
+      ts TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS project_visibility (

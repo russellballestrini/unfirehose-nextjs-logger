@@ -23,13 +23,14 @@ const { GET } = await import('./route');
 
 describe('GET /api/tokens', () => {
   it('returns model breakdown with cost calculations', async () => {
-    // First call: model breakdown, second: tool calls, third: tools by model, fourth: block types
+    // Query order: harnessModelRows, harnessSessionRows, toolRows, dailyByHarness, blockTypes
     mockAll
       .mockReturnValueOnce([
-        { model: 'claude-opus-4-6', input_tokens: 1000000, output_tokens: 500000, cache_read_tokens: 0, cache_creation_tokens: 0 },
+        { harness: 'claude-code', model: 'claude-opus-4-6', input_tokens: 1000000, output_tokens: 500000, cache_read_tokens: 0, cache_creation_tokens: 0, sessions: 1 },
       ])
-      .mockReturnValueOnce([{ tool_name: 'Bash', count: 50 }])
-      .mockReturnValueOnce([{ model: 'claude-opus-4-6', count: 50 }])
+      .mockReturnValueOnce([{ harness: 'claude-code', sessions: 1 }])
+      .mockReturnValueOnce([{ tool_name: 'Bash', model: 'claude-opus-4-6', harness: 'claude-code', count: 50 }])
+      .mockReturnValueOnce([{ date: '2026-03-10', harness: 'claude-code', tokens: 1500000, messages: 10 }])
       .mockReturnValueOnce([{ block_type: 'text', count: 100 }]);
 
     const req = new Request('http://localhost/api/tokens');

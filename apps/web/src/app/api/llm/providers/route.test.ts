@@ -16,12 +16,13 @@ vi.mock('fs/promises', () => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-const { GET } = await import('./route');
+const { GET, resetProviderCache } = await import('./route');
 
 beforeEach(() => {
   vi.clearAllMocks();
   Object.keys(mockSettings).forEach(k => delete mockSettings[k]);
   mockFetch.mockReset();
+  resetProviderCache();
 });
 
 describe('GET /api/llm/providers', () => {
