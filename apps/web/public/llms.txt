@@ -368,7 +368,7 @@ curl -s localhost:3000/api/scrobble/payload
 
 ### Todo management
 ```bash
-# Create
+# Create via API
 curl -X POST localhost:3000/api/todos -H 'Content-Type: application/json' -d '{"content":"Fix auth","source":"manual"}'
 
 # Bulk complete
@@ -377,6 +377,32 @@ curl -X PATCH localhost:3000/api/todos/bulk -H 'Content-Type: application/json' 
 # Quick wins
 curl -s "localhost:3000/api/todos/pending?quick=true&limit=20"
 ```
+
+### Create todos via JSONL (no API needed)
+
+Any agent can create todos by writing a JSONL session file. The ingest scanner
+extracts `TaskCreate` tool_use blocks automatically — no HTTP calls required.
+
+Write a `.jsonl` file to your session directory (e.g. `~/.claude/projects/<project>/*.jsonl`).
+The scanner picks it up on next ingest and creates the todo in the database.
+
+**Minimal JSONL for a todo** (3 lines):
+```jsonl
+{"type":"system","timestamp":"2026-03-11T16:00:00Z","sessionId":"SESSION_UUID","subtype":"init","message":{"role":"system","content":[{"type":"text","text":"Todo session"}]}}
+{"type":"user","timestamp":"2026-03-11T16:00:01Z","sessionId":"SESSION_UUID","uuid":"USER_UUID","message":{"role":"user","content":[{"type":"text","text":"Schedule work"}]}}
+{"type":"assistant","timestamp":"2026-03-11T16:00:02Z","sessionId":"SESSION_UUID","uuid":"ASST_UUID","parentUuid":"USER_UUID","message":{"role":"assistant","content":[{"type":"text","text":"Creating todo."},{"type":"tool_use","id":"tc-unique-id","name":"TaskCreate","input":{"subject":"The task title","description":"Detailed description of the work to be done.","status":"pending"}}],"model":"any-model"}}
+```
+
+**Supported tool_use names for todos:**
+- `TaskCreate` — creates a new todo (`input.subject` = title, `input.description` = body)
+- `TaskUpdate` — updates status (`input.taskId` = external ID, `input.status` = new status)
+- `TodoWrite` — legacy batch format (`input.todos` = array of `{content, status, activeForm}`)
+
+**Key behaviors:**
+- Todos are keyed by `(project, external_id, source)` — duplicates are upserted, not duplicated
+- Terminal statuses (`completed`, `obsolete`, `deleted`) are sticky — re-ingest won't reopen them
+- The `source` field defaults to `"claude"` — set it in the todo to distinguish agent origins
+- Session directory is determined by the project path encoded as a slug (slashes/dots → hyphens)
 
 ### Git operations from agents
 ```bash

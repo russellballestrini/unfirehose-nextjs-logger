@@ -56,6 +56,10 @@ cd packages/ui && npm publish --access public
 
 Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Graph Explorer, Schema, Settings, Permacomputer.
 
+### Website
+
+unfirehose.com is served from `~/git/unsandbox.com` (the portal repo). Blog posts and landing pages live there, not in this repo.
+
 ### Permacomputer / Mesh
 
 The Permacomputer page (`/permacomputer`) manages a mesh of compute nodes. Nodes are discovered from `~/.ssh/config` and probed via SSH. Each node reports CPU, memory, disk, GPU, power consumption, running processes, and tmux sessions.
