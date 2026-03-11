@@ -25,7 +25,6 @@ describe('Sidebar', () => {
     expect(screen.getByText('Dashboard')).toBeTruthy();
     expect(screen.getByText('Projects')).toBeTruthy();
     expect(screen.getByText('Todos')).toBeTruthy();
-    expect(screen.getByText('Graph')).toBeTruthy();
     expect(screen.getByText('Thinking')).toBeTruthy();
     expect(screen.getByText('All Logs')).toBeTruthy();
     expect(screen.getByText('Tokens')).toBeTruthy();

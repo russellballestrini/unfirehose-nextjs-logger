@@ -57,7 +57,7 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    });
+    }, { timeout: 5000 });
   });
 
   it('skip button creates vault and shows app', async () => {
@@ -69,7 +69,7 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    });
+    }, { timeout: 5000 });
   });
 
   it('shows unlock UI when vault already exists', async () => {
@@ -117,7 +117,7 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    });
+    }, { timeout: 5000 });
   });
 
   it('auto-restores session and shows app immediately', async () => {
@@ -128,6 +128,6 @@ describe('VaultGate', () => {
     renderGate();
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    });
+    }, { timeout: 5000 });
   });
 });

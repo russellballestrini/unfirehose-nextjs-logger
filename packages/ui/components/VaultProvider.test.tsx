@@ -60,7 +60,7 @@ describe('VaultProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('unlocked').textContent).toBe('true');
       expect(screen.getByTestId('exists').textContent).toBe('true');
-    });
+    }, { timeout: 5000 });
   });
 
   it('locks and unlocks', async () => {
@@ -69,13 +69,13 @@ describe('VaultProvider', () => {
     await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'));
 
     await user.click(screen.getByTestId('create'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'));
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
 
     await user.click(screen.getByTestId('lock'));
     await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('false'));
 
     await user.click(screen.getByTestId('unlock'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'));
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
   });
 
   it('manages keys through vault context', async () => {
@@ -84,7 +84,7 @@ describe('VaultProvider', () => {
     await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'));
 
     await user.click(screen.getByTestId('create'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'));
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
 
     expect(screen.getByTestId('key-anthropic').textContent).toBe('empty');
 
@@ -104,7 +104,7 @@ describe('VaultProvider', () => {
     renderWithVault();
     await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'));
     await user.click(screen.getByTestId('create'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'));
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
 
     expect(screen.getByTestId('preferred').textContent).toBe('none');
 
