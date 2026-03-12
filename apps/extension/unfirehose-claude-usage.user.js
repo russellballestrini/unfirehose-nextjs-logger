@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         unfirehose — Claude Usage Sync
 // @namespace    https://unfirehose.com
-// @version      1.0.2
+// @version      1.0.3
 // @description  Syncs claude.ai extra usage (card charges) to your local unfirehose dashboard
 // @author       unturf
 // @match        https://claude.ai/settings/usage*
@@ -54,8 +54,7 @@
           return null;
         }
         spent   = grab(/\$([\d,.]+)\s+spent/);
-        limit   = grab(/\$([\d,.]+)\n(?:Adjust limit\n)?Monthly spend limit/);
-        console.log('[unfirehose] extra section:', txt.slice(txt.indexOf('Extra usage'), txt.indexOf('Current balance') + 50));
+        limit   = grab(/\$([\d,.]+)\s+Monthly spend limit/);
         balance = grab(/Current balance[\s\S]{0,20}\$([\d,.]+)/, /\$([\d,.]+)[\s\S]{0,20}Current balance/);
         const rm = txt.match(/Extra usage[\s\S]{0,300}Resets\s+([A-Za-z]+ \d+)/);
         resetDate = rm ? rm[1] : null;
