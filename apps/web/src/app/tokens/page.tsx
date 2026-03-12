@@ -73,6 +73,9 @@ function formatCost(usd: number): string {
 }
 
 
+const tokensTabs = ['overview', 'harness', 'tools'] as const;
+type TokensTab = (typeof tokensTabs)[number];
+
 export default function TokensPage() {
   const [range, setRange] = useTimeRange('tokens_range', '7d');
   // Memoize `from` so the SWR key stays stable across re-renders.
@@ -80,6 +83,18 @@ export default function TokensPage() {
   // produces a new timestamp, giving SWR a new key, causing infinite re-fetches.
   const from = useMemo(() => getTimeRangeFrom(range), [range]);
   const qs = from ? `?from=${encodeURIComponent(from)}` : '';
+
+  const [activeTab, setActiveTabRaw] = useState<TokensTab>(() => {
+    if (typeof globalThis !== 'undefined' && globalThis.location) {
+      const hash = globalThis.location.hash.slice(1) as TokensTab;
+      if (tokensTabs.includes(hash)) return hash;
+    }
+    return 'overview';
+  });
+  const setActiveTab = (tab: TokensTab) => {
+    setActiveTabRaw(tab);
+    globalThis.location.hash = tab;
+  };
 
   const { data, error } = useSWR(`/api/tokens${qs}`, fetcher);
 
@@ -188,10 +203,37 @@ export default function TokensPage() {
           ...toolCalls.slice(0, 10).map((t: any) => `  ${t.tool_name}: ${t.count.toLocaleString()} calls`),
         ].join('\n')}
       />
+
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Token Usage</h2>
+        <h2 className="text-lg font-bold">Tokens</h2>
         <TimeRangeSelect value={range} onChange={setRange} />
       </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-0.5 border-b border-[var(--color-border)]">
+        {([
+          { id: 'overview' as const, label: 'Overview', icon: '¤' },
+          { id: 'harness' as const, label: 'Harness', icon: '◈' },
+          { id: 'tools' as const, label: 'Tools', icon: '⚙' },
+        ]).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-base rounded-t border-b-2 transition-colors cursor-pointer ${
+              activeTab === tab.id
+                ? 'border-[var(--color-accent)] text-[var(--color-foreground)] font-bold'
+                : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+            }`}
+          >
+            <span className={activeTab === tab.id ? 'text-[var(--color-accent)]' : ''}>{tab.icon}</span>
+            <span className="ml-1.5">{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ============ OVERVIEW TAB ============ */}
+      {activeTab === 'overview' && (<>
 
       {/* Summary cards */}
       <div className="grid grid-cols-5 gap-4">
@@ -375,13 +417,14 @@ export default function TokensPage() {
         </table>
       </div>
 
-      {/* Harness section header */}
-      <div className="border-t border-[var(--color-border)] pt-4 mt-2">
-        <h2 className="text-lg font-bold">Harness Breakdown</h2>
-        <p className="text-base text-[var(--color-muted)]">
-          Token usage split by originating harness (claude-code, fetch, uncloseai, hermes, agnt)
-        </p>
-      </div>
+      </>)}
+
+      {/* ============ HARNESS TAB ============ */}
+      {activeTab === 'harness' && (<>
+
+      <h3 className="text-base text-[var(--color-muted)]">
+        Token usage split by originating harness (claude-code, fetch, uncloseai, hermes, agnt)
+      </h3>
 
       {/* Harness stat cards */}
       {harnessData && harnessData.length > 0 && (
@@ -636,6 +679,11 @@ export default function TokensPage() {
         </div>
       )}
 
+      </>)}
+
+      {/* ============ TOOLS TAB ============ */}
+      {activeTab === 'tools' && (<>
+
       {/* Top tools by harness */}
       {toolsByHarness && toolsByHarness.length > 0 && (
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -850,6 +898,8 @@ export default function TokensPage() {
           </LineChart>
         </ResponsiveContainer>
       </div>
+
+      </>)}
     </div>
   );
 }
