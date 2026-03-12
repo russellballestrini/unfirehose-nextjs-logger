@@ -34,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/scrobble', label: 'Scrobble', icon: '♪' },
   { href: '/permacomputer', label: 'Permacomputer', icon: '▣' },
   { href: '/schema', label: 'Schema', icon: '{' },
+  { href: '/db', label: 'Database', icon: '▤' },
   { href: '/styleguide', label: 'Styleguide', icon: '◐' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
 ];
