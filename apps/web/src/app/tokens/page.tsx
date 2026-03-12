@@ -105,6 +105,7 @@ export default function TokensPage() {
 
   const { data, error } = useSWR(`/api/tokens${qs}`, fetcher);
   const { data: planData } = useSWR('/api/usage/plan', fetcher);
+  const { data: extraData, mutate: mutateExtra } = useSWR('/api/usage/extra', fetcher);
 
   if (error) {
     return (
@@ -939,8 +940,109 @@ export default function TokensPage() {
           return { date: d.date, daily: d.costUSD, cumulative: running };
         });
 
+        // Extra usage (actual card charges from claude.ai)
+        const extra = extraData ?? {};
+        const extraSpent   = extra.extraSpent   ? parseFloat(extra.extraSpent)   : null;
+        const extraLimit   = extra.extraLimit   ? parseFloat(extra.extraLimit)   : null;
+        const extraBalance = extra.extraBalance ? parseFloat(extra.extraBalance) : null;
+        const extraReset   = extra.extraResetDate ?? null;
+        const extraUpdated = extra.extraUpdatedAt ?? null;
+        const extraPct = (extraSpent !== null && extraLimit !== null && extraLimit > 0)
+          ? Math.min(100, (extraSpent / extraLimit) * 100) : null;
+
+        // Bookmarklet source — parses claude.ai/settings/usage DOM, POSTs to localhost
+        const bookmarkletSrc = `(function(){
+  var txt = document.body.innerText;
+  function num(re){ var m = txt.match(re); return m ? parseFloat(m[1].replace(/,/g,'')) : null; }
+  var spent   = num(/\\$(\\d[\\d,.]+)\\s+spent/);
+  var limit   = num(/\\$(\\d[\\d,.]+)\\s*\\nMonthly spend limit/);
+  var balance = num(/\\$(\\d[\\d,.]+)\\s*\\nCurrent balance/);
+  var reset   = (txt.match(/Resets\\s+([A-Za-z]+ \\d+)/) || [])[1] || null;
+  if(spent===null){alert('Could not parse usage data. Make sure you are on claude.ai/settings/usage');return;}
+  fetch('http://localhost:3000/api/usage/extra',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({spent,limit,balance,resetDate:reset})})
+    .then(function(r){return r.json();})
+    .then(function(){alert('Synced to unfirehose: spent='+spent+' limit='+limit+' balance='+balance);})
+    .catch(function(e){alert('Error: '+e);});
+})();`;
+        const bookmarkletHref = 'javascript:' + encodeURIComponent(bookmarkletSrc);
+
         return (
           <div className="space-y-6">
+
+            {/* Actual card charges — from bookmarklet sync */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-[var(--color-muted)]">
+                  Actual Extra Usage (Card Charges)
+                </h3>
+                {extraUpdated && (
+                  <span className="text-base text-[var(--color-muted)]">
+                    synced {new Date(extraUpdated).toLocaleString()}
+                  </span>
+                )}
+              </div>
+
+              {extraSpent !== null ? (
+                <>
+                  <div className="grid grid-cols-4 gap-4">
+                    <StatCard label="Spent" value={`$${extraSpent.toFixed(2)}`} color="#ef4444" sub="charged to card" />
+                    <StatCard label="Monthly Limit" value={extraLimit !== null ? `$${extraLimit}` : '—'} sub="extra usage cap" />
+                    <StatCard label="Balance" value={extraBalance !== null ? `$${extraBalance.toFixed(2)}` : '—'} sub="remaining credits" />
+                    <StatCard label="Resets" value={extraReset ?? '—'} sub="billing period end" />
+                  </div>
+                  {extraPct !== null && extraLimit !== null && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-base text-[var(--color-muted)]">
+                        <span>$0</span>
+                        <span className="font-bold text-red-400">${extraSpent.toFixed(2)} spent ({extraPct.toFixed(0)}%)</span>
+                        <span>${extraLimit} limit</span>
+                      </div>
+                      <div className="relative h-4 rounded bg-[var(--color-border)] overflow-hidden">
+                        <div
+                          className="absolute inset-y-0 left-0 rounded bg-red-500"
+                          style={{ width: `${extraPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-base text-[var(--color-muted)]">
+                  No data yet. Drag the bookmarklet below to your browser bar, then click it on{' '}
+                  <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"
+                    className="text-[var(--color-accent)] hover:underline">
+                    claude.ai/settings/usage
+                  </a>
+                  {' '}to sync the actual card charges.
+                </p>
+              )}
+
+              {/* Bookmarklet */}
+              <div className="pt-2 border-t border-[var(--color-border)] flex items-center gap-3">
+                <span className="text-base text-[var(--color-muted)]">Sync from claude.ai:</span>
+                <a
+                  href={bookmarkletHref}
+                  className="px-3 py-1 rounded border border-[var(--color-accent)] text-[var(--color-accent)] text-base hover:bg-[var(--color-accent)] hover:text-black transition-colors cursor-grab"
+                  onClick={(e) => {
+                    // If clicked (not dragged), open the usage page instead
+                    if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+                      e.preventDefault();
+                      window.open('https://claude.ai/settings/usage', '_blank');
+                    }
+                  }}
+                  title="Drag this to your bookmarks bar, then click it on claude.ai/settings/usage"
+                >
+                  ⟳ Sync Extra Usage
+                </a>
+                <span className="text-base text-[var(--color-muted)]">← drag to bookmarks bar</span>
+                <button
+                  className="ml-auto px-2 py-1 text-base text-[var(--color-muted)] border border-[var(--color-border)] rounded hover:text-[var(--color-foreground)]"
+                  onClick={() => mutateExtra()}
+                >
+                  refresh
+                </button>
+              </div>
+            </div>
 
             {/* Plan identity */}
             <div className="grid grid-cols-4 gap-4">
