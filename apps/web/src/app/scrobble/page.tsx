@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import useSWR from 'swr';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
@@ -178,8 +178,8 @@ export default function ScrobblePage() {
             </div>
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Harnesses</h3>
-              {payload.harnesses.map((h: any) => (
-                <div key={h.harness} className="flex justify-between text-base">
+              {payload.harnesses.map((h: any, i: number) => (
+                <div key={`${h.harness}-${i}`} className="flex justify-between text-base">
                   <span className="font-mono">{h.harness}</span>
                   <span className="text-[var(--color-muted)]">{h.sessions} sessions</span>
                 </div>
@@ -405,8 +405,8 @@ function HeatmapGrid({ data }: { data: { dow: number; hour: number; count: numbe
         ))}
         {/* Data rows */}
         {[0, 1, 2, 3, 4, 5, 6].map(dow => (
-          <>
-            <div key={`label-${dow}`} className="text-xs text-[var(--color-muted)] pr-1 leading-5">
+          <Fragment key={`row-${dow}`}>
+            <div className="text-xs text-[var(--color-muted)] pr-1 leading-5">
               {DAY_NAMES[dow]}
             </div>
             {Array.from({ length: 24 }, (_, h) => {
@@ -425,7 +425,7 @@ function HeatmapGrid({ data }: { data: { dow: number; hour: number; count: numbe
                 />
               );
             })}
-          </>
+          </Fragment>
         ))}
       </div>
     </div>
