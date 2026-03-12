@@ -270,7 +270,7 @@ export default function StyleguidePage() {
       <PageContext
         pageType="styleguide"
         summary="Component reference and design system for unfirehose."
-        metrics={{ components: 18, sections: 22 }}
+        metrics={{ components: 18, sections: 23 }}
       />
 
       <div className="flex items-center justify-between">
@@ -757,6 +757,51 @@ export default function StyleguidePage() {
             <span>2 hours ago</span>
           </div>
           <div className="mt-2 text-base text-[var(--color-accent)]">$42 / 30d</div>
+        </div>
+      </Section>
+
+      {/* Session Tags */}
+      <Section title="Session Tags">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <p className="text-base text-[var(--color-muted)]">
+            Live page session bar. Groups sessions by project to prevent flooding. Single scrollable row — never wraps.
+            Active projects (fired in recent stream entries) show with their session color. Idle-but-hot projects are muted.
+          </p>
+          <div className="space-y-2">
+            <h4 className="text-base font-bold text-[var(--color-muted)]">Individual pill</h4>
+            <div className="flex gap-1.5">
+              <span className="text-base px-2 py-0.5 rounded-full border inline-block" style={{ borderColor: '#10b981', color: '#10b981' }}>
+                unsandbox-com <span className="opacity-50">07983f</span>
+              </span>
+              <span className="text-base px-2 py-0.5 rounded-full border inline-block" style={{ borderColor: '#a78bfa', color: '#a78bfa' }}>
+                unfirehose <span className="opacity-50">4a12bc</span>
+              </span>
+            </div>
+            <p className="text-base text-[var(--color-muted)]">
+              One pill per session. Used when few sessions are active (e.g. Active page).
+            </p>
+          </div>
+          <div className="space-y-2">
+            <h4 className="text-base font-bold text-[var(--color-muted)]">Grouped project pills — Live page pattern</h4>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              <span className="text-base text-[var(--color-muted)] shrink-0 whitespace-nowrap">3 hot</span>
+              <span className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block" style={{ borderColor: '#10b981', color: '#10b981' }}>
+                unsandbox-com <span className="opacity-50">×12</span>
+              </span>
+              <span className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block" style={{ borderColor: '#a78bfa', color: '#a78bfa' }}>
+                unfirehose <span className="opacity-50">×3</span>
+              </span>
+              <span className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block" style={{ borderColor: 'var(--color-border)', color: 'var(--color-muted)' }}>
+                uncloseai-com <span className="opacity-50">×47</span>
+              </span>
+            </div>
+            <p className="text-base text-[var(--color-muted)]">
+              Colored border = active (fired in last 100 stream entries). Muted border = hot but idle.
+              Sessions are grouped by <code className="text-[var(--color-accent)]">projectName</code>. Active projects sort first.
+              Click opens <code className="text-[var(--color-accent)]">SessionPopover</code> for the first session in that group.
+              Container is <code className="text-[var(--color-accent)]">overflow-x-auto</code> with <code className="text-[var(--color-accent)]">whitespace-nowrap</code> on each pill — never wraps, never floods.
+            </p>
+          </div>
         </div>
       </Section>
 

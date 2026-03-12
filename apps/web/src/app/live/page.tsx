@@ -363,31 +363,50 @@ export default function LivePage() {
           </button>
         </div>
 
-        {/* Active sessions bar */}
+        {/* Active sessions bar — grouped by project, single scrollable row */}
         {sessions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {sessions.map((s) => (
-              <SessionPopover
-                key={s.sessionId}
-                sessionId={s.sessionId}
-                project={s.project}
-                projectPath={s.originalPath}
-                label={
-                  <span
-                    className="text-base px-2 py-0.5 rounded-full border inline-block"
-                    style={{
-                      borderColor: getColorForSession(s.sessionId),
-                      color: getColorForSession(s.sessionId),
-                    }}
-                  >
-                    {s.projectName}
-                    <span className="opacity-50 ml-1">
-                      {s.sessionId.slice(0, 6)}
-                    </span>
-                  </span>
+          <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-0.5 min-h-[2rem]">
+            <span className="text-base text-[var(--color-muted)] shrink-0 whitespace-nowrap">
+              {sessions.length} hot
+            </span>
+            {Array.from(
+              sessions.reduce((map, s) => {
+                const key = s.projectName;
+                if (!map.has(key)) {
+                  map.set(key, { first: s, count: 0, hasActive: false });
                 }
-              />
-            ))}
+                const entry = map.get(key)!;
+                entry.count++;
+                if (activeSessionIds.has(s.sessionId)) entry.hasActive = true;
+                return map;
+              }, new Map<string, { first: LiveSession; count: number; hasActive: boolean }>())
+            )
+              .sort(([, a], [, b]) => (b.hasActive ? 1 : 0) - (a.hasActive ? 1 : 0))
+              .map(([name, { first, count, hasActive }]) => {
+                const color = getColorForSession(first.sessionId);
+                return (
+                  <SessionPopover
+                    key={name}
+                    sessionId={first.sessionId}
+                    project={first.project}
+                    projectPath={first.originalPath}
+                    label={
+                      <span
+                        className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block"
+                        style={{
+                          borderColor: hasActive ? color : 'var(--color-border)',
+                          color: hasActive ? color : 'var(--color-muted)',
+                        }}
+                      >
+                        {name}
+                        {count > 1 && (
+                          <span className="opacity-50 ml-1">×{count}</span>
+                        )}
+                      </span>
+                    }
+                  />
+                );
+              })}
           </div>
         )}
       </div>
