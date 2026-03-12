@@ -101,7 +101,7 @@ export default function TokensPage() {
   });
   const setActiveTab = (tab: TokensTab) => {
     setActiveTabRaw(tab);
-    globalThis.location.hash = tab;
+    if (typeof window !== 'undefined') window.history.replaceState(null, '', `#${tab}`);
   };
 
   const { data, error } = useSWR(`/api/tokens${qs}`, fetcher);
