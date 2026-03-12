@@ -18,6 +18,7 @@ import {
   Cell,
   LineChart,
   Line,
+  ReferenceLine,
 } from 'recharts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -187,6 +188,14 @@ export default function TokensPage() {
   // Cache efficiency: ratio of cache reads to fresh input
   const cacheRatio = totalInput > 0 ? totalCacheRead / totalInput : 0;
 
+  // Extra usage (actual card charges) — hoisted so overview + plan tabs can both use it
+  const extraSpent   = extraData?.extraSpent   ? parseFloat(extraData.extraSpent)   : null;
+  const extraLimit   = extraData?.extraLimit   ? parseFloat(extraData.extraLimit)   : null;
+  const extraBalance = extraData?.extraBalance ? parseFloat(extraData.extraBalance) : null;
+  const extraReset   = extraData?.extraResetDate ?? null;
+  const extraPct     = (extraSpent !== null && extraLimit !== null && extraLimit > 0)
+    ? Math.min(100, (extraSpent / extraLimit) * 100) : null;
+
   return (
     <div className="space-y-6">
       <PageContext
@@ -257,6 +266,33 @@ export default function TokensPage() {
           sub={`${formatTokens(totalCacheRead)} reads / ${formatTokens(totalInput)} fresh`}
         />
       </div>
+
+      {/* Card charges strip — shown if synced */}
+      {extraSpent !== null && (
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3 flex items-center gap-6">
+          <div className="shrink-0">
+            <div className="text-base text-[var(--color-muted)]">Card Charges (Max overage)</div>
+            <div className="text-xl font-bold text-red-400">${extraSpent.toFixed(2)}</div>
+          </div>
+          {extraLimit !== null && (
+            <div className="flex-1 space-y-1 min-w-0">
+              <div className="flex justify-between text-base text-[var(--color-muted)]">
+                <span>${extraSpent.toFixed(2)} spent{extraPct !== null ? ` (${extraPct.toFixed(0)}%)` : ''}</span>
+                <span>${extraLimit} limit{extraBalance !== null ? ` · $${extraBalance.toFixed(2)} balance` : ''}</span>
+              </div>
+              <div className="relative h-2 rounded bg-[var(--color-border)] overflow-hidden">
+                <div
+                  className="absolute inset-y-0 left-0 rounded bg-red-500"
+                  style={{ width: `${extraPct ?? 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {extraReset && (
+            <div className="shrink-0 text-base text-[var(--color-muted)]">Resets {extraReset}</div>
+          )}
+        </div>
+      )}
 
       {/* Row: Token type pie + Model donut + Cost donut */}
       <div className="grid grid-cols-3 gap-4">
@@ -940,15 +976,8 @@ export default function TokensPage() {
           return { date: d.date, daily: d.costUSD, cumulative: running };
         });
 
-        // Extra usage (actual card charges from claude.ai)
-        const extra = extraData ?? {};
-        const extraSpent   = extra.extraSpent   ? parseFloat(extra.extraSpent)   : null;
-        const extraLimit   = extra.extraLimit   ? parseFloat(extra.extraLimit)   : null;
-        const extraBalance = extra.extraBalance ? parseFloat(extra.extraBalance) : null;
-        const extraReset   = extra.extraResetDate ?? null;
-        const extraUpdated = extra.extraUpdatedAt ?? null;
-        const extraPct = (extraSpent !== null && extraLimit !== null && extraLimit > 0)
-          ? Math.min(100, (extraSpent / extraLimit) * 100) : null;
+        // Extra usage — use hoisted values computed at component level
+        const extraUpdated = extraData?.extraUpdatedAt ?? null;
 
 
         return (
@@ -1104,7 +1133,7 @@ export default function TokensPage() {
               )}
 
               {/* Big numbers */}
-              <div className="grid grid-cols-3 gap-4 pt-2">
+              <div className="grid grid-cols-4 gap-4 pt-2">
                 <div>
                   <div className="text-base text-[var(--color-muted)]">Included (plan value)</div>
                   <div className="text-2xl font-bold text-[#10b981]">
@@ -1120,6 +1149,15 @@ export default function TokensPage() {
                 <div>
                   <div className="text-base text-[var(--color-muted)]">Total equivalent</div>
                   <div className="text-2xl font-bold">{formatCost(periodCostUSD)}</div>
+                </div>
+                <div>
+                  <div className="text-base text-[var(--color-muted)]">Actual card charges</div>
+                  <div className={`text-2xl font-bold ${extraSpent !== null ? 'text-red-400' : 'text-[var(--color-muted)]'}`}>
+                    {extraSpent !== null ? `$${extraSpent.toFixed(2)}` : '—'}
+                  </div>
+                  {extraLimit !== null && (
+                    <div className="text-base text-[var(--color-muted)]">of ${extraLimit} limit</div>
+                  )}
                 </div>
               </div>
 
@@ -1179,6 +1217,15 @@ export default function TokensPage() {
                       strokeWidth={2}
                       dot={false}
                     />
+                    {extraSpent !== null && (
+                      <ReferenceLine
+                        yAxisId="right"
+                        y={extraSpent}
+                        stroke="#ef4444"
+                        strokeDasharray="4 3"
+                        label={{ value: `$${extraSpent.toFixed(0)} actual`, fill: '#ef4444', fontSize: 13, position: 'insideTopRight' }}
+                      />
+                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
