@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         unfirehose — Claude Usage Sync
 // @namespace    https://unfirehose.com
-// @version      1.0.3
+// @version      1.0.5
 // @description  Syncs claude.ai extra usage (card charges) to your local unfirehose dashboard
 // @author       unturf
 // @match        https://claude.ai/settings/usage*
@@ -39,31 +39,28 @@
     // Try structured API response first
     if (data?.extra_usage) {
       const eu = data.extra_usage;
-      if (eu.amount_spent_minor_units != null) spent   = eu.amount_spent_minor_units / 100;
+      if (eu.amount_spent_minor_units != null) spent    = eu.amount_spent_minor_units / 100;
       if (eu.spend_limit_minor_units   != null) limit   = eu.spend_limit_minor_units   / 100;
       if (eu.balance_minor_units       != null) balance = eu.balance_minor_units       / 100;
       resetDate = eu.reset_date ?? eu.resets_at ?? null;
     }
 
-    // Fallback: DOM scrape (runs after React renders)
-    if (spent === null) {
-      setTimeout(() => {
-        const txt = document.body.innerText;
-        function grab(...res) {
-          for (const re of res) { const m = txt.match(re); if (m) return parseFloat(m[1].replace(/,/g, '')); }
-          return null;
-        }
-        spent   = grab(/\$([\d,.]+)\s+spent/);
-        limit   = grab(/\$([\d,.]+)\s+Monthly spend limit/);
-        balance = grab(/Current balance[\s\S]{0,20}\$([\d,.]+)/, /\$([\d,.]+)[\s\S]{0,20}Current balance/);
+    // Always DOM-scrape any fields still missing after API (limit often absent from API response)
+    setTimeout(() => {
+      const txt = document.body.innerText;
+      function grab(...res) {
+        for (const re of res) { const m = txt.match(re); if (m) return parseFloat(m[1].replace(/,/g, '')); }
+        return null;
+      }
+      if (spent    === null) spent   = grab(/\$([\d,.]+)\s+spent/);
+      if (limit    === null) limit   = grab(/\$([\d,.]+)\s+Monthly spend limit/);
+      if (balance  === null) balance = grab(/Current balance[\s\S]{0,20}\$([\d,.]+)/, /\$([\d,.]+)[\s\S]{0,20}Current balance/);
+      if (resetDate === null) {
         const rm = txt.match(/Extra usage[\s\S]{0,300}Resets\s+([A-Za-z]+ \d+)/);
         resetDate = rm ? rm[1] : null;
-        if (spent !== null) post({ spent, limit, balance, resetDate });
-      }, 2500);
-      return;
-    }
-
-    post({ spent, limit, balance, resetDate });
+      }
+      if (spent !== null) post({ spent, limit, balance, resetDate });
+    }, 2500);
   }
 
   // Intercept fetch (must use unsafeWindow in Firefox)
