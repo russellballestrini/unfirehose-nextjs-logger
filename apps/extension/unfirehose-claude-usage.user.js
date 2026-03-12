@@ -54,7 +54,7 @@
           return null;
         }
         spent   = grab(/\$([\d,.]+)\s+spent/);
-        limit   = grab(/Monthly spend limit[\s\S]{0,20}\$([\d,.]+)/, /\$([\d,.]+)[\s\S]{0,20}Monthly spend limit/);
+        limit   = grab(/\$([\d,.]+)\n(?:Adjust limit\n)?Monthly spend limit/);
         balance = grab(/Current balance[\s\S]{0,20}\$([\d,.]+)/, /\$([\d,.]+)[\s\S]{0,20}Current balance/);
         const rm = txt.match(/Extra usage[\s\S]{0,300}Resets\s+([A-Za-z]+ \d+)/);
         resetDate = rm ? rm[1] : null;
