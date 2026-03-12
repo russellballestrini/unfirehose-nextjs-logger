@@ -7,6 +7,7 @@
 // @match        https://claude.ai/settings/usage*
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
+// @grant        unsafeWindow
 // @connect      localhost
 // @run-at       document-start
 // ==/UserScript==
@@ -16,10 +17,11 @@
 
   const UNFIREHOSE = 'http://localhost:3000/api/usage/extra';
   const TARGET = '/api/account/rate_limit_status';
+  // unsafeWindow = actual page window, required in Firefox to patch fetch/XHR
+  const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
 
   function post(payload) {
     const body = JSON.stringify(payload);
-    // GM_xmlhttpRequest bypasses CORS restrictions
     const fn = (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : GM_xmlhttpRequest;
     fn({
       method: 'POST',
@@ -64,25 +66,25 @@
     post({ spent, limit, balance, resetDate });
   }
 
-  // Intercept fetch
-  const origFetch = window.fetch;
-  window.fetch = function (input, init) {
+  // Intercept fetch (must use unsafeWindow in Firefox)
+  const origFetch = win.fetch.bind(win);
+  win.fetch = function (input, init) {
     const url = typeof input === 'string' ? input : (input?.url ?? '');
-    const p = origFetch.call(this, input, init);
+    const p = origFetch(input, init);
     if (url.includes(TARGET)) {
       p.then(res => res.clone().json().then(parseAndPost).catch(() => {})).catch(() => {});
     }
     return p;
   };
 
-  // Intercept XHR
-  const origOpen = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+  // Intercept XHR (must use unsafeWindow in Firefox)
+  const origOpen = win.XMLHttpRequest.prototype.open;
+  win.XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     this._uf_url = url;
     return origOpen.call(this, method, url, ...rest);
   };
-  const origSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function (...rest) {
+  const origSend = win.XMLHttpRequest.prototype.send;
+  win.XMLHttpRequest.prototype.send = function (...rest) {
     if (this._uf_url?.includes(TARGET)) {
       this.addEventListener('load', function () {
         try { parseAndPost(JSON.parse(this.responseText)); } catch {}
@@ -91,6 +93,6 @@
     return origSend.call(this, ...rest);
   };
 
-  // Also scrape DOM on page load (catches static/cached renders)
-  window.addEventListener('load', () => parseAndPost({}));
+  // Also scrape DOM on page load
+  win.addEventListener('load', () => parseAndPost({}));
 })();
