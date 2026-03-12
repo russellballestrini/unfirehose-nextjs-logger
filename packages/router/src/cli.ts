@@ -32,26 +32,28 @@ Cursors: ~/.unfirehose-cursors.json
   process.exit(0);
 }
 
+let config;
 try {
-  const config = loadConfig();
-
-  if (args.includes('--status')) {
-    console.log('Config:', JSON.stringify(config, null, 2));
-    const { loadCursors } = await import('./config');
-    const cursors = loadCursors();
-    const count = Object.keys(cursors).length;
-    console.log(`\nTracking ${count} files`);
-    for (const [file, pos] of Object.entries(cursors)) {
-      console.log(`  ${file}: ${pos} bytes`);
-    }
-    process.exit(0);
-  }
-
-  const router = new Router(config);
-  router.start();
-
-  console.log('unfirehose-router running. Press Ctrl+C to stop.\n');
+  config = loadConfig();
 } catch (err) {
-  console.error(`Error: ${err instanceof Error ? err.message : err}`);
-  process.exit(1);
+  console.warn(`[router] ${err instanceof Error ? err.message : err}`);
+  console.warn('[router] skipping — router is optional without config');
+  process.exit(0);
 }
+
+if (args.includes('--status')) {
+  console.log('Config:', JSON.stringify(config, null, 2));
+  const { loadCursors } = await import('./config');
+  const cursors = loadCursors();
+  const count = Object.keys(cursors).length;
+  console.log(`\nTracking ${count} files`);
+  for (const [file, pos] of Object.entries(cursors)) {
+    console.log(`  ${file}: ${pos} bytes`);
+  }
+  process.exit(0);
+}
+
+const router = new Router(config);
+router.start();
+
+console.log('unfirehose-router running. Press Ctrl+C to stop.\n');
