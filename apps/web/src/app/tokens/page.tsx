@@ -950,21 +950,6 @@ export default function TokensPage() {
         const extraPct = (extraSpent !== null && extraLimit !== null && extraLimit > 0)
           ? Math.min(100, (extraSpent / extraLimit) * 100) : null;
 
-        // Bookmarklet source — parses claude.ai/settings/usage DOM, POSTs to localhost
-        const bookmarkletSrc = `(function(){
-  var txt = document.body.innerText;
-  function num(re){ var m = txt.match(re); return m ? parseFloat(m[1].replace(/,/g,'')) : null; }
-  var spent   = num(/\\$(\\d[\\d,.]+)\\s+spent/);
-  var limit   = num(/\\$(\\d[\\d,.]+)\\s*\\nMonthly spend limit/);
-  var balance = num(/\\$(\\d[\\d,.]+)\\s*\\nCurrent balance/);
-  var reset   = (txt.match(/Resets\\s+([A-Za-z]+ \\d+)/) || [])[1] || null;
-  if(spent===null){alert('Could not parse usage data. Make sure you are on claude.ai/settings/usage');return;}
-  fetch('http://localhost:3000/api/usage/extra',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({spent,limit,balance,resetDate:reset})})
-    .then(function(r){return r.json();})
-    .then(function(){alert('Synced to unfirehose: spent='+spent+' limit='+limit+' balance='+balance);})
-    .catch(function(e){alert('Error: '+e);});
-})();`;
-        const bookmarkletHref = 'javascript:' + encodeURIComponent(bookmarkletSrc);
 
         return (
           <div className="space-y-6">
@@ -1017,26 +1002,21 @@ export default function TokensPage() {
                 </p>
               )}
 
-              {/* Bookmarklet */}
-              <div className="pt-2 border-t border-[var(--color-border)] flex items-center gap-3">
-                <span className="text-base text-[var(--color-muted)]">Sync from claude.ai:</span>
-                <a
-                  href={bookmarkletHref}
-                  className="px-3 py-1 rounded border border-[var(--color-accent)] text-[var(--color-accent)] text-base hover:bg-[var(--color-accent)] hover:text-black transition-colors cursor-grab"
-                  onClick={(e) => {
-                    // If clicked (not dragged), open the usage page instead
-                    if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-                      e.preventDefault();
-                      window.open('https://claude.ai/settings/usage', '_blank');
-                    }
-                  }}
-                  title="Drag this to your bookmarks bar, then click it on claude.ai/settings/usage"
-                >
-                  ⟳ Sync Extra Usage
+              {/* Extension install instructions */}
+              <div className="pt-2 border-t border-[var(--color-border)] text-base text-[var(--color-muted)]">
+                Auto-syncs when you visit{' '}
+                <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"
+                  className="text-[var(--color-accent)] hover:underline">
+                  claude.ai/settings/usage
                 </a>
-                <span className="text-base text-[var(--color-muted)]">← drag to bookmarks bar</span>
+                {' '}— requires the{' '}
+                <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"
+                  className="text-[var(--color-accent)] hover:underline">
+                  unfirehose browser extension
+                </a>
+                {' '}(Chrome/Firefox/Brave: load unpacked from <code>apps/extension/</code>).
                 <button
-                  className="ml-auto px-2 py-1 text-base text-[var(--color-muted)] border border-[var(--color-border)] rounded hover:text-[var(--color-foreground)]"
+                  className="ml-3 px-2 py-0.5 text-base border border-[var(--color-border)] rounded hover:text-[var(--color-foreground)]"
                   onClick={() => mutateExtra()}
                 >
                   refresh

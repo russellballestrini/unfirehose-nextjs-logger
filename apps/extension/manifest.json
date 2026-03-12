@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "unfirehose — Claude Usage Sync",
+  "version": "1.0.0",
+  "description": "Automatically syncs claude.ai extra usage data to your local unfirehose dashboard.",
+  "permissions": ["webRequest"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/settings/usage*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png"
+  }
+}
