@@ -290,10 +290,6 @@ export default function TmuxListPage() {
                 );
               })}
             </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </>
       )}
