@@ -451,7 +451,7 @@ export default function TmuxViewerPage() {
           style={dropState === 'done' ? { animation: 'uf-glow-orange 0.6s ease-in-out 3' } : undefined}
           className={`h-full bg-[#0d0d0d] rounded-lg border p-4 overflow-hidden font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none transition-all duration-300 ${
             dropState === 'hover'
-              ? 'border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.5)]'
+              ? 'border-violet-500 shadow-[0_0_20px_rgba(139,92,246,0.6)]'
               : dropState === 'uploading' || dropState === 'error'
               ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
               : dropState === 'done'
@@ -463,11 +463,11 @@ export default function TmuxViewerPage() {
         {/* ── HOVER overlay ── */}
         {dropState === 'hover' && (
           <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
-            style={{ background: 'rgba(20,10,0,0.82)' }}>
-            <div className="text-6xl mb-4" style={{ animation: 'uf-pulse-red 1s infinite', color: '#f97316' }}>⬇</div>
+            style={{ background: 'rgba(10,0,20,0.85)' }}>
+            <div className="text-6xl mb-4" style={{ animation: 'uf-pulse-red 1s infinite', color: '#a78bfa' }}>⬇</div>
             <div className="font-mono font-bold text-2xl tracking-widest"
-              style={{ color: '#fb923c', animation: 'uf-flicker 3s infinite' }}>DROP FILE</div>
-            <div className="font-mono text-sm mt-2 tracking-wider" style={{ color: '#f97316' }}>
+              style={{ color: '#c4b5fd', animation: 'uf-flicker 3s infinite' }}>DROP FILE</div>
+            <div className="font-mono text-sm mt-2 tracking-wider" style={{ color: '#8b5cf6' }}>
               → INJECT INTO SESSION ←
             </div>
           </div>
