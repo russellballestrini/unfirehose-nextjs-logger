@@ -307,10 +307,10 @@ ENDJSON`;
     }
 
     // 3. Bootstrap harness in session
-    // Golden image has claude pre-installed — just run it directly in tmux, no install step
+    // TODO: remove install step once golden image has claude pre-baked
     const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
     const innerCmd = harnessCmd === 'claude'
-      ? `${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+      ? `curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
       : `${cloneCmd}cd /workspace && ${harnessCmd}`;
     const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
     const escapedCmd = innerCmd.replace(/'/g, "'\\''");
