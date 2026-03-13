@@ -367,7 +367,13 @@ ENDJSON`;
   }
 
   if (action === 'create-service') {
-    const { name, ports, bootstrap, network } = body;
+    const { ports, bootstrap, network } = body;
+    // Derive a stable per-user suffix from the public key so names don't collide
+    // in unsandbox's global namespace. First 8 alphanumeric chars of the key.
+    const pkSuffix = publicKey.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase();
+    const name = body.name
+      ? `${body.name}-${pkSuffix}`
+      : `service-${pkSuffix}`;
     if (!name) return NextResponse.json({ error: 'Missing service name' }, { status: 400 });
     try {
       // Ports must be an array of integers (matching SDK format)
@@ -378,7 +384,7 @@ ENDJSON`;
       if (network) svcPayload.network = network;
       const payload = JSON.stringify(svcPayload);
       const data = await apiPost(publicKey, secretKey, '/services', payload);
-      return NextResponse.json(data);
+      return NextResponse.json({ ...data, resolvedName: name });
     } catch (err) {
       return NextResponse.json({ error: String(err) }, { status: 500 });
     }
