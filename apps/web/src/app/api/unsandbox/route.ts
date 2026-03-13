@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac } from 'crypto';
+import { createHmac, createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -368,9 +368,9 @@ ENDJSON`;
 
   if (action === 'create-service') {
     const { ports, bootstrap, network } = body;
-    // Derive a stable per-user suffix from the public key so names don't collide
-    // in unsandbox's global namespace. First 8 alphanumeric chars of the key.
-    const pkSuffix = publicKey.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase();
+    // Derive a stable per-user suffix via SHA-256 of the public key — consistent,
+    // non-reversible, and safe to expose in a global namespace.
+    const pkSuffix = createHash('sha256').update(publicKey).digest('hex').slice(0, 8);
     const name = body.name
       ? `${body.name}-${pkSuffix}`
       : `service-${pkSuffix}`;
