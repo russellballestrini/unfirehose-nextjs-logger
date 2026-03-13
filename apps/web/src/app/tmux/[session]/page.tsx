@@ -275,11 +275,13 @@ export default function TmuxViewerPage() {
 
   // Unsandbox: ref to xterm sendKeys function (for file drop)
   const unsandboxSendRef = useRef<((keys: string) => void) | null>(null);
+  const pathFixSentRef = useRef(false);
   const handleUnsandboxConnect = useCallback((c: boolean) => {
     connectedRef.current = c;
     setConnected(c);
-    // On connect, ensure ~/.local/bin is in PATH for existing containers
-    if (c) {
+    // On first connect, ensure ~/.local/bin is in PATH for existing containers
+    if (c && !pathFixSentRef.current) {
+      pathFixSentRef.current = true;
       setTimeout(() => {
         fetch('/api/unsandbox/shell', {
           method: 'POST',
