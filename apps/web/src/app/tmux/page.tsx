@@ -173,24 +173,14 @@ export default function TmuxListPage() {
                 const nick = nicknames[s];
                 const isEditing = editingNick?.sessionId === s;
                 return (
-                  <div key={s} className="relative group bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 transition-colors">
-                    <Link href={`/tmux/${encodeURIComponent(s)}`} className="block p-4">
-                      {nick?.nickname && (
-                        <p className="text-sm font-bold text-[var(--color-foreground)] mb-1 truncate">{nick.nickname}</p>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                        <span className="text-sm font-mono text-[var(--color-muted)] truncate">{s}</span>
-                      </div>
-                      <p className="text-xs text-[var(--color-muted)] mt-1">localhost · click to view</p>
-                    </Link>
-                    {/* Nickname edit */}
-                    <div className="px-4 pb-3" onClick={e => e.stopPropagation()}>
+                  <div key={s} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 transition-colors">
+                    {/* Nickname row — always visible, stops link navigation */}
+                    <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
                       {isEditing ? (
                         <input
                           ref={nickInputRef}
                           autoFocus
-                          value={editingNick.value}
+                          value={editingNick?.value ?? ''}
                           onChange={e => setEditingNick({ sessionId: s, value: e.target.value })}
                           onKeyDown={e => {
                             const v = editingNick?.value ?? '';
@@ -198,18 +188,25 @@ export default function TmuxListPage() {
                             if (e.key === 'Escape') setEditingNick(null);
                           }}
                           onBlur={() => saveNickname(s, editingNick?.value ?? '', 'localhost')}
-                          placeholder="add nickname…"
-                          className="w-full text-xs px-2 py-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-background)] font-mono outline-none"
+                          placeholder="nickname…"
+                          className="w-full text-sm px-2 py-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-background)] font-bold outline-none"
                         />
                       ) : (
                         <button
                           onClick={() => setEditingNick({ sessionId: s, value: nick?.nickname ?? '' })}
-                          className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-accent)] transition-colors opacity-0 group-hover:opacity-100"
+                          className="w-full text-left text-sm font-bold hover:text-[var(--color-accent)] transition-colors truncate"
                         >
-                          ✎ {nick?.nickname ? 'rename' : 'add nickname'}
+                          {nick?.nickname || <span className="text-[var(--color-muted)] font-normal text-xs">✎ add nickname</span>}
                         </button>
                       )}
                     </div>
+                    <Link href={`/tmux/${encodeURIComponent(s)}`} className="block px-4 pb-3">
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                        <span className="text-xs font-mono text-[var(--color-muted)] truncate" title={s}>{s}</span>
+                      </div>
+                      <p className="text-[10px] text-[var(--color-muted)]/60 mt-1">localhost · click to view</p>
+                    </Link>
                   </div>
                 );
               })}
@@ -234,31 +231,15 @@ export default function TmuxListPage() {
                 const nick = nicknames[sid];
                 const isEditing = editingNick?.sessionId === sid;
                 return (
-                  <div key={sid} className="relative group bg-[var(--color-surface)] rounded border border-violet-900/40 hover:border-violet-500/50 transition-colors">
-                    <Link href={`/tmux/${encodeURIComponent(sid)}?host=unsandbox`} className="block p-4">
-                      {nick?.nickname && (
-                        <p className="text-sm font-bold text-violet-200 mb-1 truncate">{nick.nickname}</p>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
-                        <span className="text-sm font-mono text-violet-300 truncate">{sid}</span>
-                      </div>
-                      {nick?.service_name && (
-                        <p className="text-xs text-violet-400/70 font-mono mt-0.5 truncate">⬡ {nick.service_name}</p>
-                      )}
-                      {!nick?.service_name && s.container_name && (
-                        <p className="text-xs text-[var(--color-muted)] font-mono mt-0.5 truncate">{s.container_name}</p>
-                      )}
-                      <p className="text-xs text-[var(--color-muted)] mt-1">unsandbox · click to open</p>
-                    </Link>
-                    {/* Nickname edit */}
-                    <div className="px-4 pb-3 space-y-1" onClick={e => e.stopPropagation()}>
+                  <div key={sid} className="bg-[var(--color-surface)] rounded border border-violet-900/40 hover:border-violet-500/50 transition-colors">
+                    {/* Nickname + service name row — always visible */}
+                    <div className="px-4 pt-3 pb-1 space-y-1" onClick={e => e.stopPropagation()}>
                       {isEditing ? (
                         <div className="space-y-1">
                           <input
                             ref={nickInputRef}
                             autoFocus
-                            value={editingNick!.value}
+                            value={editingNick?.value ?? ''}
                             onChange={e => setEditingNick({ sessionId: sid, value: e.target.value })}
                             onKeyDown={e => {
                               const v = editingNick?.value ?? '';
@@ -266,12 +247,12 @@ export default function TmuxListPage() {
                               if (e.key === 'Escape') setEditingNick(null);
                             }}
                             onBlur={() => saveNickname(sid, editingNick?.value ?? '', 'unsandbox', nick?.service_name ?? '')}
-                            placeholder="add nickname…"
-                            className="w-full text-xs px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-mono outline-none"
+                            placeholder="nickname…"
+                            className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
                           />
                           <input
-                            value={nick?.service_name ?? ''}
-                            onChange={async e => {
+                            defaultValue={nick?.service_name ?? ''}
+                            onBlur={async e => {
                               await fetch('/api/sessions/nickname', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
@@ -279,19 +260,36 @@ export default function TmuxListPage() {
                               });
                               mutateNicknames();
                             }}
-                            placeholder="service name (e.g. unfirehose-ab12cd34)…"
+                            placeholder="service name…"
                             className="w-full text-xs px-2 py-1 rounded border border-violet-500/30 bg-[var(--color-background)] font-mono outline-none text-violet-300"
                           />
                         </div>
                       ) : (
                         <button
                           onClick={() => setEditingNick({ sessionId: sid, value: nick?.nickname ?? '' })}
-                          className="text-[10px] text-violet-400/50 hover:text-violet-300 transition-colors opacity-0 group-hover:opacity-100"
+                          className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate"
                         >
-                          ✎ {nick?.nickname ? 'rename' : 'add nickname'}
+                          {nick?.nickname || <span className="text-violet-400/50 font-normal text-xs">✎ add nickname</span>}
                         </button>
                       )}
+                      {nick?.service_name && !isEditing && (
+                        <p className="text-xs text-violet-400/70 font-mono truncate">⬡ {nick.service_name}</p>
+                      )}
                     </div>
+                    <Link href={`/tmux/${encodeURIComponent(sid)}?host=unsandbox`} className="block px-4 pb-3">
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
+                        <span className="text-xs font-mono text-violet-300 truncate" title={sid}>{sid}</span>
+                      </div>
+                      {!nick?.service_name && s.container_name && (
+                        <p className="text-xs text-[var(--color-muted)] font-mono mt-0.5 truncate">{s.container_name}</p>
+                      )}
+                      <p className="text-[10px] text-[var(--color-muted)]/60 mt-1">unsandbox · click to open</p>
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
                   </div>
                 );
               })}
