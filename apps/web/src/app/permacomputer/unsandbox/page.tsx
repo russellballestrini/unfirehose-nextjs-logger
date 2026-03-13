@@ -465,21 +465,27 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
             <Section title="unfirehose Service">
               {unfirehoseService ? (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${unfirehoseService.state === 'running' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${unfirehoseService.state === 'running' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
                     <span className="font-bold">{unfirehoseService.state || 'unknown'}</span>
-                    <span className="text-xs text-[var(--color-muted)]">{unfirehoseService.service_id || unfirehoseService.id}</span>
+                    <span className="text-xs text-[var(--color-muted)] font-mono">{unfirehoseService.service_id || unfirehoseService.id}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Link href={`/tmux/${encodeURIComponent(unfirehoseService.service_id || unfirehoseService.id)}?host=unsandbox`}
+                      className="px-3 py-1.5 rounded border border-violet-500 text-violet-300 text-sm font-bold hover:bg-violet-500/10 transition-colors">
+                      → terminal
+                    </Link>
+                    {unfirehoseService.domain && (
+                      <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
+                        Open Dashboard ↗
+                      </a>
+                    )}
                   </div>
                   {unfirehoseService.domain && (
                     <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
-                      className="text-sm text-[var(--color-accent)] hover:underline font-mono block">
+                      className="text-xs text-[var(--color-accent)] hover:underline font-mono block">
                       https://{unfirehoseService.domain}
-                    </a>
-                  )}
-                  {unfirehoseService.domain && (
-                    <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
-                      className="inline-block px-4 py-2 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity mt-1">
-                      Open Dashboard
                     </a>
                   )}
                 </div>
@@ -511,8 +517,14 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
             {/* Quick stats */}
             <Section title="Quick Stats">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <KV label="Services" value={serviceList.length} />
-                <KV label="Active Sessions" value={sessionList.length} />
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-muted)]">Services</span>
+                  <button onClick={() => setActiveTab('Services')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{serviceList.length}</button>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-muted)]">Active Sessions</span>
+                  <button onClick={() => setActiveTab('Sessions')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{sessionList.length}</button>
+                </div>
                 <KV label="Type" value="ephemeral" />
                 <KV label="Provider" value="unsandbox.com" />
               </div>
@@ -597,21 +609,22 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
               const isService = entry.type === 'service';
 
               return (
-                <div key={entry.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+                <div key={entry.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/40 transition-colors p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <Link href={`/tmux/${encodeURIComponent(entry.id)}?host=unsandbox`} className="flex items-center gap-2 min-w-0 flex-1 group/link">
                       <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${entry.state === 'running' || entry.state === 'active' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
                       <div className="min-w-0">
-                        <span className="font-bold font-mono text-sm">{entry.name}</span>
+                        <span className="font-bold font-mono text-sm group-hover/link:text-violet-300 transition-colors">{entry.name}</span>
                         {entry.subtitle && (
-                          <span className="ml-2 text-xs text-[var(--color-muted)] font-mono truncate">{entry.subtitle}</span>
+                          <span className="ml-2 text-xs text-[var(--color-muted)] font-mono">{entry.subtitle}</span>
                         )}
                         {entry.serviceName && (
                           <span className="ml-2 text-xs text-violet-400/70 font-mono">⬡ {entry.serviceName}</span>
                         )}
+                        <span className="ml-2 text-[10px] text-violet-400/50 group-hover/link:text-violet-400 transition-colors">→ terminal</span>
                       </div>
                       <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{entry.type}</span>
-                    </div>
+                    </Link>
                     <div className="flex items-center gap-3">
                       {claudeProcs.length > 0 && (
                         <span className="text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
@@ -772,22 +785,23 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
                 const id = svc.service_id || svc.id;
                 const isLocked = svc.locked || svc.name === 'uncloseai';
                 return (
-                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className={`w-2.5 h-2.5 rounded-full ${svc.state === 'running' ? 'bg-green-400 animate-pulse' : svc.state === 'frozen' ? 'bg-blue-400' : 'bg-yellow-400'}`} />
-                      <div>
+                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors flex items-center justify-between">
+                    <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex items-center gap-3 p-4 flex-1 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${svc.state === 'running' ? 'bg-green-400 animate-pulse' : svc.state === 'frozen' ? 'bg-blue-400' : 'bg-yellow-400'}`} />
+                      <div className="min-w-0">
                         <div className="font-bold font-mono">{svc.name || id}</div>
-                        <div className="text-xs text-[var(--color-muted)]">
-                          {svc.state} &middot; {id}
-                          {svc.ports && <> &middot; port {svc.ports}</>}
+                        <div className="text-xs text-[var(--color-muted)] font-mono truncate">
+                          {svc.state} · {id}
+                          {svc.ports && <> · port {svc.ports}</>}
                         </div>
+                        <div className="text-[10px] text-violet-400/60 mt-0.5">→ open terminal</div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3">
+                    </Link>
+                    <div className="flex items-center gap-3 pr-4 flex-shrink-0">
                       {svc.domain && (
                         <a href={`https://${svc.domain}`} target="_blank" rel="noopener noreferrer"
                           className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
-                          Open
+                          Open ↗
                         </a>
                       )}
                       {isLocked ? (
