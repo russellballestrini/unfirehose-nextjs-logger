@@ -508,25 +508,30 @@ async function syncClaudeCredentials(host: string): Promise<boolean> {
 
   const sshOpts = ['-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no'];
 
-  // Ensure ~/.claude exists on remote
-  await exec('ssh', [...sshOpts, host, 'mkdir -p ~/.claude'], { timeout: 10000 });
+  // Create ~/.claude with restricted permissions from the start — never world-readable
+  await exec('ssh', [...sshOpts, host, 'umask 077 && mkdir -p ~/.claude'], { timeout: 10000 });
 
-  // scp credentials
-  await exec('scp', [...sshOpts, credFile, `${host}:~/.claude/.credentials.json`], { timeout: 15000 });
+  // scp credentials — -p preserves local file permissions (should be 600)
+  await exec('scp', [...sshOpts, '-p', credFile, `${host}:~/.claude/.credentials.json`], { timeout: 15000 });
 
   // Sync ~/.claude.json (onboarding state, oauth account) — non-fatal
   try {
     await stat(claudeJson);
-    await exec('scp', [...sshOpts, claudeJson, `${host}:~/.claude.json`], { timeout: 10000 });
+    await exec('scp', [...sshOpts, '-p', claudeJson, `${host}:~/.claude.json`], { timeout: 10000 });
   } catch { /* non-fatal */ }
 
   // Also sync settings if they exist (non-fatal)
   for (const f of [settingsFile, settingsLocalFile]) {
     try {
       await stat(f);
-      await exec('scp', [...sshOpts, f, `${host}:~/.claude/${path.basename(f)}`], { timeout: 10000 });
+      await exec('scp', [...sshOpts, '-p', f, `${host}:~/.claude/${path.basename(f)}`], { timeout: 10000 });
     } catch { /* non-fatal */ }
   }
+
+  // Belt-and-suspenders: lock down regardless of what scp set
+  await exec('ssh', [...sshOpts, host,
+    'chmod 700 ~/.claude && chmod 600 ~/.claude/.credentials.json ~/.claude/settings.json ~/.claude/settings.local.json ~/.claude.json 2>/dev/null || true',
+  ], { timeout: 10000 });
 
   return true;
 }
