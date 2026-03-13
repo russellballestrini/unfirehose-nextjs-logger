@@ -296,7 +296,7 @@ ENDJSON`;
       projectRepo ? `git clone '${projectRepo}' /workspace && cd /workspace` : 'mkdir -p /workspace && cd /workspace',
       // Run harness — claude runs as root in unsandbox so --dangerously-skip-permissions is required
       harnessCmd === 'claude'
-        ? `cd /workspace && /root/.local/bin/claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+        ? `cd /workspace && IS_SANDBOX=1 /root/.local/bin/claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
         : `cd /workspace && ${harnessCmd}`,
     ].join('\n');
 
