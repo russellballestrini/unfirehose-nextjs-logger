@@ -6,7 +6,6 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-const DROP_DIR = '/tmp/unfirehose-drop';
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 
 function sanitizeName(name: string): string {
@@ -35,22 +34,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'file too large (max 50 MB)' }, { status: 413 });
     }
 
-    // Save locally
-    mkdirSync(DROP_DIR, { recursive: true });
     const safeName = sanitizeName(file.name);
-    const localPath = join(DROP_DIR, safeName);
+    const isRemote = host && host !== 'localhost';
+
+    // Always write to /tmp/input/ — on local this is the final location,
+    // on remote we write locally first then SCP over
+    const inputDir = '/tmp/input';
+    mkdirSync(inputDir, { recursive: true });
+    const localPath = join(inputDir, safeName);
     writeFileSync(localPath, Buffer.from(bytes));
 
     let targetPath = localPath;
 
     // SCP to remote if needed
-    if (host && host !== 'localhost') {
-      const remoteDir = '/tmp/input';
+    if (isRemote) {
       await execFileAsync('ssh', [
         '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
-        host, `mkdir -p ${remoteDir}`,
+        host!, `mkdir -p ${inputDir}`,
       ]);
-      const remotePath = `${remoteDir}/${safeName}`;
+      const remotePath = `${inputDir}/${safeName}`;
       await execFileAsync('scp', [
         '-o', 'StrictHostKeyChecking=no',
         localPath, `${host}:${remotePath}`,
