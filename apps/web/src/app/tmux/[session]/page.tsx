@@ -128,11 +128,35 @@ function XtermPane({
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(containerRef.current);
+      term.focus();
 
       // Small delay so container has its final size before fitting
       await new Promise(r => setTimeout(r, 50));
       if (disposed) return;
       fitAddon.fit();
+
+      // When Ctrl+C is pressed with a text selection, xterm v5 copies to clipboard
+      // and does NOT fire onData. Override: always send \x03 regardless of selection.
+      term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        if (e.type !== 'keydown' || !interactiveRef.current) return true;
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+          const CTRL_SEQS: Record<string, string> = {
+            c: '\x03', d: '\x04', z: '\x1a', a: '\x01', e: '\x05',
+            k: '\x0b', l: '\x0c', r: '\x12', u: '\x15', w: '\x17',
+          };
+          const seq = CTRL_SEQS[e.key.toLowerCase()];
+          if (seq) {
+            // Send directly, bypassing xterm's copy-on-ctrl-c behavior
+            fetch('/api/unsandbox/shell', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session_id: sessionId, keys: seq }),
+            }).catch(() => {});
+            return false; // prevent xterm from also processing (avoids double-send)
+          }
+        }
+        return true;
+      });
 
       // Send resize when terminal re-fits
       term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
