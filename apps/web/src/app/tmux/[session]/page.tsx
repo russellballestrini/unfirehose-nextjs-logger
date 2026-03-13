@@ -81,7 +81,8 @@ export default function TmuxViewerPage() {
   const searchParams = useSearchParams();
   const session = params.session as string;
   const host = searchParams.get('host') ?? undefined;
-  const hostParam = host ? `&host=${encodeURIComponent(host)}` : '';
+  const isUnsandbox = host === 'unsandbox';
+  const hostParam = host && !isUnsandbox ? `&host=${encodeURIComponent(host)}` : '';
   const [connected, setConnected] = useState(false);
   const connectedRef = useRef(false);
   const [activeWindow, setActiveWindow] = useState<string | undefined>(undefined);
@@ -91,6 +92,8 @@ export default function TmuxViewerPage() {
   const pendingContentRef = useRef<string | null>(null);
   const lastRenderedRef = useRef('');
   const rafIdRef = useRef<number>(0);
+  // Unsandbox: accumulate raw output bytes
+  const unsandboxBufRef = useRef('');
 
   // Paint content to terminal — used by both SSE and POST response
   const paintContent = useCallback((raw: string) => {
@@ -104,30 +107,85 @@ export default function TmuxViewerPage() {
     }
   }, []);
 
+  // Paint unsandbox output: append to buffer, handle clear-screen
+  const paintUnsandboxChunk = useCallback((chunk: string) => {
+    // Handle clear-screen sequences
+    const clearRe = /\x1b\[2J(\x1b\[H|\x1b\[0;0H)?/g;
+    if (clearRe.test(chunk)) {
+      // Clear everything after the last clear-screen
+      const parts = chunk.split(/\x1b\[2J(?:\x1b\[H|\x1b\[0;0H)?/);
+      unsandboxBufRef.current = parts[parts.length - 1];
+    } else {
+      unsandboxBufRef.current += chunk;
+      // Cap at ~200KB to prevent unbounded growth
+      if (unsandboxBufRef.current.length > 200 * 1024) {
+        unsandboxBufRef.current = unsandboxBufRef.current.slice(-150 * 1024);
+      }
+    }
+    const raw = unsandboxBufRef.current;
+    if (termRef.current) {
+      termRef.current.innerHTML = ansiToHtml(raw);
+      if (autoScrollRef.current) {
+        termRef.current.scrollTop = termRef.current.scrollHeight;
+      }
+    }
+  }, []);
+
   const { data: windowsData } = useSWR(
-    `/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`,
+    isUnsandbox ? null : `/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`,
     fetcher,
     { refreshInterval: 5000 }
   );
   const windows: { index: string; name: string; active: boolean }[] = windowsData?.windows ?? [];
 
   const connectSSERef = useRef<() => EventSource>(null);
-  connectSSERef.current = useCallback(() => {  
-    const url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
+  connectSSERef.current = useCallback(() => {
+    let url: string;
+    if (isUnsandbox) {
+      url = `/api/unsandbox/shell?session_id=${encodeURIComponent(session)}`;
+    } else {
+      url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
+    }
     const es = new EventSource(url);
 
     es.onmessage = (e) => {
       try {
-        const data = JSON.parse(e.data);
         if (!connectedRef.current) { connectedRef.current = true; setConnected(true); }
-        // Buffer content — only render on next animation frame
-        pendingContentRef.current = data;
-        if (!rafIdRef.current) {
-          rafIdRef.current = requestAnimationFrame(() => {
-            rafIdRef.current = 0;
-            const raw = pendingContentRef.current;
-            if (raw !== null) paintContent(raw);
-          });
+
+        if (isUnsandbox) {
+          // Unsandbox: { type: 'output', data: '<base64>' } | { type: 'control', data: '...' } | { type: 'close' }
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'output') {
+            // Decode base64 → latin-1 string to preserve raw byte values
+            const bin = atob(msg.data);
+            if (!rafIdRef.current) {
+              rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = 0;
+                if (pendingContentRef.current !== null) {
+                  paintUnsandboxChunk(pendingContentRef.current);
+                  pendingContentRef.current = null;
+                }
+              });
+            }
+            // Accumulate chunks within the same frame
+            if (pendingContentRef.current === null) pendingContentRef.current = bin;
+            else pendingContentRef.current += bin;
+          } else if (msg.type === 'close') {
+            connectedRef.current = false;
+            setConnected(false);
+          }
+        } else {
+          // tmux: data is the raw screen string
+          const data = JSON.parse(e.data);
+          // Buffer content — only render on next animation frame
+          pendingContentRef.current = data;
+          if (!rafIdRef.current) {
+            rafIdRef.current = requestAnimationFrame(() => {
+              rafIdRef.current = 0;
+              const raw = pendingContentRef.current;
+              if (raw !== null) paintContent(raw);
+            });
+          }
         }
       } catch { /* skip */ }
     };
@@ -141,7 +199,7 @@ export default function TmuxViewerPage() {
     };
 
     return es;
-  }, [session, activeWindow, hostParam, paintContent]);
+  }, [session, activeWindow, hostParam, isUnsandbox, paintContent, paintUnsandboxChunk]);
 
   useEffect(() => {
     // Set initial text
@@ -184,19 +242,27 @@ export default function TmuxViewerPage() {
 
       const payload = batch ? { keys: batch } : pending[0];
       try {
-        const res = await fetch('/api/tmux/stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, ...payload }),
-        });
-        // Render immediately from POST response — don't wait for next SSE poll
-        const result = await res.json();
-        if (result.content) paintContent(result.content);
+        if (isUnsandbox) {
+          await fetch('/api/unsandbox/shell', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: decodeURIComponent(session), ...payload }),
+          });
+        } else {
+          const res = await fetch('/api/tmux/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, ...payload }),
+          });
+          // Render immediately from POST response — don't wait for next SSE poll
+          const result = await res.json();
+          if (result.content) paintContent(result.content);
+        }
       } catch { /* best effort */ }
     }
 
     flushingRef.current = false;
-  }, [session, activeWindow, host, paintContent]);
+  }, [session, activeWindow, host, isUnsandbox, paintContent]);
 
   const enqueueKeys = useCallback((payload: { keys?: string; special?: string }) => {
     queueRef.current.push(payload);
@@ -267,11 +333,19 @@ export default function TmuxViewerPage() {
       const cols = Math.max(80, Math.floor((rect.width - padding) / charW));
       const rows = Math.max(24, Math.floor((rect.height - padding) / charH));
 
-      fetch('/api/tmux/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, action: 'resize', cols, rows }),
-      }).catch(() => {});
+      if (isUnsandbox) {
+        fetch('/api/unsandbox/shell', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: decodeURIComponent(session), action: 'resize', cols, rows }),
+        }).catch(() => {});
+      } else {
+        fetch('/api/tmux/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, action: 'resize', cols, rows }),
+        }).catch(() => {});
+      }
     };
 
     const observer = new ResizeObserver(() => {
@@ -286,7 +360,7 @@ export default function TmuxViewerPage() {
       observer.disconnect();
       if (timer) clearTimeout(timer);
     };
-  }, [session, activeWindow, host]);
+  }, [session, activeWindow, host, isUnsandbox]);
 
   // Handle scroll — disable auto-scroll when user scrolls up
   const handleScroll = () => {
@@ -335,11 +409,19 @@ export default function TmuxViewerPage() {
       setDropState('done');
 
       // Type the path into the terminal
-      await fetch('/api/tmux/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, keys: path }),
-      });
+      if (isUnsandbox) {
+        await fetch('/api/unsandbox/shell', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: decodeURIComponent(session), keys: path }),
+        });
+      } else {
+        await fetch('/api/tmux/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, keys: path }),
+        });
+      }
 
       setTimeout(() => { setDropState('idle'); setDropFile(null); }, 1800);
     } catch (err) {
@@ -402,7 +484,10 @@ export default function TmuxViewerPage() {
           &larr; Back
         </Link>
         <h2 className="text-lg font-bold font-mono">{decodeURIComponent(session)}</h2>
-        {host && <span className="text-xs text-[var(--color-muted)] font-mono">@{host}</span>}
+        {isUnsandbox
+          ? <span className="text-xs text-violet-400 font-mono">@unsandbox</span>
+          : host && <span className="text-xs text-[var(--color-muted)] font-mono">@{host}</span>
+        }
         <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
         <span className="text-xs text-[var(--color-muted)]">{connected ? 'live' : 'reconnecting...'}</span>
         <button
