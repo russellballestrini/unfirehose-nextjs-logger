@@ -309,24 +309,30 @@ ENDJSON`;
     // 3. Bootstrap harness in session
     const setupScript = [
       '#!/bin/bash',
-      'set -e',
+      // Install system deps
+      'export DEBIAN_FRONTEND=noninteractive',
+      'apt-get update -qq',
       ...(harnessCmd === 'claude' ? [
-        // Install Claude Code via official installer
-        'curl -fsSL https://claude.ai/install.sh | bash',
-        // Persist ~/.local/bin in PATH for all future shells (interactive terminals)
-        'grep -qxF \'export PATH="$HOME/.local/bin:$PATH"\' ~/.bashrc || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
-        'export PATH="/root/.local/bin:$PATH"',
+        // Install Node.js LTS via nodesource (puts node/npm in /usr/local/bin)
+        'apt-get install -y -qq curl ca-certificates git tmux',
+        'curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - 2>/dev/null',
+        'apt-get install -y -qq nodejs',
+        // Install Claude Code globally — ends up in /usr/local/bin, always in PATH
+        'npm install -g @anthropic-ai/claude-code 2>&1 | tail -5',
+        // Verify install
+        'claude --version || echo "WARNING: claude not found in PATH"',
+        // Clone project if repo provided
+        projectRepo ? `git clone '${projectRepo}' /workspace 2>&1` : 'mkdir -p /workspace',
+        // Start claude in a tmux session named "claude" so it persists
+        `tmux new-session -d -s claude -x 220 -y 50 'cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}' || true`,
+        'echo "Bootstrap complete — claude running in tmux session: claude"',
+        'echo "Attach with: tmux attach -t claude"',
       ] : [
-        // Install node if not present for other harnesses
-        'which node || (curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && apt-get install -y nodejs)',
+        'apt-get install -y -qq curl ca-certificates git tmux nodejs npm',
         `echo "Custom harness: ${harnessCmd}"`,
+        projectRepo ? `git clone '${projectRepo}' /workspace 2>&1` : 'mkdir -p /workspace',
+        `tmux new-session -d -s harness -x 220 -y 50 'cd /workspace && ${harnessCmd}' || true`,
       ]),
-      // Clone project if repo provided
-      projectRepo ? `git clone '${projectRepo}' /workspace && cd /workspace` : 'mkdir -p /workspace && cd /workspace',
-      // Run harness — claude runs as root in unsandbox so --dangerously-skip-permissions is required
-      harnessCmd === 'claude'
-        ? `cd /workspace && IS_SANDBOX=1 /root/.local/bin/claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
-        : `cd /workspace && ${harnessCmd}`,
     ].join('\n');
 
     const execPath = `/sessions/${session.session_id}/execute`;

@@ -279,14 +279,14 @@ export default function TmuxViewerPage() {
   const handleUnsandboxConnect = useCallback((c: boolean) => {
     connectedRef.current = c;
     setConnected(c);
-    // On first connect, ensure ~/.local/bin is in PATH for existing containers
+    // On first connect, auto-attach to the 'claude' tmux session if it exists
     if (c && !pathFixSentRef.current) {
       pathFixSentRef.current = true;
       setTimeout(() => {
         fetch('/api/unsandbox/shell', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, keys: 'export PATH="$HOME/.local/bin:$PATH"\r' }),
+          body: JSON.stringify({ session_id: sessionId, keys: 'tmux attach -t claude 2>/dev/null || true\r' }),
         }).catch(() => {});
       }, 500);
     }
