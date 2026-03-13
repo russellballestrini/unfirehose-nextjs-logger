@@ -301,16 +301,27 @@ ENDJSON`;
 
           // 3. Install claude (TODO: remove once golden image has it pre-baked)
           if (harnessCmd === 'claude') {
-            emit('install', 'Installing claude (curl install.sh)...');
-            await apiPost(publicKey!, secretKey!, execPath, JSON.stringify({ command: 'curl -fsSL https://claude.ai/install.sh | bash' }), 120000);
-            emit('install', 'Claude installed', { ok: true });
+            emit('install', 'Installing claude via install.sh...');
+            try {
+              const installResult = await apiPost(publicKey!, secretKey!, execPath, JSON.stringify({ command: 'curl -fsSL https://claude.ai/install.sh | bash 2>&1' }), 120000);
+              const out = (installResult.stdout || installResult.output || '').trim().slice(-200);
+              emit('install', out || 'install.sh complete', { ok: true });
+            } catch (err) {
+              emit('install', `install.sh error: ${err}`, { ok: false });
+              // continue — maybe partially installed
+            }
+            // Symlink into /usr/local/bin so claude is in PATH regardless of shell or env
+            try {
+              await apiPost(publicKey!, secretKey!, execPath, JSON.stringify({ command: 'ln -sf /root/.local/bin/claude /usr/local/bin/claude 2>&1 || ln -sf ~/.local/bin/claude /usr/local/bin/claude 2>&1' }), 10000);
+              emit('install', 'Symlinked claude → /usr/local/bin/claude', { ok: true });
+            } catch { /* non-fatal */ }
           }
 
           // 4. Start harness in tmux
           emit('tmux', 'Starting harness in tmux...');
           const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
           const innerCmd = harnessCmd === 'claude'
-            ? `export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+            ? `${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
             : `${cloneCmd}cd /workspace && ${harnessCmd}`;
           const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
           const escapedCmd = innerCmd.replace(/'/g, "'\\''");
