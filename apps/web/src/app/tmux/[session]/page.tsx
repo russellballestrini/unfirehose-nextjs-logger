@@ -429,7 +429,7 @@ export default function TmuxViewerPage() {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('session', decodeURIComponent(session));
-      if (host && !isUnsandbox) fd.append('host', host);
+      if (host) fd.append('host', host); // 'unsandbox' triggers container injection
       const res = await fetch('/api/tmux/upload', { method: 'POST', body: fd });
       clearInterval(tick);
       if (!res.ok) {
@@ -572,7 +572,7 @@ export default function TmuxViewerPage() {
                 <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(0,0,0,0.2) 6px,rgba(0,0,0,0.2) 7px)' }} />
               </div>
               <div className="font-mono text-red-500 text-xs mt-2 tabular-nums">
-                {uploadProgress.toFixed(0)}%{host && host !== 'localhost' && !isUnsandbox ? `  →  SCP → ${host}` : '  →  LOCAL'}
+                {uploadProgress.toFixed(0)}%{isUnsandbox ? '  →  CONTAINER' : host && host !== 'localhost' ? `  →  SCP → ${host}` : '  →  LOCAL'}
               </div>
             </div>
           )}
