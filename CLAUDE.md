@@ -116,6 +116,14 @@ The bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:
 - Optional sudo password for privileged setup (piped via `sudo -S` stdin)
 - Creates tmux session with harness command
 
+### Unsandbox Claude bootstrap
+
+Unsandbox uses a golden image (has curl, node, tmux pre-installed). **Do NOT use apt-get** to install anything — just use the official installer:
+- Install: `curl -fsSL https://claude.ai/install.sh | bash` → installs to `~/.local/bin/claude`
+- Persist PATH: append `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`
+- Run in tmux: `tmux new-session -d -s claude ...` so the session persists
+- On terminal connect: auto-send `tmux attach -t claude` to land in claude's UI
+
 ## Todo System
 
 Cross-session todos are extracted from all harness JSONL (Claude Code, Fetch, uncloseai) during ingestion. 1300+ todos across 22 projects. Todos support file attachments stored at `~/.unfirehose/attachments/{sha256}` (content-addressed, max 10MB per file).
