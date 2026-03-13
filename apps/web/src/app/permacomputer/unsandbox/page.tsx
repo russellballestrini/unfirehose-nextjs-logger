@@ -108,6 +108,20 @@ export default function UnsandboxNodePage() {
   const serviceList: any[] = useMemo(() => services?.services ?? [], [services]);
   const sessionList: any[] = useMemo(() => sessions?.sessions ?? [], [sessions]);
 
+  const { data: nicknamesData, mutate: mutateNicknames } = useSWR('/api/sessions/nickname', fetcher, { refreshInterval: 30000 });
+  const nicknames: Record<string, { nickname: string; service_name: string }> = nicknamesData ?? {};
+  const [editingNick, setEditingNick] = useState<{ sessionId: string; value: string } | null>(null);
+
+  const saveNickname = async (sessionId: string, nickname: string, serviceName = '') => {
+    await fetch('/api/sessions/nickname', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, nickname, host: 'unsandbox', service_name: serviceName }),
+    });
+    setEditingNick(null);
+    mutateNicknames();
+  };
+
   const unfirehoseService = serviceList.find((s: any) =>
     (s.name || '').includes('unfirehose') || (s.name || '').includes('firehose')
   );
@@ -537,8 +551,13 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
           // Skip if already covered by a service
           if (entries.some(e => e.id === id)) continue;
           const procs = sessionProcs[id] ?? [];
+          const nick = nicknames[id];
           entries.push({
-            id, name: id, type: 'session',
+            id,
+            name: nick?.nickname || id,
+            subtitle: nick?.nickname ? id : (nick?.service_name || null),
+            serviceName: nick?.service_name || null,
+            type: 'session',
             state: sess.status || 'active', procs,
           });
         }
@@ -580,10 +599,18 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
               return (
                 <div key={entry.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${entry.state === 'running' || entry.state === 'active' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
-                      <span className="font-bold font-mono text-sm">{entry.name}</span>
-                      <span className="text-xs text-[var(--color-muted)]">{entry.type}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${entry.state === 'running' || entry.state === 'active' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
+                      <div className="min-w-0">
+                        <span className="font-bold font-mono text-sm">{entry.name}</span>
+                        {entry.subtitle && (
+                          <span className="ml-2 text-xs text-[var(--color-muted)] font-mono truncate">{entry.subtitle}</span>
+                        )}
+                        {entry.serviceName && (
+                          <span className="ml-2 text-xs text-violet-400/70 font-mono">⬡ {entry.serviceName}</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{entry.type}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       {claudeProcs.length > 0 && (
@@ -791,21 +818,51 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {sessionList.map((s: any) => {
                 const id = s.session_id || s.id;
+                const nick = nicknames[id];
+                const isEditing = editingNick?.sessionId === id;
                 return (
-                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 flex items-center justify-between hover:border-violet-500/50 transition-colors">
-                    <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                        <span className="font-mono text-sm font-bold text-violet-300">{id}</span>
-                      </div>
-                      {s.shell && <div className="text-xs text-[var(--color-muted)] mt-1">shell: {s.shell}</div>}
-                      {s.created_at && <div className="text-xs text-[var(--color-muted)]">{s.created_at}</div>}
-                      <div className="text-xs text-violet-500 mt-1">→ open terminal</div>
-                    </Link>
-                    <button onClick={() => killSession(id)} disabled={killingSession === id}
-                      className="text-xs text-red-400 hover:text-red-300 cursor-pointer disabled:opacity-50 ml-4 shrink-0">
-                      {killingSession === id ? '...' : 'kill'}
-                    </button>
+                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
+                    {/* Nickname row */}
+                    <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          value={editingNick?.value ?? ''}
+                          onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
+                          onKeyDown={e => {
+                            const v = editingNick?.value ?? '';
+                            if (e.key === 'Enter') saveNickname(id, v, nick?.service_name ?? '');
+                            if (e.key === 'Escape') setEditingNick(null);
+                          }}
+                          onBlur={() => saveNickname(id, editingNick?.value ?? '', nick?.service_name ?? '')}
+                          placeholder="nickname…"
+                          className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
+                        />
+                      ) : (
+                        <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
+                          className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
+                          {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
+                        </button>
+                      )}
+                      {nick?.service_name && !isEditing && (
+                        <p className="text-xs text-violet-400/70 font-mono truncate mt-0.5">⬡ {nick.service_name}</p>
+                      )}
+                    </div>
+                    <div className="px-4 pb-3 flex items-center justify-between">
+                      <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                          <span className="font-mono text-xs text-violet-300 truncate" title={id}>{id}</span>
+                        </div>
+                        {s.shell && <div className="text-xs text-[var(--color-muted)] mt-0.5">shell: {s.shell}</div>}
+                        {s.created_at && <div className="text-xs text-[var(--color-muted)]">{s.created_at}</div>}
+                        <div className="text-[10px] text-violet-500 mt-1">→ open terminal</div>
+                      </Link>
+                      <button onClick={() => killSession(id)} disabled={killingSession === id}
+                        className="text-xs text-red-400 hover:text-red-300 cursor-pointer disabled:opacity-50 ml-4 shrink-0">
+                        {killingSession === id ? '...' : 'kill'}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
