@@ -775,17 +775,18 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
               {sessionList.map((s: any) => {
                 const id = s.session_id || s.id;
                 return (
-                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 flex items-center justify-between">
-                    <div>
+                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 flex items-center justify-between hover:border-violet-500/50 transition-colors">
+                    <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                        <span className="font-mono text-sm font-bold">{id}</span>
+                        <span className="font-mono text-sm font-bold text-violet-300">{id}</span>
                       </div>
                       {s.shell && <div className="text-xs text-[var(--color-muted)] mt-1">shell: {s.shell}</div>}
                       {s.created_at && <div className="text-xs text-[var(--color-muted)]">{s.created_at}</div>}
-                    </div>
+                      <div className="text-xs text-violet-500 mt-1">→ open terminal</div>
+                    </Link>
                     <button onClick={() => killSession(id)} disabled={killingSession === id}
-                      className="text-xs text-red-400 hover:text-red-300 cursor-pointer disabled:opacity-50">
+                      className="text-xs text-red-400 hover:text-red-300 cursor-pointer disabled:opacity-50 ml-4 shrink-0">
                       {killingSession === id ? '...' : 'kill'}
                     </button>
                   </div>
