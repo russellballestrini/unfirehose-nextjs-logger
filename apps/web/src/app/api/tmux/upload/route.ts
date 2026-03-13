@@ -9,8 +9,9 @@ import { getSetting } from '@unturf/unfirehose/db/ingest';
 const execFileAsync = promisify(execFile);
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
-// Unsandbox: cap at 4 MB — base64 encoding ~33% overhead, shell arg limit
-const MAX_UNSANDBOX_BYTES = 4 * 1024 * 1024;
+const MAX_UNSANDBOX_BYTES = 50 * 1024 * 1024; // 50 MB — chunked heredoc injection
+// Chunk size must be a multiple of 3 so base64 blocks are self-contained (no padding split)
+const UNSANDBOX_CHUNK = 9 * 1024 * 1024; // 9 MB raw → ~12 MB base64 per request
 
 function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 128) || 'file';
@@ -26,20 +27,16 @@ function signUnsandbox(secretKey: string, method: string, path: string, body = '
   return { timestamp, sig };
 }
 
-async function injectIntoUnsandbox(sessionId: string, safeName: string, buf: Buffer): Promise<string> {
-  const publicKey = getSetting('unsandbox_public_key');
-  const secretKey = getSetting('unsandbox_secret_key');
-  if (!publicKey || !secretKey) throw new Error('No unsandbox keys configured');
-
-  const targetPath = `/tmp/input/${safeName}`;
-  const b64 = buf.toString('base64');
-
-  // Inject via session execute: mkdir + base64 decode directly in the container
-  const script = `mkdir -p /tmp/input\nprintf '%s' '${b64}' | base64 -d > '${targetPath}'`;
+async function unsandboxExec(
+  publicKey: string,
+  secretKey: string,
+  sessionId: string,
+  command: string,
+  timeoutMs = 120000,
+): Promise<void> {
   const apiPath = `/sessions/${sessionId}/execute`;
-  const payload = JSON.stringify({ command: script });
+  const payload = JSON.stringify({ command });
   const { timestamp, sig } = signUnsandbox(secretKey, 'POST', apiPath, payload);
-
   const res = await fetch(`https://api.unsandbox.com${apiPath}`, {
     method: 'POST',
     headers: {
@@ -49,12 +46,36 @@ async function injectIntoUnsandbox(sessionId: string, safeName: string, buf: Buf
       'Content-Type': 'application/json',
     },
     body: payload,
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
-
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`unsandbox inject failed: ${res.status} ${text}`);
+    throw new Error(`unsandbox execute failed: ${res.status} ${text}`);
+  }
+}
+
+async function injectIntoUnsandbox(sessionId: string, safeName: string, buf: Buffer): Promise<string> {
+  const publicKey = getSetting('unsandbox_public_key');
+  const secretKey = getSetting('unsandbox_secret_key');
+  if (!publicKey || !secretKey) throw new Error('No unsandbox keys configured');
+
+  const targetPath = `/tmp/input/${safeName}`;
+
+  // Split into chunks (multiples of 3 bytes so base64 blocks are self-contained)
+  const chunks: Buffer[] = [];
+  for (let off = 0; off < buf.length; off += UNSANDBOX_CHUNK) {
+    chunks.push(buf.subarray(off, off + UNSANDBOX_CHUNK));
+  }
+
+  for (let i = 0; i < chunks.length; i++) {
+    const b64 = chunks[i].toString('base64');
+    const redirect = i === 0 ? '>' : '>>';
+    // Heredoc: b64 content goes into request body (JSON), not a shell argument —
+    // no shell argument length limit. base64 -d reads from heredoc stdin.
+    const cmd = i === 0
+      ? `mkdir -p /tmp/input\nbase64 -d << 'UNSB_EOF' ${redirect} '${targetPath}'\n${b64}\nUNSB_EOF`
+      : `base64 -d << 'UNSB_EOF' ${redirect} '${targetPath}'\n${b64}\nUNSB_EOF`;
+    await unsandboxExec(publicKey, secretKey, sessionId, cmd, 120000);
   }
 
   return targetPath;
