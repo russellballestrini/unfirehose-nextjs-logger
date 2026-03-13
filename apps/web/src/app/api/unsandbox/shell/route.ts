@@ -73,13 +73,9 @@ function connectShell(sessionId: string, publicKey: string, secretKey: string): 
     set.forEach(fn => fn(msg));
   });
 
-  // On connect: send resize then a CR to wake the shell prompt
+  // Send initial resize on fresh connect
   ws.on('open', () => {
     ws.send(JSON.stringify({ type: 'resize', cols: 220, rows: 50 }));
-    // Small delay so resize is processed first, then CR triggers prompt redraw
-    setTimeout(() => {
-      if (ws.readyState === ws.OPEN) ws.send(Buffer.from('\r'));
-    }, 150);
   });
 
   return ws;
@@ -115,13 +111,26 @@ export async function GET(request: NextRequest) {
       set.add(send);
 
       // Connect (or reuse existing) WS
+      let ws: WebSocket;
       try {
-        connectShell(sessionId, publicKey, secretKey);
+        ws = connectShell(sessionId, publicKey, secretKey);
       } catch (err) {
         send(JSON.stringify({ type: 'error', data: String(err) }));
         controller.close();
         return;
       }
+
+      // Wake the shell prompt every time a viewer connects (handles both fresh WS
+      // and reused WS where ws.on('open') never fires again)
+      const wakePrompt = () => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(Buffer.from('\r'));
+        } else {
+          ws.once('open', () => setTimeout(() => ws.send(Buffer.from('\r')), 150));
+        }
+      };
+      // Delay slightly so xterm has time to initialize before output arrives
+      setTimeout(wakePrompt, 300);
 
       // Keepalive ping every 15s
       const pingTimer = setInterval(() => {
