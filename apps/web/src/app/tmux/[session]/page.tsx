@@ -386,13 +386,13 @@ export default function TmuxViewerPage() {
           from { transform: scaleX(0); }
           to   { transform: scaleX(1); }
         }
-        @keyframes uf-glow-green {
-          0%,100% { box-shadow: 0 0 12px #00ff41, 0 0 30px #00ff4133; }
-          50%     { box-shadow: 0 0 24px #00ff41, 0 0 60px #00ff4166; }
+        @keyframes uf-glow-orange {
+          0%,100% { box-shadow: 0 0 12px #f97316, 0 0 30px #f9731633; }
+          50%     { box-shadow: 0 0 24px #f97316, 0 0 60px #f9731666; }
         }
         @keyframes uf-done-flash {
-          0%   { background: rgba(0,255,65,0.3); }
-          100% { background: rgba(0,255,65,0); }
+          0%   { background: rgba(249,115,22,0.25); }
+          100% { background: rgba(249,115,22,0); }
         }
       `}</style>
       <div className="flex flex-col h-[calc(100vh-2rem)]">
@@ -448,26 +448,26 @@ export default function TmuxViewerPage() {
           ref={termRef}
           tabIndex={0}
           onScroll={handleScroll}
-          style={dropState === 'done' ? { animation: 'uf-glow-green 0.6s ease-in-out 3' } : undefined}
+          style={dropState === 'done' ? { animation: 'uf-glow-orange 0.6s ease-in-out 3' } : undefined}
           className={`h-full bg-[#0d0d0d] rounded-lg border p-4 overflow-hidden font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none transition-all duration-300 ${
             dropState === 'hover'
-              ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)]'
+              ? 'border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.5)]'
               : dropState === 'uploading' || dropState === 'error'
               ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
               : dropState === 'done'
-              ? 'border-green-400'
-              : interactive ? 'border-green-500/50 cursor-text' : 'border-[var(--color-border)]'
+              ? 'border-orange-400'
+              : interactive ? 'border-[var(--color-border)] cursor-text' : 'border-[var(--color-border)]'
           }`}
         />
 
         {/* ── HOVER overlay ── */}
         {dropState === 'hover' && (
           <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
-            style={{ background: 'rgba(0,20,30,0.82)' }}>
-            <div className="text-6xl mb-4" style={{ animation: 'uf-pulse-red 1s infinite', color: '#22d3ee' }}>⬇</div>
-            <div className="font-mono font-bold text-2xl tracking-widest text-cyan-300"
-              style={{ animation: 'uf-flicker 3s infinite' }}>DROP FILE</div>
-            <div className="font-mono text-sm text-cyan-500 mt-2 tracking-wider">
+            style={{ background: 'rgba(20,10,0,0.82)' }}>
+            <div className="text-6xl mb-4" style={{ animation: 'uf-pulse-red 1s infinite', color: '#f97316' }}>⬇</div>
+            <div className="font-mono font-bold text-2xl tracking-widest"
+              style={{ color: '#fb923c', animation: 'uf-flicker 3s infinite' }}>DROP FILE</div>
+            <div className="font-mono text-sm mt-2 tracking-wider" style={{ color: '#f97316' }}>
               → INJECT INTO SESSION ←
             </div>
           </div>
@@ -512,8 +512,8 @@ export default function TmuxViewerPage() {
         {dropState === 'done' && (
           <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
             style={{ animation: 'uf-done-flash 1.8s ease-out forwards' }}>
-            <div className="font-mono font-bold text-green-400 text-xl tracking-widest">✓ INJECTED</div>
-            <div className="font-mono text-green-300 text-xs mt-2 max-w-xs truncate px-4">{dropFile?.path}</div>
+            <div className="font-mono font-bold text-xl tracking-widest" style={{ color: '#f97316' }}>✓ INJECTED</div>
+            <div className="font-mono text-xs mt-2 max-w-xs truncate px-4" style={{ color: '#fb923c' }}>{dropFile?.path}</div>
           </div>
         )}
 

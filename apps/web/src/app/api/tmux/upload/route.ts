@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     // SCP to remote if needed
     if (host && host !== 'localhost') {
-      const remoteDir = '/tmp/unfirehose-drop';
+      const remoteDir = '/tmp/input';
       await execFileAsync('ssh', [
         '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
         host, `mkdir -p ${remoteDir}`,
