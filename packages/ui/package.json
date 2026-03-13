@@ -1,6 +1,6 @@
 {
   "name": "@unturf/unfirehose-ui",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Shared React components for unfirehose dashboards",
   "type": "module",
   "license": "AGPL-3.0-only",

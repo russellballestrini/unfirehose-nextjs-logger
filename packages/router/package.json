@@ -1,6 +1,6 @@
 {
   "name": "@unturf/unfirehose-router",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Lightweight daemon that watches Claude Code JSONL and forwards to unfirehose.com",
   "type": "module",
   "license": "AGPL-3.0-only",
