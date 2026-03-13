@@ -369,8 +369,17 @@ export default function TmuxViewerPage() {
       else if (SPECIAL_MAP[e.key]) { e.preventDefault(); enqueueKeys({ special: SPECIAL_MAP[e.key] }); }
       else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); enqueueKeys({ keys: e.key }); }
     };
+    const pasteHandler = (e: ClipboardEvent) => {
+      if ((e.target as HTMLElement)?.closest('input, textarea, select')) return;
+      const text = e.clipboardData?.getData('text');
+      if (text) { e.preventDefault(); enqueueKeys({ keys: text }); }
+    };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('paste', pasteHandler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('paste', pasteHandler);
+    };
   }, [interactive, isUnsandbox, enqueueKeys]);
 
   // Resize — tmux mode only (xterm FitAddon handles unsandbox resize)
