@@ -92,6 +92,7 @@ export default function UnsandboxNodePage() {
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<any>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [serviceLabel, setServiceLabel] = useState('');
 
   const [cmd, setCmd] = useState('');
   const [cmdResult, setCmdResult] = useState<any>(null);
@@ -144,7 +145,7 @@ export default function UnsandboxNodePage() {
       const res = await fetch('/api/unsandbox', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create-service', name: 'unfirehose', ports: '3000', bootstrap: UNFIREHOSE_BOOTSTRAP, network }),
+        body: JSON.stringify({ action: 'create-service', name: serviceLabel ? `unfirehose-${serviceLabel.replace(/[^a-z0-9-]/gi, '')}` : 'unfirehose', ports: '3000', bootstrap: UNFIREHOSE_BOOTSTRAP, network }),
       });
       const data = await res.json();
       if (data.error) setDeployError(data.error);
@@ -473,12 +474,20 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
                   <p className="text-sm text-[var(--color-muted)]">
                     No unfirehose service deployed. Deploy to add unsandbox as a mesh node.
                   </p>
-                  <button onClick={deployUnfirehose} disabled={deploying}
-                    className="px-4 py-2 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
-                    {deploying ? 'Deploying...' : 'Deploy unfirehose'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={serviceLabel}
+                      onChange={e => setServiceLabel(e.target.value)}
+                      placeholder="label (optional, e.g. 2)"
+                      className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] font-mono w-40"
+                    />
+                    <button onClick={deployUnfirehose} disabled={deploying}
+                      className="px-4 py-2 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+                      {deploying ? 'Deploying...' : 'Deploy unfirehose'}
+                    </button>
+                  </div>
                   {deployResult && (
-                    <div className="text-xs text-green-400 font-mono">Deployed: {deployResult.service_id || deployResult.name}</div>
+                    <div className="text-xs text-green-400 font-mono">Deployed: {deployResult.resolvedName || deployResult.service_id || deployResult.name}</div>
                   )}
                   {deployError && <div className="text-xs text-red-400">{deployError}</div>}
                 </div>
@@ -712,11 +721,19 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
               <p className="text-sm text-[var(--color-muted)]">
                 Add unsandbox as a mesh node. Deploys the dashboard on port 3000.
               </p>
-              <button onClick={deployUnfirehose} disabled={deploying}
-                className="px-6 py-2.5 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
-                {deploying ? 'Deploying...' : 'Deploy unfirehose'}
-              </button>
-              {deployResult && <div className="text-sm text-green-400 font-mono">Deployed: {deployResult.service_id || deployResult.name}</div>}
+              <div className="flex items-center gap-2">
+                <input
+                  value={serviceLabel}
+                  onChange={e => setServiceLabel(e.target.value)}
+                  placeholder="label (optional, e.g. 2)"
+                  className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] font-mono w-40"
+                />
+                <button onClick={deployUnfirehose} disabled={deploying}
+                  className="px-6 py-2.5 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+                  {deploying ? 'Deploying...' : 'Deploy unfirehose'}
+                </button>
+              </div>
+              {deployResult && <div className="text-sm text-green-400 font-mono">Deployed: {deployResult.resolvedName || deployResult.service_id || deployResult.name}</div>}
               {deployError && <div className="text-sm text-red-400">{deployError}</div>}
             </div>
           )}
