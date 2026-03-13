@@ -112,7 +112,7 @@ export default function TmuxViewerPage() {
   const windows: { index: string; name: string; active: boolean }[] = windowsData?.windows ?? [];
 
   const connectSSERef = useRef<() => EventSource>(null);
-  connectSSERef.current = useCallback(() => { // eslint-disable-line react-hooks/refs
+  connectSSERef.current = useCallback(() => {  
     const url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
     const es = new EventSource(url);
 
@@ -295,8 +295,107 @@ export default function TmuxViewerPage() {
     autoScrollRef.current = scrollHeight - scrollTop - clientHeight < 50;
   };
 
+  // ── File drop ──────────────────────────────────────────────────────────────
+  type DropState = 'idle' | 'hover' | 'uploading' | 'done' | 'error';
+  const [dropState, setDropState] = useState<DropState>('idle');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [dropFile, setDropFile] = useState<{ name: string; path: string } | null>(null);
+  const [dropError, setDropError] = useState('');
+  const dragCounterRef = useRef(0);
+
+  const uploadFile = async (file: File) => {
+    setDropFile({ name: file.name, path: '' });
+    setDropState('uploading');
+    setUploadProgress(0);
+
+    // Animate progress — fast to 70%, stall while waiting for server
+    let prog = 0;
+    const tick = setInterval(() => {
+      prog = prog < 70 ? prog + 4 : prog < 88 ? prog + 0.4 : prog;
+      setUploadProgress(Math.min(prog, 88));
+    }, 40);
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('session', decodeURIComponent(session));
+      if (host) fd.append('host', host);
+
+      const res = await fetch('/api/tmux/upload', { method: 'POST', body: fd });
+      clearInterval(tick);
+
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({ error: 'upload failed' }));
+        throw new Error(e.error ?? 'upload failed');
+      }
+
+      const { path } = await res.json();
+      setUploadProgress(100);
+      setDropFile({ name: file.name, path });
+      setDropState('done');
+
+      // Type the path into the terminal
+      await fetch('/api/tmux/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, keys: path }),
+      });
+
+      setTimeout(() => { setDropState('idle'); setDropFile(null); }, 1800);
+    } catch (err) {
+      clearInterval(tick);
+      setDropError(String(err));
+      setDropState('error');
+      setTimeout(() => { setDropState('idle'); setDropError(''); }, 3000);
+    }
+  };
+
+  const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dropState === 'idle') setDropState('hover');
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setDropState('idle'); }
+  };
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  };
+
   return (
-    <div className="flex flex-col h-[calc(100vh-2rem)]">
+    <>
+      <style>{`
+        @keyframes scanlines {
+          0% { background-position: 0 0; }
+          100% { background-position: 0 4px; }
+        }
+        @keyframes uf-pulse-red {
+          0%,100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+        @keyframes uf-flicker {
+          0%,100% { opacity:1; } 92%{opacity:1;} 93%{opacity:0.6;} 94%{opacity:1;} 97%{opacity:0.8;} 98%{opacity:1;}
+        }
+        @keyframes uf-slide-in {
+          from { transform: scaleX(0); }
+          to   { transform: scaleX(1); }
+        }
+        @keyframes uf-glow-green {
+          0%,100% { box-shadow: 0 0 12px #00ff41, 0 0 30px #00ff4133; }
+          50%     { box-shadow: 0 0 24px #00ff41, 0 0 60px #00ff4166; }
+        }
+        @keyframes uf-done-flash {
+          0%   { background: rgba(0,255,65,0.3); }
+          100% { background: rgba(0,255,65,0); }
+        }
+      `}</style>
+      <div className="flex flex-col h-[calc(100vh-2rem)]">
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
         <Link href="/tmux" className="text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm">
@@ -337,20 +436,104 @@ export default function TmuxViewerPage() {
         </div>
       )}
 
-      {/* Terminal */}
-      <pre
-        ref={termRef}
-        tabIndex={0}
-        onScroll={handleScroll}
-        className={`flex-1 bg-[#0d0d0d] rounded-lg border p-4 overflow-hidden font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none ${
-          interactive ? 'border-green-500/50 cursor-text' : 'border-[var(--color-border)]'
-        }`}
-      />
+      {/* Terminal + drop overlay wrapper */}
+      <div
+        className="relative flex-1 min-h-0"
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      >
+        <pre
+          ref={termRef}
+          tabIndex={0}
+          onScroll={handleScroll}
+          style={dropState === 'done' ? { animation: 'uf-glow-green 0.6s ease-in-out 3' } : undefined}
+          className={`h-full bg-[#0d0d0d] rounded-lg border p-4 overflow-hidden font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre outline-none transition-all duration-300 ${
+            dropState === 'hover'
+              ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)]'
+              : dropState === 'uploading' || dropState === 'error'
+              ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
+              : dropState === 'done'
+              ? 'border-green-400'
+              : interactive ? 'border-green-500/50 cursor-text' : 'border-[var(--color-border)]'
+          }`}
+        />
+
+        {/* ── HOVER overlay ── */}
+        {dropState === 'hover' && (
+          <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
+            style={{ background: 'rgba(0,20,30,0.82)' }}>
+            <div className="text-6xl mb-4" style={{ animation: 'uf-pulse-red 1s infinite', color: '#22d3ee' }}>⬇</div>
+            <div className="font-mono font-bold text-2xl tracking-widest text-cyan-300"
+              style={{ animation: 'uf-flicker 3s infinite' }}>DROP FILE</div>
+            <div className="font-mono text-sm text-cyan-500 mt-2 tracking-wider">
+              → INJECT INTO SESSION ←
+            </div>
+          </div>
+        )}
+
+        {/* ── UPLOADING overlay ── */}
+        {dropState === 'uploading' && (
+          <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none overflow-hidden"
+            style={{
+              background: 'rgba(20,0,0,0.88)',
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,0,0,0.04) 2px, rgba(255,0,0,0.04) 4px)',
+              animation: 'scanlines 0.2s linear infinite',
+            }}>
+            <div className="font-mono text-red-400 text-xs tracking-widest mb-1"
+              style={{ animation: 'uf-pulse-red 0.8s infinite' }}>
+              ▶ TRANSMITTING
+            </div>
+            <div className="font-mono font-bold text-red-300 text-lg tracking-wide mb-4 max-w-xs truncate px-4">
+              {dropFile?.name}
+            </div>
+            {/* Progress bar */}
+            <div className="w-64 h-5 border border-red-700 rounded-sm bg-black relative overflow-hidden">
+              <div
+                className="h-full bg-red-600 origin-left"
+                style={{
+                  width: `${uploadProgress}%`,
+                  transition: 'width 0.04s linear',
+                  boxShadow: '0 0 8px #ef4444, 0 0 20px #ef444466',
+                }}
+              />
+              {/* Scanline on bar */}
+              <div className="absolute inset-0"
+                style={{ background: 'repeating-linear-gradient(90deg, transparent, transparent 6px, rgba(0,0,0,0.2) 6px, rgba(0,0,0,0.2) 7px)' }} />
+            </div>
+            <div className="font-mono text-red-500 text-xs mt-2 tabular-nums">
+              {uploadProgress.toFixed(0)}%{host && host !== 'localhost' ? `  →  SCP → ${host}` : '  →  LOCAL'}
+            </div>
+          </div>
+        )}
+
+        {/* ── DONE overlay ── */}
+        {dropState === 'done' && (
+          <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
+            style={{ animation: 'uf-done-flash 1.8s ease-out forwards' }}>
+            <div className="font-mono font-bold text-green-400 text-xl tracking-widest">✓ INJECTED</div>
+            <div className="font-mono text-green-300 text-xs mt-2 max-w-xs truncate px-4">{dropFile?.path}</div>
+          </div>
+        )}
+
+        {/* ── ERROR overlay ── */}
+        {dropState === 'error' && (
+          <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
+            style={{ background: 'rgba(30,0,0,0.85)' }}>
+            <div className="font-mono font-bold text-red-400 text-xl tracking-widest">✗ FAILED</div>
+            <div className="font-mono text-red-300 text-xs mt-2 max-w-xs text-center px-4">{dropError}</div>
+          </div>
+        )}
+      </div>
+
       {interactive && (
         <div className="text-xs text-[var(--color-muted)] mt-1">
           Keystrokes are sent to tmux. Ctrl+C, arrows, Enter, Tab, Escape all work. Click the terminal first to focus.
+          {' '}Drag a file to inject its path.
         </div>
       )}
     </div>
+    </>
   );
 }
