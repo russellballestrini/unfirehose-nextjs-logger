@@ -253,101 +253,81 @@ ENDJSON`;
   }
 
   if (action === 'boot-harness') {
-    // Full bootstrap: create session + install harness + run
+    // Full bootstrap — streams NDJSON status lines so the frontend can show live progress
     const { harness, projectRepo, prompt, network } = body;
     const harnessCmd = harness || 'claude';
 
-    // Helper: inject a local file into a container path via heredoc base64
-    async function injectFile(sessionId: string, localPath: string, containerPath: string): Promise<void> {
-      let buf: Buffer;
-      try { buf = readFileSync(localPath); } catch { return; } // skip if not found
-      const b64 = buf.toString('base64');
-      const dir = containerPath.substring(0, containerPath.lastIndexOf('/'));
-      // umask 077 ensures file is created 600 — never world-readable even for an instant
-      const cmd = `umask 077 && mkdir -p '${dir}' && base64 -d << 'UNSB_CRED_EOF' > '${containerPath}'\n${b64}\nUNSB_CRED_EOF`;
-      const execPath = `/sessions/${sessionId}/execute`;
-      const execPayload = JSON.stringify({ command: cmd });
-      await apiPost(publicKey!, secretKey!, execPath, execPayload, 30000);
-    }
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const emit = (step: string, msg: string, extra: Record<string, unknown> = {}) => {
+          controller.enqueue(enc.encode(JSON.stringify({ step, msg, ...extra }) + '\n'));
+        };
 
-    // 1. Create session
-    const sessionPath = '/sessions';
-    const sessionPayload = JSON.stringify({
-      image: 'ubuntu:24.04',
-      network_mode: network || 'semitrusted',
+        // Helper: inject a local file into a container path via heredoc base64
+        async function injectFile(sessionId: string, localPath: string, containerPath: string): Promise<void> {
+          let buf: Buffer;
+          try { buf = readFileSync(localPath); } catch { return; }
+          const b64 = buf.toString('base64');
+          const dir = containerPath.substring(0, containerPath.lastIndexOf('/'));
+          const cmd = `umask 077 && mkdir -p '${dir}' && base64 -d << 'UNSB_CRED_EOF' > '${containerPath}'\n${b64}\nUNSB_CRED_EOF`;
+          await apiPost(publicKey!, secretKey!, `/sessions/${sessionId}/execute`, JSON.stringify({ command: cmd }), 30000);
+        }
+
+        try {
+          // 1. Create session
+          emit('session', 'Creating session...');
+          const sessionPayload = JSON.stringify({ image: 'ubuntu:24.04', network_mode: network || 'semitrusted' });
+          const sessionHeaders = authHeaders(publicKey, secretKey, 'POST', '/sessions', sessionPayload);
+          const sessionRes = await fetch(`${API_BASE}/sessions`, { method: 'POST', headers: sessionHeaders, body: sessionPayload, signal: AbortSignal.timeout(30000) });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const session: any = await sessionRes.json();
+          if (!sessionRes.ok) { emit('session', `Failed: ${session.error}`, { ok: false }); controller.close(); return; }
+          emit('session', `Session ready: ${session.session_id}`, { ok: true, sessionId: session.session_id });
+
+          const execPath = `/sessions/${session.session_id}/execute`;
+
+          // 2. Inject credentials
+          if (harnessCmd === 'claude') {
+            emit('credentials', 'Injecting Claude credentials...');
+            const home = homedir();
+            await Promise.all([
+              injectFile(session.session_id, join(home, '.claude', '.credentials.json'), '/root/.claude/.credentials.json'),
+              injectFile(session.session_id, join(home, '.claude.json'), '/root/.claude.json'),
+            ]);
+            await apiPost(publicKey!, secretKey!, execPath, JSON.stringify({ command: 'chmod 700 /root/.claude && chmod 600 /root/.claude/.credentials.json /root/.claude.json 2>/dev/null || true' }), 10000);
+            emit('credentials', 'Credentials injected', { ok: true });
+          }
+
+          // 3. Install claude (TODO: remove once golden image has it pre-baked)
+          if (harnessCmd === 'claude') {
+            emit('install', 'Installing claude (curl install.sh)...');
+            await apiPost(publicKey!, secretKey!, execPath, JSON.stringify({ command: 'curl -fsSL https://claude.ai/install.sh | bash' }), 120000);
+            emit('install', 'Claude installed', { ok: true });
+          }
+
+          // 4. Start harness in tmux
+          emit('tmux', 'Starting harness in tmux...');
+          const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
+          const innerCmd = harnessCmd === 'claude'
+            ? `export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+            : `${cloneCmd}cd /workspace && ${harnessCmd}`;
+          const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
+          const escapedCmd = innerCmd.replace(/'/g, "'\\''");
+          await apiPost(publicKey!, secretKey!, execPath, JSON.stringify({ command: `tmux new-session -d -s ${sessionName} -x 220 -y 50 '${escapedCmd}'` }), 30000);
+          emit('tmux', `Harness running in tmux session: ${sessionName}`, { ok: true });
+
+          // Done
+          emit('done', 'Bootstrap complete', { ok: true, success: true, sessionId: session.session_id, domain: session.domain, harness: harnessCmd });
+        } catch (err) {
+          emit('error', String(err), { ok: false });
+        } finally {
+          controller.close();
+        }
+      },
     });
-    const sessionHeaders = authHeaders(publicKey, secretKey, 'POST', sessionPath, sessionPayload);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let session: any;
-    try {
-      const res = await fetch(`${API_BASE}${sessionPath}`, {
-        method: 'POST',
-        headers: sessionHeaders,
-        body: sessionPayload,
-        signal: AbortSignal.timeout(30000),
-      });
-      session = await res.json();
-      if (!res.ok) {
-        return NextResponse.json({ error: session.error || 'Failed to create session' }, { status: 500 });
-      }
-    } catch (err) {
-      return NextResponse.json({ error: `Session creation failed: ${err}` }, { status: 500 });
-    }
 
-    // 2. Inject Claude credentials if booting a claude harness
-    if (harnessCmd === 'claude') {
-      const home = homedir();
-      await Promise.all([
-        injectFile(session.session_id, join(home, '.claude', '.credentials.json'), '/root/.claude/.credentials.json'),
-        injectFile(session.session_id, join(home, '.claude.json'), '/root/.claude.json'),
-      ]);
-      // Lock down permissions — credentials must not be world-readable
-      const lockCmd = `chmod 700 /root/.claude && chmod 600 /root/.claude/.credentials.json /root/.claude.json 2>/dev/null || true`;
-      await apiPost(publicKey, secretKey, `/sessions/${session.session_id}/execute`, JSON.stringify({ command: lockCmd }), 10000);
-    }
-
-    // 3. Bootstrap harness in session
-    const execPath = `/sessions/${session.session_id}/execute`;
-
-    // Step A: install claude (blocking, before tmux opens) — TODO: remove once golden image has it
-    if (harnessCmd === 'claude') {
-      const installPayload = JSON.stringify({ command: 'curl -fsSL https://claude.ai/install.sh | bash' });
-      await apiPost(publicKey, secretKey, execPath, installPayload, 120000);
-    }
-
-    // Step B: start harness in tmux (non-blocking)
-    const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
-    const innerCmd = harnessCmd === 'claude'
-      ? `export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
-      : `${cloneCmd}cd /workspace && ${harnessCmd}`;
-    const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
-    const escapedCmd = innerCmd.replace(/'/g, "'\\''");
-    const setupScript = `tmux new-session -d -s ${sessionName} -x 220 -y 50 '${escapedCmd}' && echo "tmux session started"`;
-
-    const execPayload = JSON.stringify({ command: setupScript });
-    const execHeaders = authHeaders(publicKey, secretKey, 'POST', execPath, execPayload);
-    try {
-      const res = await fetch(`${API_BASE}${execPath}`, {
-        method: 'POST',
-        headers: execHeaders,
-        body: execPayload,
-        signal: AbortSignal.timeout(30000),
-      });
-      const execResult = await res.json();
-      return NextResponse.json({
-        success: true,
-        sessionId: session.session_id,
-        domain: session.domain,
-        harness: harnessCmd,
-        execResult,
-      });
-    } catch (err) {
-      return NextResponse.json({
-        success: false,
-        sessionId: session.session_id,
-        error: `Harness bootstrap failed: ${err}`,
-      }, { status: 500 });
-    }
+    return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' } });
   }
 
   if (action === 'kill-session') {

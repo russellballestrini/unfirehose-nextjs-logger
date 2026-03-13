@@ -1845,6 +1845,7 @@ function UnsandboxPanel() {
   const [bootResult, setBootResult] = useState<any>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootPrompt, setBootPrompt] = useState('');
+  const [bootLog, setBootLog] = useState<string[]>([]);
 
   const publicKey = settings?.[SETTINGS_KEYS.unsandboxPublicKey] ?? '';
   const secretKey = settings?.[SETTINGS_KEYS.unsandboxSecretKey] ?? '';
@@ -1871,14 +1872,34 @@ function UnsandboxPanel() {
   };
 
   const bootOnUnsandbox = async () => {
-    setBooting(true); setBootResult(null); setBootError(null);
+    setBooting(true); setBootResult(null); setBootError(null); setBootLog([]);
     try {
       const res = await fetch('/api/unsandbox', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'boot-harness', harness: 'claude', prompt: bootPrompt.trim() || undefined, network: 'semitrusted' }),
       });
-      const data = await res.json();
-      if (data.success) setBootResult(data); else setBootError(data.error || 'Boot failed');
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let lastData: any = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const evt = JSON.parse(line);
+            setBootLog(prev => [...prev, `[${evt.step}] ${evt.msg}`]);
+            lastData = evt;
+          } catch { /* ignore */ }
+        }
+      }
+      if (lastData?.success) setBootResult(lastData);
+      else if (lastData) setBootError(lastData.msg || 'Boot failed');
     } catch (err) { setBootError(String(err)); }
     finally { setBooting(false); }
   };
@@ -1964,6 +1985,13 @@ function UnsandboxPanel() {
               {booting ? 'Booting...' : 'Boot Claude on unsandbox'}
             </button>
           </div>
+          {bootLog.length > 0 && (
+            <div className="font-mono text-xs bg-[var(--color-background)] rounded border border-[var(--color-border)] p-2 space-y-0.5 max-h-40 overflow-y-auto">
+              {bootLog.map((line, i) => (
+                <div key={i} className={line.includes('error') || line.includes('Failed') ? 'text-red-400' : line.includes('complete') || line.includes('ready') || line.includes('installed') || line.includes('running') ? 'text-green-400' : 'text-[var(--color-muted)]'}>{line}</div>
+              ))}
+            </div>
+          )}
           {bootResult && (
             <div className="text-base text-green-400 font-mono">
               session: {bootResult.sessionId}
@@ -2013,6 +2041,7 @@ function BootstrapPanel() {
   const [booting, setBooting] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bootLog, setBootLog] = useState<string[]>([]);
 
   const meshNodes: any[] = mesh?.nodes ?? [];
   const reachableNodes = meshNodes.filter((n: any) => n.reachable);
@@ -2023,7 +2052,7 @@ function BootstrapPanel() {
     if (host === 'unsandbox' && !projectPath) { /* unsandbox can boot without local path */ }
     else if (!projectPath) return;
 
-    setBooting(true); setResult(null); setError(null);
+    setBooting(true); setResult(null); setError(null); setBootLog([]);
 
     try {
       if (host === 'unsandbox') {
@@ -2031,9 +2060,28 @@ function BootstrapPanel() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'boot-harness', harness: harness === 'custom' ? customCmd : 'claude', projectRepo: projectPath, prompt: prompt.trim() || undefined, network: 'semitrusted' }),
         });
-        const data = await res.json();
-        if (data.success) setResult({ ...data, host: 'unsandbox', multiplexer: 'unsandbox' });
-        else setError(data.error || 'Boot failed');
+        const reader = res.body!.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let lastData: any = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const evt = JSON.parse(line);
+              setBootLog(prev => [...prev, `[${evt.step}] ${evt.msg}`]);
+              lastData = evt;
+            } catch { /* ignore */ }
+          }
+        }
+        if (lastData?.success) setResult({ ...lastData, host: 'unsandbox', multiplexer: 'unsandbox' });
+        else if (lastData) setError(lastData.msg || 'Boot failed');
       } else {
         const res = await fetch('/api/boot', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2143,6 +2191,13 @@ function BootstrapPanel() {
           className="px-6 py-2 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 cursor-pointer">
           {booting ? 'Bootstrapping...' : `Boot ${harness === 'claude' ? 'Claude' : 'Harness'} on ${host === 'unsandbox' ? 'unsandbox.com' : host}`}
         </button>
+        {bootLog.length > 0 && (
+          <div className="font-mono text-xs bg-[var(--color-background)] rounded border border-[var(--color-border)] p-2 space-y-0.5 max-h-40 overflow-y-auto">
+            {bootLog.map((line, i) => (
+              <div key={i} className={line.includes('error') || line.includes('Failed') ? 'text-red-400' : line.includes('complete') || line.includes('ready') || line.includes('installed') || line.includes('running') ? 'text-green-400' : 'text-[var(--color-muted)]'}>{line}</div>
+            ))}
+          </div>
+        )}
         {result && (
           <div className="text-base text-green-400 font-mono">
             {result.bootstrapped?.length > 0 && (
