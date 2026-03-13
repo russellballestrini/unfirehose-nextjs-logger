@@ -263,7 +263,8 @@ ENDJSON`;
       try { buf = readFileSync(localPath); } catch { return; } // skip if not found
       const b64 = buf.toString('base64');
       const dir = containerPath.substring(0, containerPath.lastIndexOf('/'));
-      const cmd = `mkdir -p '${dir}' && base64 -d << 'UNSB_CRED_EOF' > '${containerPath}'\n${b64}\nUNSB_CRED_EOF`;
+      // umask 077 ensures file is created 600 — never world-readable even for an instant
+      const cmd = `umask 077 && mkdir -p '${dir}' && base64 -d << 'UNSB_CRED_EOF' > '${containerPath}'\n${b64}\nUNSB_CRED_EOF`;
       const execPath = `/sessions/${sessionId}/execute`;
       const execPayload = JSON.stringify({ command: cmd });
       await apiPost(publicKey, secretKey, execPath, execPayload, 30000);
