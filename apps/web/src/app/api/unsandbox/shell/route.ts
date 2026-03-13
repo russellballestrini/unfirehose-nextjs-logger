@@ -73,9 +73,13 @@ function connectShell(sessionId: string, publicKey: string, secretKey: string): 
     set.forEach(fn => fn(msg));
   });
 
-  // Send initial resize (220×50 default — viewer will send real size shortly)
+  // On connect: send resize then a CR to wake the shell prompt
   ws.on('open', () => {
     ws.send(JSON.stringify({ type: 'resize', cols: 220, rows: 50 }));
+    // Small delay so resize is processed first, then CR triggers prompt redraw
+    setTimeout(() => {
+      if (ws.readyState === ws.OPEN) ws.send(Buffer.from('\r'));
+    }, 150);
   });
 
   return ws;
