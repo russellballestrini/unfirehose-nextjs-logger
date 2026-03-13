@@ -144,6 +144,17 @@ function sendKeys(target: string, keys: string, host?: string): Promise<void> {
   });
 }
 
+function resizeWindow(target: string, cols: number, rows: number, host?: string): Promise<void> {
+  const { cmd, args } = sshPrefix(host);
+  return new Promise((resolve) => {
+    // Best-effort — don't reject if resize fails
+    execFile(cmd, [...args, 'resize-window', '-t', target, '-x', String(cols), '-y', String(rows)],
+      { timeout: host ? 10000 : 3000 },
+      () => resolve()
+    );
+  });
+}
+
 function sendSpecialKey(target: string, key: string, host?: string): Promise<void> {
   const { cmd, args } = sshPrefix(host);
   return new Promise((resolve, reject) => {
@@ -157,7 +168,7 @@ function sendSpecialKey(target: string, key: string, host?: string): Promise<voi
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { session, keys, special, host, window: win } = body;
+    const { session, keys, special, host, window: win, action, cols, rows } = body;
     if (!session || typeof session !== 'string') {
       return Response.json({ error: 'session required' }, { status: 400 });
     }
@@ -166,6 +177,15 @@ export async function POST(request: NextRequest) {
     }
     // Build target — session:window if window specified
     const target = win ? `${session}:${win}` : session;
+
+    // Resize action — called by viewer to match terminal container dimensions
+    if (action === 'resize') {
+      if (typeof cols !== 'number' || typeof rows !== 'number') {
+        return Response.json({ error: 'cols and rows required' }, { status: 400 });
+      }
+      await resizeWindow(target, Math.min(Math.max(cols, 40), 500), Math.min(Math.max(rows, 10), 200), host);
+      return Response.json({ ok: true });
+    }
 
     if (special && typeof special === 'string') {
       // Named keys: Enter, C-c, Escape, Up, Down, Left, Right, Tab, BSpace, etc.

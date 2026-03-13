@@ -246,6 +246,48 @@ export default function TmuxViewerPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [interactive, enqueueKeys]);
 
+  // Resize tmux window to match the terminal container dimensions
+  useEffect(() => {
+    if (!termRef.current) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const sendResize = () => {
+      if (!termRef.current) return;
+      const rect = termRef.current.getBoundingClientRect();
+      // Measure actual character width using a hidden test span
+      const span = document.createElement('span');
+      span.style.cssText = 'position:absolute;visibility:hidden;font:inherit;white-space:pre';
+      span.textContent = 'X'.repeat(10);
+      termRef.current.appendChild(span);
+      const charW = span.getBoundingClientRect().width / 10;
+      const charH = parseFloat(getComputedStyle(termRef.current).lineHeight) || 20;
+      termRef.current.removeChild(span);
+
+      const padding = 32; // p-4 = 1rem = 16px each side
+      const cols = Math.max(80, Math.floor((rect.width - padding) / charW));
+      const rows = Math.max(24, Math.floor((rect.height - padding) / charH));
+
+      fetch('/api/tmux/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: decodeURIComponent(session), window: activeWindow, host, action: 'resize', cols, rows }),
+      }).catch(() => {});
+    };
+
+    const observer = new ResizeObserver(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(sendResize, 150);
+    });
+    observer.observe(termRef.current);
+    // Fire immediately on mount
+    sendResize();
+
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [session, activeWindow, host]);
+
   // Handle scroll — disable auto-scroll when user scrolls up
   const handleScroll = () => {
     if (!termRef.current) return;
