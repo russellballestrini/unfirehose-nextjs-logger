@@ -163,13 +163,27 @@ export default function UnsandboxNodePage() {
       });
       const data = await res.json();
       if (data.error) setDeployError(data.error);
-      else { setDeployResult(data); mutateServices(); }
+      else {
+        setDeployResult(data);
+        mutateServices();
+        // Auto-save label as nickname so it shows up immediately
+        const serviceId = data.service_id || data.id;
+        const resolvedName = data.resolvedName || data.name;
+        if (serviceId && serviceLabel) {
+          await fetch('/api/sessions/nickname', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: serviceId, nickname: serviceLabel, host: 'unsandbox', service_name: resolvedName }),
+          });
+          mutateNicknames();
+        }
+      }
     } catch (err) {
       setDeployError(String(err));
     } finally {
       setDeploying(false);
     }
-  }, [mutateServices, network]);
+  }, [mutateServices, mutateNicknames, network, serviceLabel]);
 
   const executeCommand = useCallback(async () => {
     if (!cmd.trim()) return;
