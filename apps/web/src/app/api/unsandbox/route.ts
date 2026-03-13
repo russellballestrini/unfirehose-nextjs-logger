@@ -306,27 +306,16 @@ ENDJSON`;
       await apiPost(publicKey, secretKey, `/sessions/${session.session_id}/execute`, JSON.stringify({ command: lockCmd }), 10000);
     }
 
-    // 3. Bootstrap harness in session
-    const setupScript = [
-      '#!/bin/bash',
-      ...(harnessCmd === 'claude' ? [
-        // Install Claude Code via official installer (golden image has curl + node)
-        'curl -fsSL https://claude.ai/install.sh | bash',
-        // Persist PATH for future shells
-        'grep -qxF \'export PATH="$HOME/.local/bin:$PATH"\' ~/.bashrc || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
-        'export PATH="$HOME/.local/bin:$PATH"',
-        // Clone project if repo provided
-        projectRepo ? `git clone '${projectRepo}' /workspace 2>&1` : 'mkdir -p /workspace',
-        // Start claude in a tmux session named "claude" so it persists
-        `tmux new-session -d -s claude -x 220 -y 50 'export PATH="$HOME/.local/bin:$PATH"; cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}' || true`,
-        'echo "Bootstrap complete — claude running in tmux session: claude"',
-        'echo "Attach with: tmux attach -t claude"',
-      ] : [
-        `echo "Custom harness: ${harnessCmd}"`,
-        projectRepo ? `git clone '${projectRepo}' /workspace 2>&1` : 'mkdir -p /workspace',
-        `tmux new-session -d -s harness -x 220 -y 50 'cd /workspace && ${harnessCmd}' || true`,
-      ]),
-    ].join('\n');
+    // 3. Bootstrap harness in session — run everything inside tmux so install is async/visible
+    // tmux new-session -d returns immediately; user can attach and watch the install progress
+    const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
+    const innerCmd = harnessCmd === 'claude'
+      ? `curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+      : `${cloneCmd}cd /workspace && ${harnessCmd}`;
+    const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
+    // Escape single quotes in innerCmd for the tmux shell arg
+    const escapedCmd = innerCmd.replace(/'/g, "'\\''");
+    const setupScript = `tmux new-session -d -s ${sessionName} -x 220 -y 50 '${escapedCmd}' && echo "tmux session started"`;
 
     const execPath = `/sessions/${session.session_id}/execute`;
     const execPayload = JSON.stringify({ command: setupScript });
@@ -336,7 +325,7 @@ ENDJSON`;
         method: 'POST',
         headers: execHeaders,
         body: execPayload,
-        signal: AbortSignal.timeout(300000),
+        signal: AbortSignal.timeout(30000),
       });
       const execResult = await res.json();
       return NextResponse.json({
