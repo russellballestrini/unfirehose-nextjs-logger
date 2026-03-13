@@ -313,7 +313,8 @@ ENDJSON`;
       ...(harnessCmd === 'claude' ? [
         // Install Claude Code via official installer
         'curl -fsSL https://claude.ai/install.sh | bash',
-        // Add to PATH for this script (installer puts it in ~/.local/bin)
+        // Persist ~/.local/bin in PATH for all future shells (interactive terminals)
+        'grep -qxF \'export PATH="$HOME/.local/bin:$PATH"\' ~/.bashrc || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
         'export PATH="/root/.local/bin:$PATH"',
       ] : [
         // Install node if not present for other harnesses

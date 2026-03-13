@@ -737,7 +737,9 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
   // Install harness
   const resolvedHarness = harnessName || 'claude';
   if (resolvedHarness === 'claude') {
-    // claude-code is pre-installed in the golden image
+    setupParts.push('curl -fsSL https://claude.ai/install.sh | bash');
+    setupParts.push('grep -qxF \'export PATH="$HOME/.local/bin:$PATH"\' ~/.bashrc || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc');
+    setupParts.push('export PATH="/root/.local/bin:$PATH"');
   }
 
   // Build the harness command
