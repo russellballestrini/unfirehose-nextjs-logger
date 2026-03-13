@@ -118,11 +118,11 @@ The bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:
 
 ### Unsandbox Claude bootstrap
 
-Unsandbox uses a golden image (has curl, node, tmux pre-installed). **Do NOT use apt-get** to install anything — just use the official installer:
-- Install: `curl -fsSL https://claude.ai/install.sh | bash` → installs to `~/.local/bin/claude`
-- Persist PATH: append `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`
-- Run in tmux: `tmux new-session -d -s claude ...` so the session persists
+Unsandbox uses a golden image with claude pre-installed. **Do NOT install claude at boot** — it's already there.
+- Ephemeral sessions: just run `claude --dangerously-skip-permissions` directly in a tmux session
+- Future golden images will mint a specific claude version with optional in-place upgrade
 - On terminal connect: auto-send `tmux attach -t claude` to land in claude's UI
+- `IS_SANDBOX=1` env var set when running claude in unsandbox containers
 
 ## Todo System
 

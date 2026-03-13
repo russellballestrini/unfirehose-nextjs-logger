@@ -306,14 +306,13 @@ ENDJSON`;
       await apiPost(publicKey, secretKey, `/sessions/${session.session_id}/execute`, JSON.stringify({ command: lockCmd }), 10000);
     }
 
-    // 3. Bootstrap harness in session — run everything inside tmux so install is async/visible
-    // tmux new-session -d returns immediately; user can attach and watch the install progress
+    // 3. Bootstrap harness in session
+    // Golden image has claude pre-installed — just run it directly in tmux, no install step
     const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
     const innerCmd = harnessCmd === 'claude'
-      ? `curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+      ? `${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
       : `${cloneCmd}cd /workspace && ${harnessCmd}`;
     const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
-    // Escape single quotes in innerCmd for the tmux shell arg
     const escapedCmd = innerCmd.replace(/'/g, "'\\''");
     const setupScript = `tmux new-session -d -s ${sessionName} -x 220 -y 50 '${escapedCmd}' && echo "tmux session started"`;
 
