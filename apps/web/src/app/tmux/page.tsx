@@ -5,6 +5,8 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 type Tab = 'sessions' | 'new';
@@ -26,15 +28,25 @@ export default function TmuxListPage() {
   const { data, isLoading, mutate } = useSWR('/api/tmux/stream', fetcher, { refreshInterval: 5000 });
   const sessions: string[] = data?.sessions ?? [];
 
+  // Projects for cwd picker
+  const { data: projectsData } = useSWR('/api/projects', fetcher);
+  const projects: any[] = (projectsData ?? []).filter((p: any) => p.path);
+
   // New session form
   const [name, setName] = useState('');
   const [host, setHost] = useState('localhost');
   const [customHost, setCustomHost] = useState('');
   const [command, setCommand] = useState('');
+  const [cwd, setCwd] = useState('');           // '' = no project / custom
+  const [cwdMode, setCwdMode] = useState<'none' | 'project' | 'custom'>('none');
+  const [newProjectPath, setNewProjectPath] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 
   const effectiveHost = host === '__custom__' ? customHost : host;
+  const effectiveCwd = cwdMode === 'project' ? cwd
+    : cwdMode === 'custom' ? newProjectPath
+    : '';
 
   const create = async () => {
     if (!name.trim()) { setError('Session name required'); return; }
@@ -44,7 +56,12 @@ export default function TmuxListPage() {
       const res = await fetch('/api/tmux/new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), host: effectiveHost, command: command.trim() || undefined }),
+        body: JSON.stringify({
+          name: name.trim(),
+          host: effectiveHost,
+          command: command.trim() || undefined,
+          cwd: effectiveCwd || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Failed'); return; }
@@ -173,6 +190,62 @@ export default function TmuxListPage() {
                 placeholder="hostname or IP"
                 className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono outline-none focus:border-[var(--color-accent)] transition-colors mt-2"
               />
+            )}
+          </div>
+
+          {/* Project / cwd */}
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+            <label className="text-sm font-bold text-[var(--color-muted)] block">Project / working directory</label>
+            <div className="flex gap-2">
+              {(['none', 'project', 'custom'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setCwdMode(m)}
+                  className={`px-3 py-1 text-xs rounded border transition-colors cursor-pointer ${
+                    cwdMode === m
+                      ? 'border-[var(--color-accent)] text-[var(--color-foreground)] bg-[var(--color-accent)]/10 font-bold'
+                      : 'border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+                  }`}
+                >
+                  {m === 'none' ? 'none' : m === 'project' ? 'existing project' : 'new path'}
+                </button>
+              ))}
+            </div>
+
+            {cwdMode === 'project' && (
+              <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                {projects.length === 0 && (
+                  <p className="text-xs text-[var(--color-muted)]">No projects with paths found.</p>
+                )}
+                {projects.map((p: any) => (
+                  <button
+                    key={p.name}
+                    onClick={() => setCwd(p.path)}
+                    className={`w-full text-left px-3 py-2 rounded border text-xs font-mono transition-colors cursor-pointer ${
+                      cwd === p.path
+                        ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-foreground)]'
+                        : 'border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-accent)]/40'
+                    }`}
+                  >
+                    <span className="font-bold">{p.name.replace(/^-home-fox-/, '~/')}</span>
+                    <span className="block text-[10px] opacity-60 mt-0.5">{p.path}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {cwdMode === 'custom' && (
+              <input
+                type="text"
+                value={newProjectPath}
+                onChange={e => setNewProjectPath(e.target.value)}
+                placeholder="/home/fox/git/my-new-project"
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base font-mono outline-none focus:border-[var(--color-accent)] transition-colors"
+              />
+            )}
+
+            {effectiveCwd && (
+              <div className="text-xs font-mono text-[var(--color-accent)] truncate">→ {effectiveCwd}</div>
             )}
           </div>
 

@@ -13,7 +13,7 @@ function validateHost(host: string): void {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, host, command } = await request.json();
+    const { name, host, command, cwd } = await request.json();
 
     if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
     validateSession(name);
@@ -21,18 +21,24 @@ export async function POST(request: NextRequest) {
     const isRemote = host && host !== 'localhost';
     if (isRemote) validateHost(host);
 
+    // Validate cwd — only allow absolute paths with safe chars
+    const safeCwd = (cwd && typeof cwd === 'string' && /^\/[^\0;|&`$<>]*$/.test(cwd))
+      ? cwd.trim() : null;
+
     // Default shell — prefer zsh, fall back to bash
     const cmd = (command && typeof command === 'string' && command.trim())
       ? command.trim()
       : 'zsh || bash';
 
-    const tmuxArgs = ['new-session', '-d', '-s', name, '-x', '220', '-y', '50', cmd];
+    const cwdArgs = safeCwd ? ['-c', safeCwd] : [];
+    const tmuxArgs = ['new-session', '-d', '-s', name, ...cwdArgs, '-x', '220', '-y', '50', cmd];
 
     if (isRemote) {
+      const cwdPart = safeCwd ? `-c '${safeCwd}'` : '';
       await execFileAsync('ssh', [
         '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
         host,
-        `tmux new-session -d -s ${name} -x 220 -y 50 '${cmd.replace(/'/g, "'\\''")}'`,
+        `tmux new-session -d -s ${name} ${cwdPart} -x 220 -y 50 '${cmd.replace(/'/g, "'\\''")}'`,
       ], { timeout: 15000 });
     } else {
       await execFileAsync('tmux', tmuxArgs, { timeout: 5000 });
