@@ -8,7 +8,7 @@ import Link from 'next/link';
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
-const TABS = ['Overview', 'Harnesses', 'Bootstrap', 'Services', 'Sessions', 'Terminal'] as const;
+const TABS = ['Overview', 'Harnesses', 'Bootstrap', 'Services', 'Sessions', 'Ephemeral'] as const;
 type Tab = (typeof TABS)[number];
 
 const UNFIREHOSE_BOOTSTRAP = `#!/bin/bash
@@ -887,8 +887,8 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
         </div>
       )}
 
-      {/* ===== TERMINAL TAB ===== */}
-      {activeTab === 'Terminal' && (
+      {/* ===== EPHEMERAL TAB ===== */}
+      {activeTab === 'Ephemeral' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-sm text-[var(--color-muted)]">
