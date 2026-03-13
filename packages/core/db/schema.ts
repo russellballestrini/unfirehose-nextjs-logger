@@ -361,6 +361,17 @@ function migrate(db: Database.Database) {
   addColumn('training_runs', 'source_path', 'TEXT');
   addColumn('training_runs', 'source_host', 'TEXT');
 
+  // Session nicknames — user-defined labels for tmux/unsandbox sessions
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_nicknames (
+      session_id   TEXT PRIMARY KEY,
+      nickname     TEXT NOT NULL DEFAULT '',
+      host         TEXT NOT NULL DEFAULT '',
+      service_name TEXT NOT NULL DEFAULT '',
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
 

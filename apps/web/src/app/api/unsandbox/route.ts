@@ -267,7 +267,7 @@ ENDJSON`;
       const cmd = `umask 077 && mkdir -p '${dir}' && base64 -d << 'UNSB_CRED_EOF' > '${containerPath}'\n${b64}\nUNSB_CRED_EOF`;
       const execPath = `/sessions/${sessionId}/execute`;
       const execPayload = JSON.stringify({ command: cmd });
-      await apiPost(publicKey, secretKey, execPath, execPayload, 30000);
+      await apiPost(publicKey!, secretKey!, execPath, execPayload, 30000);
     }
 
     // 1. Create session

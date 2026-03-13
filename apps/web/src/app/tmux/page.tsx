@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -35,6 +35,14 @@ export default function TmuxListPage() {
     '/api/unsandbox?action=sessions', fetcher, { refreshInterval: 10000 }
   );
   const unsbSessions: any[] = unsbData?.sessions ?? [];
+
+  // Nicknames
+  const { data: nicknamesData, mutate: mutateNicknames } = useSWR('/api/sessions/nickname', fetcher, { refreshInterval: 30000 });
+  const nicknames: Record<string, { nickname: string; host: string; service_name: string }> = nicknamesData ?? {};
+
+  // Nickname editing state
+  const [editingNick, setEditingNick] = useState<{ sessionId: string; value: string } | null>(null);
+  const nickInputRef = useRef<HTMLInputElement>(null);
 
   // Projects for cwd picker
   const { data: projectsData } = useSWR('/api/projects', fetcher);
@@ -105,6 +113,16 @@ export default function TmuxListPage() {
     }
   };
 
+  const saveNickname = async (sessionId: string, nickname: string, host: string, serviceName = '') => {
+    await fetch('/api/sessions/nickname', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, nickname, host, service_name: serviceName }),
+    });
+    setEditingNick(null);
+    mutateNicknames();
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -151,19 +169,50 @@ export default function TmuxListPage() {
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {sessions.map(s => (
-                <Link
-                  key={s}
-                  href={`/tmux/${encodeURIComponent(s)}`}
-                  className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 hover:border-[var(--color-accent)]/50 transition-colors block"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-base font-bold font-mono">{s}</span>
+              {sessions.map(s => {
+                const nick = nicknames[s];
+                const isEditing = editingNick?.sessionId === s;
+                return (
+                  <div key={s} className="relative group bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 transition-colors">
+                    <Link href={`/tmux/${encodeURIComponent(s)}`} className="block p-4">
+                      {nick?.nickname && (
+                        <p className="text-sm font-bold text-[var(--color-foreground)] mb-1 truncate">{nick.nickname}</p>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                        <span className="text-sm font-mono text-[var(--color-muted)] truncate">{s}</span>
+                      </div>
+                      <p className="text-xs text-[var(--color-muted)] mt-1">localhost · click to view</p>
+                    </Link>
+                    {/* Nickname edit */}
+                    <div className="px-4 pb-3" onClick={e => e.stopPropagation()}>
+                      {isEditing ? (
+                        <input
+                          ref={nickInputRef}
+                          autoFocus
+                          value={editingNick.value}
+                          onChange={e => setEditingNick({ sessionId: s, value: e.target.value })}
+                          onKeyDown={e => {
+                            const v = editingNick?.value ?? '';
+                            if (e.key === 'Enter') saveNickname(s, v, 'localhost');
+                            if (e.key === 'Escape') setEditingNick(null);
+                          }}
+                          onBlur={() => saveNickname(s, editingNick?.value ?? '', 'localhost')}
+                          placeholder="add nickname…"
+                          className="w-full text-xs px-2 py-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-background)] font-mono outline-none"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setEditingNick({ sessionId: s, value: nick?.nickname ?? '' })}
+                          className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-accent)] transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          ✎ {nick?.nickname ? 'rename' : 'add nickname'}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs text-[var(--color-muted)] mt-1">Click to view live terminal</p>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -180,20 +229,72 @@ export default function TmuxListPage() {
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {unsbSessions.map((s: any) => (
-                <Link
-                  key={s.session_id ?? s.id}
-                  href={`/tmux/${encodeURIComponent(s.session_id ?? s.id)}?host=unsandbox`}
-                  className="bg-[var(--color-surface)] rounded border border-violet-900/40 p-4 hover:border-violet-500/50 transition-colors block"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                    <span className="text-base font-bold font-mono text-violet-300">{s.session_id ?? s.id}</span>
+              {unsbSessions.map((s: any) => {
+                const sid = s.session_id ?? s.id;
+                const nick = nicknames[sid];
+                const isEditing = editingNick?.sessionId === sid;
+                return (
+                  <div key={sid} className="relative group bg-[var(--color-surface)] rounded border border-violet-900/40 hover:border-violet-500/50 transition-colors">
+                    <Link href={`/tmux/${encodeURIComponent(sid)}?host=unsandbox`} className="block p-4">
+                      {nick?.nickname && (
+                        <p className="text-sm font-bold text-violet-200 mb-1 truncate">{nick.nickname}</p>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
+                        <span className="text-sm font-mono text-violet-300 truncate">{sid}</span>
+                      </div>
+                      {nick?.service_name && (
+                        <p className="text-xs text-violet-400/70 font-mono mt-0.5 truncate">⬡ {nick.service_name}</p>
+                      )}
+                      {!nick?.service_name && s.container_name && (
+                        <p className="text-xs text-[var(--color-muted)] font-mono mt-0.5 truncate">{s.container_name}</p>
+                      )}
+                      <p className="text-xs text-[var(--color-muted)] mt-1">unsandbox · click to open</p>
+                    </Link>
+                    {/* Nickname edit */}
+                    <div className="px-4 pb-3 space-y-1" onClick={e => e.stopPropagation()}>
+                      {isEditing ? (
+                        <div className="space-y-1">
+                          <input
+                            ref={nickInputRef}
+                            autoFocus
+                            value={editingNick!.value}
+                            onChange={e => setEditingNick({ sessionId: sid, value: e.target.value })}
+                            onKeyDown={e => {
+                              const v = editingNick?.value ?? '';
+                              if (e.key === 'Enter') saveNickname(sid, v, 'unsandbox', nick?.service_name ?? '');
+                              if (e.key === 'Escape') setEditingNick(null);
+                            }}
+                            onBlur={() => saveNickname(sid, editingNick?.value ?? '', 'unsandbox', nick?.service_name ?? '')}
+                            placeholder="add nickname…"
+                            className="w-full text-xs px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-mono outline-none"
+                          />
+                          <input
+                            value={nick?.service_name ?? ''}
+                            onChange={async e => {
+                              await fetch('/api/sessions/nickname', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ session_id: sid, service_name: e.target.value, host: 'unsandbox' }),
+                              });
+                              mutateNicknames();
+                            }}
+                            placeholder="service name (e.g. unfirehose-ab12cd34)…"
+                            className="w-full text-xs px-2 py-1 rounded border border-violet-500/30 bg-[var(--color-background)] font-mono outline-none text-violet-300"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setEditingNick({ sessionId: sid, value: nick?.nickname ?? '' })}
+                          className="text-[10px] text-violet-400/50 hover:text-violet-300 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          ✎ {nick?.nickname ? 'rename' : 'add nickname'}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {s.container_name && <p className="text-xs text-[var(--color-muted)] font-mono mt-0.5">{s.container_name}</p>}
-                  <p className="text-xs text-[var(--color-muted)] mt-1">Click to open unsandbox shell</p>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>
