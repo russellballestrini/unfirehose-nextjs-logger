@@ -300,6 +300,9 @@ ENDJSON`;
         injectFile(session.session_id, join(home, '.claude', '.credentials.json'), '/root/.claude/.credentials.json'),
         injectFile(session.session_id, join(home, '.claude.json'), '/root/.claude.json'),
       ]);
+      // Lock down permissions — credentials must not be world-readable
+      const lockCmd = `chmod 700 /root/.claude && chmod 600 /root/.claude/.credentials.json /root/.claude.json 2>/dev/null || true`;
+      await apiPost(publicKey, secretKey, `/sessions/${session.session_id}/execute`, JSON.stringify({ command: lockCmd }), 10000);
     }
 
     // 3. Bootstrap harness in session
