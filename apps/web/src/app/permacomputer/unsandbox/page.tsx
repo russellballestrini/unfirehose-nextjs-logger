@@ -19,6 +19,7 @@ which git || apt-get install -y git
 curl -fsSL https://claude.ai/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"
 grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+echo 'export PATH="/root/.local/bin:$PATH"' > /etc/profile.d/claude.sh
 if [ ! -d /opt/unfirehose ]; then
   git clone https://github.com/russellballestrini/unfirehose-nextjs-logger.git /opt/unfirehose
 fi

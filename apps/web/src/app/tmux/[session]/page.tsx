@@ -286,7 +286,7 @@ export default function TmuxViewerPage() {
         fetch('/api/unsandbox/shell', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, keys: 'tmux attach -t claude 2>/dev/null || true\r' }),
+          body: JSON.stringify({ session_id: sessionId, keys: 'source ~/.bashrc 2>/dev/null; tmux attach -t claude 2>/dev/null || true\r' }),
         }).catch(() => {});
       }, 500);
     }
