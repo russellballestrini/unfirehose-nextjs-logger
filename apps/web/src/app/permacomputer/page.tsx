@@ -1874,32 +1874,12 @@ function UnsandboxPanel() {
   const bootOnUnsandbox = async () => {
     setBooting(true); setBootResult(null); setBootError(null); setBootLog([]);
     try {
-      const res = await fetch('/api/unsandbox', {
+      const res = await fetch('/api/boot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'boot-harness', harness: 'claude', prompt: bootPrompt.trim() || undefined, network: 'semitrusted' }),
+        body: JSON.stringify({ host: 'unsandbox', projectPath: '/workspace', harness: 'claude', prompt: bootPrompt.trim() || undefined }),
       });
-      const reader = res.body!.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let lastData: any = null;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const evt = JSON.parse(line);
-            setBootLog(prev => [...prev, `[${evt.step}] ${evt.msg}`]);
-            lastData = evt;
-          } catch { /* ignore */ }
-        }
-      }
-      if (lastData?.success) setBootResult(lastData);
-      else if (lastData) setBootError(lastData.msg || 'Boot failed');
+      const data = await res.json();
+      if (res.ok) setBootResult(data); else setBootError(data.error || 'Boot failed');
     } catch (err) { setBootError(String(err)); }
     finally { setBooting(false); }
   };
@@ -2055,41 +2035,12 @@ function BootstrapPanel() {
     setBooting(true); setResult(null); setError(null); setBootLog([]);
 
     try {
-      if (host === 'unsandbox') {
-        const res = await fetch('/api/unsandbox', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'boot-harness', harness: harness === 'custom' ? customCmd : 'claude', projectRepo: projectPath, prompt: prompt.trim() || undefined, network: 'semitrusted' }),
-        });
-        const reader = res.body!.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let lastData: any = null;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const lines = buf.split('\n');
-          buf = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const evt = JSON.parse(line);
-              setBootLog(prev => [...prev, `[${evt.step}] ${evt.msg}`]);
-              lastData = evt;
-            } catch { /* ignore */ }
-          }
-        }
-        if (lastData?.success) setResult({ ...lastData, host: 'unsandbox', multiplexer: 'unsandbox' });
-        else if (lastData) setError(lastData.msg || 'Boot failed');
-      } else {
-        const res = await fetch('/api/boot', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectPath, projectName, host: host === 'localhost' ? undefined : host, yolo: harness === 'claude' ? yolo : false, prompt: prompt.trim() || undefined, harness: harness === 'custom' ? customCmd : 'claude', preferMultiplexer: multiplexer, sudoPassword: sudoPassword || undefined }),
-        });
-        const data = await res.json();
-        if (res.ok) setResult(data); else setError(data.error || 'Boot failed');
-      }
+      const res = await fetch('/api/boot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath, projectName, host: host === 'localhost' ? undefined : host, yolo: harness === 'claude' ? yolo : false, prompt: prompt.trim() || undefined, harness: harness === 'custom' ? customCmd : 'claude', preferMultiplexer: multiplexer, sudoPassword: sudoPassword || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) setResult(data); else setError(data.error || 'Boot failed');
     } catch (err) { setError(String(err)); }
     finally { setBooting(false); }
   }, [projectPath, projectName, host, harness, yolo, prompt, customCmd, multiplexer, sudoPassword]);

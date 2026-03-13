@@ -734,13 +734,7 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
 
   setupParts.push(`cd '${workDir}'`);
 
-  // Install harness
-  const resolvedHarness = harnessName || 'claude';
-  if (resolvedHarness === 'claude') {
-    setupParts.push('curl -fsSL https://claude.ai/install.sh | bash');
-    setupParts.push('grep -qxF \'export PATH="$HOME/.local/bin:$PATH"\' ~/.bashrc || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc');
-    setupParts.push('export PATH="/root/.local/bin:$PATH"');
-  }
+  // Golden image has claude pre-installed — no install step needed
 
   // Build the harness command
   let harnessCmd = resolvedHarness === 'claude' ? 'claude' : resolvedHarness;
