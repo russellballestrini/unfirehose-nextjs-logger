@@ -257,6 +257,12 @@ export default function TmuxViewerPage() {
   const session = params.session as string;
   const host = searchParams.get('host') ?? undefined;
   const isUnsandbox = host === 'unsandbox';
+
+  // Nickname for this session
+  const { data: nicknamesData } = useSWR('/api/sessions/nickname', fetcher, { refreshInterval: 30000 });
+  const nicknames: Record<string, { nickname: string; service_name: string }> = nicknamesData ?? {};
+  const sessionId = decodeURIComponent(session);
+  const nick = nicknames[sessionId];
   const hostParam = host && !isUnsandbox ? `&host=${encodeURIComponent(host)}` : '';
   const [connected, setConnected] = useState(false);
   const connectedRef = useRef(false);
@@ -272,7 +278,17 @@ export default function TmuxViewerPage() {
   const handleUnsandboxConnect = useCallback((c: boolean) => {
     connectedRef.current = c;
     setConnected(c);
-  }, []);
+    // On connect, ensure ~/.local/bin is in PATH for existing containers
+    if (c) {
+      setTimeout(() => {
+        fetch('/api/unsandbox/shell', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, keys: 'export PATH="$HOME/.local/bin:$PATH"\r' }),
+        }).catch(() => {});
+      }, 500);
+    }
+  }, [sessionId]);
 
   // Paint content to terminal — tmux mode
   const paintContent = useCallback((raw: string) => {
@@ -506,12 +522,22 @@ export default function TmuxViewerPage() {
           <Link href="/tmux" className="text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm">
             &larr; Back
           </Link>
-          <h2 className="text-lg font-bold font-mono">{decodeURIComponent(session)}</h2>
-          {isUnsandbox
-            ? <span className="text-xs text-violet-400 font-mono">@unsandbox</span>
-            : host && <span className="text-xs text-[var(--color-muted)] font-mono">@{host}</span>
-          }
-          <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+          <div className="flex flex-col min-w-0">
+            {nick?.nickname && (
+              <span className="text-base font-bold leading-tight truncate">{nick.nickname}</span>
+            )}
+            <div className="flex items-center gap-2">
+              <h2 className={`font-mono truncate ${nick?.nickname ? 'text-xs text-[var(--color-muted)]' : 'text-lg font-bold'}`}>{sessionId}</h2>
+              {isUnsandbox
+                ? <span className="text-xs text-violet-400 font-mono flex-shrink-0">@unsandbox</span>
+                : host && <span className="text-xs text-[var(--color-muted)] font-mono flex-shrink-0">@{host}</span>
+              }
+            </div>
+            {nick?.service_name && (
+              <span className="text-[10px] text-violet-400/70 font-mono">⬡ {nick.service_name}</span>
+            )}
+          </div>
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
           <span className="text-xs text-[var(--color-muted)]">{connected ? 'live' : 'reconnecting...'}</span>
           <div className="ml-auto flex items-center gap-2">
             {/* Paste button — reliable cross-browser clipboard read */}
