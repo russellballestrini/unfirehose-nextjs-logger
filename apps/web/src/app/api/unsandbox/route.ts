@@ -282,15 +282,21 @@ ENDJSON`;
     const setupScript = [
       '#!/bin/bash',
       'set -e',
-      // Install node if not present
-      'which node || (curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && apt-get install -y nodejs)',
-      // Install harness
-      harnessCmd === 'claude' ? 'npm install -g @anthropic-ai/claude-code' : `echo "Custom harness: ${harnessCmd}"`,
+      ...(harnessCmd === 'claude' ? [
+        // Install Claude Code via official installer
+        'curl -fsSL https://claude.ai/install.sh | bash',
+        // Add to PATH for this script (installer puts it in ~/.local/bin)
+        'export PATH="/root/.local/bin:$PATH"',
+      ] : [
+        // Install node if not present for other harnesses
+        'which node || (curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && apt-get install -y nodejs)',
+        `echo "Custom harness: ${harnessCmd}"`,
+      ]),
       // Clone project if repo provided
       projectRepo ? `git clone '${projectRepo}' /workspace && cd /workspace` : 'mkdir -p /workspace && cd /workspace',
-      // Run harness
+      // Run harness — claude runs as root in unsandbox so --dangerously-skip-permissions is required
       harnessCmd === 'claude'
-        ? `cd /workspace && claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+        ? `cd /workspace && /root/.local/bin/claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
         : `cd /workspace && ${harnessCmd}`,
     ].join('\n');
 

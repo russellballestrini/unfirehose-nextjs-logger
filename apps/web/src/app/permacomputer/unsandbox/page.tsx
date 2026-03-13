@@ -25,7 +25,7 @@ cd apps/web
 PORT=3000 node .next/standalone/server.js`.trim();
 
 const HARNESSES = [
-  { id: 'claude-code', name: 'Claude Code', desc: 'Anthropic CLI for Claude — agentic coding in the terminal', install: 'snap install claude-code --classic', verify: 'claude --version', tags: ['ml', 'coding'], },
+  { id: 'claude-code', name: 'Claude Code', desc: 'Anthropic CLI for Claude — agentic coding in the terminal', install: 'curl -fsSL https://claude.ai/install.sh | bash', verify: '/root/.local/bin/claude --version', tags: ['ml', 'coding'], },
   { id: 'gemini-cli', name: 'Gemini CLI', desc: 'Google CLI for Gemini — agentic coding similar to Claude Code', install: 'npm install -g @anthropic-ai/gemini-cli', verify: 'gemini --version', requiresKey: 'GOOGLE_API_KEY', tags: ['ml', 'coding'], },
   { id: 'openai-codex', name: 'OpenAI Codex CLI', desc: 'OpenAI CLI coding agent — GPT-4 powered terminal assistant', install: 'npm install -g @openai/codex', verify: 'codex --version', requiresKey: 'OPENAI_API_KEY', tags: ['ml', 'coding'], },
   { id: 'open-code', name: 'Open Code', desc: 'Open source alternative to Claude Code — multi-provider', install: 'npm install -g opencode-ai', verify: 'opencode --version', requiresKey: 'ANTHROPIC_API_KEY or OPENAI_API_KEY', tags: ['ml', 'coding'], },
