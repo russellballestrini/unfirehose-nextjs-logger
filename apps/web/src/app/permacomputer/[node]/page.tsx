@@ -71,8 +71,8 @@ const HARNESSES = [
   {
     id: 'claude-code', name: 'Claude Code',
     desc: 'Anthropic CLI for Claude — agentic coding in the terminal',
-    install: 'snap install claude-code --classic',
-    verify: 'claude --version',
+    install: 'curl -fsSL https://claude.ai/install.sh | bash',
+    verify: 'export PATH="$HOME/.local/bin:$PATH"; claude --version',
     tags: ['ml', 'coding', 'cli'],
   },
   {

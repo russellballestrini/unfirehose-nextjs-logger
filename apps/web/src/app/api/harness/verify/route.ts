@@ -26,8 +26,8 @@ async function syncClaudeCredentials(host: string): Promise<boolean> {
   }
 
   const sshOpts = ['-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no'];
-  await exec('ssh', [...sshOpts, host, 'mkdir -p ~/.claude'], { timeout: 10000 });
-  await exec('scp', [...sshOpts, credFile, `${host}:~/.claude/.credentials.json`], { timeout: 15000 });
+  await exec('ssh', [...sshOpts, host, 'umask 077 && mkdir -p ~/.claude'], { timeout: 10000 });
+  await exec('scp', [...sshOpts, '-p', credFile, `${host}:~/.claude/.credentials.json`], { timeout: 15000 });
 
   try {
     await stat(claudeJson);
@@ -37,9 +37,14 @@ async function syncClaudeCredentials(host: string): Promise<boolean> {
   for (const f of [settingsFile, settingsLocalFile]) {
     try {
       await stat(f);
-      await exec('scp', [...sshOpts, f, `${host}:~/.claude/${path.basename(f)}`], { timeout: 10000 });
+      await exec('scp', [...sshOpts, '-p', f, `${host}:~/.claude/${path.basename(f)}`], { timeout: 10000 });
     } catch { /* non-fatal */ }
   }
+
+  // Lock down permissions
+  await exec('ssh', [...sshOpts, host,
+    'chmod 700 ~/.claude && chmod 600 ~/.claude/.credentials.json ~/.claude/settings.json ~/.claude/settings.local.json ~/.claude.json 2>/dev/null || true',
+  ], { timeout: 10000 });
 
   return true;
 }
