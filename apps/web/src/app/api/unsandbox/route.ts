@@ -307,16 +307,23 @@ ENDJSON`;
     }
 
     // 3. Bootstrap harness in session
-    // TODO: remove install step once golden image has claude pre-baked
+    const execPath = `/sessions/${session.session_id}/execute`;
+
+    // Step A: install claude (blocking, before tmux opens) — TODO: remove once golden image has it
+    if (harnessCmd === 'claude') {
+      const installPayload = JSON.stringify({ command: 'curl -fsSL https://claude.ai/install.sh | bash' });
+      await apiPost(publicKey, secretKey, execPath, installPayload, 120000);
+    }
+
+    // Step B: start harness in tmux (non-blocking)
     const cloneCmd = projectRepo ? `git clone '${projectRepo}' /workspace 2>&1 && ` : 'mkdir -p /workspace && ';
     const innerCmd = harnessCmd === 'claude'
-      ? `curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
+      ? `export PATH="$HOME/.local/bin:$PATH" && ${cloneCmd}cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions${prompt ? ` '${prompt.replace(/'/g, "'\\''")}'` : ''}`
       : `${cloneCmd}cd /workspace && ${harnessCmd}`;
     const sessionName = harnessCmd === 'claude' ? 'claude' : 'harness';
     const escapedCmd = innerCmd.replace(/'/g, "'\\''");
     const setupScript = `tmux new-session -d -s ${sessionName} -x 220 -y 50 '${escapedCmd}' && echo "tmux session started"`;
 
-    const execPath = `/sessions/${session.session_id}/execute`;
     const execPayload = JSON.stringify({ command: setupScript });
     const execHeaders = authHeaders(publicKey, secretKey, 'POST', execPath, execPayload);
     try {
