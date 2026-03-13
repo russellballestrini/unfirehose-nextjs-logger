@@ -489,18 +489,43 @@ export default function TmuxViewerPage() {
           }
           <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
           <span className="text-xs text-[var(--color-muted)]">{connected ? 'live' : 'reconnecting...'}</span>
-          {!isUnsandbox && (
+          <div className="ml-auto flex items-center gap-2">
+            {/* Paste button — reliable cross-browser clipboard read */}
             <button
-              onClick={() => setInteractive(!interactive)}
-              className={`ml-auto px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors ${
-                interactive
-                  ? 'bg-green-500 text-black'
-                  : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
-              }`}
+              onClick={async () => {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  if (!text) return;
+                  if (isUnsandbox) {
+                    // send directly to unsandbox shell
+                    fetch('/api/unsandbox/shell', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ session_id: decodeURIComponent(session), keys: text }),
+                    }).catch(() => {});
+                  } else {
+                    enqueueKeys({ keys: text });
+                  }
+                } catch { /* clipboard permission denied */ }
+              }}
+              className="px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]"
+              title="Paste clipboard into terminal"
             >
-              {interactive ? '⌨ Interactive' : '⌨ Read-only'}
+              ⎘ Paste
             </button>
-          )}
+            {!isUnsandbox && (
+              <button
+                onClick={() => setInteractive(!interactive)}
+                className={`px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors ${
+                  interactive
+                    ? 'bg-green-500 text-black'
+                    : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
+                }`}
+              >
+                {interactive ? '⌨ Interactive' : '⌨ Read-only'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Window tabs (tmux only) */}
