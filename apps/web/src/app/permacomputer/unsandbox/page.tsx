@@ -784,31 +784,61 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
               {serviceList.map((svc: any) => {
                 const id = svc.service_id || svc.id;
                 const isLocked = svc.locked || svc.name === 'uncloseai';
+                const nick = nicknames[id];
+                const isEditing = editingNick?.sessionId === id;
                 return (
-                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors flex items-center justify-between">
-                    <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex items-center gap-3 p-4 flex-1 min-w-0">
-                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${svc.state === 'running' ? 'bg-green-400 animate-pulse' : svc.state === 'frozen' ? 'bg-blue-400' : 'bg-yellow-400'}`} />
-                      <div className="min-w-0">
-                        <div className="font-bold font-mono">{svc.name || id}</div>
-                        <div className="text-xs text-[var(--color-muted)] font-mono truncate">
-                          {svc.state} · {id}
-                          {svc.ports && <> · port {svc.ports}</>}
+                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        {/* Nickname row */}
+                        <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              value={editingNick?.value ?? ''}
+                              onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
+                              onKeyDown={e => {
+                                const v = editingNick?.value ?? '';
+                                if (e.key === 'Enter') saveNickname(id, v, svc.name || '');
+                                if (e.key === 'Escape') setEditingNick(null);
+                              }}
+                              onBlur={() => saveNickname(id, editingNick?.value ?? '', svc.name || '')}
+                              placeholder="nickname…"
+                              className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
+                            />
+                          ) : (
+                            <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
+                              className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
+                              {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
+                            </button>
+                          )}
                         </div>
-                        <div className="text-[10px] text-violet-400/60 mt-0.5">→ open terminal</div>
+                        {/* Service info — clickable to terminal */}
+                        <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex items-center gap-3 px-4 pb-3">
+                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${svc.state === 'running' ? 'bg-green-400 animate-pulse' : svc.state === 'frozen' ? 'bg-blue-400' : 'bg-yellow-400'}`} />
+                          <div className="min-w-0">
+                            <div className="font-bold font-mono text-sm">{svc.name || id}</div>
+                            <div className="text-xs text-[var(--color-muted)] font-mono truncate">
+                              {svc.state} · {id}
+                              {svc.ports && <> · port {svc.ports}</>}
+                            </div>
+                            <div className="text-[10px] text-violet-400/60 mt-0.5">→ open terminal</div>
+                          </div>
+                        </Link>
                       </div>
-                    </Link>
-                    <div className="flex items-center gap-3 pr-4 flex-shrink-0">
-                      {svc.domain && (
-                        <a href={`https://${svc.domain}`} target="_blank" rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
-                          Open ↗
-                        </a>
-                      )}
-                      {isLocked ? (
-                        <span className="text-xs text-[var(--color-muted)]">locked</span>
-                      ) : (
-                        <button onClick={() => destroyService(id)} className="text-xs text-red-400 hover:text-red-300 cursor-pointer">destroy</button>
-                      )}
+                      <div className="flex items-center gap-3 pr-4 flex-shrink-0">
+                        {svc.domain && (
+                          <a href={`https://${svc.domain}`} target="_blank" rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
+                            Open ↗
+                          </a>
+                        )}
+                        {isLocked ? (
+                          <span className="text-xs text-[var(--color-muted)]">locked</span>
+                        ) : (
+                          <button onClick={() => destroyService(id)} className="text-xs text-red-400 hover:text-red-300 cursor-pointer">destroy</button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
