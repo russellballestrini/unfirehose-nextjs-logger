@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 
 // Auth pattern matches official un.ts CLI: https://unsandbox.com/cli/typescript
@@ -254,6 +257,18 @@ ENDJSON`;
     const { harness, projectRepo, prompt, network } = body;
     const harnessCmd = harness || 'claude';
 
+    // Helper: inject a local file into a container path via heredoc base64
+    async function injectFile(sessionId: string, localPath: string, containerPath: string): Promise<void> {
+      let buf: Buffer;
+      try { buf = readFileSync(localPath); } catch { return; } // skip if not found
+      const b64 = buf.toString('base64');
+      const dir = containerPath.substring(0, containerPath.lastIndexOf('/'));
+      const cmd = `mkdir -p '${dir}' && base64 -d << 'UNSB_CRED_EOF' > '${containerPath}'\n${b64}\nUNSB_CRED_EOF`;
+      const execPath = `/sessions/${sessionId}/execute`;
+      const execPayload = JSON.stringify({ command: cmd });
+      await apiPost(publicKey, secretKey, execPath, execPayload, 30000);
+    }
+
     // 1. Create session
     const sessionPath = '/sessions';
     const sessionPayload = JSON.stringify({
@@ -278,7 +293,16 @@ ENDJSON`;
       return NextResponse.json({ error: `Session creation failed: ${err}` }, { status: 500 });
     }
 
-    // 2. Bootstrap harness in session
+    // 2. Inject Claude credentials if booting a claude harness
+    if (harnessCmd === 'claude') {
+      const home = homedir();
+      await Promise.all([
+        injectFile(session.session_id, join(home, '.claude', '.credentials.json'), '/root/.claude/.credentials.json'),
+        injectFile(session.session_id, join(home, '.claude.json'), '/root/.claude.json'),
+      ]);
+    }
+
+    // 3. Bootstrap harness in session
     const setupScript = [
       '#!/bin/bash',
       'set -e',
