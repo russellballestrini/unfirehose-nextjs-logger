@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { stat } from 'fs/promises';
-import { writeFile, unlink } from 'fs/promises';
+import { writeFile, readFile, unlink } from 'fs/promises';
 import path from 'path';
 import { tmpdir, platform, homedir } from 'os';
 import { createHmac } from 'crypto';
@@ -718,12 +718,43 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
   // 2. Bootstrap the session: install tools, clone repo, run harness
   const repoName = path.basename(projectPath);
   const workDir = `/workspace/${repoName}`;
+  const resolvedHarness = harnessName || 'claude';
 
   const setupParts = [
     '#!/bin/bash',
     'set -e',
     // Golden image has batteries included — no apt-get needed
   ];
+
+  // Sync Claude auth credentials into the container
+  // Read local credential files, base64 encode, decode inside container
+  const credFile = path.join(homedir(), '.claude', '.credentials.json');
+  const settingsFile = path.join(homedir(), '.claude', 'settings.json');
+  const settingsLocalFile = path.join(homedir(), '.claude', 'settings.local.json');
+
+  try {
+    const credData = await readFile(credFile);
+    const credB64 = credData.toString('base64');
+    setupParts.push(
+      'umask 077 && mkdir -p ~/.claude',
+      `echo '${credB64}' | base64 -d > ~/.claude/.credentials.json`,
+      'chmod 600 ~/.claude/.credentials.json',
+    );
+
+    // Settings files — non-fatal
+    for (const f of [settingsFile, settingsLocalFile]) {
+      try {
+        const data = await readFile(f);
+        const b64 = data.toString('base64');
+        const basename = path.basename(f);
+        setupParts.push(`echo '${b64}' | base64 -d > ~/.claude/${basename}`);
+      } catch { /* file doesn't exist, skip */ }
+    }
+
+    setupParts.push('chmod 700 ~/.claude');
+  } catch {
+    // No local credentials — claude will need to auth interactively
+  }
 
   // Clone repo if we have a URL
   if (repoUrl) {
