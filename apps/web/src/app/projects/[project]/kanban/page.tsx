@@ -246,7 +246,7 @@ export default function ProjectKanbanPage({ params }: { params: Promise<{ projec
     await updateTodo(todo.id, { status: targetStatus });
 
     if (targetStatus === 'in_progress' && todo.status === 'pending' && projectData?.originalPath) {
-      bootAgent(projectData.originalPath, `todo-${todo.id}`, `Work on this task: ${todo.content}`);
+      bootAgent(projectData.originalPath, `todo-${todo.id}`, todo.content);
     }
 
     // Clean up tmux session when completing
@@ -543,7 +543,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
           <Link href={`/projects/${project}/${todo.sessionUuid}`} className="hover:text-[var(--color-accent)] truncate max-w-[100px]" onClick={(e) => e.stopPropagation()}>{todo.sessionDisplay}</Link>
         )}
         {projectPath && !isActive && (
-          <button onClick={(e) => { e.stopPropagation(); onUpdate(todo.id, { status: 'in_progress' }); onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`); }} disabled={booting === bootKey}
+          <button onClick={(e) => { e.stopPropagation(); onUpdate(todo.id, { status: 'in_progress' }); onBoot(projectPath, bootKey, todo.content); }} disabled={booting === bootKey}
             className="px-1.5 py-0.5 text-xs font-bold bg-[var(--color-accent)] text-white rounded hover:opacity-90 disabled:opacity-50 cursor-pointer">
             {booting === bootKey ? '...' : 'Deploy'}
           </button>
