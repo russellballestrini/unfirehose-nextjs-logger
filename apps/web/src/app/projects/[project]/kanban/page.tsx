@@ -430,6 +430,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(todo.content);
+  const [copied, setCopied] = useState<'id' | 'uuid' | false>(false);
   const needsTicket = (todo.estimatedMinutes ?? 0) > TICKET_THRESHOLD;
   const bootKey = `todo-${todo.id}`;
   const isActive = todo.status === 'in_progress';
@@ -518,6 +519,16 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
       )}
 
       <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] flex-wrap">
+        <button
+          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`#${todo.id}`); setCopied('id'); setTimeout(() => setCopied(false), 420); }}
+          className="font-mono text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer"
+          title={`#${todo.id}`}
+        >{copied === 'id' ? 'copied' : `#${todo.id}`}</button>
+        {todo.uuid && <button
+          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(todo.uuid); setCopied('uuid'); setTimeout(() => setCopied(false), 420); }}
+          className="font-mono opacity-50 hover:opacity-100 hover:text-[var(--color-accent)] cursor-pointer"
+          title={todo.uuid}
+        >{copied === 'uuid' ? 'copied' : todo.uuid.slice(0, 8)}</button>}
         <SourceBadge source={todo.source} />
         {todo.sessionDisplay && todo.sessionUuid && (
           <Link href={`/projects/${project}/${todo.sessionUuid}`} className="hover:text-[var(--color-accent)] truncate max-w-[100px]" onClick={(e) => e.stopPropagation()}>{todo.sessionDisplay}</Link>

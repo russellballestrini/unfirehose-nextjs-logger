@@ -877,7 +877,7 @@ function TodosTab({ full, project, decodedProject: _decodedProject }: any) {
 }
 
 function TodoRow({ todo, project, completed }: { todo: any; project: string; completed?: boolean }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'id' | 'uuid' | false>(false);
   return (
     <div className={`flex items-center gap-3 px-3 py-2 rounded border border-[var(--color-border)] text-sm ${completed ? 'opacity-60' : ''}`}>
       <span
@@ -887,10 +887,15 @@ function TodoRow({ todo, project, completed }: { todo: any; project: string; com
         }}
       />
       <button
-        onClick={() => { navigator.clipboard.writeText(todo.uuid || `#${todo.id}`); setCopied(true); setTimeout(() => setCopied(false), 420); }}
+        onClick={() => { navigator.clipboard.writeText(`#${todo.id}`); setCopied('id'); setTimeout(() => setCopied(false), 420); }}
         className="font-mono text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer shrink-0"
-        title={todo.uuid || `#${todo.id}`}
-      >{copied ? 'copied' : `#${todo.id}`}{!copied && todo.uuid && <span className="ml-1 opacity-50">{todo.uuid.slice(0, 8)}</span>}</button>
+        title={`#${todo.id}`}
+      >{copied === 'id' ? 'copied' : `#${todo.id}`}</button>
+      {todo.uuid && <button
+        onClick={() => { navigator.clipboard.writeText(todo.uuid); setCopied('uuid'); setTimeout(() => setCopied(false), 420); }}
+        className="font-mono text-xs opacity-50 hover:opacity-100 hover:text-[var(--color-accent)] cursor-pointer shrink-0"
+        title={todo.uuid}
+      >{copied === 'uuid' ? 'copied' : todo.uuid.slice(0, 8)}</button>}
       <span className={`flex-1 ${completed ? 'line-through text-[var(--color-muted)]' : ''}`}>{todo.content}</span>
       {todo.deployment?.tmuxSession && (
         <Link href={`/tmux/${encodeURIComponent(todo.deployment.tmuxSession)}${todo.deployment.tmuxWindow ? `?window=${encodeURIComponent(todo.deployment.tmuxWindow)}` : ''}`}
