@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { execFile } from 'child_process';
+import { getDb } from '@unturf/unfirehose/db/schema';
 
 function sshPrefix(host?: string): { cmd: string; args: string[] } {
   if (!host || host === 'localhost') return { cmd: 'tmux', args: [] };
@@ -56,7 +57,24 @@ export async function GET(request: NextRequest) {
   if (!session) {
     try {
       const sessions = await listSessions(host);
-      return Response.json({ sessions });
+      // Attach deployment info (todo IDs, status) to each session
+      let deployments: Record<string, { todoIds: number[]; status: string; startedAt: string | null }> = {};
+      try {
+        const db = getDb();
+        const rows = db.prepare(
+          "SELECT tmux_session, todo_ids, status, started_at FROM agent_deployments ORDER BY started_at DESC"
+        ).all() as any[];
+        for (const r of rows) {
+          if (!deployments[r.tmux_session]) {
+            deployments[r.tmux_session] = {
+              todoIds: JSON.parse(r.todo_ids || '[]'),
+              status: r.status,
+              startedAt: r.started_at,
+            };
+          }
+        }
+      } catch { /* non-fatal */ }
+      return Response.json({ sessions, deployments });
     } catch {
       return Response.json({ sessions: [], error: 'tmux not running' });
     }

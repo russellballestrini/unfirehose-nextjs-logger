@@ -26,9 +26,10 @@ export default function TmuxListPage() {
   const [tab, setTab] = useState<Tab>('sessions');
   const [newTarget, setNewTarget] = useState<NewTarget>('tmux');
 
-  // Sessions list (localhost tmux)
+  // Sessions list (localhost tmux) + deployment info
   const { data, isLoading, mutate } = useSWR('/api/tmux/stream', fetcher, { refreshInterval: 5000 });
   const sessions: string[] = data?.sessions ?? [];
+  const deployments: Record<string, { todoIds: number[]; status: string; startedAt: string | null }> = data?.deployments ?? {};
 
   // Unsandbox sessions
   const { data: unsbData, isLoading: unsbLoading, mutate: mutateUnsb } = useSWR(
@@ -172,6 +173,7 @@ export default function TmuxListPage() {
               {sessions.map(s => {
                 const nick = nicknames[s];
                 const isEditing = editingNick?.sessionId === s;
+                const dep = deployments[s];
                 return (
                   <div key={s} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 transition-colors">
                     {/* Nickname row — always visible, stops link navigation */}
@@ -205,6 +207,16 @@ export default function TmuxListPage() {
                         <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
                         <span className="text-xs font-mono text-[var(--color-muted)] truncate" title={s}>{s}</span>
                       </div>
+                      {dep && dep.todoIds.length > 0 && (
+                        <div className="flex items-center gap-1.5 mt-1.5 text-[10px]">
+                          <span className={`font-bold ${dep.status === 'running' ? 'text-blue-400' : dep.status === 'completed' ? 'text-green-400' : 'text-[var(--color-muted)]'}`}>
+                            {dep.status}
+                          </span>
+                          <span className="text-[var(--color-muted)]">
+                            {dep.todoIds.map(id => `#${id}`).join(' ')}
+                          </span>
+                        </div>
+                      )}
                       <p className="text-[10px] text-[var(--color-muted)]/60 mt-1">localhost · click to view</p>
                     </Link>
                   </div>
