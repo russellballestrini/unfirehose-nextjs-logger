@@ -58,16 +58,28 @@ export async function GET(request: NextRequest) {
     try {
       const sessions = await listSessions(host);
       // Attach deployment info (todo IDs, status) to each session
-      let deployments: Record<string, { todoIds: number[]; status: string; startedAt: string | null }> = {};
+      let deployments: Record<string, { todos: { id: number; uuid: string | null }[]; status: string; startedAt: string | null }> = {};
       try {
         const db = getDb();
         const rows = db.prepare(
           "SELECT tmux_session, todo_ids, status, started_at FROM agent_deployments ORDER BY started_at DESC"
         ).all() as any[];
+        // Collect all todo IDs to batch-fetch UUIDs
+        const allTodoIds = new Set<number>();
+        for (const r of rows) {
+          for (const id of JSON.parse(r.todo_ids || '[]')) allTodoIds.add(id);
+        }
+        const uuidMap = new Map<number, string | null>();
+        if (allTodoIds.size > 0) {
+          const placeholders = [...allTodoIds].map(() => '?').join(',');
+          const uuidRows = db.prepare(`SELECT id, uuid FROM todos WHERE id IN (${placeholders})`).all(...allTodoIds) as any[];
+          for (const u of uuidRows) uuidMap.set(u.id, u.uuid);
+        }
         for (const r of rows) {
           if (!deployments[r.tmux_session]) {
+            const ids: number[] = JSON.parse(r.todo_ids || '[]');
             deployments[r.tmux_session] = {
-              todoIds: JSON.parse(r.todo_ids || '[]'),
+              todos: ids.map(id => ({ id, uuid: uuidMap.get(id) ?? null })),
               status: r.status,
               startedAt: r.started_at,
             };

@@ -29,7 +29,7 @@ export default function TmuxListPage() {
   // Sessions list (localhost tmux) + deployment info
   const { data, isLoading, mutate } = useSWR('/api/tmux/stream', fetcher, { refreshInterval: 5000 });
   const sessions: string[] = data?.sessions ?? [];
-  const deployments: Record<string, { todoIds: number[]; status: string; startedAt: string | null }> = data?.deployments ?? {};
+  const deployments: Record<string, { todos: { id: number; uuid: string | null }[]; status: string; startedAt: string | null }> = data?.deployments ?? {};
 
   // Unsandbox sessions
   const { data: unsbData, isLoading: unsbLoading, mutate: mutateUnsb } = useSWR(
@@ -207,14 +207,16 @@ export default function TmuxListPage() {
                         <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
                         <span className="text-xs font-mono text-[var(--color-muted)] truncate" title={s}>{s}</span>
                       </div>
-                      {dep && dep.todoIds.length > 0 && (
-                        <div className="flex items-center gap-1.5 mt-1.5 text-[10px]">
+                      {dep && dep.todos.length > 0 && (
+                        <div className="flex items-center gap-1.5 mt-1.5 text-[10px] flex-wrap">
                           <span className={`font-bold ${dep.status === 'running' ? 'text-blue-400' : dep.status === 'completed' ? 'text-green-400' : 'text-[var(--color-muted)]'}`}>
                             {dep.status}
                           </span>
-                          <span className="text-[var(--color-muted)]">
-                            {dep.todoIds.map(id => `#${id}`).join(' ')}
-                          </span>
+                          {dep.todos.map(t => (
+                            <span key={t.id} className="text-[var(--color-muted)] font-mono">
+                              #{t.id}{t.uuid && <span className="ml-0.5 opacity-50">{t.uuid.slice(-8)}</span>}
+                            </span>
+                          ))}
                         </div>
                       )}
                       <p className="text-[10px] text-[var(--color-muted)]/60 mt-1">localhost · click to view</p>

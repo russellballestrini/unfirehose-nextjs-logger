@@ -817,7 +817,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
           onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(todo.uuid!); setCopied('uuid'); setTimeout(() => setCopied(false), 420); }}
           className="font-mono opacity-50 hover:opacity-100 hover:text-[var(--color-accent)] cursor-pointer"
           title={todo.uuid}
-        >{copied === 'uuid' ? 'copied' : todo.uuid.slice(0, 8)}</button>}
+        >{copied === 'uuid' ? 'copied' : todo.uuid.slice(-8)}</button>}
         <SourceBadge source={todo.source} />
         {todo.sessionDisplay && todo.sessionUuid && todo.projectName && (
           <Link href={`/projects/${encodeURIComponent(todo.projectName)}/${todo.sessionUuid}`} className="hover:text-[var(--color-accent)] truncate max-w-[100px]" onClick={(e) => e.stopPropagation()}>{todo.sessionDisplay}</Link>
