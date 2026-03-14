@@ -766,7 +766,9 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
   setupParts.push(`cd '${workDir}'`);
 
   // Install claude if not already present (golden image may have it, fresh containers won't)
+  // Installer puts binary at ~/.local/bin — add to PATH
   setupParts.push(
+    'export PATH="$HOME/.local/bin:$PATH"',
     'if ! command -v claude >/dev/null 2>&1; then',
     '  curl -fsSL https://claude.ai/install.sh | bash 2>&1',
     'fi',
