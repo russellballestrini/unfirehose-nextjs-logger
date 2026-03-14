@@ -67,6 +67,23 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     }
   }
 
+  // Recent sessions for this project (useful when todo has no direct session link)
+  let recentSessions: any[] = [];
+  if (todo.project_id) {
+    recentSessions = db.prepare(`
+      SELECT s.session_uuid, s.display_name, s.git_branch, s.first_prompt,
+             s.created_at, s.last_message_at,
+             SUM(m.input_tokens) as input_tokens, SUM(m.output_tokens) as output_tokens,
+             COUNT(m.id) as message_count
+      FROM sessions s
+      LEFT JOIN messages m ON m.session_id = s.id
+      WHERE s.project_id = ?
+      GROUP BY s.id
+      ORDER BY s.last_message_at DESC
+      LIMIT 5
+    `).all(todo.project_id) as any[];
+  }
+
   // Dependencies (blocked_by)
   let blockedByTodos: any[] = [];
   if (todo.blocked_by) {
@@ -105,6 +122,17 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       firstPrompt: todo.first_prompt,
     } : null,
     sessionTokens,
+    recentSessions: recentSessions.map((s: any) => ({
+      uuid: s.session_uuid,
+      display: s.display_name,
+      gitBranch: s.git_branch,
+      firstPrompt: s.first_prompt,
+      createdAt: s.created_at,
+      lastActivity: s.last_message_at,
+      inputTokens: s.input_tokens || 0,
+      outputTokens: s.output_tokens || 0,
+      messageCount: s.message_count || 0,
+    })),
     attachments: attachments.map((a: any) => ({
       id: a.id,
       filename: a.filename,

@@ -210,34 +210,65 @@ function DeploymentsTab({ todo }: { todo: any }) {
 }
 
 function SessionTab({ todo, copy, copied }: { todo: any; copy: (l: string, t: string) => void; copied: string | false }) {
-  if (!todo.session) {
-    return <p className="text-sm text-[var(--color-muted)] py-8 text-center">No session linked to this todo.</p>;
-  }
-
   return (
-    <div className="space-y-1">
-      <MetaRow label="Session UUID">
-        <button onClick={() => copy('session', todo.session.uuid)} className="font-mono hover:text-[var(--color-accent)] cursor-pointer">
-          {copied === 'session' ? 'copied' : todo.session.uuid}
-        </button>
-      </MetaRow>
-      {todo.session.display && <MetaRow label="Display Name">{todo.session.display}</MetaRow>}
-      {todo.session.gitBranch && <MetaRow label="Git Branch"><span className="font-mono">{todo.session.gitBranch}</span></MetaRow>}
-      {todo.session.firstPrompt && <MetaRow label="First Prompt">{todo.session.firstPrompt}</MetaRow>}
-      <MetaRow label="View">
-        <Link href={`/projects/${encodeURIComponent(todo.project.name)}/${todo.session.uuid}`}
-          className="text-[var(--color-accent)] hover:underline">
-          Open session &rarr;
-        </Link>
-      </MetaRow>
-      {todo.sessionTokens && (
-        <>
-          <MetaRow label="Messages">{todo.sessionTokens.messageCount.toLocaleString()}</MetaRow>
-          <MetaRow label="Input Tokens">{todo.sessionTokens.input.toLocaleString()}</MetaRow>
-          <MetaRow label="Output Tokens">{todo.sessionTokens.output.toLocaleString()}</MetaRow>
-          <MetaRow label="Cache Read">{todo.sessionTokens.cacheRead.toLocaleString()}</MetaRow>
-          <MetaRow label="Cache Write">{todo.sessionTokens.cacheWrite.toLocaleString()}</MetaRow>
-        </>
+    <div className="space-y-6">
+      {/* Direct session link */}
+      {todo.session ? (
+        <div>
+          <h3 className="text-sm font-bold text-[var(--color-muted)] mb-2 uppercase tracking-wide">Origin Session</h3>
+          <div className="space-y-1">
+            <MetaRow label="Session UUID">
+              <button onClick={() => copy('session', todo.session.uuid)} className="font-mono hover:text-[var(--color-accent)] cursor-pointer">
+                {copied === 'session' ? 'copied' : todo.session.uuid}
+              </button>
+            </MetaRow>
+            {todo.session.display && <MetaRow label="Display Name">{todo.session.display}</MetaRow>}
+            {todo.session.gitBranch && <MetaRow label="Git Branch"><span className="font-mono">{todo.session.gitBranch}</span></MetaRow>}
+            {todo.session.firstPrompt && <MetaRow label="First Prompt">{todo.session.firstPrompt}</MetaRow>}
+            <MetaRow label="View">
+              <Link href={`/projects/${encodeURIComponent(todo.project.name)}/${todo.session.uuid}`}
+                className="text-[var(--color-accent)] hover:underline">
+                Open session &rarr;
+              </Link>
+            </MetaRow>
+            {todo.sessionTokens && (
+              <>
+                <MetaRow label="Messages">{todo.sessionTokens.messageCount.toLocaleString()}</MetaRow>
+                <MetaRow label="Input Tokens">{todo.sessionTokens.input.toLocaleString()}</MetaRow>
+                <MetaRow label="Output Tokens">{todo.sessionTokens.output.toLocaleString()}</MetaRow>
+                <MetaRow label="Cache Read">{todo.sessionTokens.cacheRead.toLocaleString()}</MetaRow>
+                <MetaRow label="Cache Write">{todo.sessionTokens.cacheWrite.toLocaleString()}</MetaRow>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-[var(--color-muted)]">No direct session link (manual todo).</p>
+      )}
+
+      {/* Recent project sessions */}
+      {todo.recentSessions?.length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold text-[var(--color-muted)] mb-2 uppercase tracking-wide">Recent Project Sessions</h3>
+          <div className="space-y-2">
+            {todo.recentSessions.map((s: any) => (
+              <Link key={s.uuid} href={`/projects/${encodeURIComponent(todo.project.name)}/${s.uuid}`}
+                className="block border border-[var(--color-border)] rounded-lg p-3 hover:border-[var(--color-accent)]/50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+                  <span className="text-sm font-medium truncate">{s.display || s.firstPrompt?.slice(0, 60) || s.uuid.slice(0, 8)}</span>
+                  <span className="ml-auto text-xs text-[var(--color-muted)] shrink-0">{s.lastActivity ? formatRelativeTime(s.lastActivity) : ''}</span>
+                </div>
+                <div className="flex items-center gap-3 mt-1 text-xs text-[var(--color-muted)]">
+                  <span className="font-mono">{s.uuid.slice(0, 8)}</span>
+                  {s.gitBranch && <span className="font-mono">{s.gitBranch}</span>}
+                  <span>{s.messageCount} msgs</span>
+                  <span>{((s.inputTokens + s.outputTokens) / 1000).toFixed(0)}K tokens</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
