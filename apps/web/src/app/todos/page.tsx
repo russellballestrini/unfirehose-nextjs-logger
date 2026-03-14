@@ -787,6 +787,11 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
 
       {/* Footer */}
       <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] flex-wrap">
+        <button
+          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`#${todo.id}`); }}
+          className="font-mono text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer"
+          title="Copy todo ID"
+        >#{todo.id}</button>
         <SourceBadge source={todo.source} />
         {todo.sessionDisplay && todo.sessionUuid && todo.projectName && (
           <Link href={`/projects/${encodeURIComponent(todo.projectName)}/${todo.sessionUuid}`} className="hover:text-[var(--color-accent)] truncate max-w-[100px]" onClick={(e) => e.stopPropagation()}>{todo.sessionDisplay}</Link>
