@@ -233,15 +233,27 @@ export async function GET(request: NextRequest) {
 
     const todos = db.prepare(query).all(...params) as any[];
 
-    // Build map of todo_id → tmux_session from running deployments
-    const deploymentMap = new Map<number, string>();
+    // Build map of todo_id → deployment info (including all statuses for lifecycle tracking)
+    interface DeploymentInfo { tmuxSession: string; tmuxWindow: string | null; status: string; startedAt: string | null; stoppedAt: string | null; }
+    const deploymentMap = new Map<number, DeploymentInfo>();
     try {
       const deployments = db.prepare(
-        "SELECT tmux_session, todo_ids FROM agent_deployments WHERE status = 'running'"
+        "SELECT tmux_session, tmux_window, todo_ids, status, started_at, stopped_at FROM agent_deployments ORDER BY started_at DESC"
       ).all() as any[];
       for (const d of deployments) {
         const ids: number[] = JSON.parse(d.todo_ids || '[]');
-        for (const tid of ids) deploymentMap.set(tid, d.tmux_session);
+        for (const tid of ids) {
+          // Keep the most recent deployment per todo
+          if (!deploymentMap.has(tid)) {
+            deploymentMap.set(tid, {
+              tmuxSession: d.tmux_session,
+              tmuxWindow: d.tmux_window,
+              status: d.status,
+              startedAt: d.started_at,
+              stoppedAt: d.stopped_at,
+            });
+          }
+        }
       }
     } catch { /* table may not exist */ }
 
@@ -287,7 +299,8 @@ export async function GET(request: NextRequest) {
         updatedAt: todo.updated_at,
         completedAt: todo.completed_at,
         estimatedMinutes: todo.estimated_minutes,
-        tmuxSession: deploymentMap.get(todo.id) ?? null,
+        tmuxSession: deploymentMap.get(todo.id)?.tmuxSession ?? null,
+        deployment: deploymentMap.get(todo.id) ?? null,
         attachments: attachmentsByTodo.get(todo.id) ?? [],
       });
     }

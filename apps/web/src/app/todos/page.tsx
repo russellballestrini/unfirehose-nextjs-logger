@@ -35,6 +35,7 @@ interface Todo {
   completedAt: string | null;
   estimatedMinutes: number | null;
   tmuxSession: string | null;
+  deployment: { tmuxSession: string; tmuxWindow: string | null; status: string; startedAt: string | null; stoppedAt: string | null } | null;
   attachments: Attachment[];
 }
 
@@ -721,8 +722,26 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
         }
       `}
     >
-      {/* Power indicator for in_progress */}
-      {isActive && (
+      {/* Deployment status */}
+      {todo.deployment && (
+        <div className="flex items-center gap-1.5 mb-2 text-xs">
+          <span className={`w-1.5 h-1.5 rounded-full ${todo.deployment.status === 'running' ? 'bg-blue-400 animate-pulse' : todo.deployment.status === 'completed' ? 'bg-green-400' : 'bg-red-400'}`} />
+          <span className={`font-bold ${todo.deployment.status === 'running' ? 'text-blue-400' : todo.deployment.status === 'completed' ? 'text-green-400' : 'text-red-400'}`}>
+            {todo.deployment.status.toUpperCase()}
+          </span>
+          {todo.deployment.startedAt && (
+            <span className="text-[var(--color-muted)]">{formatRelativeTime(todo.deployment.startedAt)}</span>
+          )}
+          {todo.deployment.tmuxSession && (
+            <Link href={`/tmux/${encodeURIComponent(todo.deployment.tmuxSession)}${todo.deployment.tmuxWindow ? `?window=${encodeURIComponent(todo.deployment.tmuxWindow)}` : ''}`}
+              onClick={(e) => e.stopPropagation()}
+              className="font-mono text-[var(--color-accent)] hover:underline">
+              {todo.deployment.tmuxSession}{todo.deployment.tmuxWindow ? `:${todo.deployment.tmuxWindow}` : ''}
+            </Link>
+          )}
+        </div>
+      )}
+      {isActive && !todo.deployment && (
         <div className="flex items-center gap-1.5 mb-2">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
           <span className="text-xs font-bold text-blue-400">RUNNING</span>
