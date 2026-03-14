@@ -29,6 +29,10 @@ git status
 
 Then ask fox what the mission is.
 
+### Git
+
+`git.unturf.com` is GitLab. GitHub is a secondary remote — not all repos have it.
+
 ## Architecture
 
 Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `localhost:3000`.
