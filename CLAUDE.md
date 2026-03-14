@@ -118,11 +118,14 @@ The bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:
 
 ### Unsandbox Claude bootstrap
 
-Unsandbox uses a golden image with claude pre-installed. **Do NOT install claude at boot** — it's already there.
-- Ephemeral sessions: just run `claude --dangerously-skip-permissions` directly in a tmux session
-- Future golden images will mint a specific claude version with optional in-place upgrade
+Bootstrap installs claude via `curl -fsSL https://claude.ai/install.sh | bash` if not already present, persists `~/.local/bin` in PATH via bashrc and `/etc/profile.d/claude.sh`. Auth credentials (`~/.claude/.credentials.json`, settings) are base64-encoded server-side and injected into the bootstrap script, written with `umask 077`, `chmod 600` on files, `chmod 700` on `~/.claude/`.
+
 - On terminal connect: auto-send `tmux attach -t claude` to land in claude's UI
 - `IS_SANDBOX=1` env var set when running claude in unsandbox containers
+
+### Unsandbox threat model
+
+**Assume an untrusted user has bash-level access on all unsandbox containers.** Credential files must never be world-readable. Permacomputer nodes run tripwire processes that monitor for public file permissions on sensitive paths — any credential file created with lax permissions will trigger an alert. All credential writes must use `umask 077` before `mkdir`/file creation, followed by explicit `chmod 600` (files) and `chmod 700` (directories) as belt-and-suspenders.
 
 ## Todo System
 
