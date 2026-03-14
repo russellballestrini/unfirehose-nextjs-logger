@@ -1,6 +1,6 @@
 # @unturf/unfirehose
 
-Core data layer for [unfirehose](https://github.com/russellballestrini/unfirehose) — a local-first observability dashboard for Claude Code.
+Core data layer for [unfirehose](https://github.com/russellballestrini/unfirehose-nextjs-logger) — a local-first observability dashboard for Claude Code.
 
 Reads JSONL session logs from `~/.claude/`, `~/.fetch/`, and `~/.uncloseai/`, normalizes them into SQLite, and provides types and utilities for building tools on top.
 

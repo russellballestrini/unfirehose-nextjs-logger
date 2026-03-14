@@ -6,7 +6,7 @@ A specification for logging machine learning agent sessions, tool calls, todos, 
 
 Every coding agent harness writes session logs. None agree on the format. This makes cross-tool analytics, training data extraction, and agent fleet management harder than it needs to be. JSONL (newline-delimited JSON) is the natural fit: append-only, streamable, human-readable, trivially parseable.
 
-This document describes the schema used by [unfirehose](https://github.com/russellballestrini/unfirehose) (unfirehose) to ingest, normalize, and query sessions from multiple harnesses. It serves as both documentation of what exists and a proposal for what the industry should converge on.
+This document describes the schema used by [unfirehose](https://github.com/russellballestrini/unfirehose-nextjs-logger) (unfirehose) to ingest, normalize, and query sessions from multiple harnesses. It serves as both documentation of what exists and a proposal for what the industry should converge on.
 
 ## Supported Harnesses
 

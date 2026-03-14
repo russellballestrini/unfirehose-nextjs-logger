@@ -6,10 +6,10 @@
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "https://github.com/russellballestrini/unfirehose.git",
+    "url": "https://github.com/russellballestrini/unfirehose-nextjs-logger.git",
     "directory": "packages/router"
   },
-  "homepage": "https://github.com/russellballestrini/unfirehose#readme",
+  "homepage": "https://github.com/russellballestrini/unfirehose-nextjs-logger#readme",
   "keywords": [
     "claude-code",
     "jsonl",

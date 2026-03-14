@@ -1,6 +1,6 @@
 # @unturf/unfirehose-router
 
-Lightweight daemon that watches Claude Code JSONL session files and forwards new events to a cloud [unfirehose](https://github.com/russellballestrini/unfirehose) instance.
+Lightweight daemon that watches Claude Code JSONL session files and forwards new events to a cloud [unfirehose](https://github.com/russellballestrini/unfirehose-nextjs-logger) instance.
 
 Tracks cursor positions per file so it never re-sends data, even after restarts.
 

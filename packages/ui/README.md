@@ -1,6 +1,6 @@
 # @unturf/unfirehose-ui
 
-Shared React components for [unfirehose](https://github.com/russellballestrini/unfirehose) dashboards.
+Shared React components for [unfirehose](https://github.com/russellballestrini/unfirehose-nextjs-logger) dashboards.
 
 ## Install
 

@@ -137,7 +137,7 @@ unfirehose/
 ## Quickstart
 
 ```bash
-git clone https://github.com/russellballestrini/unfirehose.git
+git clone https://github.com/russellballestrini/unfirehose-nextjs-logger.git
 cd unfirehose
 npm install
 npm run dev
