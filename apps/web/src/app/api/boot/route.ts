@@ -150,10 +150,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Register every deployment so UNEOF cull can find it
-    if (projectName) {
+    // Also derive projectName from projectPath if not provided
+    const resolvedProjectName = projectName || path.basename(projectPath).replace(/[^a-zA-Z0-9_-]/g, '-');
+    if (resolvedProjectName || todoIds?.length) {
       try {
         const db = getDb();
-        const proj = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: number } | undefined;
+        // Try exact match, then path-encoded match, then path-based match
+        let proj = db.prepare('SELECT id FROM projects WHERE name = ?').get(resolvedProjectName) as { id: number } | undefined;
+        if (!proj) {
+          // Try matching by path encoding (e.g. /home/fox/git/unhomeschool.com → -home-fox-git-unhomeschool-com)
+          const encodedName = projectPath.replace(/^\//, '').replace(/[/.]/g, '-');
+          proj = db.prepare('SELECT id FROM projects WHERE name = ?').get('-' + encodedName) as { id: number } | undefined;
+        }
+        if (!proj) {
+          proj = db.prepare('SELECT id FROM projects WHERE path = ?').get(projectPath) as { id: number } | undefined;
+        }
         if (proj) {
           db.prepare(`
             INSERT INTO agent_deployments (tmux_session, tmux_window, project_id, todo_ids, status, started_at)
