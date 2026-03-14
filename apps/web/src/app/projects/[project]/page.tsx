@@ -887,10 +887,10 @@ function TodoRow({ todo, project, completed }: { todo: any; project: string; com
         }}
       />
       <button
-        onClick={() => { navigator.clipboard.writeText(`#${todo.id}`); setCopied(true); setTimeout(() => setCopied(false), 420); }}
+        onClick={() => { navigator.clipboard.writeText(todo.uuid || `#${todo.id}`); setCopied(true); setTimeout(() => setCopied(false), 420); }}
         className="font-mono text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer shrink-0"
-        title="Copy todo ID"
-      >{copied ? 'copied' : `#${todo.id}`}</button>
+        title={todo.uuid || `#${todo.id}`}
+      >{copied ? 'copied' : `#${todo.id}`}{!copied && todo.uuid && <span className="ml-1 opacity-50">{todo.uuid.slice(0, 8)}</span>}</button>
       <span className={`flex-1 ${completed ? 'line-through text-[var(--color-muted)]' : ''}`}>{todo.content}</span>
       {todo.deployment?.tmuxSession && (
         <Link href={`/tmux/${encodeURIComponent(todo.deployment.tmuxSession)}${todo.deployment.tmuxWindow ? `?window=${encodeURIComponent(todo.deployment.tmuxWindow)}` : ''}`}
