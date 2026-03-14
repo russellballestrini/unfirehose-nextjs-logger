@@ -831,7 +831,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
             {showNodePicker && (
               <div className="absolute z-50 top-full mt-1 left-0 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
                 <button
-                  onClick={() => { onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`, 'localhost', [todo.id], todo.projectName); setShowNodePicker(false); }}
+                  onClick={() => { onUpdate(todo.id, { status: 'in_progress' }); onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`, 'localhost', [todo.id], todo.projectName); setShowNodePicker(false); }}
                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--color-surface-hover)] flex items-center gap-2 cursor-pointer"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -840,7 +840,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
                 {meshNodes.filter(n => n.hostname !== 'localhost').map(n => (
                   <button
                     key={n.hostname}
-                    onClick={() => { onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`, n.hostname, [todo.id], todo.projectName); setShowNodePicker(false); }}
+                    onClick={() => { onUpdate(todo.id, { status: 'in_progress' }); onBoot(projectPath, bootKey, `Work on this task: ${todo.content}`, n.hostname, [todo.id], todo.projectName); setShowNodePicker(false); }}
                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--color-surface-hover)] flex items-center gap-2 cursor-pointer"
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${n.reachable ? 'bg-green-400' : 'bg-red-400'}`} />
