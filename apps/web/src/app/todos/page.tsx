@@ -676,6 +676,7 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(todo.content);
   const [showNodePicker, setShowNodePicker] = useState(false);
+  const [copied, setCopied] = useState(false);
   const needsTicket = (todo.estimatedMinutes ?? 0) > TICKET_THRESHOLD;
   const bootKey = `todo-${todo.id}`;
   const isActive = todo.status === 'in_progress';
@@ -788,10 +789,10 @@ function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bo
       {/* Footer */}
       <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] flex-wrap">
         <button
-          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`#${todo.id}`); }}
+          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`#${todo.id}`); setCopied(true); setTimeout(() => setCopied(false), 420); }}
           className="font-mono text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer"
           title="Copy todo ID"
-        >#{todo.id}</button>
+        >{copied ? 'copied' : `#${todo.id}`}</button>
         <SourceBadge source={todo.source} />
         {todo.sessionDisplay && todo.sessionUuid && todo.projectName && (
           <Link href={`/projects/${encodeURIComponent(todo.projectName)}/${todo.sessionUuid}`} className="hover:text-[var(--color-accent)] truncate max-w-[100px]" onClick={(e) => e.stopPropagation()}>{todo.sessionDisplay}</Link>
