@@ -765,7 +765,12 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
 
   setupParts.push(`cd '${workDir}'`);
 
-  // Golden image has claude pre-installed — no install step needed
+  // Install claude if not already present (golden image may have it, fresh containers won't)
+  setupParts.push(
+    'if ! command -v claude >/dev/null 2>&1; then',
+    '  npm install -g @anthropic-ai/claude-code 2>&1',
+    'fi',
+  );
 
   // Build the harness command
   let harnessCmd = resolvedHarness === 'claude' ? 'claude' : resolvedHarness;
