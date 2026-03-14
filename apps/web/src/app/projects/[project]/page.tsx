@@ -149,12 +149,11 @@ export default function ProjectPage({
   const gitRemoteUrl = meta?.remotes?.find((r: any) => r.type === 'fetch' && r.name === 'origin')?.url
     ?? meta?.remotes?.find((r: any) => r.type === 'fetch')?.url;
 
+  // Derive path from project name if originalPath missing
+  const derivedProjectPath = data?.originalPath || '/' + decodedProject.replace(/-/g, '/');
+
   async function bootSession(sessionId?: string) {
-    if (!data?.originalPath && target !== 'unsandbox') {
-      setBootResult('Error: No project path — cannot boot session.');
-      return;
-    }
-    if (target === 'unsandbox' && !data?.originalPath && !gitRemoteUrl) {
+    if (target === 'unsandbox' && !derivedProjectPath && !gitRemoteUrl) {
       setBootResult('Error: No project path or git remote — cannot boot on unsandbox.');
       return;
     }
@@ -166,7 +165,7 @@ export default function ProjectPage({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectPath: data?.originalPath || decodedProject.replace(/-/g, '/'),
+          projectPath: derivedProjectPath,
           projectName: decodedProject,
           sessionId,
           yolo,
@@ -204,15 +203,12 @@ export default function ProjectPage({
         }),
       });
       const todoResult = await todoRes.json();
-      const canBoot = data?.originalPath || (target === 'unsandbox' && gitRemoteUrl);
-      if (startNow && !canBoot) {
-        setBootResult('Error: No project path — cannot spawn agent.');
-      } else if (startNow && canBoot) {
+      if (startNow) {
         const res = await fetch('/api/boot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            projectPath: data?.originalPath || decodedProject.replace(/-/g, '/'),
+            projectPath: derivedProjectPath,
             projectName: decodedProject,
             yolo: true,
             prompt: newTask.trim(),
@@ -299,8 +295,7 @@ export default function ProjectPage({
               })}
             </>
           )}
-          {data.originalPath && (
-            <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
               <label className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] cursor-pointer">
                 <input type="checkbox" checked={yolo} onChange={(e) => setYolo(e.target.checked)} className="accent-[var(--color-error)]" />
                 Yolo
@@ -313,11 +308,8 @@ export default function ProjectPage({
                 {booting ? 'Booting...' : 'Boot Session'}
               </button>
             </div>
-          )}
         </div>
-        {data.originalPath && (
-          <p className="text-sm text-[var(--color-muted)] font-mono mt-1">{data.originalPath}</p>
-        )}
+        <p className="text-sm text-[var(--color-muted)] font-mono mt-1">{derivedProjectPath}</p>
         {bootResult && (
           <div className={`text-sm font-mono mt-1 flex items-center gap-3 ${bootResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
             <span>{bootResult}</span>
@@ -484,7 +476,7 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
                 </select>
               </div>
               <span className="text-xs text-[var(--color-muted)] ml-auto">
-                {data?.originalPath ? 'Ctrl+Enter starts now, Shift+Enter queues' : (target === 'unsandbox' && gitRemoteUrl) ? `Will clone from git remote` : 'No project path — queue only'}
+                Ctrl+Enter starts now, Shift+Enter queues
               </span>
             </div>
             <div className="flex items-center justify-end mt-2 gap-2">
