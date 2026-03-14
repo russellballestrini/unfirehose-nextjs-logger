@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, createHash } from 'crypto';
+import { readFile, stat } from 'fs/promises';
+import path from 'path';
+import { homedir } from 'os';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 
 // Auth pattern matches official un.ts CLI: https://unsandbox.com/cli/typescript
@@ -270,11 +273,28 @@ ENDJSON`;
       : `service-${pkSuffix}`;
     if (!name) return NextResponse.json({ error: 'Missing service name' }, { status: 400 });
     try {
+      // Inject Claude auth credentials into bootstrap script if present
+      let finalBootstrap = bootstrap;
+      if (finalBootstrap) {
+        const credLines = await buildCredentialLines();
+        if (credLines) {
+          // Insert after shebang + set -e, before the rest
+          const lines = finalBootstrap.split('\n');
+          const insertIdx = lines.findIndex((l: string) => l.startsWith('set -e'));
+          if (insertIdx >= 0) {
+            lines.splice(insertIdx + 1, 0, credLines);
+          } else {
+            lines.splice(1, 0, credLines);
+          }
+          finalBootstrap = lines.join('\n');
+        }
+      }
+
       // Ports must be an array of integers (matching SDK format)
       const portsArray = (ports || '80').toString().split(',').map((p: string) => parseInt(p.trim())).filter((p: number) => !isNaN(p));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const svcPayload: any = { name, ports: portsArray };
-      if (bootstrap) svcPayload.bootstrap = bootstrap;
+      if (finalBootstrap) svcPayload.bootstrap = finalBootstrap;
       if (network) svcPayload.network = network;
       const payload = JSON.stringify(svcPayload);
       const data = await apiPost(publicKey, secretKey, '/services', payload);
@@ -321,4 +341,36 @@ ENDJSON`;
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+}
+
+// Build shell lines that inject Claude auth credentials into a container
+async function buildCredentialLines(): Promise<string | null> {
+  const credFile = path.join(homedir(), '.claude', '.credentials.json');
+  const settingsFile = path.join(homedir(), '.claude', 'settings.json');
+  const settingsLocalFile = path.join(homedir(), '.claude', 'settings.local.json');
+
+  try {
+    await stat(credFile);
+  } catch {
+    return null; // no local credentials
+  }
+
+  const lines: string[] = [
+    '# Sync Claude auth credentials',
+    'umask 077 && mkdir -p ~/.claude',
+  ];
+
+  const credData = await readFile(credFile);
+  lines.push(`echo '${credData.toString('base64')}' | base64 -d > ~/.claude/.credentials.json`);
+  lines.push('chmod 600 ~/.claude/.credentials.json');
+
+  for (const f of [settingsFile, settingsLocalFile]) {
+    try {
+      const data = await readFile(f);
+      lines.push(`echo '${data.toString('base64')}' | base64 -d > ~/.claude/${path.basename(f)}`);
+    } catch { /* skip missing */ }
+  }
+
+  lines.push('chmod 700 ~/.claude');
+  return lines.join('\n');
 }
