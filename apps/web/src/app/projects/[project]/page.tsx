@@ -502,16 +502,7 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
             {full?.todos?.length > 0 ? (
               <div className="space-y-1">
                 {full.todos.slice(0, 8).map((t: any) => (
-                  <div key={t.id} className="flex items-center gap-2 text-sm">
-                    <span
-                      className={`w-2 h-2 rounded-full shrink-0${t.status === 'in_progress' ? ' animate-pulse' : ''}`}
-                      style={{ backgroundColor: t.status === 'pending' ? '#fbbf24' : t.status === 'in_progress' ? '#60a5fa' : '#22c55e' }}
-                    />
-                    <span className="font-mono text-xs text-[var(--color-muted)] shrink-0">#{t.id}</span>
-                    {t.uuid && <span className="font-mono text-xs opacity-50 shrink-0">{t.uuid.slice(-8)}</span>}
-                    <span className="flex-1 truncate">{t.content}</span>
-                    <span className="text-xs text-[var(--color-muted)] shrink-0">{formatRelativeTime(t.updatedAt)}</span>
-                  </div>
+                  <OverviewTodoRow key={t.id} todo={t} />
                 ))}
                 {full.todos.length > 8 && (
                   <button onClick={() => {}} className="text-xs text-[var(--color-accent)]">+{full.todos.length - 8} more</button>
@@ -867,6 +858,30 @@ function TodosTab({ full, project, decodedProject: _decodedProject }: any) {
       {todos.length === 0 && (
         <p className="text-center text-[var(--color-muted)] py-8">No todos for this project</p>
       )}
+    </div>
+  );
+}
+
+function OverviewTodoRow({ todo }: { todo: any }) {
+  const [copied, setCopied] = useState<'id' | 'uuid' | false>(false);
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span
+        className={`w-2 h-2 rounded-full shrink-0${todo.status === 'in_progress' ? ' animate-pulse' : ''}`}
+        style={{ backgroundColor: todo.status === 'pending' ? '#fbbf24' : todo.status === 'in_progress' ? '#60a5fa' : '#22c55e' }}
+      />
+      <button
+        onClick={() => { navigator.clipboard.writeText(`#${todo.id}`); setCopied('id'); setTimeout(() => setCopied(false), 420); }}
+        className="font-mono text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer shrink-0"
+        title={`#${todo.id}`}
+      >{copied === 'id' ? 'copied' : `#${todo.id}`}</button>
+      {todo.uuid && <button
+        onClick={() => { navigator.clipboard.writeText(todo.uuid); setCopied('uuid'); setTimeout(() => setCopied(false), 420); }}
+        className="font-mono text-xs opacity-50 hover:opacity-100 hover:text-[var(--color-accent)] cursor-pointer shrink-0"
+        title={todo.uuid}
+      >{copied === 'uuid' ? 'copied' : todo.uuid.slice(-8)}</button>}
+      <Link href={`/todos/${todo.id}`} className="flex-1 truncate hover:text-[var(--color-accent)]">{todo.content}</Link>
+      <span className="text-xs text-[var(--color-muted)] shrink-0">{formatRelativeTime(todo.updatedAt)}</span>
     </div>
   );
 }
