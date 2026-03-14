@@ -772,6 +772,8 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
     'if ! command -v claude >/dev/null 2>&1; then',
     '  curl -fsSL https://claude.ai/install.sh | bash 2>&1',
     'fi',
+    // Persist PATH for new shells (tmux, terminal connect, etc.)
+    'grep -q ".local/bin" ~/.bashrc 2>/dev/null || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
   );
 
   // Build the harness command
