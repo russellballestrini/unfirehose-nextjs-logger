@@ -248,6 +248,15 @@ export default function ProjectKanbanPage({ params }: { params: Promise<{ projec
     if (targetStatus === 'in_progress' && todo.status === 'pending' && projectData?.originalPath) {
       bootAgent(projectData.originalPath, `todo-${todo.id}`, `Work on this task: ${todo.content}`);
     }
+
+    // Clean up tmux session when completing
+    if (targetStatus === 'completed' && todo.status === 'in_progress') {
+      fetch('/api/boot/finished', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ todoId: todo.id }),
+      }).catch(() => {});
+    }
   }, [draggedTodo, updateTodo, projectData, bootAgent, canDropOnColumn]);
 
   const projectPath = projectData?.originalPath ?? null;

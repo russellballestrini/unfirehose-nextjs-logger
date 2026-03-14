@@ -397,6 +397,19 @@ export default function TodosPage() {
         bootAgent(group.projectPath, `todo-${todo.id}`, `Work on this task: ${todo.content}`, undefined, [todo.id], group.project);
       }
     }
+
+    // Clean up tmux session when completing
+    if (targetStatus === 'completed' && (todo.status === 'in_progress' || todo.deployment)) {
+      fetch('/api/boot/finished', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          todo.deployment?.tmuxSession
+            ? { tmuxSession: todo.deployment.tmuxSession, tmuxWindow: todo.deployment.tmuxWindow }
+            : { todoId: todo.id }
+        ),
+      }).catch(() => {});
+    }
   }, [draggedTodo, updateTodo, byProject, bootAgent, canDropOnColumn]);
 
   // Stats

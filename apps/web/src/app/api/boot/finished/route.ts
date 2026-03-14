@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb();
     const body = await request.json();
-    const { tmuxSession, tmuxWindow, projectName } = body;
+    const { tmuxSession, tmuxWindow, projectName, todoId } = body;
 
     const exited: string[] = [];
 
@@ -77,8 +77,28 @@ export async function POST(request: NextRequest) {
         killWindowAfterDelay(target);
         exited.push(target);
       }
+    } else if (todoId) {
+      // Find deployments that include this todo ID
+      const allDeps = db.prepare(
+        "SELECT id, tmux_session, tmux_window, todo_ids FROM agent_deployments WHERE status = 'running'"
+      ).all() as any[];
+
+      for (const d of allDeps) {
+        const ids: number[] = JSON.parse(d.todo_ids || '[]');
+        if (ids.includes(Number(todoId))) {
+          db.prepare(
+            "UPDATE agent_deployments SET status = 'completed', stopped_at = datetime('now') WHERE id = ?"
+          ).run(d.id);
+
+          const target = d.tmux_window ? `${d.tmux_session}:${d.tmux_window}` : d.tmux_session;
+          execAsync('tmux', ['send-keys', '-t', target, '/exit', 'Enter'], { timeout: 3000 })
+            .catch(() => {});
+          killWindowAfterDelay(target);
+          exited.push(target);
+        }
+      }
     } else {
-      return NextResponse.json({ error: 'Provide tmuxSession or projectName' }, { status: 400 });
+      return NextResponse.json({ error: 'Provide tmuxSession, projectName, or todoId' }, { status: 400 });
     }
 
     return NextResponse.json({ ok: true, exited });
