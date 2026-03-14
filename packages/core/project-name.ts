@@ -85,11 +85,19 @@ export async function resolveProjectPath(
       return null;
     }
     // Try longest segment first (greedy: fewer splits = more likely correct)
+    // For each segment length, try both '-' and '.' joins (e.g. unhomeschool-com vs unhomeschool.com)
     for (let end = parts.length; end > idx; end--) {
-      const segment = parts.slice(idx, end).join('-');
-      const candidate = prefix + '/' + segment;
-      const result = probe(end, candidate);
-      if (result) return result;
+      const subParts = parts.slice(idx, end);
+      const candidates = [subParts.join('-')];
+      // Try '.' join for domain-style names (e.g. unsandbox.com, unhomeschool.com)
+      if (subParts.length >= 2) {
+        candidates.push(subParts.slice(0, -1).join('-') + '.' + subParts[subParts.length - 1]);
+      }
+      for (const segment of candidates) {
+        const candidate = prefix + '/' + segment;
+        const result = probe(end, candidate);
+        if (result) return result;
+      }
     }
     return null;
   }

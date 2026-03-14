@@ -149,12 +149,13 @@ export default function ProjectPage({
   const gitRemoteUrl = meta?.remotes?.find((r: any) => r.type === 'fetch' && r.name === 'origin')?.url
     ?? meta?.remotes?.find((r: any) => r.type === 'fetch')?.url;
 
-  // Derive path from project name if originalPath missing
-  const derivedProjectPath = data?.originalPath || '/' + decodedProject.replace(/-/g, '/');
+  // Use originalPath from API (resolves via filesystem probing on server)
+  // full?.project?.path is another source from the full endpoint
+  const derivedProjectPath = data?.originalPath || full?.project?.path || null;
 
   async function bootSession(sessionId?: string) {
-    if (target === 'unsandbox' && !derivedProjectPath && !gitRemoteUrl) {
-      setBootResult('Error: No project path or git remote — cannot boot on unsandbox.');
+    if (!derivedProjectPath && !(target === 'unsandbox' && gitRemoteUrl)) {
+      setBootResult('Error: No project path found — waiting for path resolution. Try refreshing.');
       return;
     }
     setBooting(true);
@@ -203,7 +204,7 @@ export default function ProjectPage({
         }),
       });
       const todoResult = await todoRes.json();
-      if (startNow) {
+      if (startNow && derivedProjectPath) {
         const res = await fetch('/api/boot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -506,6 +507,8 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
                       className={`w-2 h-2 rounded-full shrink-0${t.status === 'in_progress' ? ' animate-pulse' : ''}`}
                       style={{ backgroundColor: t.status === 'pending' ? '#fbbf24' : t.status === 'in_progress' ? '#60a5fa' : '#22c55e' }}
                     />
+                    <span className="font-mono text-xs text-[var(--color-muted)] shrink-0">#{t.id}</span>
+                    {t.uuid && <span className="font-mono text-xs opacity-50 shrink-0">{t.uuid.slice(-8)}</span>}
                     <span className="flex-1 truncate">{t.content}</span>
                     <span className="text-xs text-[var(--color-muted)] shrink-0">{formatRelativeTime(t.updatedAt)}</span>
                   </div>
