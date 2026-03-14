@@ -768,7 +768,7 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
   // Install claude if not already present (golden image may have it, fresh containers won't)
   setupParts.push(
     'if ! command -v claude >/dev/null 2>&1; then',
-    '  npm install -g @anthropic-ai/claude-code 2>&1',
+    '  curl -fsSL https://claude.ai/install.sh | bash 2>&1',
     'fi',
   );
 
