@@ -140,6 +140,7 @@ export async function GET(
       models: topModels,
       todos: todos.map((t: any) => ({
         id: t.id,
+        uuid: t.uuid,
         content: t.content,
         status: t.status,
         activeForm: t.active_form,
