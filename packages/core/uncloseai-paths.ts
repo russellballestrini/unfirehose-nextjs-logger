@@ -5,14 +5,14 @@ const UNCLOSEAI_DIR = path.join(homedir(), '.uncloseai');
 
 export const uncloseaiPaths = {
   root: UNCLOSEAI_DIR,
-  sessions: path.join(UNCLOSEAI_DIR, 'sessions'),
+  unfirehose: path.join(UNCLOSEAI_DIR, 'unfirehose'),
 
   projectDir(cwdSlug: string) {
-    return path.join(UNCLOSEAI_DIR, 'sessions', cwdSlug);
+    return path.join(UNCLOSEAI_DIR, 'unfirehose', cwdSlug);
   },
 
   sessionFile(cwdSlug: string, sessionId: string) {
-    return path.join(UNCLOSEAI_DIR, 'sessions', cwdSlug, `${sessionId}.jsonl`);
+    return path.join(UNCLOSEAI_DIR, 'unfirehose', cwdSlug, `${sessionId}.jsonl`);
   },
 };
 
