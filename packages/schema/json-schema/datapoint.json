@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unfirehose.org/schema/1.0/datapoint.json",
+  "title": "unfirehose/1.0 DataPoint",
+  "description": "General-purpose metric data point. Compatible with Datadog, StatsD, and OpenTelemetry metric semantics.",
+  "type": "object",
+  "properties": {
+    "$schema": { "const": "unfirehose/1.0" },
+    "type": { "const": "datapoint" },
+    "metric": {
+      "type": "string",
+      "description": "Dot-separated metric name. e.g. unfirehose.tokens.input, agent.cost.usd, mesh.cpu.percent"
+    },
+    "metricType": {
+      "type": "string",
+      "enum": ["count", "gauge", "rate", "histogram", "distribution", "set"],
+      "description": "Determines aggregation: count=monotonic delta, gauge=point-in-time, rate=per-second, histogram=distribution within host, distribution=global distribution, set=unique count"
+    },
+    "value": {
+      "oneOf": [
+        { "type": "number" },
+        { "type": "array", "items": { "type": "number" } }
+      ],
+      "description": "Single number for count/gauge/rate/set, array for histogram/distribution batch submissions"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Key-value tags for filtering and grouping. e.g. { project: 'myapp', model: 'opus-4-6' }"
+    },
+    "interval": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Interval in seconds for rate metrics"
+    },
+    "unit": {
+      "type": "string",
+      "description": "Display unit. e.g. token, dollar, millisecond, byte, percent"
+    }
+  },
+  "required": ["type", "metric", "metricType", "value", "timestamp"],
+  "additionalProperties": true
+}

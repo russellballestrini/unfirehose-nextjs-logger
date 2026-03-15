@@ -155,6 +155,7 @@ export interface TodoEvent {
 
 // === Metric ===
 
+/** Legacy usage rollup — still supported, maps to a gauge DataPoint internally */
 export interface Metric {
   $schema?: "unfirehose/1.0";
   type: "metric";
@@ -163,6 +164,51 @@ export interface Metric {
   usage: Usage;
   messageCount?: number;
   costUsd?: number;
+}
+
+// === DataPoint (general-purpose metric, Datadog-compatible) ===
+
+/**
+ * Metric types aligned with Datadog/StatsD/OpenTelemetry:
+ *
+ * - count:        Monotonic counter, tracks occurrences. Submitted as deltas.
+ *                 e.g. tokens consumed, messages sent, tool calls made.
+ *
+ * - gauge:        Point-in-time value, can go up or down.
+ *                 e.g. active sessions, memory usage, queue depth.
+ *
+ * - rate:         Per-second rate, computed from count / interval.
+ *                 e.g. tokens/sec, cost/min.
+ *
+ * - histogram:    Statistical distribution of values in an interval.
+ *                 Produces avg, max, median, p95, p99 server-side.
+ *                 e.g. response latency, tokens per message.
+ *
+ * - distribution: Like histogram but computed globally across all hosts.
+ *                 e.g. cost per session across all nodes.
+ *
+ * - set:          Count of unique values in an interval.
+ *                 e.g. unique models used, unique projects active.
+ */
+export type MetricType = "count" | "gauge" | "rate" | "histogram" | "distribution" | "set";
+
+export interface DataPoint {
+  $schema?: "unfirehose/1.0";
+  type: "datapoint";
+  /** Metric name, dot-separated namespace. e.g. "unfirehose.tokens.input", "agent.cost.usd" */
+  metric: string;
+  /** Metric type determines aggregation behavior */
+  metricType: MetricType;
+  /** The value(s). Single number for count/gauge/rate, array for histogram/distribution batches */
+  value: number | number[];
+  /** ISO 8601 timestamp */
+  timestamp: string;
+  /** Key-value tags for filtering/grouping. e.g. { project: "myapp", model: "opus-4-6", host: "cammy" } */
+  tags?: Record<string, string>;
+  /** Interval in seconds for rate metrics */
+  interval?: number;
+  /** Unit for display. e.g. "token", "dollar", "millisecond", "byte" */
+  unit?: string;
 }
 
 // === Project ===
@@ -293,6 +339,7 @@ export type UnfirehoseObject =
   | Todo
   | TodoEvent
   | Metric
+  | DataPoint
   | Project
   | ToolDefinition
   | AlertThreshold
