@@ -177,6 +177,7 @@ export default function TodosPage() {
   const [megaStatus, setMegaStatus] = useState<any>(null);
   const [megaLoading, setMegaLoading] = useState(false);
   const [megaPanelOpen, setMegaPanelOpen] = useState(false);
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [autoCull, setAutoCull] = useState(false);
   const [draggedTodo, setDraggedTodo] = useState<Todo | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -637,13 +638,21 @@ export default function TodosPage() {
           </div>
           ) : (
           <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] cursor-pointer">
+                <input type="checkbox" checked={hideCompleted} onChange={(e) => setHideCompleted(e.target.checked)} className="accent-[var(--color-accent)]" />
+                Hide completed
+              </label>
+            </div>
             {byProject.map(group => {
-              const groupEst = group.todos.filter(t => t.status !== 'completed').reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
+              const visibleTodos = hideCompleted ? group.todos.filter(t => t.status !== 'completed') : group.todos;
+              if (visibleTodos.length === 0) return null;
+              const groupEst = visibleTodos.filter(t => t.status !== 'completed').reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
               return (
                 <div key={group.project} className="border border-[var(--color-border)] rounded-lg p-4">
                   <div className="flex items-center gap-2">
                     <Link href={`/projects/${encodeURIComponent(group.project)}`} className="font-medium hover:text-[var(--color-accent)] transition-colors">{group.display}</Link>
-                    <span className="text-sm text-[var(--color-muted)]">{group.todos.length} todos</span>
+                    <span className="text-sm text-[var(--color-muted)]">{visibleTodos.length} todos</span>
                     {groupEst > 0 && <span className="text-sm text-[var(--color-muted)]">~{groupEst < 60 ? `${groupEst}m` : `${Math.floor(groupEst / 60)}h ${groupEst % 60}m`}</span>}
                     <Link href={`/projects/${encodeURIComponent(group.project)}/kanban`} className="text-xs text-[var(--color-accent)] hover:underline">kanban</Link>
                     {group.projectPath && (
@@ -656,16 +665,18 @@ export default function TodosPage() {
                     )}
                   </div>
                   <div className="mt-3 space-y-1">
-                    {group.todos.slice(0, 15).map(todo => (
+                    {visibleTodos.slice(0, 15).map(todo => (
                       <div key={todo.id} className="flex items-center gap-2 text-sm">
                         <StatusDot status={todo.status} />
-                        <span className="flex-1 truncate">{todo.content}</span>
+                        <Link href={`/todos/${todo.id}`} className="font-mono text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] shrink-0">#{todo.id}</Link>
+                        {todo.uuid && <Link href={`/todos/${todo.id}`} className="font-mono text-xs opacity-50 hover:opacity-100 hover:text-[var(--color-accent)] shrink-0">{todo.uuid.slice(-8)}</Link>}
+                        <Link href={`/todos/${todo.id}`} className="flex-1 truncate hover:text-[var(--color-accent)]">{todo.content}</Link>
                         {todo.estimatedMinutes !== null && <span className={`text-xs shrink-0 ${todo.estimatedMinutes > TICKET_THRESHOLD ? 'text-yellow-400' : 'text-[var(--color-muted)]'}`}>{todo.estimatedMinutes}m</span>}
                         <SourceBadge source={todo.source} />
                         <span className="text-xs text-[var(--color-muted)] shrink-0">{formatRelativeTime(todo.updatedAt)}</span>
                       </div>
                     ))}
-                    {group.todos.length > 15 && <p className="text-sm text-[var(--color-muted)]">+{group.todos.length - 15} more</p>}
+                    {visibleTodos.length > 15 && <p className="text-sm text-[var(--color-muted)]">+{visibleTodos.length - 15} more</p>}
                   </div>
                 </div>
               );
