@@ -909,7 +909,7 @@ async function ingestUncloseai(
     filesScanned: 0,
   };
 
-  const projectDirs = await readdir(uncloseaiPaths.sessions).catch(() => []);
+  const projectDirs = await readdir(uncloseaiPaths.unfirehose).catch(() => []);
 
   for (const cwdSlug of projectDirs) {
     const projDir = uncloseaiPaths.projectDir(cwdSlug);

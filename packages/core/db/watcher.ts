@@ -43,12 +43,12 @@ export function startWatcher() {
 
   if (!uncloseaiWatcher) {
     try {
-      uncloseaiWatcher = watch(uncloseaiPaths.sessions, { recursive: true }, (_event, filename) => {
+      uncloseaiWatcher = watch(uncloseaiPaths.unfirehose, { recursive: true }, (_event, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
           debouncedIngest();
         }
       });
-      console.log('[watcher] watching', uncloseaiPaths.sessions);
+      console.log('[watcher] watching', uncloseaiPaths.unfirehose);
     } catch (err) {
       console.error('[watcher] uncloseai watch failed:', err);
     }
