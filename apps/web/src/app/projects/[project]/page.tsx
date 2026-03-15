@@ -408,8 +408,6 @@ export default function ProjectPage({
 /* ─── OVERVIEW TAB ─── */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets }: any) {
-  const gitRemoteUrl = meta?.remotes?.find((r: any) => r.type === 'fetch' && r.name === 'origin')?.url
-    ?? meta?.remotes?.find((r: any) => r.type === 'fetch')?.url;
   return (
     <div className="space-y-6">
       {/* Stats bar */}

@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
     try {
       const sessions = await listSessions(host);
       // Attach deployment info (todo IDs, status) to each session
-      let deployments: Record<string, { todos: { id: number; uuid: string | null }[]; status: string; startedAt: string | null }> = {};
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const deployments: Record<string, { todos: { id: number; uuid: string | null }[]; status: string; startedAt: string | null }> = {};
       try {
         const db = getDb();
         const rows = db.prepare(
