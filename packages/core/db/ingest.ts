@@ -9,7 +9,7 @@ import { claudePaths, decodeProjectName } from '../claude-paths';
 import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
 import { normalizeUncloseaiEntry, normalizeNativeEntry } from '../uncloseai-adapter';
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
-import { agntPaths, decodeAgntProjectName } from '../agnt-paths';
+import { agntPaths } from '../agnt-paths';
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
@@ -1077,8 +1077,42 @@ async function ingestUncloseai(
  * agnt is a Tier 1 adopter — writes unfirehose/1.0 directly.
  * The adapter normalizes unfirehose/1.0 → Claude Code ingest shape.
  */
-async function ingestAgnt(
-  db: ReturnType<typeof getDb>
+// ── Native harness registry ──────────────────────────────────────────────────
+// Harnesses that write unfirehose/1.0 JSONL natively. Each entry defines:
+//   name     — harness identifier (stored in sessions.harness)
+//   root     — directory containing {project-slug}/{session-uuid}.jsonl
+// Add new harnesses here — no adapter code needed if they write unfirehose/1.0.
+export interface NativeHarness {
+  name: string;
+  root: string;
+}
+
+function discoverNativeHarnesses(): NativeHarness[] {
+  const home = homedir();
+  const harnesses: NativeHarness[] = [
+    // Existing: agnt
+    { name: 'agnt', root: agntPaths.root },
+    // New native harnesses — each writes to ~/.{name}/unfirehose/{project}/{session}.jsonl
+    { name: 'orcestra', root: process.env.ORCESTRA_UNFIREHOSE_DIR || path.join(home, '.orcestra', 'unfirehose') },
+    { name: 'codex', root: process.env.CODEX_UNFIREHOSE_DIR || path.join(home, '.codex', 'unfirehose') },
+    { name: 'gemini', root: process.env.GEMINI_UNFIREHOSE_DIR || path.join(home, '.gemini', 'unfirehose') },
+    { name: 'aider', root: process.env.AIDER_UNFIREHOSE_DIR || path.join(home, '.aider', 'unfirehose') },
+    { name: 'amp', root: process.env.AMP_UNFIREHOSE_DIR || path.join(home, '.amp', 'unfirehose') },
+    { name: 'kilo-code', root: process.env.KILO_CODE_UNFIREHOSE_DIR || path.join(home, '.kilo-code', 'unfirehose') },
+  ];
+  return harnesses;
+}
+
+// Exported so the watcher can discover directories to watch
+export const nativeHarnesses = discoverNativeHarnesses();
+
+/**
+ * Generic ingestion for any harness that writes unfirehose/1.0 JSONL.
+ * Directory structure: {root}/{project-slug}/{session-uuid}.jsonl
+ */
+async function ingestNativeHarness(
+  db: ReturnType<typeof getDb>,
+  harness: NativeHarness,
 ): Promise<Omit<IngestResult, 'alertsTriggered'>> {
   const result = {
     projectsAdded: 0,
@@ -1088,17 +1122,18 @@ async function ingestAgnt(
     filesScanned: 0,
   };
 
-  if (!agntPaths.root) return result;
+  if (!harness.root) return result;
 
-  const projectDirs = await readdir(agntPaths.root).catch(() => []);
+  const projectDirs = await readdir(harness.root).catch(() => []);
+  if (projectDirs.length === 0) return result;
 
   for (const slug of projectDirs) {
-    const projDir = agntPaths.projectDir(slug);
+    const projDir = path.join(harness.root, slug);
     const dirStat = await stat(projDir).catch(() => null);
     if (!dirStat?.isDirectory()) continue;
 
-    const projectName = `agnt:${slug}`;
-    const displayName = `[agnt] ${decodeAgntProjectName(slug)}`;
+    const projectName = `${harness.name}:${slug}`;
+    const displayName = `[${harness.name}] ${decodeProjectName(slug)}`;
 
     let files: string[];
     try {
@@ -1117,7 +1152,7 @@ async function ingestAgnt(
 
     for (const file of files) {
       const sessionUuid = file.replace('.jsonl', '');
-      const filePath = agntPaths.sessionFile(slug, sessionUuid);
+      const filePath = path.join(harness.root, slug, `${sessionUuid}.jsonl`);
       const fstat = await stat(filePath).catch(() => null);
       if (!fstat) continue;
 
@@ -1131,8 +1166,8 @@ async function ingestAgnt(
       result.filesScanned++;
 
       const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
-        cliVersion: 'agnt',
-        harness: 'agnt',
+        cliVersion: harness.name,
+        harness: harness.name,
       });
 
       if (!offset) result.sessionsAdded++;
@@ -1148,8 +1183,8 @@ async function ingestAgnt(
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            // agnt writes unfirehose/1.0 natively — pass directly to ingest
-            if (entry.type !== 'message') continue; // Skip session envelopes, training events, etc.
+            // Native unfirehose/1.0 — pass directly to ingest
+            if (entry.type !== 'message') continue;
 
             const messageId = insertMessage(db, sessionId, entry);
             if (messageId === null) continue;
@@ -1160,7 +1195,6 @@ async function ingestAgnt(
               result.blocksAdded += insertContentBlocks(db, messageId, entry.content);
             }
 
-            // Extract todos
             extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
 
             const usage = entry.usage;
@@ -1445,13 +1479,15 @@ export async function ingestAll(): Promise<IngestResult> {
     result.filesScanned += fetchResult.filesScanned;
   }
 
-  // Ingest agnt sessions (native unfirehose/1.0)
-  const agntResult = await ingestAgnt(db);
-  result.projectsAdded += agntResult.projectsAdded;
-  result.sessionsAdded += agntResult.sessionsAdded;
-  result.messagesAdded += agntResult.messagesAdded;
-  result.blocksAdded += agntResult.blocksAdded;
-  result.filesScanned += agntResult.filesScanned;
+  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.)
+  for (const harness of nativeHarnesses) {
+    const hResult = await ingestNativeHarness(db, harness);
+    result.projectsAdded += hResult.projectsAdded;
+    result.sessionsAdded += hResult.sessionsAdded;
+    result.messagesAdded += hResult.messagesAdded;
+    result.blocksAdded += hResult.blocksAdded;
+    result.filesScanned += hResult.filesScanned;
+  }
 
   // Backfill display_name for sessions without one OR with preamble names
   const needsName = db.prepare(

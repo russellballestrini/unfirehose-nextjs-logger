@@ -1,12 +1,15 @@
 import { watch, type FSWatcher } from 'fs';
+import { stat } from 'fs/promises';
 import { claudePaths } from '../claude-paths';
 import { uncloseaiPaths } from '../uncloseai-paths';
 import { fetchPaths } from '../fetch-paths';
+import { nativeHarnesses } from './ingest';
 import { ingestAll } from './ingest';
 
 let watcher: FSWatcher | null = null;
 let uncloseaiWatcher: FSWatcher | null = null;
 let fetchWatcher: FSWatcher | null = null;
+const harnessWatchers = new Map<string, FSWatcher>();
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let ingesting = false;
 
@@ -28,7 +31,7 @@ function debouncedIngest() {
   debounceTimer = setTimeout(onFileChange, DEBOUNCE_MS);
 }
 
-export function startWatcher() {
+export async function startWatcher() {
   if (watcher) return;
   try {
     watcher = watch(claudePaths.projects, { recursive: true }, (_event, filename) => {
@@ -66,6 +69,25 @@ export function startWatcher() {
       console.error('[watcher] fetch watch failed:', err);
     }
   }
+
+  // Watch all native harness directories (agnt, orcestra, codex, etc.)
+  for (const harness of nativeHarnesses) {
+    if (harnessWatchers.has(harness.name)) continue;
+    // Only watch directories that actually exist
+    const exists = await stat(harness.root).catch(() => null);
+    if (!exists?.isDirectory()) continue;
+    try {
+      const w = watch(harness.root, { recursive: true }, (_event, filename) => {
+        if (filename && filename.endsWith('.jsonl')) {
+          debouncedIngest();
+        }
+      });
+      harnessWatchers.set(harness.name, w);
+      console.log(`[watcher] watching ${harness.name}:`, harness.root);
+    } catch (err) {
+      console.error(`[watcher] ${harness.name} watch failed:`, err);
+    }
+  }
 }
 
 export function stopWatcher() {
@@ -80,6 +102,10 @@ export function stopWatcher() {
   if (fetchWatcher) {
     fetchWatcher.close();
     fetchWatcher = null;
+  }
+  for (const [name, w] of harnessWatchers) {
+    w.close();
+    harnessWatchers.delete(name);
   }
   if (debounceTimer) {
     clearTimeout(debounceTimer);
