@@ -70,6 +70,9 @@ const DROP_STYLES = `
   @keyframes uf-flicker { 0%,100%{opacity:1;} 92%{opacity:1;} 93%{opacity:0.6;} 94%{opacity:1;} 97%{opacity:0.8;} 98%{opacity:1;} }
   @keyframes uf-glow-orange { 0%,100%{box-shadow:0 0 12px #f97316,0 0 30px #f9731633;} 50%{box-shadow:0 0 24px #f97316,0 0 60px #f9731666;} }
   @keyframes uf-done-flash { 0%{background:rgba(249,115,22,0.25);} 100%{background:rgba(249,115,22,0);} }
+  @keyframes uf-disconnect-red { 0%{background:rgba(0,0,0,0);} 40%{background:rgba(180,0,0,0.7);} 100%{background:rgba(0,0,0,1);} }
+  @keyframes uf-disconnect-text { 0%{opacity:0;transform:scale(0.8);} 15%{opacity:1;transform:scale(1);} 70%{opacity:1;} 100%{opacity:0;} }
+  @keyframes uf-disconnect-dots { 0%{content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
   .xterm-screen { height: 100% !important; }
   .xterm { height: 100% !important; padding: 8px; }
   .xterm-viewport { overflow-y: auto !important; }
@@ -258,6 +261,26 @@ export default function TmuxViewerPage() {
   const host = searchParams.get('host') ?? undefined;
   const isUnsandbox = host === 'unsandbox';
 
+  const [disconnecting, setDisconnecting] = useState(false);
+  const referrerRef = useRef(typeof document !== 'undefined' ? document.referrer : '');
+
+  const handleDisconnect = useCallback(() => {
+    setDisconnecting(true);
+    // If unsandbox, kill the session
+    if (isUnsandbox) {
+      fetch('/api/unsandbox', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'kill-session', sessionId: decodeURIComponent(session) }),
+      }).catch(() => {});
+    }
+    // Fade animation runs 2.5s, then redirect
+    setTimeout(() => {
+      const dest = referrerRef.current || '/tmux';
+      window.location.href = dest;
+    }, 2500);
+  }, [isUnsandbox, session]);
+
   // Nickname for this session
   const { data: nicknamesData } = useSWR('/api/sessions/nickname', fetcher, { refreshInterval: 30000 });
   const nicknames: Record<string, { nickname: string; service_name: string }> = nicknamesData ?? {};
@@ -309,7 +332,18 @@ export default function TmuxViewerPage() {
   );
   const windows: { index: string; name: string; active: boolean }[] = windowsData?.windows ?? [];
 
+  // Auto-switch if active window no longer exists in the windows list
+  useEffect(() => {
+    if (!windows.length || !activeWindow) return;
+    const exists = windows.some(w => w.index === activeWindow);
+    if (!exists) {
+      const target = windows.find(w => w.active) ?? windows[0];
+      setActiveWindow(target.index);
+    }
+  }, [windows, activeWindow]);
+
   // SSE connection — tmux mode only
+  const sseErrorCountRef = useRef(0);
   const connectSSERef = useRef<() => EventSource>(null);
   connectSSERef.current = useCallback(() => {
     const url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
@@ -317,6 +351,30 @@ export default function TmuxViewerPage() {
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
+        // Detect dead window/session from server error
+        if (typeof data === 'string' && /can't find (window|session)|session not found|no server running/i.test(data)) {
+          es.close();
+          sseErrorCountRef.current++;
+          // Re-fetch windows — if others exist, switch; otherwise go back
+          fetch(`/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`)
+            .then(r => r.json())
+            .then(res => {
+              const wins: { index: string; name: string; active: boolean }[] = res.windows ?? [];
+              if (wins.length > 0) {
+                // Current window gone but session alive — switch to first available
+                const target = wins.find(w => w.active) ?? wins[0];
+                setActiveWindow(target.index);
+              } else {
+                // Session gone entirely — navigate back
+                window.location.href = '/tmux';
+              }
+            })
+            .catch(() => {
+              window.location.href = '/tmux';
+            });
+          return;
+        }
+        sseErrorCountRef.current = 0;
         if (!connectedRef.current) { connectedRef.current = true; setConnected(true); }
         pendingContentRef.current = data;
         if (!rafIdRef.current) {
@@ -332,6 +390,12 @@ export default function TmuxViewerPage() {
       connectedRef.current = false;
       setConnected(false);
       es.close();
+      sseErrorCountRef.current++;
+      // After 5 consecutive errors without data, session is likely gone
+      if (sseErrorCountRef.current >= 5) {
+        window.location.href = '/tmux';
+        return;
+      }
       setTimeout(() => connectSSERef.current?.(), 500);
     };
     return es;
@@ -565,6 +629,14 @@ export default function TmuxViewerPage() {
             >
               ⎘ Paste
             </button>
+            <button
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors bg-red-900/60 text-red-300 hover:bg-red-800 hover:text-red-100 border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Disconnect from session"
+            >
+              ⏻ Disconnect
+            </button>
             {!isUnsandbox && (
               <button
                 onClick={() => setInteractive(!interactive)}
@@ -678,13 +750,42 @@ export default function TmuxViewerPage() {
 
         <div className="text-xs text-[var(--color-muted)] mt-1">
           {isUnsandbox
-            ? 'unsandbox container — full interactive terminal. Drag a file to inject its path.'
+            ? 'unsandbox container, full interactive terminal. Drag a file to inject its path.'
             : interactive
               ? 'Keystrokes are sent to tmux. Ctrl+C, arrows, Enter, Tab, Escape all work. Click the terminal first to focus. Drag a file to inject its path.'
               : 'Read-only mode. Click Interactive to enable keyboard input.'
           }
         </div>
       </div>
+
+      {/* Disconnect overlay */}
+      {disconnecting && (
+        <div
+          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
+          style={{ animation: 'uf-disconnect-red 2.5s ease-in forwards' }}
+        >
+          <div
+            className="font-mono font-bold text-4xl tracking-[0.3em] uppercase"
+            style={{
+              color: '#ff3333',
+              animation: 'uf-disconnect-text 2.5s ease-in-out forwards',
+              textShadow: '0 0 20px #ff0000, 0 0 60px #ff000066, 0 0 100px #ff000033',
+            }}
+          >
+            DISCONNECTING
+          </div>
+          <div
+            className="font-mono text-sm mt-4 tracking-widest"
+            style={{
+              color: '#ff6666',
+              animation: 'uf-disconnect-text 2.5s ease-in-out forwards',
+              opacity: 0.7,
+            }}
+          >
+            session terminated
+          </div>
+        </div>
+      )}
     </>
   );
 }
