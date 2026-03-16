@@ -262,44 +262,91 @@ export default function UsageMonitorPage() {
         }}
         details={alerts?.map((a: any) => `ALERT: ${a.metric} exceeded ${formatTokens(a.threshold_value)} in ${a.window_minutes}min — actual: ${formatTokens(a.actual_value)}`).join('\n')}
       />
-      {/* Alert banner */}
-      {alerts && alerts.length > 0 && (
-        <div className="bg-red-950 border border-[var(--color-error)] rounded p-4">
-          <div className="grid grid-cols-[1fr_auto] items-center mb-2">
-            <h3 className="text-base font-bold text-[var(--color-error)]">
-              USAGE ALERTS ({alerts.length})
-            </h3>
-            <button
-              onClick={acknowledgeAll}
-              className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
-            >
-              Acknowledge all
-            </button>
+      {/* Alert banner — grouped by metric + window */}
+      {alerts && alerts.length > 0 && (() => {
+        // Group alerts by metric + window_minutes
+        const groups: Record<string, { metric: string; window: number; threshold: number; alerts: any[] }> = {};
+        for (const a of alerts) {
+          const key = `${a.metric}:${a.window_minutes}`;
+          if (!groups[key]) groups[key] = { metric: a.metric, window: a.window_minutes, threshold: a.threshold_value, alerts: [] };
+          groups[key].alerts.push(a);
+        }
+        // Sort groups: higher window first (60 > 15 > 5), then by most recent alert
+        const sorted = Object.values(groups).sort((a, b) => b.window - a.window || b.alerts[0]?.triggered_at?.localeCompare(a.alerts[0]?.triggered_at));
+        // Peak value across all alerts for sparkline scaling
+        const globalPeak = Math.max(...alerts.map((a: any) => a.actual_value), 1);
+
+        return (
+          <div className="bg-red-950/60 border border-red-900/60 rounded p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-[var(--color-error)] tracking-wide">
+                USAGE ALERTS
+                <span className="ml-2 text-xs font-normal text-[var(--color-muted)]">
+                  {alerts.length} unacknowledged across {sorted.length} {sorted.length === 1 ? 'threshold' : 'thresholds'}
+                </span>
+              </h3>
+              <button
+                onClick={acknowledgeAll}
+                className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer px-2 py-1 rounded border border-transparent hover:border-[var(--color-border)]"
+              >
+                Acknowledge all
+              </button>
+            </div>
+            <div className="space-y-2">
+              {sorted.map(group => {
+                const peak = Math.max(...group.alerts.map((a: any) => a.actual_value));
+                const latest = group.alerts[0];
+                const windowLabel = group.window >= 60 ? `${group.window / 60}h` : `${group.window}m`;
+                return (
+                  <details key={`${group.metric}:${group.window}`} className="group">
+                    <summary className="flex items-center gap-3 py-2 px-3 rounded bg-red-950/50 hover:bg-red-900/30 cursor-pointer list-none">
+                      {/* Window badge */}
+                      <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded flex-shrink-0 ${
+                        group.window >= 60 ? 'bg-red-800/80 text-red-200' : group.window >= 15 ? 'bg-orange-900/80 text-orange-300' : 'bg-yellow-900/60 text-yellow-300'
+                      }`}>{windowLabel}</span>
+                      {/* Metric */}
+                      <span className="text-xs font-mono text-[var(--color-error)]">{group.metric}</span>
+                      {/* Threshold → peak */}
+                      <span className="text-xs text-[var(--color-muted)]">
+                        &gt; {formatTokens(group.threshold)} — peak{' '}
+                        <span className="text-[var(--color-error)] font-bold">{formatTokens(peak)}</span>
+                      </span>
+                      {/* Mini bar showing peak relative to global */}
+                      <span className="flex-1 h-1 bg-red-950 rounded overflow-hidden mx-2">
+                        <span className="block h-full bg-red-500/70 rounded" style={{ width: `${Math.min(100, (peak / globalPeak) * 100)}%` }} />
+                      </span>
+                      {/* Count */}
+                      <span className="text-xs text-[var(--color-muted)] flex-shrink-0">
+                        {group.alerts.length}x
+                      </span>
+                      {/* Recency */}
+                      <span className="text-[10px] text-[var(--color-muted)] flex-shrink-0 w-20 text-right truncate">
+                        {latest.triggered_at?.replace(/^\d{4}-\d{2}-\d{2}\s*/, '')}
+                      </span>
+                      <span className="text-[10px] text-[var(--color-muted)] group-open:rotate-90 transition-transform">▸</span>
+                    </summary>
+                    <div className="ml-8 mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+                      {group.alerts.map((a: any) => (
+                        <Link
+                          key={a.id}
+                          href={`/usage/alert/${a.id}`}
+                          className="flex items-center gap-2 py-0.5 px-2 text-xs rounded hover:bg-red-900/30"
+                        >
+                          <span className="text-[var(--color-error)] font-mono font-bold w-16 text-right">{formatTokens(a.actual_value)}</span>
+                          <span className="flex-1 h-0.5 bg-red-950 rounded overflow-hidden">
+                            <span className="block h-full bg-red-500/50 rounded" style={{ width: `${Math.min(100, (a.actual_value / globalPeak) * 100)}%` }} />
+                          </span>
+                          <span className="text-[var(--color-muted)] w-28 text-right truncate">{a.triggered_at}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
           </div>
-          {alerts.map((alert: any) => (
-            <Link
-              key={alert.id}
-              href={`/alerts/${alert.id}`}
-              className="text-base py-1 border-t border-red-900 block hover:bg-red-900/50 rounded px-1"
-            >
-              <span className="text-[var(--color-error)] font-bold">
-                {alert.metric}
-              </span>{' '}
-              exceeded{' '}
-              <span className="text-[var(--color-foreground)]">
-                {formatTokens(alert.threshold_value)}
-              </span>{' '}
-              in {alert.window_minutes}min window:{' '}
-              <span className="text-[var(--color-error)] font-bold">
-                {formatTokens(alert.actual_value)}
-              </span>{' '}
-              <span className="text-base text-[var(--color-muted)]">
-                ({alert.triggered_at})
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Header */}
       <div className="grid grid-cols-[1fr_auto] items-center">
