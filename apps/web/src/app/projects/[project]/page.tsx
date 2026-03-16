@@ -636,9 +636,8 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
           {meta?.claudeMdExists && (
             <div className="border border-[var(--color-border)] rounded p-4">
               <h3 className="text-sm font-bold mb-2 text-[var(--color-muted)]">CLAUDE.md</h3>
-              <pre className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded p-3 whitespace-pre-wrap max-h-48 overflow-auto">
+              <pre className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded p-3 whitespace-pre-wrap max-h-96 overflow-auto">
                 {meta.claudeMd}
-                {meta.claudeMd && meta.claudeMd.length >= 500 && <span className="text-[var(--color-muted)]">&hellip;</span>}
               </pre>
             </div>
           )}

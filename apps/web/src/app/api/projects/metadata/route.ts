@@ -77,7 +77,7 @@ async function fetchMetadata(projectName: string): Promise<ProjectMetadata> {
     try {
       const full = await readFile(path.join(repoPath, 'CLAUDE.md'), 'utf-8');
       claudeMdExists = true;
-      claudeMd = full.slice(0, 500);
+      claudeMd = full;
     } catch { /* no CLAUDE.md */ }
   }
 
