@@ -279,9 +279,9 @@ function ProjectCard({
         ) : (
           <span />
         )}
-        {project.latestActivity && (
+        {(activity?.last_activity || project.latestActivity) && (
           <span className="text-base text-[var(--color-muted)]">
-            {formatRelativeTime(project.latestActivity)}
+            {formatRelativeTime(activity?.last_activity || project.latestActivity)}
           </span>
         )}
       </div>

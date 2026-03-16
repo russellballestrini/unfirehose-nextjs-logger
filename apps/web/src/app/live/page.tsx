@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
-import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -385,26 +385,20 @@ export default function LivePage() {
               .map(([name, { first, count, hasActive }]) => {
                 const color = getColorForSession(first.sessionId);
                 return (
-                  <SessionPopover
+                  <Link
                     key={name}
-                    sessionId={first.sessionId}
-                    project={first.project}
-                    projectPath={first.originalPath}
-                    label={
-                      <span
-                        className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block"
-                        style={{
-                          borderColor: hasActive ? color : 'var(--color-border)',
-                          color: hasActive ? color : 'var(--color-muted)',
-                        }}
-                      >
-                        {name}
-                        {count > 1 && (
-                          <span className="opacity-50 ml-1">×{count}</span>
-                        )}
-                      </span>
-                    }
-                  />
+                    href={`/projects/${encodeURIComponent(first.project)}`}
+                    className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block hover:opacity-80 transition-opacity"
+                    style={{
+                      borderColor: hasActive ? color : 'var(--color-border)',
+                      color: hasActive ? color : 'var(--color-muted)',
+                    }}
+                  >
+                    {name}
+                    {count > 1 && (
+                      <span className="opacity-50 ml-1">×{count}</span>
+                    )}
+                  </Link>
                 );
               })}
           </div>
