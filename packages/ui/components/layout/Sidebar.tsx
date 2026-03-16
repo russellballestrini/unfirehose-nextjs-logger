@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import useSWR from 'swr';
+
+const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 type NavLink = { href: string; label: string; icon: string };
 type NavSeparator = { separator: string };
@@ -41,8 +44,22 @@ const NAV_ITEMS: NavItem[] = [
 
 const NAV_LINKS = NAV_ITEMS.filter(isLink);
 
+// Extract short display name from project name or display_name
+function shortName(name: string, displayName?: string): string {
+  const raw = displayName || name;
+  // Strip leading path-like prefixes, keep last meaningful segment
+  const parts = raw.replace(/^\[.*?\]\s*/, '').split(/[/\\]/);
+  const last = parts[parts.length - 1] || raw;
+  return last.length > 20 ? last.slice(0, 18) + '..' : last;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+
+  // Fetch 5 most recently active projects
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: activityData } = useSWR<any[]>('/api/projects/activity?days=7', fetcher, { refreshInterval: 30000 });
+  const hotProjects = (activityData ?? []).slice(0, 5);
 
   return (
     <aside className="w-72 shrink-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col sticky top-0 h-screen overflow-y-auto">
@@ -87,6 +104,34 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        {/* Hot projects — 5 most recently active */}
+        {hotProjects.length > 0 && (
+          <>
+            <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] px-3 pt-3 pb-1 select-none opacity-60">
+              hot
+            </div>
+            {hotProjects.map((p: { name: string; display_name?: string }) => {
+              const href = `/projects/${encodeURIComponent(p.name)}`;
+              const active = pathname === href || pathname.startsWith(href + '/');
+              return (
+                <Link
+                  key={p.name}
+                  href={href}
+                  className={`flex items-center gap-3 px-3 py-1 rounded text-sm transition-colors truncate ${
+                    active
+                      ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                      : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-accent)]/8'
+                  }`}
+                  title={p.display_name || p.name}
+                >
+                  <span className={`text-xs ${active ? 'text-[var(--color-accent)]' : 'text-[var(--color-border)]'}`}>●</span>
+                  <span className="truncate">{shortName(p.name, p.display_name)}</span>
+                </Link>
+              );
+            })}
+          </>
+        )}
       </nav>
       <div className="p-4 border-t border-[var(--color-border)] text-base text-[var(--color-muted)]">
         blackops // local
