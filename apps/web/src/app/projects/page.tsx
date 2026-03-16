@@ -58,7 +58,7 @@ export default function ProjectsPage() {
   const { data: activity } = useSWR<ProjectActivity[]>(
     `/api/projects/activity?days=${rangeDays}`,
     fetcher,
-    { keepPreviousData: true }
+    { keepPreviousData: true, refreshInterval: 10000 }
   );
   const { data: gitStatuses, mutate: mutateGit } = useSWR<Record<string, GitStatus>>(
     '/api/projects/git-status',
