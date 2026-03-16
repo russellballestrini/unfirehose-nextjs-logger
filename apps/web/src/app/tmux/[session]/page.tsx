@@ -84,11 +84,13 @@ function XtermPane({
   interactive,
   sendKeysRef,
   onConnect,
+  onServiceState,
 }: {
   sessionId: string;
   interactive: boolean;
   sendKeysRef: React.MutableRefObject<((keys: string) => void) | null>;
   onConnect: (connected: boolean) => void;
+  onServiceState: (state: string | null, message: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const interactiveRef = useRef(interactive);
@@ -210,8 +212,18 @@ function XtermPane({
             const msg = JSON.parse(e.data);
             if (msg.type === 'output') {
               onConnect(true);
+              onServiceState(null, ''); // clear any service state
               const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
               term.write(bytes);
+            } else if (msg.type === 'service_state') {
+              // Service lifecycle event — don't spam reconnect
+              onServiceState(msg.state, msg.data);
+              if (msg.state === 'running') {
+                // Service came back — reconnect to get the shell
+                onServiceState(null, '');
+                es?.close();
+                setTimeout(connect, 1000);
+              }
             } else if (msg.type === 'error') {
               term.write(`\r\n\x1b[31m[error: ${msg.data}]\x1b[0m\r\n`);
             } else if (msg.type === 'close') {
@@ -228,7 +240,8 @@ function XtermPane({
           if (disposed) return;
           onConnect(false);
           es?.close();
-          setTimeout(connect, 1000);
+          // Slower reconnect — don't spam on dead services
+          setTimeout(connect, 3000);
         };
       };
 
@@ -299,9 +312,24 @@ export default function TmuxViewerPage() {
   // Unsandbox: ref to xterm sendKeys function (for file drop)
   const unsandboxSendRef = useRef<((keys: string) => void) | null>(null);
   const pathFixSentRef = useRef(false);
+  // Service lifecycle state
+  const [serviceState, setServiceState] = useState<string | null>(null);
+  const [serviceMessage, setServiceMessage] = useState('');
+  const [serviceAction, setServiceAction] = useState<string | null>(null);
+  const [serviceLogs, setServiceLogs] = useState<string | null>(null);
+
+  const handleServiceState = useCallback((state: string | null, message: string) => {
+    setServiceState(state);
+    setServiceMessage(message);
+  }, []);
+
   const handleUnsandboxConnect = useCallback((c: boolean) => {
     connectedRef.current = c;
     setConnected(c);
+    if (c) {
+      setServiceState(null);
+      setServiceMessage('');
+    }
     // On first connect, auto-attach to the 'claude' tmux session if it exists
     if (c && !pathFixSentRef.current) {
       pathFixSentRef.current = true;
@@ -312,6 +340,32 @@ export default function TmuxViewerPage() {
           body: JSON.stringify({ session_id: sessionId, keys: 'source ~/.bashrc 2>/dev/null; tmux attach -t claude 2>/dev/null || true\r' }),
         }).catch(() => {});
       }, 500);
+    }
+  }, [sessionId]);
+
+  const handleServiceAction = useCallback(async (action: 'wake' | 'redeploy' | 'logs') => {
+    setServiceAction(action);
+    try {
+      if (action === 'logs') {
+        const res = await fetch('/api/unsandbox', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'service-logs', serviceId: sessionId }),
+        });
+        const data = await res.json();
+        setServiceLogs(data.logs || data.stdout || data.output || JSON.stringify(data, null, 2));
+      } else {
+        await fetch('/api/unsandbox', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: `service-${action}`, serviceId: sessionId }),
+        });
+        setServiceMessage(`${action === 'wake' ? 'Waking' : 'Redeploying'}... waiting for container`);
+      }
+    } catch (err) {
+      setServiceMessage(`${action} failed: ${err}`);
+    } finally {
+      setServiceAction(null);
     }
   }, [sessionId]);
 
@@ -607,8 +661,20 @@ export default function TmuxViewerPage() {
               <span className="text-[10px] text-violet-400/70 font-mono">⬡ {nick.service_name}</span>
             )}
           </div>
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
-          <span className="text-xs text-[var(--color-muted)]">{connected ? 'live' : 'reconnecting...'}</span>
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+            connected ? 'bg-green-400 animate-pulse'
+            : serviceState === 'frozen' || serviceState === 'sleeping' ? 'bg-blue-400'
+            : serviceState === 'unreachable' ? 'bg-red-400'
+            : 'bg-red-400'
+          }`} />
+          <span className="text-xs text-[var(--color-muted)]">{
+            connected ? 'live'
+            : serviceState === 'frozen' ? 'frozen'
+            : serviceState === 'sleeping' ? 'sleeping'
+            : serviceState === 'unreachable' ? 'unreachable'
+            : serviceState ? serviceState
+            : 'reconnecting...'
+          }</span>
           <div className="ml-auto flex items-center gap-2">
             {/* Paste button — reliable cross-browser clipboard read */}
             <button
@@ -698,6 +764,7 @@ export default function TmuxViewerPage() {
                 interactive={interactive}
                 sendKeysRef={unsandboxSendRef}
                 onConnect={handleUnsandboxConnect}
+                onServiceState={handleServiceState}
               />
             </div>
           ) : (
@@ -713,6 +780,64 @@ export default function TmuxViewerPage() {
                 : interactive ? 'border-[var(--color-border)] cursor-text' : 'border-[var(--color-border)]'
               }`}
             />
+          )}
+
+          {/* Service state overlay — unsandbox services that aren't running */}
+          {isUnsandbox && serviceState && serviceState !== 'running' && (
+            <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center z-10"
+              style={{ background: 'rgba(10,0,20,0.92)' }}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className={`w-3 h-3 rounded-full ${
+                  serviceState === 'frozen' || serviceState === 'sleeping' ? 'bg-blue-400'
+                  : serviceState === 'unreachable' ? 'bg-red-400'
+                  : 'bg-yellow-400'
+                }`} style={{ animation: 'uf-pulse-red 2s infinite' }} />
+                <span className="font-mono font-bold text-lg tracking-widest" style={{
+                  color: serviceState === 'unreachable' ? '#ef4444'
+                    : serviceState === 'frozen' || serviceState === 'sleeping' ? '#60a5fa'
+                    : '#eab308'
+                }}>
+                  {serviceState === 'frozen' ? 'FROZEN' : serviceState === 'sleeping' ? 'SLEEPING' : serviceState === 'unreachable' ? 'UNREACHABLE' : serviceState?.toUpperCase()}
+                </span>
+              </div>
+              <div className="font-mono text-sm text-[#a1a1aa] mb-6 max-w-md text-center px-4">
+                {serviceMessage}
+              </div>
+              <div className="flex gap-3">
+                {(serviceState === 'frozen' || serviceState === 'sleeping') && (
+                  <button
+                    onClick={() => handleServiceAction('wake')}
+                    disabled={serviceAction !== null}
+                    className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-blue-900/60 text-blue-300 hover:bg-blue-800 hover:text-blue-100 border border-blue-700/50 disabled:opacity-50"
+                  >
+                    {serviceAction === 'wake' ? '...' : '⚡ Wake'}
+                  </button>
+                )}
+                <button
+                  onClick={() => handleServiceAction('redeploy')}
+                  disabled={serviceAction !== null}
+                  className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-violet-900/60 text-violet-300 hover:bg-violet-800 hover:text-violet-100 border border-violet-700/50 disabled:opacity-50"
+                >
+                  {serviceAction === 'redeploy' ? '...' : '↻ Redeploy'}
+                </button>
+                <button
+                  onClick={() => handleServiceAction('logs')}
+                  disabled={serviceAction !== null}
+                  className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)] disabled:opacity-50"
+                >
+                  {serviceAction === 'logs' ? '...' : '📋 Bootstrap Logs'}
+                </button>
+              </div>
+              {serviceLogs && (
+                <div className="mt-4 w-full max-w-2xl max-h-64 overflow-auto rounded border border-[var(--color-border)] bg-black/80 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono text-xs text-[var(--color-muted)]">Bootstrap Logs</span>
+                    <button onClick={() => setServiceLogs(null)} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer">✕</button>
+                  </div>
+                  <pre className="font-mono text-xs text-[#d4d4d4] whitespace-pre-wrap break-all">{serviceLogs}</pre>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Drop overlays */}

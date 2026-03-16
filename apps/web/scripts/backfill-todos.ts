@@ -8,7 +8,8 @@ db.prepare('DELETE FROM todos').run();
 
 console.log('[backfill] Starting todo backfill from content_blocks...');
 
-const taskCreates = db.prepare(`
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const taskCreates: any[] = db.prepare(`
   SELECT cb.tool_input, m.session_id, s.project_id, s.session_uuid, m.timestamp
   FROM content_blocks cb
   JOIN messages m ON cb.message_id = m.id
@@ -26,7 +27,7 @@ let _created = 0;
 const tx = db.transaction(() => {
   for (const row of taskCreates) {
     try {
-      const input = JSON.parse(row.tool_input);
+      const input = JSON.parse(row.tool_input as string);
       if (!input) continue;
 
       const counter = (sessionCounters.get(row.session_id) ?? 0) + 1;
@@ -56,7 +57,7 @@ const tx = db.transaction(() => {
 
   for (const row of taskUpdates) {
     try {
-      const input = JSON.parse(row.tool_input);
+      const input = JSON.parse(row.tool_input as string);
       if (!input?.taskId || !input?.status) continue;
 
       const taskId = String(input.taskId);
@@ -95,7 +96,7 @@ const tx = db.transaction(() => {
 
   for (const row of todoWrites) {
     try {
-      const input = JSON.parse(row.tool_input);
+      const input = JSON.parse(row.tool_input as string);
       if (!input?.todos || !Array.isArray(input.todos)) continue;
       const ts = row.timestamp ?? new Date().toISOString();
       for (const todo of input.todos) {

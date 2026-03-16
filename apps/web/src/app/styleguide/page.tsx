@@ -1636,7 +1636,7 @@ Response:
                   ['Accent (#d40000) on bg', '4.8:1', true],
                   ['Muted on surface', '5.7:1', true],
                 ].map(([label, ratio, pass]) => (
-                  <div key={label} className="grid grid-cols-[1fr_auto] gap-2">
+                  <div key={String(label)} className="grid grid-cols-[1fr_auto] gap-2">
                     <span>{label}</span>
                     <span className={pass ? 'text-green-400' : 'text-yellow-400'} style={{ fontWeight: 'bold' }}>{ratio}</span>
                   </div>

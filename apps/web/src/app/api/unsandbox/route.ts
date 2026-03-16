@@ -315,11 +315,44 @@ ENDJSON`;
     }
   }
 
+  if (action === 'service-info') {
+    const { serviceId } = body;
+    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+    try {
+      const data = await apiGet(publicKey, secretKey, `/services/${serviceId}`, 15000);
+      return NextResponse.json(data);
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 500 });
+    }
+  }
+
   if (action === 'service-logs') {
     const { serviceId } = body;
     if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
     try {
       const data = await apiGet(publicKey, secretKey, `/services/${serviceId}/logs`, 30000);
+      return NextResponse.json(data);
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 500 });
+    }
+  }
+
+  if (action === 'service-wake') {
+    const { serviceId } = body;
+    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+    try {
+      const data = await apiPost(publicKey, secretKey, `/services/${serviceId}/wake`, '{}', 30000);
+      return NextResponse.json(data);
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 500 });
+    }
+  }
+
+  if (action === 'service-redeploy') {
+    const { serviceId } = body;
+    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+    try {
+      const data = await apiPost(publicKey, secretKey, `/services/${serviceId}/redeploy`, '{}', 60000);
       return NextResponse.json(data);
     } catch (err) {
       return NextResponse.json({ error: String(err) }, { status: 500 });

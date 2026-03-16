@@ -561,7 +561,8 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
       {/* ===== HARNESSES TAB ===== */}
       {activeTab === 'Harnesses' && (() => {
         // Combine sessions + services, find claude/harness processes in each
-        const entries: { id: string; name: string; type: string; state: string; procs: any[] }[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const entries: { id: string; name: string; type: string; state: string; procs: any[]; subtitle?: string | null; serviceName?: string | null }[] = [];
 
         for (const svc of serviceList) {
           const id = svc.id;

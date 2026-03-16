@@ -26,6 +26,7 @@ interface Todo {
   updatedAt: string;
   completedAt: string | null;
   estimatedMinutes: number | null;
+  uuid: string;
 }
 
 const TICKET_THRESHOLD = 15;

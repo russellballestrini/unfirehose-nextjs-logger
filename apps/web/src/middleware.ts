@@ -64,6 +64,7 @@ async function verifyJwt(token: string): Promise<Record<string, unknown> | null>
   try {
     const sigBytes = base64urlToUint8Array(sig);
     const valid = await crypto.subtle.verify(
+      // @ts-expect-error Uint8Array<ArrayBufferLike> vs BufferSource — Node vs browser type mismatch
       'HMAC', key, sigBytes, new TextEncoder().encode(`${header}.${body}`),
     );
     if (!valid) return null;

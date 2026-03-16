@@ -3,7 +3,11 @@ import { createHmac } from 'crypto';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import WebSocket from 'ws';
 
+const API_BASE = 'https://api.unsandbox.com';
 const WSS_BASE = 'wss://api.unsandbox.com';
+
+// Service IDs start with 'unsb-service-'
+const IS_SERVICE_RE = /^unsb-service-/;
 
 function sign(secretKey: string, method: string, path: string, body = ''): { timestamp: string; signature: string } {
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -30,6 +34,57 @@ const listeners = new Map<string, Set<(data: string) => void>>();
 function getListeners(sessionId: string): Set<(data: string) => void> {
   if (!listeners.has(sessionId)) listeners.set(sessionId, new Set());
   return listeners.get(sessionId)!;
+}
+
+// Check service state before connecting — returns error string or null if OK
+async function checkServiceState(sessionId: string, publicKey: string, secretKey: string): Promise<{ error: string; state: string } | null> {
+  if (!IS_SERVICE_RE.test(sessionId)) return null; // not a service, skip check
+
+  try {
+    const hdrs = authHeaders(publicKey, secretKey, 'GET', `/services/${sessionId}`);
+    const res = await fetch(`${API_BASE}/services/${sessionId}`, { headers: hdrs, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return { error: `Service not found (${res.status})`, state: 'not_found' };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const svc: any = await res.json();
+    const state = svc.state ?? svc.status ?? 'unknown';
+    if (state === 'running') return null; // all good
+    if (state === 'frozen' || state === 'sleeping') {
+      return { error: `Service is ${state}. Wake it first.`, state };
+    }
+    if (state === 'unreachable') {
+      return { error: 'Service is unreachable — container failed to start. Check bootstrap logs or redeploy.', state };
+    }
+    return { error: `Service state: ${state}`, state };
+  } catch {
+    return null; // can't check, proceed anyway
+  }
+}
+
+// Find the session ID for a service — the portal uses service ID directly as session ID,
+// but also checks svc: prefix and service_id field (matching portal's connectToService logic)
+async function resolveSessionId(serviceId: string, publicKey: string, secretKey: string): Promise<string> {
+  if (!IS_SERVICE_RE.test(serviceId)) return serviceId; // already a session ID
+
+  // Portal pattern: session ID = service ID
+  // Verify by checking sessions list
+  try {
+    const hdrs = authHeaders(publicKey, secretKey, 'GET', '/sessions');
+    const res = await fetch(`${API_BASE}/sessions`, { headers: hdrs, signal: AbortSignal.timeout(10000) });
+    if (res.ok) {
+      const data = await res.json();
+      const sessions = data.sessions ?? data;
+      // Match portal's connectToService logic
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const match = sessions.find((s: any) => {
+        const sid = s.session_id || s.id;
+        return sid === serviceId || sid === `svc:${serviceId}` || s.service_id === serviceId;
+      });
+      if (match) return match.session_id || match.id;
+    }
+  } catch { /* fall through */ }
+
+  // Default: use service ID as session ID (portal convention)
+  return serviceId;
 }
 
 function connectShell(sessionId: string, publicKey: string, secretKey: string): WebSocket {
@@ -68,6 +123,7 @@ function connectShell(sessionId: string, publicKey: string, secretKey: string): 
   });
 
   ws.on('error', (err: Error) => {
+    shells.delete(sessionId);
     const set = getListeners(sessionId);
     const msg = JSON.stringify({ type: 'error', data: err.message });
     set.forEach(fn => fn(msg));
@@ -98,7 +154,7 @@ export async function GET(request: NextRequest) {
   let alive = true;
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       const send = (data: string) => {
         if (!alive) return;
         try {
@@ -106,18 +162,58 @@ export async function GET(request: NextRequest) {
         } catch { alive = false; }
       };
 
-      // Register listener
+      // For services: check state before connecting WebSocket
+      const stateErr = await checkServiceState(sessionId, publicKey, secretKey);
+      if (stateErr) {
+        send(JSON.stringify({ type: 'service_state', data: stateErr.error, state: stateErr.state }));
+        // Don't close — let the client decide (it may poll for state changes)
+        // Keep alive with pings so client can reconnect when service wakes
+        const pingTimer = setInterval(() => {
+          if (!alive) { clearInterval(pingTimer); return; }
+          try { controller.enqueue(encoder.encode(': ping\n\n')); } catch { alive = false; clearInterval(pingTimer); }
+        }, 5000);
+        // Re-check state every 10s — auto-connect when service comes up
+        const recheckTimer = setInterval(async () => {
+          if (!alive) { clearInterval(recheckTimer); clearInterval(pingTimer); return; }
+          const recheck = await checkServiceState(sessionId, publicKey, secretKey);
+          if (!recheck) {
+            // Service is now running — notify client to reconnect
+            clearInterval(recheckTimer);
+            clearInterval(pingTimer);
+            send(JSON.stringify({ type: 'service_state', data: 'Service is now running', state: 'running' }));
+            try { controller.close(); } catch {}
+          }
+        }, 10000);
+        request.signal.addEventListener('abort', () => {
+          alive = false;
+          clearInterval(pingTimer);
+          clearInterval(recheckTimer);
+          try { controller.close(); } catch {};
+        });
+        return;
+      }
+
+      // Resolve the actual session ID for this service
+      const resolvedId = await resolveSessionId(sessionId, publicKey, secretKey);
+
+      // Register listener under the original ID (what the client knows)
       const set = getListeners(sessionId);
       set.add(send);
 
-      // Connect (or reuse existing) WS
+      // Connect (or reuse existing) WS — use the resolved session ID
       let ws: WebSocket;
       try {
-        ws = connectShell(sessionId, publicKey, secretKey);
+        ws = connectShell(resolvedId, publicKey, secretKey);
       } catch (err) {
         send(JSON.stringify({ type: 'error', data: String(err) }));
         controller.close();
         return;
+      }
+
+      // If resolved ID differs from sessionId, also listen on resolved ID
+      if (resolvedId !== sessionId) {
+        const resolvedSet = getListeners(resolvedId);
+        resolvedSet.add(send);
       }
 
       // Wake the shell prompt every time a viewer connects (handles both fresh WS
@@ -152,6 +248,10 @@ export async function GET(request: NextRequest) {
         clearInterval(pingTimer);
         clearTimeout(maxTimer);
         set.delete(send);
+        if (resolvedId !== sessionId) {
+          const resolvedSet = listeners.get(resolvedId);
+          if (resolvedSet) resolvedSet.delete(send);
+        }
         try { controller.close(); } catch {}
       });
     },
@@ -186,7 +286,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'session_id required' }, { status: 400 });
   }
 
-  const ws = connectShell(session_id, publicKey, secretKey);
+  // Resolve service ID → session ID if needed
+  const resolvedId = IS_SERVICE_RE.test(session_id)
+    ? await resolveSessionId(session_id, publicKey, secretKey)
+    : session_id;
+
+  const ws = connectShell(resolvedId, publicKey, secretKey);
 
   if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
     return Response.json({ error: 'shell not connected' }, { status: 503 });
