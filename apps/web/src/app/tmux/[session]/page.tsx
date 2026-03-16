@@ -344,6 +344,7 @@ export default function TmuxViewerPage() {
 
   // SSE connection — tmux mode only
   const sseErrorCountRef = useRef(0);
+  const sessionGoneRef = useRef(false);
   const connectSSERef = useRef<() => EventSource>(null);
   connectSSERef.current = useCallback(() => {
     const url = `/api/tmux/stream?session=${encodeURIComponent(session)}${activeWindow ? `&window=${activeWindow}` : ''}${hostParam}`;
@@ -353,8 +354,8 @@ export default function TmuxViewerPage() {
         const data = JSON.parse(e.data);
         // Detect dead window/session from server error
         if (typeof data === 'string' && /can't find (window|session)|session not found|no server running/i.test(data)) {
+          sessionGoneRef.current = true;
           es.close();
-          sseErrorCountRef.current++;
           // Re-fetch windows — if others exist, switch; otherwise go back
           fetch(`/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`)
             .then(r => r.json())
@@ -362,6 +363,7 @@ export default function TmuxViewerPage() {
               const wins: { index: string; name: string; active: boolean }[] = res.windows ?? [];
               if (wins.length > 0) {
                 // Current window gone but session alive — switch to first available
+                sessionGoneRef.current = false;
                 const target = wins.find(w => w.active) ?? wins[0];
                 setActiveWindow(target.index);
               } else {
@@ -390,9 +392,11 @@ export default function TmuxViewerPage() {
       connectedRef.current = false;
       setConnected(false);
       es.close();
+      // If onmessage already detected session gone, don't reconnect
+      if (sessionGoneRef.current) return;
       sseErrorCountRef.current++;
-      // After 5 consecutive errors without data, session is likely gone
-      if (sseErrorCountRef.current >= 5) {
+      // After 3 consecutive errors without data, session is likely gone
+      if (sseErrorCountRef.current >= 3) {
         window.location.href = '/tmux';
         return;
       }

@@ -141,9 +141,10 @@ export async function GET(request: NextRequest) {
             lastContent = content;
             send(content);
           }
-        } catch {
+        } catch (err) {
           alive = false;
           clearInterval(interval);
+          send(`Error: ${String(err)}`);
           try { controller.close(); } catch {}
         }
         polling = false;
