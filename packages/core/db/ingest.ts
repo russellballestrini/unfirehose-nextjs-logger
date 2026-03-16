@@ -9,7 +9,7 @@ import { claudePaths, decodeProjectName } from '../claude-paths';
 import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
 import { normalizeUncloseaiEntry, normalizeNativeEntry } from '../uncloseai-adapter';
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
-import { agntPaths } from '../agnt-paths';
+// agnt-paths no longer needed — auto-discovered via ~/.agnt/unfirehose/
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
@@ -1077,34 +1077,56 @@ async function ingestUncloseai(
  * agnt is a Tier 1 adopter — writes unfirehose/1.0 directly.
  * The adapter normalizes unfirehose/1.0 → Claude Code ingest shape.
  */
-// ── Native harness registry ──────────────────────────────────────────────────
-// Harnesses that write unfirehose/1.0 JSONL natively. Each entry defines:
-//   name     — harness identifier (stored in sessions.harness)
-//   root     — directory containing {project-slug}/{session-uuid}.jsonl
-// Add new harnesses here — no adapter code needed if they write unfirehose/1.0.
+// ── Native harness auto-discovery ────────────────────────────────────────────
+// Any directory matching ~/.{name}/unfirehose/ is treated as a native harness
+// that writes unfirehose/1.0 JSONL to {root}/{project-slug}/{session-uuid}.jsonl.
+// No registration needed — just create the directory and start writing.
+// Excluded: .unfirehose (our own data dir), .claude/.fetch/.uncloseai (custom adapters).
 export interface NativeHarness {
   name: string;
   root: string;
 }
 
+import { readdirSync, statSync } from 'fs';
+
+const EXCLUDED_HARNESS_DIRS = new Set(['unfirehose', 'claude', 'fetch', 'uncloseai']);
+
 function discoverNativeHarnesses(): NativeHarness[] {
   const home = homedir();
-  const harnesses: NativeHarness[] = [
-    // Existing: agnt
-    { name: 'agnt', root: agntPaths.root },
-    // New native harnesses — each writes to ~/.{name}/unfirehose/{project}/{session}.jsonl
-    { name: 'orcestra', root: process.env.ORCESTRA_UNFIREHOSE_DIR || path.join(home, '.orcestra', 'unfirehose') },
-    { name: 'codex', root: process.env.CODEX_UNFIREHOSE_DIR || path.join(home, '.codex', 'unfirehose') },
-    { name: 'gemini', root: process.env.GEMINI_UNFIREHOSE_DIR || path.join(home, '.gemini', 'unfirehose') },
-    { name: 'aider', root: process.env.AIDER_UNFIREHOSE_DIR || path.join(home, '.aider', 'unfirehose') },
-    { name: 'amp', root: process.env.AMP_UNFIREHOSE_DIR || path.join(home, '.amp', 'unfirehose') },
-    { name: 'kilo-code', root: process.env.KILO_CODE_UNFIREHOSE_DIR || path.join(home, '.kilo-code', 'unfirehose') },
-  ];
+  const harnesses: NativeHarness[] = [];
+
+  try {
+    const entries = readdirSync(home);
+    for (const entry of entries) {
+      // Only dot-directories
+      if (!entry.startsWith('.')) continue;
+      const name = entry.slice(1); // strip leading dot
+      if (!name || EXCLUDED_HARNESS_DIRS.has(name)) continue;
+
+      const ufDir = path.join(home, entry, 'unfirehose');
+      try {
+        const s = statSync(ufDir);
+        if (s.isDirectory()) {
+          harnesses.push({ name, root: ufDir });
+        }
+      } catch {
+        // no unfirehose subdir — skip
+      }
+    }
+  } catch {
+    // can't read homedir — shouldn't happen
+  }
+
   return harnesses;
 }
 
 // Exported so the watcher can discover directories to watch
-export const nativeHarnesses = discoverNativeHarnesses();
+export let nativeHarnesses = discoverNativeHarnesses();
+
+// Re-discover before each ingest cycle (picks up newly created harness dirs)
+function refreshNativeHarnesses() {
+  nativeHarnesses = discoverNativeHarnesses();
+}
 
 /**
  * Generic ingestion for any harness that writes unfirehose/1.0 JSONL.
@@ -1241,6 +1263,9 @@ async function ingestNativeHarness(
 }
 
 export async function ingestAll(): Promise<IngestResult> {
+  // Re-discover native harness directories (picks up newly created ones)
+  refreshNativeHarnesses();
+
   const db = getDb();
   const result: IngestResult = {
     projectsAdded: 0,
