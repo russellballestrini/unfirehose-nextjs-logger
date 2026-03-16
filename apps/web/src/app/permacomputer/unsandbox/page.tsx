@@ -25,9 +25,9 @@ if [ ! -d /opt/unfirehose ]; then
 fi
 cd /opt/unfirehose
 npm install
-npm run build --filter=web
 cd apps/web
-PORT=3000 node .next/standalone/server.js`.trim();
+npx next build
+PORT=3000 npx next start -p 3000`.trim();
 
 const HARNESSES = [
   { id: 'claude-code', name: 'Claude Code', desc: 'Anthropic CLI for Claude — agentic coding in the terminal', install: 'curl -fsSL https://claude.ai/install.sh | bash', verify: '/root/.local/bin/claude --version', tags: ['ml', 'coding'], },
