@@ -65,7 +65,7 @@ export default function DashboardPage() {
     );
   }
   if (!data) {
-    return <div className="text-[var(--color-muted)]">Loading dashboard...</div>;
+    return null; // Root loading.tsx handles the boot screen
   }
 
   const modelData = (data.modelBreakdown ?? []).map((m: any) => ({

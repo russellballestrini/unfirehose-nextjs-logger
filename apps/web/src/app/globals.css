@@ -279,6 +279,20 @@ body {
 .md-content th, .md-content td { border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; }
 .md-content th { background: var(--color-surface); font-weight: bold; }
 
+/* Loading screen animations */
+@keyframes boot-line-in {
+  0% { opacity: 0; transform: translateX(-8px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+@keyframes block-pulse {
+  0% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
 /* General hover states */
 a:hover {
   transition: color 0.15s ease;
