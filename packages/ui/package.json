@@ -48,7 +48,8 @@
   },
   "dependencies": {
     "@unturf/unfirehose": "*",
-    "react-markdown": "^10.1.0"
+    "react-markdown": "^10.1.0",
+    "swr": "^2.3.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
