@@ -1,13 +1,11 @@
 import { watch, type FSWatcher } from 'fs';
 import { stat } from 'fs/promises';
 import { claudePaths } from '../claude-paths';
-import { uncloseaiPaths } from '../uncloseai-paths';
 import { fetchPaths } from '../fetch-paths';
 import { nativeHarnesses } from './ingest';
 import { ingestAll } from './ingest';
 
 let watcher: FSWatcher | null = null;
-let uncloseaiWatcher: FSWatcher | null = null;
 let fetchWatcher: FSWatcher | null = null;
 const harnessWatchers = new Map<string, FSWatcher>();
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -33,6 +31,8 @@ function debouncedIngest() {
 
 export async function startWatcher() {
   if (watcher) return;
+
+  // Watch Claude Code (custom adapter — uses sessions-index.json)
   try {
     watcher = watch(claudePaths.projects, { recursive: true }, (_event, filename) => {
       if (filename && (filename.endsWith('.jsonl') || filename.endsWith('sessions-index.json'))) {
@@ -44,19 +44,7 @@ export async function startWatcher() {
     console.error('[watcher] failed to start:', err);
   }
 
-  if (!uncloseaiWatcher) {
-    try {
-      uncloseaiWatcher = watch(uncloseaiPaths.unfirehose, { recursive: true }, (_event, filename) => {
-        if (filename && filename.endsWith('.jsonl')) {
-          debouncedIngest();
-        }
-      });
-      console.log('[watcher] watching', uncloseaiPaths.unfirehose);
-    } catch (err) {
-      console.error('[watcher] uncloseai watch failed:', err);
-    }
-  }
-
+  // Watch Fetch (custom adapter)
   if (!fetchWatcher && fetchPaths.root) {
     try {
       fetchWatcher = watch(fetchPaths.root, { recursive: true }, (_event, filename) => {
@@ -70,10 +58,9 @@ export async function startWatcher() {
     }
   }
 
-  // Watch all native harness directories (agnt, orcestra, codex, etc.)
+  // Watch all auto-discovered native harness directories
   for (const harness of nativeHarnesses) {
     if (harnessWatchers.has(harness.name)) continue;
-    // Only watch directories that actually exist
     const exists = await stat(harness.root).catch(() => null);
     if (!exists?.isDirectory()) continue;
     try {
@@ -94,10 +81,6 @@ export function stopWatcher() {
   if (watcher) {
     watcher.close();
     watcher = null;
-  }
-  if (uncloseaiWatcher) {
-    uncloseaiWatcher.close();
-    uncloseaiWatcher = null;
   }
   if (fetchWatcher) {
     fetchWatcher.close();

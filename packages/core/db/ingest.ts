@@ -6,8 +6,7 @@ import path from 'path';
 import { homedir } from 'os';
 import { getDb } from './schema';
 import { claudePaths, decodeProjectName } from '../claude-paths';
-import { uncloseaiPaths, decodeUncloseaiProjectName } from '../uncloseai-paths';
-import { normalizeUncloseaiEntry, normalizeNativeEntry } from '../uncloseai-adapter';
+// uncloseai: auto-discovered via ~/.uncloseai/unfirehose/ (native unfirehose/1.0)
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
 // agnt-paths no longer needed — auto-discovered via ~/.agnt/unfirehose/
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
@@ -898,185 +897,6 @@ async function ingestFetch(
   return result;
 }
 
-async function ingestUncloseai(
-  db: ReturnType<typeof getDb>
-): Promise<Omit<IngestResult, 'alertsTriggered'>> {
-  const result = {
-    projectsAdded: 0,
-    sessionsAdded: 0,
-    messagesAdded: 0,
-    blocksAdded: 0,
-    filesScanned: 0,
-  };
-
-  const projectDirs = await readdir(uncloseaiPaths.unfirehose).catch(() => []);
-
-  for (const cwdSlug of projectDirs) {
-    const projDir = uncloseaiPaths.projectDir(cwdSlug);
-    const dirStat = await stat(projDir).catch(() => null);
-    if (!dirStat?.isDirectory()) continue;
-
-    const projectName = `uncloseai:${cwdSlug}`;
-    const displayName = `[uncloseai] ${decodeUncloseaiProjectName(cwdSlug)}`;
-
-    let files: string[];
-    try {
-      files = (await readdir(projDir)).filter((f) => f.endsWith('.jsonl'));
-    } catch {
-      continue;
-    }
-    if (files.length === 0) continue;
-
-    const projectId = getOrCreateProject(db, projectName, displayName);
-
-    const prevCount = db
-      .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
-      .get(projectId) as { c: number };
-    if (prevCount.c === 0 && files.length > 0) result.projectsAdded++;
-
-    for (const file of files) {
-      const sessionUuid = file.replace('.jsonl', '');
-      const filePath = uncloseaiPaths.sessionFile(cwdSlug, sessionUuid);
-      const fstat = await stat(filePath).catch(() => null);
-      if (!fstat) continue;
-
-      const offset = db
-        .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
-        .get(filePath) as { byte_offset: number } | undefined;
-      const startByte = offset?.byte_offset ?? 0;
-
-      if (fstat.size <= startByte) continue;
-
-      result.filesScanned++;
-
-      const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
-        cliVersion: 'uncloseai-cli',
-        harness: 'uncloseai',
-      });
-
-      if (!offset) result.sessionsAdded++;
-
-      const stream = createReadStream(filePath, {
-        start: startByte,
-        encoding: 'utf-8',
-      });
-      const rl = createInterface({ input: stream, crlfDelay: Infinity });
-
-      // Buffer canonical entries for async write after sync transaction
-      const canonicalBuffer: any[] = [];
-
-      const batchInsert = db.transaction((lines: string[]) => {
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const raw = JSON.parse(line);
-
-            // Native unfirehose/1.0 format (new) vs legacy event format
-            const isNative = raw.$schema === 'unfirehose/1.0';
-            let normalized: any;
-
-            if (isNative) {
-              // Capture metadata from session header
-              if (raw.type === 'session') {
-                db.prepare(
-                  'UPDATE sessions SET first_prompt = COALESCE(first_prompt, ?) WHERE id = ?'
-                ).run(raw.firstPrompt ?? null, sessionId);
-                if (raw.cwd) {
-                  db.prepare(
-                    "UPDATE projects SET path = COALESCE(NULLIF(path, ''), ?) WHERE id = ?"
-                  ).run(raw.cwd, projectId);
-                }
-                continue;
-              }
-              normalized = normalizeNativeEntry(raw);
-            } else {
-              // Legacy event format — capture metadata from session_start
-              if (raw.type === 'session_start') {
-                db.prepare(
-                  'UPDATE sessions SET first_prompt = COALESCE(first_prompt, ?) WHERE id = ?'
-                ).run(raw.prompt ?? null, sessionId);
-                if (raw.cwd) {
-                  db.prepare(
-                    "UPDATE projects SET path = COALESCE(NULLIF(path, ''), ?) WHERE id = ?"
-                  ).run(raw.cwd, projectId);
-                }
-              }
-              normalized = normalizeUncloseaiEntry(raw);
-            }
-            if (!normalized) continue;
-
-            // Generate canonical event only for legacy (non-native) entries
-            if (!isNative) {
-              const canonical = toCanonical(normalized, 'uncloseai');
-              if (canonical) canonicalBuffer.push(canonical);
-            }
-
-            // Transform Claude Code format → unfirehose/1.0 for canonical ingest
-            const uf = normalizeClaudeCodeEntry(normalized);
-            if (!uf) continue;
-
-            const messageId = insertMessage(db, sessionId, uf);
-            if (messageId === null) continue;
-
-            result.messagesAdded++;
-
-            if (Array.isArray(uf.content)) {
-              result.blocksAdded += insertContentBlocks(
-                db,
-                messageId,
-                uf.content
-              );
-            }
-
-            // Extract todos from TaskCreate/TaskUpdate/TodoWrite tool calls
-            extractTodosFromEntry(db, projectId, sessionId, normalized, sessionUuid);
-          } catch {
-            // skip malformed lines
-          }
-        }
-      });
-
-      const batch: string[] = [];
-      for await (const line of rl) {
-        batch.push(line);
-        if (batch.length >= 500) {
-          batchInsert(batch.splice(0));
-        }
-      }
-      if (batch.length > 0) {
-        batchInsert(batch);
-      }
-
-      // Write canonical JSONL for non-compliant harness
-      if (canonicalBuffer.length > 0) {
-        const canonicalLines = canonicalBuffer.map(e => JSON.stringify(e)).join('\n') + '\n';
-        const canonDir = path.join(CANONICAL_ROOT, 'uncloseai', cwdSlug);
-        await mkdir(canonDir, { recursive: true });
-        await appendFile(path.join(canonDir, `${sessionUuid}.jsonl`), canonicalLines, 'utf-8');
-      }
-
-      db.prepare(
-        `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(file_path) DO UPDATE SET
-           byte_offset = excluded.byte_offset,
-           last_ingested = excluded.last_ingested`
-      ).run(filePath, fstat.size);
-
-      db.prepare(
-        'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
-      ).run(new Date().toISOString(), sessionUuid);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Ingest native unfirehose/1.0 JSONL from agnt.
- * agnt is a Tier 1 adopter — writes unfirehose/1.0 directly.
- * The adapter normalizes unfirehose/1.0 → Claude Code ingest shape.
- */
 // ── Native harness auto-discovery ────────────────────────────────────────────
 // Any directory matching ~/.{name}/unfirehose/ is treated as a native harness
 // that writes unfirehose/1.0 JSONL to {root}/{project-slug}/{session-uuid}.jsonl.
@@ -1089,7 +909,7 @@ export interface NativeHarness {
 
 import { readdirSync, statSync } from 'fs';
 
-const EXCLUDED_HARNESS_DIRS = new Set(['unfirehose', 'claude', 'fetch', 'uncloseai']);
+const EXCLUDED_HARNESS_DIRS = new Set(['unfirehose', 'claude', 'fetch']);
 
 function discoverNativeHarnesses(): NativeHarness[] {
   const home = homedir();
@@ -1486,13 +1306,7 @@ export async function ingestAll(): Promise<IngestResult> {
     }
   }
 
-  // Ingest uncloseai-cli sessions
-  const ucResult = await ingestUncloseai(db);
-  result.projectsAdded += ucResult.projectsAdded;
-  result.sessionsAdded += ucResult.sessionsAdded;
-  result.messagesAdded += ucResult.messagesAdded;
-  result.blocksAdded += ucResult.blocksAdded;
-  result.filesScanned += ucResult.filesScanned;
+  // uncloseai: handled by native harness auto-discovery
 
   // Ingest Fetch sessions (if FETCH_JSONL_DIR is configured)
   if (fetchPaths.root) {
