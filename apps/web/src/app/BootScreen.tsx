@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 
 const BOOT_LINES = [
   'UNFIREHOSE v1.0',
@@ -16,10 +16,8 @@ export function BootScreen() {
   const [visibleLines, setVisibleLines] = useState(0);
   const [progress, setProgress] = useState(0);
   const [dots, setDots] = useState('');
-  // Stable random values for block opacity (avoid hydration flicker from Math.random in render)
-  const blockOpacities = useRef<number[]>(
-    Array.from({ length: 16 }, () => 0.6 + Math.random() * 0.4)
-  );
+  // Deterministic pseudo-random opacities for decorative blocks
+  const blockOpacities = [0.73, 0.91, 0.64, 0.85, 0.77, 0.98, 0.68, 0.82, 0.95, 0.71, 0.88, 0.62, 0.79, 0.93, 0.66, 0.87];
 
   useEffect(() => {
     const lineTimer = setInterval(() => {
@@ -163,7 +161,7 @@ export function BootScreen() {
 
         {/* Bottom decorative blocks */}
         <div className="mt-6 flex justify-center gap-1">
-          {blockOpacities.current.map((opacity, i) => (
+          {blockOpacities.map((opacity, i) => (
             <div
               key={i}
               className="w-2 h-2 rounded-sm"
