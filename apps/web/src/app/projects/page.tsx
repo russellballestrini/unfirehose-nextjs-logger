@@ -47,6 +47,7 @@ export default function ProjectsPage() {
   const [range, setRange] = useTimeRange('projects_range', '28d');
   const rangeDays = Math.max(1, Math.ceil((getTimeRangeMinutes(range) || 60 * 24 * 365) / 60 / 24));
   const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<'projects' | 'dirty'>('projects');
   const dirtyCache = useRef<DirtyCache>({ details: {}, expanded: {}, gitSnap: '' });
 
@@ -88,9 +89,11 @@ export default function ProjectsPage() {
   });
 
   const q = search.trim().toLowerCase();
-  const filteredProjects = q
-    ? sortedProjects.filter((p) => p.displayName.toLowerCase().includes(q))
-    : sortedProjects;
+  const filteredProjects = selected
+    ? sortedProjects.filter((p) => p.name === selected)
+    : q
+      ? sortedProjects.filter((p) => p.displayName.toLowerCase().includes(q))
+      : sortedProjects;
 
   const totalSessions = projects.reduce((s, p) => s + p.sessionCount, 0);
   const totalMessages = projects.reduce((s, p) => s + p.totalMessages, 0);
@@ -175,6 +178,40 @@ export default function ProjectsPage() {
       {/* Tab content */}
       {tab === 'projects' && (
         <>
+          {/* Bandit arms — clickable project chips to filter */}
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {selected && (
+              <button
+                onClick={() => setSelected(null)}
+                className="px-2 py-1 text-xs font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-[var(--color-background)] transition-colors cursor-pointer"
+              >
+                Show All
+              </button>
+            )}
+            {sortedProjects.map((p) => {
+              const isActive = selected === p.name;
+              const act = activityMap.get(p.name);
+              const heat = 1 - sortedProjects.indexOf(p) / Math.max(sortedProjects.length, 1);
+              return (
+                <button
+                  key={p.name}
+                  onClick={() => setSelected(isActive ? null : p.name)}
+                  className="px-2 py-1 text-xs rounded border transition-all cursor-pointer truncate max-w-48"
+                  style={{
+                    borderColor: isActive ? heatColor(heat) : 'var(--color-border)',
+                    backgroundColor: isActive ? `${heatColor(heat)}22` : 'var(--color-surface)',
+                    color: isActive ? heatColor(heat) : 'var(--color-muted)',
+                    fontWeight: isActive ? 700 : 400,
+                    boxShadow: isActive ? `0 0 8px ${heatColor(heat)}33` : 'none',
+                  }}
+                  title={`${p.displayName}${act ? ` — ${act.session_count} sess, $${act.cost_estimate?.toFixed(0) ?? '0'}` : ''}`}
+                >
+                  {p.displayName}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
             {filteredProjects.map((project, idx) => (
               <ProjectCard
@@ -187,7 +224,7 @@ export default function ProjectsPage() {
               />
             ))}
           </div>
-          {filteredProjects.length === 0 && q && (
+          {filteredProjects.length === 0 && q && !selected && (
             <div className="text-center py-12 text-[var(--color-muted)]">
               No projects matching &ldquo;{search}&rdquo;
             </div>
