@@ -807,7 +807,7 @@ export default function TrainingPage() {
     } catch { /* ignore */ }
   }, [mutateRuns, selectedRunId, deleteSourceDefault]);
 
-  // Auto-scan on page load if enabled in settings
+  // Auto-scan on page load if enabled in settings, then every 21s
   const autoScanned = useRef(false);
   useEffect(() => {
     if (autoScan && !autoScanned.current && runsData) {
@@ -815,6 +815,14 @@ export default function TrainingPage() {
       runScan();
     }
   }, [autoScan, runsData, runScan]);
+
+  // Periodic scan every 21 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!scanning) runScan();
+    }, 21000);
+    return () => clearInterval(interval);
+  }, [runScan, scanning]);
 
   if (!runs.length && !runsData) {
     return (
