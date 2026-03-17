@@ -122,6 +122,12 @@ export default function UsageMonitorPage() {
   const { data: dbStats } = useSWR('/api/ingest', fetcher, {
     refreshInterval: 30000,
   });
+  const { data: plan } = useSWR('/api/usage/plan', fetcher, {
+    refreshInterval: 60000,
+  });
+  const { data: extra } = useSWR('/api/usage/extra', fetcher, {
+    refreshInterval: 60000,
+  });
   const { data: mesh } = useSWR('/api/mesh', fetcher, {
     refreshInterval: 15000,
   });
@@ -223,14 +229,12 @@ export default function UsageMonitorPage() {
 
   const acknowledgeAll = async () => {
     if (!alerts?.length) return;
-    for (const alert of alerts) {
-      await fetch('/api/alerts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'acknowledge', id: alert.id }),
-      });
-    }
-    mutateAlerts();
+    await fetch('/api/alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'acknowledge_all' }),
+    });
+    await mutateAlerts();
   };
 
   // Current rate calculation
@@ -387,6 +391,66 @@ export default function UsageMonitorPage() {
 
       {/* ============ MODEL USAGE TAB ============ */}
       {activeTab === 'model' && (<>
+
+      {/* Plan spend overview */}
+      {plan && (() => {
+        const planCap = plan.monthlyPlanCost ?? 0;
+        const periodCost = plan.periodCostUSD ?? 0;
+        const overage = Math.max(0, periodCost - planCap);
+        const pct = planCap > 0 ? Math.min(100, (periodCost / planCap) * 100) : 0;
+        const isOver = periodCost > planCap;
+        const extraSpent = extra ? parseFloat(extra.extraSpent) : null;
+        const extraLimit = extra ? parseFloat(extra.extraLimit) : null;
+        const extraPct = extraLimit && extraLimit > 0 ? Math.min(100, ((extraSpent ?? 0) / extraLimit) * 100) : 0;
+        return (
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-[var(--color-muted)]">
+                Billing Period
+                <span className="font-normal ml-2">{plan.periodStart} → {plan.periodEnd}</span>
+              </h3>
+              <span className="text-xs text-[var(--color-muted)]">
+                {plan.subscriptionType} / {(plan.rateLimitTier ?? '').replace('default_claude_', '')}
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-4 mb-3">
+              <RateCard label="Plan Value" value={`$${planCap}`} />
+              <RateCard label="Equiv API Cost" value={`$${periodCost.toFixed(0)}`} warn={isOver} sub={`${pct.toFixed(0)}% of plan`} />
+              <RateCard label="Overage Equiv" value={overage > 0 ? `$${overage.toFixed(0)}` : '$0'} warn={overage > 0} sub={overage > 0 ? `${(overage / planCap * 100).toFixed(0)}% over` : 'within plan'} />
+              <RateCard label="Card Charges" value={extraSpent !== null ? `$${extraSpent.toFixed(2)}` : '—'} warn={extraPct > 80} sub={extraLimit ? `of $${extraLimit} limit` : ''} />
+              <RateCard label="Balance" value={extra?.extraBalance ? `$${parseFloat(extra.extraBalance).toFixed(2)}` : '—'} sub={extra?.extraResetDate ? `resets ${extra.extraResetDate}` : ''} />
+            </div>
+            {/* Budget bar */}
+            <div className="relative h-3 rounded-full bg-[var(--color-background)] border border-[var(--color-border)] overflow-hidden">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full transition-all"
+                style={{
+                  width: `${Math.min(pct, 100)}%`,
+                  background: isOver
+                    ? 'linear-gradient(90deg, #22c55e 0%, #f59e0b 70%, #ef4444 100%)'
+                    : 'linear-gradient(90deg, #22c55e, #10b981)',
+                }}
+              />
+              {isOver && (
+                <div
+                  className="absolute inset-y-0 rounded-r-full bg-red-500/60"
+                  style={{
+                    left: '100%',
+                    width: '0%', // already capped at 100%
+                  }}
+                />
+              )}
+              {/* Plan cap marker */}
+              <div className="absolute top-0 bottom-0 w-px bg-[var(--color-foreground)]" style={{ left: `${Math.min(100, 100)}%`, opacity: 0.3 }} />
+            </div>
+            <div className="flex justify-between mt-1 text-xs text-[var(--color-muted)]">
+              <span>$0</span>
+              <span className={isOver ? 'text-[var(--color-error)] font-bold' : ''}>${periodCost.toFixed(0)} used</span>
+              <span>${planCap} plan</span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Live rate cards */}
       <div className="grid grid-cols-4 gap-4">

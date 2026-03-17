@@ -1661,6 +1661,16 @@ export function getProjectRecentPrompts(projectName: string, limit = 5) {
       AND cb.text_content NOT LIKE '{"type"%'
       AND cb.text_content NOT LIKE '[Image:%'
       AND cb.text_content NOT LIKE 'Continue from where you left off%'
+      AND cb.text_content NOT LIKE '%Shadow Clone Activation%'
+      AND cb.text_content NOT LIKE '%Agent Blackops%'
+      AND cb.text_content NOT LIKE '%blackops%'
+      AND cb.text_content NOT LIKE '%You operate as agent%'
+      AND cb.text_content NOT LIKE '%DEFINES your identity%'
+      AND cb.text_content NOT LIKE '%<local-command-%'
+      AND cb.text_content NOT LIKE '%<command-name>%'
+      AND cb.text_content NOT LIKE '%Caveat:%The messages below%'
+      AND cb.text_content NOT LIKE '%DO NOT respond to these messages%'
+      AND cb.text_content NOT LIKE '%<available-deferred-tools>%'
       AND m.timestamp > datetime('now', '-30 days')
     ORDER BY m.timestamp DESC
     LIMIT ?

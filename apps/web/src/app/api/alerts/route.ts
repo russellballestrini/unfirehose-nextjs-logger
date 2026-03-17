@@ -48,6 +48,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (body.action === 'acknowledge_all') {
+      const unacked = getUnacknowledgedAlerts();
+      for (const a of unacked) acknowledgeAlert(a.id);
+      return NextResponse.json({ ok: true, count: unacked.length });
+    }
+
     if (body.action === 'update_threshold' && body.id) {
       updateAlertThreshold(body.id, body.value, body.enabled ?? true);
       return NextResponse.json({ ok: true });
