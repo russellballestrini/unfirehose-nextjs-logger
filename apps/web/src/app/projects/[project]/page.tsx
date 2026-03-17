@@ -7,6 +7,7 @@ import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/type
 import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
+import { BootScreen } from '../../BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -235,7 +236,7 @@ export default function ProjectPage({
   }
 
   if (error) return <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>;
-  if (!data) return <div className="text-[var(--color-muted)]">Loading...</div>;
+  if (!data) return <BootScreen />;
 
   const thisActivity = (globalActivity ?? []).find((a: any) => a.name === decodedProject);
   const globalTotals = (globalActivity ?? []).reduce(

@@ -1,6 +1,7 @@
 'use client';
 
 import useSWR from 'swr';
+import { BootScreen } from './BootScreen';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
@@ -65,7 +66,7 @@ export default function DashboardPage() {
     );
   }
   if (!data) {
-    return null; // Root loading.tsx handles the boot screen
+    return <BootScreen />;
   }
 
   const modelData = (data.modelBreakdown ?? []).map((m: any) => ({

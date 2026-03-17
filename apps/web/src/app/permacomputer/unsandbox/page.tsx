@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
+import { BootScreen } from '../../BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -317,7 +318,7 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
     }
   }, []);
 
-  if (!status) return <div className="p-6 text-[var(--color-muted)]">Loading...</div>;
+  if (!status) return <BootScreen />;
 
   if (!status.connected) {
     return (

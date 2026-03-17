@@ -4,6 +4,7 @@ import { use, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
+import { BootScreen } from '../../BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -24,7 +25,7 @@ export default function TodoDetailPage({ params }: { params: Promise<{ id: strin
   };
 
   if (error) return <div className="p-8 text-[var(--color-error)]">Failed to load todo</div>;
-  if (!todo) return <div className="p-8 text-[var(--color-muted)]">Loading...</div>;
+  if (!todo) return <BootScreen />;
   if (todo.error) return <div className="p-8 text-[var(--color-error)]">{todo.error}</div>;
 
   const statusColor = todo.status === 'pending' ? '#fbbf24' : todo.status === 'in_progress' ? '#60a5fa' : todo.status === 'completed' ? '#22c55e' : '#ef4444';
