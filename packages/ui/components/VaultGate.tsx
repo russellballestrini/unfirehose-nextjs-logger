@@ -1,7 +1,105 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useVault } from './VaultProvider';
+
+const BOOT_LINES = [
+  'UNFIREHOSE v1.0',
+  'initializing data layer...',
+  'connecting sqlite pipeline',
+  'scanning JSONL harnesses',
+  'loading mesh topology',
+  'calibrating token counters',
+  'mounting dashboard',
+];
+
+function BootScreen() {
+  const [visibleLines, setVisibleLines] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [dots, setDots] = useState('');
+  const blockOpacities = useRef<number[]>(
+    Array.from({ length: 16 }, () => 0.6 + Math.random() * 0.4)
+  );
+
+  useEffect(() => {
+    const lineTimer = setInterval(() => {
+      setVisibleLines((v) => {
+        if (v >= BOOT_LINES.length) { clearInterval(lineTimer); return v; }
+        return v + 1;
+      });
+    }, 180);
+    const progressTimer = setInterval(() => {
+      setProgress((p) => {
+        if (p >= 100) { clearInterval(progressTimer); return 100; }
+        const step = p < 60 ? 4 + Math.random() * 6 : 1 + Math.random() * 2;
+        return Math.min(100, p + step);
+      });
+    }, 80);
+    const dotTimer = setInterval(() => {
+      setDots((d) => (d.length >= 3 ? '' : d + '.'));
+    }, 400);
+    return () => { clearInterval(lineTimer); clearInterval(progressTimer); clearInterval(dotTimer); };
+  }, []);
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-[var(--color-background)] relative overflow-hidden" style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+      {/* Scanlines */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 4px)' }} />
+      {/* CRT vignette */}
+      <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.4) 100%)' }} />
+
+      <div className="relative w-full max-w-lg px-8">
+        {/* Logo */}
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent, #d40000)', textShadow: '0 0 10px var(--color-accent, #d40000), 0 0 40px rgba(212,0,0,0.4)' }}>
+            UNFIREHOSE
+          </h1>
+          <div className="mt-1 text-sm tracking-[0.3em]" style={{ color: 'var(--color-muted, #a1a1aa)' }}>
+            AGENT DASHBOARD
+          </div>
+        </div>
+
+        {/* Boot log */}
+        <div className="mb-6 text-sm space-y-1" style={{ height: '180px' }}>
+          {BOOT_LINES.slice(0, visibleLines).map((line, i) => (
+            <div key={i} className="flex items-center gap-2" style={{ animation: 'bootLineIn 0.2s ease-out' }}>
+              <span className="shrink-0" style={{ color: i === 0 ? 'var(--color-accent, #d40000)' : i < visibleLines - 1 ? '#10b981' : 'var(--color-muted, #a1a1aa)' }}>
+                {i === 0 ? '>' : i < visibleLines - 1 ? '\u2713' : '\u25B8'}
+              </span>
+              <span style={{ color: i === 0 ? 'var(--color-foreground, #fafafa)' : i < visibleLines - 1 ? 'var(--color-muted, #a1a1aa)' : 'var(--color-foreground, #fafafa)' }}>
+                {line}
+                {i === visibleLines - 1 && i !== 0 && <span style={{ color: 'var(--color-accent, #d40000)' }}>{dots}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Progress bar */}
+        <div className="relative overflow-hidden" style={{ height: '8px', borderRadius: '9999px', background: 'var(--color-surface, #18181b)', border: '1px solid var(--color-border, #3f3f46)' }}>
+          <div className="absolute inset-y-0 left-0" style={{ width: `${progress}%`, borderRadius: '9999px', background: 'linear-gradient(90deg, var(--color-accent, #d40000), #f59e0b)', boxShadow: progress > 10 ? '0 0 12px var(--color-accent, #d40000), 0 0 4px #f59e0b' : 'none', transition: 'width 0.1s' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%)', animation: 'shimmer 1.5s infinite' }} />
+        </div>
+
+        <div className="mt-2 text-right text-sm" style={{ color: 'var(--color-muted, #a1a1aa)' }}>
+          {Math.round(progress)}%
+        </div>
+
+        {/* Bottom blocks */}
+        <div className="mt-6 flex justify-center gap-1">
+          {blockOpacities.current.map((opacity, i) => (
+            <div key={i} style={{ width: '8px', height: '8px', borderRadius: '2px', backgroundColor: i / 16 < progress / 100 ? 'var(--color-accent, #d40000)' : 'var(--color-surface, #18181b)', opacity: i / 16 < progress / 100 ? opacity : 0.2, animation: i / 16 < progress / 100 ? `blockPulse ${0.8 + (i % 3) * 0.2}s ease-in-out infinite alternate` : 'none' }} />
+          ))}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes bootLineIn { 0% { opacity: 0; transform: translateX(-8px); } 100% { opacity: 1; transform: translateX(0); } }
+        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
+        @keyframes blockPulse { 0% { opacity: 0.4; } 100% { opacity: 1; } }
+      `}</style>
+    </div>
+  );
+}
 
 export function VaultGate({ children }: { children: ReactNode }) {
   const vault = useVault();
@@ -9,13 +107,9 @@ export function VaultGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Still loading vault state
+  // Still loading vault state — show boot screen
   if (!vault.ready) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[var(--color-background)]">
-        <div className="text-[var(--color-muted)] animate-pulse">Loading...</div>
-      </div>
-    );
+    return <BootScreen />;
   }
 
   // Vault is unlocked — render app
