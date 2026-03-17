@@ -414,6 +414,8 @@ async function scan(filterHosts?: string[]) {
               const maxCpStep = (db.prepare(
                 'SELECT COALESCE(MAX(step), -1) as max_step FROM training_events WHERE run_id = ? AND event_type = ?'
               ).get(runId, 'checkpoint') as any)?.max_step ?? -1;
+              // Sync checkpoints: insert new, prune stale (not on disk anymore)
+              const livePaths = new Set(checkpoints.map((cp: any) => cp.path ?? cp.filename ?? ''));
               const newCps = checkpoints.filter((cp: any) => (cp.step ?? 0) > maxCpStep);
               if (newCps.length) {
                 const cpInsert = db.prepare(`
@@ -427,6 +429,18 @@ async function scan(filterHosts?: string[]) {
                   }
                 });
                 cpBatch();
+              }
+              // Prune checkpoint events for files no longer on disk
+              if (livePaths.size > 0) {
+                const dbCps = db.prepare(
+                  'SELECT id, checkpoint_path FROM training_events WHERE run_id = ? AND event_type = ?'
+                ).all(runId, 'checkpoint') as any[];
+                const staleIds = dbCps
+                  .filter((row: any) => row.checkpoint_path && !livePaths.has(row.checkpoint_path))
+                  .map((row: any) => row.id);
+                if (staleIds.length) {
+                  db.prepare(`DELETE FROM training_events WHERE id IN (${staleIds.map(() => '?').join(',')})`).run(...staleIds);
+                }
               }
             }
           } catch { /* no checkpoints */ }

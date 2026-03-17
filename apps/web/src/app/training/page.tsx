@@ -954,31 +954,67 @@ export default function TrainingPage() {
           )}
 
           {activeTab === 'checkpoints' && (
-            detail?.checkpoints?.length ? (
+            detail?.checkpoints?.length ? (() => {
+              // Find best checkpoint: filename contains "best", or lowest loss at checkpoint step
+              const lossMap = new Map((detail.lossEvents ?? []).map((l: LossPoint) => [l.step, l.loss]));
+              const bestByName = detail.checkpoints.find((cp: Checkpoint) => /best/i.test(cp.path));
+              const bestByLoss = !bestByName && detail.lossEvents?.length
+                ? detail.checkpoints.reduce((best: Checkpoint | null, cp: Checkpoint) => {
+                    const loss = lossMap.get(cp.step);
+                    if (loss == null) return best;
+                    const bestLoss = best ? lossMap.get(best.step) : null;
+                    return bestLoss == null || loss < bestLoss ? cp : best;
+                  }, null)
+                : null;
+              const bestStep = (bestByName ?? bestByLoss)?.step;
+              return (
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {detail.checkpoints.map((cp, i) => (
+                {detail.checkpoints.map((cp: Checkpoint, i: number) => {
+                  const isBest = cp.step === bestStep;
+                  const lossAtStep = lossMap.get(cp.step);
+                  return (
                   <div
                     key={i}
                     className="rounded-lg p-3"
-                    style={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)' }}
+                    style={{
+                      backgroundColor: 'var(--color-background)',
+                      border: isBest ? '1px solid #fbbf24' : '1px solid var(--color-border)',
+                      boxShadow: isBest ? '0 0 12px rgba(251, 191, 36, 0.2)' : 'none',
+                    }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-medium" style={{ color: '#10b981' }}>
-                        Step {cp.step.toLocaleString()}
-                      </span>
-                      {cp.size_bytes != null && (
-                        <span className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
-                          {(cp.size_bytes / 1024 / 1024).toFixed(1)} MB
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-medium" style={{ color: isBest ? '#fbbf24' : '#10b981' }}>
+                          Step {cp.step.toLocaleString()}
                         </span>
-                      )}
+                        {isBest && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', border: '1px solid rgba(251, 191, 36, 0.3)' }}>
+                            best
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        {lossAtStep != null && (
+                          <span className="font-mono text-xs" style={{ color: isBest ? '#fbbf24' : 'var(--color-muted)' }}>
+                            loss {lossAtStep.toFixed(4)}
+                          </span>
+                        )}
+                        {cp.size_bytes != null && (
+                          <span className="font-mono text-xs" style={{ color: 'var(--color-muted)' }}>
+                            {(cp.size_bytes / 1024 / 1024).toFixed(1)} MB
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="mt-1 truncate font-mono text-xs" style={{ color: 'var(--color-muted)' }} title={cp.path}>
                       {cp.path}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
-            ) : (
+              );
+            })() : (
               <div className="py-12 text-center font-mono text-sm" style={{ color: 'var(--color-muted)' }}>
                 No checkpoints recorded
               </div>
