@@ -491,7 +491,7 @@ export default function LivePage() {
                 </span>
 
                 {/* Preview content */}
-                <div className="flex-1 min-w-0 truncate text-sm">
+                <div className="flex-1 min-w-0 text-sm">
                   {/* Model tag for assistant */}
                   {isAssistant && model && (
                     <span className="text-[var(--color-muted)] mr-1.5">
@@ -526,7 +526,7 @@ export default function LivePage() {
                   {/* Tool result preview (only when collapsed) */}
                   {!showExpanded && isToolOutput && toolResults.length > 0 && (
                     <span className={hasErrors ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-60'}>
-                      {toolResults[0].content.split('\n')[0].slice(0, 120)}
+                      {toolResults[0].content.split('\n')[0]}
                       {toolResults[0].content.split('\n').length > 1 ? '...' : ''}
                     </span>
                   )}
@@ -534,7 +534,7 @@ export default function LivePage() {
                   {/* Text preview (only when collapsed) */}
                   {!showExpanded && text && !isToolOutput && (
                     <span className="text-[var(--color-foreground)]">
-                      {text.split('\n')[0].slice(0, 200)}
+                      {text.split('\n')[0]}
                     </span>
                   )}
                 </div>
