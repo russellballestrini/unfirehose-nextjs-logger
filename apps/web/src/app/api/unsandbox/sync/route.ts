@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
-import { writeFile, mkdir, unlink } from 'fs/promises';
+import { writeFile, mkdir, unlink, readdir, stat } from 'fs/promises';
 import path from 'path';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
-import { getSetting } from '@unturf/unfirehose/db/ingest';
+import { getSetting, setSetting } from '@unturf/unfirehose/db/ingest';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,41 +27,138 @@ function authHeaders(publicKey: string, secretKey: string, method: string, apiPa
   };
 }
 
-// Package claude session data into /root/artifacts/ for retrieval
-const SYNC_SCRIPT = `#!/bin/bash
+/**
+ * Build a delta-aware sync script.
+ * Uses a marker file on the container to track last sync time.
+ * Only tars files modified since the marker, then touches the marker.
+ * First sync (no marker) sends everything.
+ */
+function buildSyncScript() {
+  return `#!/bin/bash
 set -e
 mkdir -p /root/artifacts
 CLAUDE_DIR="$HOME/.claude/projects"
+MARKER="$HOME/.claude/.last_sync"
+
 if [ ! -d "$CLAUDE_DIR" ]; then
-  echo '{"error":"no claude projects directory"}'
+  echo '{"files":0,"bytes":0,"delta":false}'
   exit 0
 fi
 
-# Create a tar of all session JSONL + indexes, preserving directory structure
 cd "$HOME/.claude"
-tar czf /root/artifacts/claude-sessions.tar.gz \
-  --include='*.jsonl' \
-  --include='sessions-index.json' \
-  -C "$HOME/.claude" projects/ 2>/dev/null || true
 
-# Also output a manifest so we know what we got
-find projects/ -name '*.jsonl' -o -name 'sessions-index.json' 2>/dev/null | sort
+if [ -f "$MARKER" ]; then
+  # Delta: only files modified since last sync
+  NEWER="-newer $MARKER"
+  DELTA=true
+else
+  NEWER=""
+  DELTA=false
+fi
+
+# Find JSONL + index files (delta or full)
+FILELIST=$(find projects/ \\( -name '*.jsonl' -o -name 'sessions-index.json' \\) $NEWER 2>/dev/null || true)
+
+if [ -z "$FILELIST" ]; then
+  echo "{\\\"files\\\":0,\\\"bytes\\\":0,\\\"delta\\\":$DELTA}"
+  # Still touch marker so next run is delta
+  touch "$MARKER"
+  exit 0
+fi
+
+# Create tar from the file list
+echo "$FILELIST" | tar czf /root/artifacts/claude-sessions.tar.gz -T - 2>/dev/null || true
+
+# Update marker for next delta
+touch "$MARKER"
+
+FILE_COUNT=$(echo "$FILELIST" | wc -l)
+TAR_SIZE=$(stat -c%s /root/artifacts/claude-sessions.tar.gz 2>/dev/null || echo 0)
+echo "{\\\"files\\\":$FILE_COUNT,\\\"bytes\\\":$TAR_SIZE,\\\"delta\\\":$DELTA}"
+
+# List files for manifest
 echo "---"
-du -sh /root/artifacts/claude-sessions.tar.gz 2>/dev/null || echo "0 bytes"
+echo "$FILELIST"
 `;
+}
+
+/**
+ * Execute a command on a service and poll for result with artifacts.
+ */
+async function execOnService(
+  publicKey: string,
+  secretKey: string,
+  serviceId: string,
+  command: string,
+  timeoutMs = 60000,
+): Promise<{ ok: boolean; result?: any; error?: string }> {
+  const execPath = `/services/${serviceId}/execute`;
+  const execPayload = JSON.stringify({ command, timeout: timeoutMs });
+  const headers = authHeaders(publicKey, secretKey, 'POST', execPath, execPayload);
+
+  let jobId: string;
+  try {
+    const res = await fetch(`${API_BASE}${execPath}`, {
+      method: 'POST', headers, body: execPayload,
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error || `HTTP ${res.status}` };
+    jobId = data.job_id;
+    if (!jobId) return { ok: false, error: 'No job_id returned' };
+  } catch (err) {
+    return { ok: false, error: `Execute failed: ${err}` };
+  }
+
+  // Poll for completion (max ~60s)
+  const pollPath = `/jobs/${jobId}`;
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const h = authHeaders(publicKey, secretKey, 'GET', pollPath);
+    try {
+      const res = await fetch(`${API_BASE}${pollPath}`, { headers: h, signal: AbortSignal.timeout(10000) });
+      const data = await res.json();
+      if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+        return { ok: true, result: data };
+      }
+    } catch { /* retry */ }
+  }
+
+  return { ok: false, error: `Job ${jobId} timed out` };
+}
+
+/**
+ * Extract a tar artifact into the local claude projects directory.
+ */
+async function extractArtifact(serviceId: string, tarB64: string): Promise<{ files: number; bytes: number }> {
+  const tarBuffer = Buffer.from(tarB64, 'base64');
+  const destDir = path.join(homedir(), '.claude', 'projects');
+  const tmpTar = path.join(homedir(), '.unfirehose', `unsandbox-sync-${serviceId}.tar.gz`);
+
+  await mkdir(path.dirname(tmpTar), { recursive: true });
+  await mkdir(destDir, { recursive: true });
+  await writeFile(tmpTar, tarBuffer, { mode: 0o600 });
+
+  // Extract — tar preserves the projects/ structure
+  execSync(`tar xzf "${tmpTar}" -C "${destDir}" --strip-components=1 2>/dev/null || true`, {
+    timeout: 30000,
+  });
+
+  // Cleanup — zero then remove
+  await writeFile(tmpTar, '', { mode: 0o600 });
+  await unlink(tmpTar).catch(() => {});
+
+  return { files: 0, bytes: tarBuffer.length };
+}
 
 /**
  * POST /api/unsandbox/sync
  *
- * Pulls claude session JSONL + todos off a running unsandbox service.
+ * Body: { serviceId: string } — sync one service
+ * Body: { all: true }         — sync all running services
  *
- * Body: { serviceId: string }
- *
- * Flow:
- *   1. POST /services/{id}/execute — tar up ~/.claude/projects/ into /root/artifacts/
- *   2. Poll GET /jobs/{job_id} until complete (artifacts returned)
- *   3. Decode base64 tar, extract to ~/.claude/projects/unsandbox-{serviceId}/
- *   4. Normal ingest picks it up
+ * Delta-aware: container tracks last sync via marker file.
+ * Only modified files since last sync are transferred.
  */
 export async function POST(request: NextRequest) {
   const publicKey = getSetting('unsandbox_public_key');
@@ -71,120 +168,102 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { serviceId } = body;
-  if (!serviceId) {
-    return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
-  }
 
-  // 1. Execute sync script on the service
-  const execPath = `/services/${serviceId}/execute`;
-  const execPayload = JSON.stringify({
-    command: SYNC_SCRIPT,
-    timeout: 60000,
-  });
-  const execHeaders = authHeaders(publicKey, secretKey, 'POST', execPath, execPayload);
+  // Determine which services to sync
+  let serviceIds: string[] = [];
 
-  let jobId: string;
-  try {
-    const res = await fetch(`${API_BASE}${execPath}`, {
-      method: 'POST',
-      headers: execHeaders,
-      body: execPayload,
-      signal: AbortSignal.timeout(15000),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      return NextResponse.json({ error: data.error || `HTTP ${res.status}` }, { status: res.status });
-    }
-    jobId = data.job_id;
-    if (!jobId) {
-      return NextResponse.json({ error: 'No job_id returned', data }, { status: 500 });
-    }
-  } catch (err) {
-    return NextResponse.json({ error: `Execute failed: ${err}` }, { status: 500 });
-  }
-
-  // 2. Poll for job completion (max ~60s)
-  const pollPath = `/jobs/${jobId}`;
-  let result: any = null;
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const headers = authHeaders(publicKey, secretKey, 'GET', pollPath);
+  if (body.serviceId) {
+    serviceIds = [body.serviceId];
+  } else if (body.all) {
+    // Fetch all running services
     try {
-      const res = await fetch(`${API_BASE}${pollPath}`, {
-        headers,
-        signal: AbortSignal.timeout(10000),
-      });
+      const svcPath = '/services';
+      const h = authHeaders(publicKey, secretKey, 'GET', svcPath);
+      const res = await fetch(`${API_BASE}${svcPath}`, { headers: h, signal: AbortSignal.timeout(10000) });
       const data = await res.json();
-      if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-        result = data;
-        break;
-      }
-    } catch {
-      // Retry on transient failure
+      serviceIds = (data.services ?? data ?? [])
+        .filter((svc: any) => svc.status === 'running')
+        .map((svc: any) => svc.id);
+    } catch (err) {
+      return NextResponse.json({ error: `Failed to list services: ${err}` }, { status: 500 });
     }
   }
 
-  if (!result) {
-    return NextResponse.json({ error: 'Job timed out waiting for completion', jobId }, { status: 504 });
+  if (!serviceIds.length) {
+    return NextResponse.json({ error: 'No serviceId provided and no running services found' }, { status: 400 });
   }
 
-  if (result.exit_code !== 0) {
-    return NextResponse.json({
-      error: 'Sync script failed',
-      exit_code: result.exit_code,
-      stdout: result.stdout?.slice(0, 2000),
-      stderr: result.stderr?.slice(0, 2000),
-    }, { status: 500 });
+  const results: any[] = [];
+  const syncScript = buildSyncScript();
+
+  for (const svcId of serviceIds) {
+    const t0 = Date.now();
+    const { ok, result, error } = await execOnService(publicKey, secretKey, svcId, syncScript);
+
+    if (!ok || !result) {
+      results.push({ serviceId: svcId, ok: false, error: error ?? 'No result' });
+      continue;
+    }
+
+    if (result.exit_code !== 0) {
+      results.push({
+        serviceId: svcId, ok: false,
+        error: 'Script failed',
+        stderr: result.stderr?.slice(0, 1000),
+      });
+      continue;
+    }
+
+    // Parse the JSON summary from stdout (first line)
+    let summary: any = {};
+    try {
+      const firstLine = (result.stdout ?? '').split('\n')[0];
+      summary = JSON.parse(firstLine);
+    } catch { /* not parseable */ }
+
+    // Extract artifact if present
+    const artifacts: any[] = result.artifacts ?? [];
+    const tarArtifact = artifacts.find((a: any) =>
+      a.filename === 'claude-sessions.tar.gz' || artifacts.length === 1
+    );
+
+    if (tarArtifact?.data) {
+      try {
+        const extracted = await extractArtifact(svcId, tarArtifact.data);
+        const now = new Date().toISOString();
+        setSetting(`unsandbox_last_sync_${svcId}`, now);
+        results.push({
+          serviceId: svcId, ok: true,
+          delta: summary.delta ?? false,
+          filesOnContainer: summary.files ?? 0,
+          artifactBytes: extracted.bytes,
+          elapsed: Date.now() - t0,
+          syncedAt: now,
+        });
+      } catch (err) {
+        results.push({ serviceId: svcId, ok: false, error: `Extract failed: ${err}` });
+      }
+    } else {
+      // No artifact — either no files or no changes since last sync
+      const now = new Date().toISOString();
+      setSetting(`unsandbox_last_sync_${svcId}`, now);
+      results.push({
+        serviceId: svcId, ok: true,
+        delta: summary.delta ?? false,
+        filesOnContainer: summary.files ?? 0,
+        artifactBytes: 0,
+        elapsed: Date.now() - t0,
+        syncedAt: now,
+        note: 'No new data since last sync',
+      });
+    }
   }
 
-  // 3. Extract artifacts
-  const artifacts: any[] = result.artifacts ?? [];
-  const tarArtifact = artifacts.find((a: any) =>
-    a.filename === 'claude-sessions.tar.gz' || (artifacts.length === 1)
-  );
-
-  if (!tarArtifact?.data) {
-    return NextResponse.json({
-      error: 'No artifact returned — container may have no claude session data',
-      stdout: result.stdout?.slice(0, 2000),
-      artifacts: artifacts.map((a: any) => ({ filename: a.filename, size: a.data?.length ?? 0 })),
-    }, { status: 200 });
-  }
-
-  // 4. Write tar to temp, extract to local claude projects dir
-  const tarBuffer = Buffer.from(tarArtifact.data, 'base64');
-  const destDir = path.join(homedir(), '.claude', 'projects');
-  const tmpTar = path.join(homedir(), '.unfirehose', `unsandbox-sync-${serviceId}.tar.gz`);
-
-  try {
-    await mkdir(path.dirname(tmpTar), { recursive: true });
-    await writeFile(tmpTar, tarBuffer, { mode: 0o600 });
-
-    // Extract — tar preserves the projects/ structure
-    // Files land in ~/.claude/projects/ alongside local projects
-    execSync(`tar xzf "${tmpTar}" -C "${destDir}" --strip-components=1 2>/dev/null || true`, {
-      timeout: 30000,
-    });
-
-    // Cleanup temp tar — zero contents first, then remove
-    await writeFile(tmpTar, '', { mode: 0o600 });
-    await unlink(tmpTar).catch(() => {});
-
-    return NextResponse.json({
-      ok: true,
-      serviceId,
-      jobId,
-      artifactSize: tarBuffer.length,
-      manifest: result.stdout?.slice(0, 5000),
-    });
-  } catch (err) {
-    return NextResponse.json({ error: `Extract failed: ${err}` }, { status: 500 });
-  }
+  return NextResponse.json({ results });
 }
 
 /**
- * GET /api/unsandbox/sync — list services available for sync
+ * GET /api/unsandbox/sync — list services with sync status
  */
 export async function GET() {
   const publicKey = getSetting('unsandbox_public_key');
@@ -203,6 +282,7 @@ export async function GET() {
       name: svc.name,
       status: svc.status,
       created_at: svc.created_at,
+      lastSync: getSetting(`unsandbox_last_sync_${svc.id}`) ?? null,
     }));
     return NextResponse.json({ services });
   } catch (err) {

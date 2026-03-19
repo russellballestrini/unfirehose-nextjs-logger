@@ -782,6 +782,27 @@ async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: str
     'grep -q ".local/bin" ~/.bashrc 2>/dev/null || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
   );
 
+  // Session sync: death trap + periodic background sync to /root/artifacts/
+  // Files in /root/artifacts/ are downloadable via unsandbox artifact API
+  setupParts.push(
+    '# --- session artifact sync ---',
+    'sync_sessions() {',
+    '  mkdir -p /root/artifacts',
+    '  cd "$HOME/.claude" 2>/dev/null || return 0',
+    '  MARKER="$HOME/.claude/.last_sync"',
+    '  if [ -f "$MARKER" ]; then NEWER="-newer $MARKER"; else NEWER=""; fi',
+    '  FILES=$(find projects/ \\( -name "*.jsonl" -o -name "sessions-index.json" \\) $NEWER 2>/dev/null || true)',
+    '  if [ -n "$FILES" ]; then',
+    '    echo "$FILES" | tar czf /root/artifacts/claude-sessions.tar.gz -T - 2>/dev/null || true',
+    '  fi',
+    '  touch "$MARKER"',
+    '}',
+    '# Death trap — sync before container dies',
+    'trap "sync_sessions; exit" SIGTERM SIGINT SIGHUP',
+    '# Background periodic sync every 3 minutes',
+    '(while true; do sleep 180; sync_sessions; done) &',
+  );
+
   // Build the harness command
   let harnessCmd = resolvedHarness === 'claude' ? 'claude' : resolvedHarness;
   if (resolvedHarness === 'claude') {
