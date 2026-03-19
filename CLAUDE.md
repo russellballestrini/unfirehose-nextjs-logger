@@ -17,6 +17,7 @@ Full shard: `~/git/unsandbox.com/blackops/BLACKOPS.md`
 - Prefer "defect" over "bug."
 - Commit and push when ready — rapid prototyping mode. No need to ask before committing.
 - Never add `Co-Authored-By` lines to commit messages.
+- **Never modify unsandbox infrastructure** — unsandbox.com, api.unsandbox.com, proxy, golden image are out of scope. Changes to those repos require explicit multi-approval from fox. Build integrations from the unfirehose side only.
 
 ## Orientation
 
