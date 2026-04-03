@@ -1121,7 +1121,7 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
       const pushResult = await pushRes.json();
       setCommitPhase('done');
       setCommitResult(pushResult.success
-        ? result.commit
+        ? `${result.commit}${pushResult.rebased ? ' (rebased)' : ''}`
         : `Committed — push failed: ${pushResult.error}`);
       mutateGit();
       setTimeout(() => { setCommitPhase(null); setCommitResult(null); }, 5000);
@@ -1180,7 +1180,7 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
       });
       const result = await res.json();
       setCommitPhase('done');
-      setCommitResult(result.success ? 'Pushed' : `Error: ${result.error}`);
+      setCommitResult(result.success ? (result.rebased ? 'Rebased + pushed' : 'Pushed') : `Error: ${result.error}`);
       mutateGit();
       setTimeout(() => { setCommitPhase(null); setCommitResult(null); }, 4000);
     } catch (err) {

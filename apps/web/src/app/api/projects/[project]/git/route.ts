@@ -130,10 +130,21 @@ export async function POST(
     const body = await request.json();
     const { message, addAll, action, skipPush } = body;
 
-    // Push-only action
+    // Push-only action — auto rebase-and-retry if remote is ahead
     if (action === 'push') {
-      const pushOut = await gitExec(repoPath, ['push'], 30000);
-      return NextResponse.json({ success: true, pushed: true, output: pushOut.trim() });
+      try {
+        const pushOut = await gitExec(repoPath, ['push'], 30000);
+        return NextResponse.json({ success: true, pushed: true, output: pushOut.trim() });
+      } catch (pushErr: any) {
+        const msg = String(pushErr.message || pushErr);
+        // Remote has commits we don't have — rebase and retry
+        if (msg.includes('fetch first') || msg.includes('failed to push') || msg.includes('rejected')) {
+          await gitExec(repoPath, ['pull', '--rebase'], 30000);
+          const retryOut = await gitExec(repoPath, ['push'], 30000);
+          return NextResponse.json({ success: true, pushed: true, rebased: true, output: retryOut.trim() });
+        }
+        throw pushErr;
+      }
     }
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
