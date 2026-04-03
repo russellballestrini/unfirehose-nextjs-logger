@@ -1067,8 +1067,9 @@ function TokensTab({ full, thisActivity, globalTotals }: any) {
 /* ─── CODE TAB ─── */
 function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath }: any) {
   const [commitMsg, setCommitMsg] = useState('');
-  const [committing, setCommitting] = useState(false);
+  const [commitPhase, setCommitPhase] = useState<null | 'committing' | 'pushing' | 'done' | 'error'>(null);
   const [commitResult, setCommitResult] = useState<string | null>(null);
+  const isCommitting = commitPhase === 'committing' || commitPhase === 'pushing';
   const [showDiff, setShowDiff] = useState(false);
   const [codeView, setCodeView] = useState<'files' | 'changes'>('files');
   const [suggesting, setSuggesting] = useState(false);
@@ -1094,27 +1095,40 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
   }
 
   async function handleCommit(addAll: boolean) {
-    if (!commitMsg.trim() || committing) return;
-    setCommitting(true);
+    if (!commitMsg.trim() || isCommitting) return;
+    setCommitPhase('committing');
     setCommitResult(null);
     try {
       const res = await fetch(`/api/projects/${project}/git`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: commitMsg.trim(), addAll }),
+        body: JSON.stringify({ message: commitMsg.trim(), addAll, skipPush: true }),
       });
       const result = await res.json();
-      if (result.success) {
-        setCommitResult(`Committed: ${result.commit}${result.pushed ? ' (pushed)' : ''}${result.pushError ? ` — push failed: ${result.pushError}` : ''}`);
-        setCommitMsg('');
-        mutateGit();
-      } else {
+      if (!result.success) {
+        setCommitPhase('error');
         setCommitResult(`Error: ${result.error}`);
+        return;
       }
+      setCommitMsg('');
+      mutateGit();
+      setCommitPhase('pushing');
+      const pushRes = await fetch(`/api/projects/${project}/git`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'push' }),
+      });
+      const pushResult = await pushRes.json();
+      setCommitPhase('done');
+      setCommitResult(pushResult.success
+        ? result.commit
+        : `Committed — push failed: ${pushResult.error}`);
+      mutateGit();
+      setTimeout(() => { setCommitPhase(null); setCommitResult(null); }, 5000);
     } catch (err) {
+      setCommitPhase('error');
       setCommitResult(`Error: ${String(err)}`);
     }
-    setCommitting(false);
   }
 
   const [pendingFileAction, setPendingFileAction] = useState<string | null>(null);
@@ -1155,7 +1169,8 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
   }
 
   async function handlePush() {
-    setCommitting(true);
+    if (isCommitting) return;
+    setCommitPhase('pushing');
     setCommitResult(null);
     try {
       const res = await fetch(`/api/projects/${project}/git`, {
@@ -1164,12 +1179,14 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
         body: JSON.stringify({ action: 'push' }),
       });
       const result = await res.json();
-      setCommitResult(result.success ? 'Pushed successfully' : `Error: ${result.error}`);
+      setCommitPhase('done');
+      setCommitResult(result.success ? 'Pushed' : `Error: ${result.error}`);
       mutateGit();
+      setTimeout(() => { setCommitPhase(null); setCommitResult(null); }, 4000);
     } catch (err) {
+      setCommitPhase('error');
       setCommitResult(`Error: ${String(err)}`);
     }
-    setCommitting(false);
   }
 
   const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -1489,17 +1506,20 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
                     </button>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || committing}
+                    <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || isCommitting}
                       className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
                       Commit tracked
                     </button>
-                    <button onClick={() => handleCommit(true)} disabled={!commitMsg.trim() || committing}
-                      className="px-4 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40">
-                      Commit all
+                    <button onClick={() => handleCommit(true)} disabled={!commitMsg.trim() || isCommitting}
+                      className="px-4 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center gap-2">
+                      {commitPhase === 'committing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
+                      {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
+                      {commitPhase === 'committing' ? 'Committing…' : commitPhase === 'pushing' ? 'Pushing…' : 'Commit all'}
                     </button>
-                    <button onClick={handlePush} disabled={committing}
-                      className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 ml-auto">
-                      Push
+                    <button onClick={handlePush} disabled={isCommitting}
+                      className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 ml-auto flex items-center gap-2">
+                      {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
+                      {commitPhase === 'pushing' ? 'Pushing…' : 'Push'}
                     </button>
                   </div>
                 </div>
@@ -1508,18 +1528,30 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
               {/* Push when clean */}
               {!gitData.isDirty && gitData.recentCommits && (
                 <div className="flex gap-2">
-                  <button onClick={handlePush} disabled={committing}
-                    className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
-                    Push
+                  <button onClick={handlePush} disabled={isCommitting}
+                    className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 flex items-center gap-2">
+                    {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
+                    {commitPhase === 'pushing' ? 'Pushing…' : 'Push'}
                   </button>
                 </div>
               )}
 
-              {/* Commit result */}
-              {commitResult && (
-                <p className={`text-sm font-mono ${commitResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
-                  {commitResult}
-                </p>
+              {/* Commit status */}
+              {(isCommitting || commitPhase === 'done' || commitPhase === 'error') && (
+                <div className={`flex items-center gap-2.5 px-3 py-2 rounded text-sm font-mono transition-all ${
+                  commitPhase === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                  commitPhase === 'done' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+                  'bg-[var(--color-surface)] text-[var(--color-muted)] border border-[var(--color-border)]'
+                }`}>
+                  {isCommitting && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse shrink-0" />}
+                  {commitPhase === 'done' && <span className="shrink-0">✓</span>}
+                  {commitPhase === 'error' && <span className="shrink-0">✗</span>}
+                  <span>
+                    {commitPhase === 'committing' && 'Committing…'}
+                    {commitPhase === 'pushing' && 'Pushing to remote…'}
+                    {(commitPhase === 'done' || commitPhase === 'error') && commitResult}
+                  </span>
+                </div>
               )}
 
               {/* Recent commits */}

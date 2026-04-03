@@ -128,7 +128,7 @@ export async function POST(
 
   try {
     const body = await request.json();
-    const { message, addAll, action } = body;
+    const { message, addAll, action, skipPush } = body;
 
     // Push-only action
     if (action === 'push') {
@@ -159,6 +159,11 @@ export async function POST(
 
     // Get the new commit info
     const newCommit = await gitExec(repoPath, ['log', '--oneline', '-1']);
+
+    // Skip push if caller handles it separately (e.g. for step-by-step UI feedback)
+    if (skipPush) {
+      return NextResponse.json({ success: true, commit: newCommit.trim(), pushed: false });
+    }
 
     // Auto-push if setting enabled (default: true)
     const autoPush = getSetting('git_auto_push') !== 'false';
