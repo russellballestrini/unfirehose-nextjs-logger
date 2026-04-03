@@ -1126,7 +1126,7 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
     return () => clearTimeout(t);
   }, [pendingFileAction]);
 
-  function requestFileAction(file: string, action: 'delete' | 'gitignore') {
+  function requestFileAction(file: string, action: 'delete' | 'gitignore' | 'restore') {
     const key = `${file}:${action}`;
     if (pendingFileAction === key) {
       setPendingFileAction(null);
@@ -1136,7 +1136,7 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
     }
   }
 
-  async function executeFileAction(file: string, action: 'delete' | 'gitignore') {
+  async function executeFileAction(file: string, action: 'delete' | 'gitignore' | 'restore') {
     try {
       const res = await fetch(`/api/projects/${project}/git`, {
         method: 'DELETE',
@@ -1406,20 +1406,32 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
                           {f.file}
                         </button>
                         <div className="shrink-0 flex gap-1">
-                          <button
-                            onClick={() => requestFileAction(f.file, 'gitignore')}
-                            className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:gitignore` ? 'border-[var(--color-accent)] text-[var(--color-accent)] opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] opacity-50 hover:opacity-100'}`}
-                            title="Add to .gitignore"
-                          >
-                            {pendingFileAction === `${f.file}:gitignore` ? 'confirm?' : '.gitignore'}
-                          </button>
-                          <button
-                            onClick={() => requestFileAction(f.file, 'delete')}
-                            className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:delete` ? 'bg-[#ef4444] border-[#ef4444] text-white opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] opacity-50 hover:opacity-100'}`}
-                            title="Delete file"
-                          >
-                            {pendingFileAction === `${f.file}:delete` ? 'confirm?' : 'Delete'}
-                          </button>
+                          {f.status === 'D' ? (
+                            <button
+                              onClick={() => executeFileAction(f.file, 'restore')}
+                              className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#22c55e] hover:text-[#22c55e] opacity-50 hover:opacity-100 transition-colors"
+                              title="Restore file (undo staged deletion)"
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => requestFileAction(f.file, 'gitignore')}
+                                className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:gitignore` ? 'border-[var(--color-accent)] text-[var(--color-accent)] opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] opacity-50 hover:opacity-100'}`}
+                                title="Add to .gitignore"
+                              >
+                                {pendingFileAction === `${f.file}:gitignore` ? 'confirm?' : '.gitignore'}
+                              </button>
+                              <button
+                                onClick={() => requestFileAction(f.file, 'delete')}
+                                className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:delete` ? 'bg-[#ef4444] border-[#ef4444] text-white opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] opacity-50 hover:opacity-100'}`}
+                                title="Delete file"
+                              >
+                                {pendingFileAction === `${f.file}:delete` ? 'confirm?' : 'Delete'}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     );

@@ -246,7 +246,19 @@ export async function DELETE(
       return NextResponse.json({ success: true, action: 'delete', file });
     }
 
-    return NextResponse.json({ error: 'Unknown action — use "delete" or "gitignore"' }, { status: 400 });
+    if (action === 'restore') {
+      // Unstage staged changes (handles staged deletion, staged addition, etc.)
+      try {
+        await gitExec(repoPath, ['restore', '--staged', file]);
+      } catch { /* not staged — that's fine */ }
+      // Also restore working tree if file is missing (e.g. after git rm)
+      try {
+        await gitExec(repoPath, ['restore', file]);
+      } catch { /* not in HEAD — that's fine */ }
+      return NextResponse.json({ success: true, action: 'restore', file });
+    }
+
+    return NextResponse.json({ error: 'Unknown action — use "delete", "gitignore", or "restore"' }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: 'File operation failed', detail: String(err) }, { status: 500 });
   }
