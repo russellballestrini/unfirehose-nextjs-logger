@@ -10,6 +10,10 @@ import type { SessionsIndex } from '@unturf/unfirehose/types';
 // Average blended rate for rough per-project cost estimates (2026 Opus rates)
 const AVG_RATE = { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 };
 
+// Cache: activity aggregates are expensive — refresh every 60s
+const activityCache = new Map<number, { data: any[]; ts: number }>();
+const ACTIVITY_TTL = 60_000;
+
 function gitExec(cwd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', args, { cwd, timeout: 5000 }, (err, stdout) => {
@@ -131,7 +135,14 @@ export async function GET(request: NextRequest) {
     const days = Number(request.nextUrl.searchParams.get('days') ?? '30');
     const project = request.nextUrl.searchParams.get('project');
 
-    const activity = getProjectActivity(days) as any[];
+    const cached = activityCache.get(days);
+    const activity: any[] = (cached && Date.now() - cached.ts < ACTIVITY_TTL)
+      ? cached.data
+      : (() => {
+          const fresh = getProjectActivity(days) as any[];
+          activityCache.set(days, { data: fresh, ts: Date.now() });
+          return fresh;
+        })();
 
     // Compute per-project cost estimates using blended rate
     const enriched = activity.map((p: any) => {

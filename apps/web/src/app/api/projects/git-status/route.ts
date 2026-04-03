@@ -93,15 +93,20 @@ export async function GET() {
       })
     );
 
-    // Get git status in parallel (with concurrency limit via Promise.all)
-    const statuses = await Promise.all(
-      entries
-        .filter((e) => e.repoPath)
-        .map(async ({ dir, repoPath }) => {
+    // Get git status with concurrency cap — 85+ parallel git processes OOMs the server
+    const CONCURRENCY = 8;
+    const eligible = entries.filter((e) => e.repoPath);
+    const statuses: Array<{ dir: string; status: ProjectGitStatus | null }> = [];
+    for (let i = 0; i < eligible.length; i += CONCURRENCY) {
+      const batch = eligible.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(async ({ dir, repoPath }) => {
           const status = await getGitStatus(repoPath!);
           return { dir, status };
         })
-    );
+      );
+      statuses.push(...batchResults);
+    }
 
     for (const { dir, status } of statuses) {
       if (status) results[dir] = status;
