@@ -139,7 +139,13 @@ export async function POST(
         const msg = String(pushErr.message || pushErr);
         // Remote has commits we don't have — rebase and retry
         if (msg.includes('fetch first') || msg.includes('failed to push') || msg.includes('rejected')) {
-          await gitExec(repoPath, ['pull', '--rebase'], 30000);
+          try {
+            await gitExec(repoPath, ['pull', '--rebase'], 30000);
+          } catch (rebaseErr: any) {
+            // Conflict — abort so the repo isn't left mid-rebase
+            await gitExec(repoPath, ['rebase', '--abort']).catch(() => {});
+            return NextResponse.json({ success: false, error: 'Remote has conflicts that need manual resolution' }, { status: 409 });
+          }
           const retryOut = await gitExec(repoPath, ['push'], 30000);
           return NextResponse.json({ success: true, pushed: true, rebased: true, output: retryOut.trim() });
         }
