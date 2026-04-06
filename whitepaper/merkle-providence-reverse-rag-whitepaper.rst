@@ -132,6 +132,16 @@ A cache hit at this key means: *an earlier session computed an answer to this qu
 
 A cache miss means: run inference, store our result, extend our chain.
 
+**Git & Mercurial are already Merkle trees.** For source code repositories, we do not need to build our own Merkle tree. Every git commit hash IS a Merkle root: a SHA-1 (or SHA-256 in git 2.x) digest of our entire repository tree at that point in time. Every ``hg`` commit carries an identical guarantee. The version control system has already done our hashing work.
+
+For codebases, our cache key simplifies to::
+
+    document_root = git_commit_hash   # or hg changeset hash
+    question_key  = sha256(normalize(user_question))
+    cache_key     = document_root + ":" + question_key
+
+When a developer commits, our cache key changes automatically. Prior answers expire. Fresh inference runs against our new commit. No manual invalidation. No polling. Our version control system signals our cache boundary by design.
+
 
 3. The Providence Layer: Proof of Origin
 ------------------------------------------
@@ -438,6 +448,29 @@ Our Merkle structure aligns with permacomputer values:
 - Implement ``verifyMerkleProof()`` in our uncloseai.js client
 - Surface proof status in our chat UI (verified badge vs. fresh inference)
 - Add document root display so users can audit our source fingerprint
+
+**Phase 4: Harness-level knowledge graph via unfirehose**
+
+Unfirehose collects JSONL from every harness session across our mesh. Every file read, every tool call, every assistant response produces a record. At the harness level, our Merkle Providence layer extends beyond web pages to entire codebases & research corpora:
+
+- **Commit-keyed cache**: when a harness reads a file, we record ``(git_commit_hash, file_path, question_hash) → answer``. Our same question about our same file at our same commit hits our cache on every future session, on any node in our mesh, without re-reading the file.
+- **Knowledge graph construction**: unfirehose builds a graph of concepts, files, functions, & sessions from harness JSONL. Nodes carry Merkle-verified summaries. Edges carry session provenance. Our graph grows with every harness run.
+- **71x token reduction**: graph traversal over pre-summarized, Merkle-verified nodes replaces raw file reads. A harness navigating a large codebase queries our knowledge graph first. Only cache misses trigger fresh file reads & inference.
+- **Cross-session continuity**: a new harness session on our same codebase at our same commit inherits our full prior knowledge graph. No re-reading. No re-summarizing. Our mesh memory persists across sessions, machines, & agents.
+
+This positions unfirehose not just as a log aggregator but as a shared, verifiable knowledge substrate for our entire mesh of machine learning agents.
+
+
+13. Related Work
+-----------------
+
+**Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify achieves 71.5x fewer tokens per query compared to raw file reads via graph traversal. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence builds verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result.
+
+**Git / Mercurial object model.** Both git & Mercurial implement content-addressed Merkle DAGs natively. Git's commit object hashes our entire tree; Merkle Providence inherits this as a free cache boundary signal. Our work makes this implicit property explicit & useful for ML inference caching.
+
+**Traditional RAG** (Lewis et al., 2020). Retrieval Augmented Generation introduced server-side vector retrieval for language models. Our Reverse RAG paper documented client-side inversion of this pipeline. Merkle Providence extends Reverse RAG with verifiable caching, eliminating our repetition tax that RAG systems do not address.
+
+**Zero-Knowledge Proofs.** Merkle membership proofs constitute a subset of ZKP: proving a leaf exists in a tree without revealing other leaves. Our work applies this primitive to ML answer provenance without requiring full ZKP apparatus (zk-SNARKs, Bulletproofs). We trade completeness for simplicity & speed.
 
 
 Acknowledgements
