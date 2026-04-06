@@ -372,6 +372,30 @@ function migrate(db: Database.Database) {
     );
   `);
 
+  // Providence cache — Merkle-keyed answer cache for Reverse RAG & codebase queries
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS providence_cache (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      cache_key       TEXT NOT NULL UNIQUE,
+      document_root   TEXT NOT NULL,
+      document_uri    TEXT NOT NULL,
+      question_hash   TEXT NOT NULL,
+      question_text   TEXT NOT NULL,
+      answer_text     TEXT NOT NULL,
+      merkle_proof    TEXT NOT NULL DEFAULT '[]',
+      model           TEXT NOT NULL DEFAULT '',
+      source_type     TEXT NOT NULL DEFAULT 'web',
+      git_commit      TEXT,
+      created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+      hit_count       INTEGER NOT NULL DEFAULT 0,
+      last_hit_at     INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_providence_root ON providence_cache(document_root);
+    CREATE INDEX IF NOT EXISTS idx_providence_uri  ON providence_cache(document_uri);
+    CREATE INDEX IF NOT EXISTS idx_providence_key  ON providence_cache(cache_key);
+    CREATE INDEX IF NOT EXISTS idx_providence_git  ON providence_cache(git_commit) WHERE git_commit IS NOT NULL;
+  `);
+
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
 
