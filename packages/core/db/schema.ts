@@ -373,51 +373,94 @@ function migrate(db: Database.Database) {
   `);
 
   // Providence cache — Merkle-keyed answer cache for Reverse RAG & codebase queries.
-  // Proof fields align with the polyglot/poly-network spec (proxy.unturf.com/pkg/polyglot):
-  //   model_id    — canonical model identifier (e.g. adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic)
-  //   base_uri    — inference endpoint (e.g. https://hermes.ai.unturf.com/v1)
-  //   temperature — sampling temperature at inference time
-  //   chain_tip   — IVC chain tip hash (hex) from polyglot proof
-  //   token_root  — Merkle root over output tokens (hex) — each token is a leaf
-  //   code_hash   — hash of the model code/weights (hex)
-  //   privacy_mode — transparent | private_proven | private | encrypted
-  //   signature   — Ed25519 signature of the proof (hex)
-  //   public_key  — Ed25519 public key of the signing node (hex)
-  //   session_id  — polyglot session UUID
-  //   turn_number — turn within the session
+  //
+  // CACHE KEY INPUTS (all hashed together — a difference in any field = cache miss):
+  //   document_root    — Merkle root of document content, or git/hg commit hash
+  //   question_hash    — SHA-256 of normalized question text
+  //   model_id         — canonical model identifier
+  //   model_revision   — exact weights revision / HuggingFace commit hash
+  //   quantization     — fp16 | bf16 | fp8 | int8 | int4 | q4_k_m etc.
+  //   system_prompt_hash — SHA-256 of the system prompt (not stored — voyeur protocol)
+  //   seed             — RNG seed if set (null = non-deterministic, excluded from key)
+  //
+  // METADATA ONLY (stored for research/audit, not part of cache key):
+  //   base_uri         — inference endpoint URI
+  //   temperature      — sampling temperature
+  //   top_p            — nucleus sampling cutoff
+  //   top_k            — top-k sampling
+  //   repetition_penalty, frequency_penalty, presence_penalty
+  //   max_tokens       — output length cap
+  //   context_window   — model's context limit
+  //   backend          — vllm | llama.cpp | ollama | transformers | tgi
+  //   node_id          — mesh node that served the request
+  //   inference_ms     — wall-clock inference time
+  //
+  // POLYGLOT PROOF FIELDS (proxy.unturf.com/pkg/polyglot):
+  //   chain_tip, token_root, code_hash, privacy_mode, signature, public_key,
+  //   poly_session_id, turn_number
   db.exec(`
     CREATE TABLE IF NOT EXISTS providence_cache (
-      id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      cache_key       TEXT NOT NULL UNIQUE,
-      document_root   TEXT NOT NULL,
-      document_uri    TEXT NOT NULL,
-      question_hash   TEXT NOT NULL,
-      question_text   TEXT NOT NULL,
-      answer_text     TEXT NOT NULL,
-      merkle_proof    TEXT NOT NULL DEFAULT '[]',
-      model_id        TEXT NOT NULL DEFAULT '',
-      base_uri        TEXT NOT NULL DEFAULT '',
-      temperature     REAL,
-      source_type     TEXT NOT NULL DEFAULT 'web',
-      git_commit      TEXT,
-      chain_tip       TEXT,
-      token_root      TEXT,
-      code_hash       TEXT,
-      privacy_mode    TEXT NOT NULL DEFAULT 'transparent',
-      signature       TEXT,
-      public_key      TEXT,
-      poly_session_id TEXT,
-      turn_number     INTEGER,
-      created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
-      hit_count       INTEGER NOT NULL DEFAULT 0,
-      last_hit_at     INTEGER
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+
+      -- cache key (computed by caller — see /api/providence/lookup)
+      cache_key           TEXT NOT NULL UNIQUE,
+
+      -- tier 1: key inputs (stored for inspection & re-keying)
+      document_root       TEXT NOT NULL,
+      document_uri        TEXT NOT NULL,
+      question_hash       TEXT NOT NULL,
+      question_text       TEXT NOT NULL,
+      model_id            TEXT NOT NULL DEFAULT '',
+      model_revision      TEXT,
+      quantization        TEXT,
+      system_prompt_hash  TEXT,
+      seed                INTEGER,
+
+      -- answer
+      answer_text         TEXT NOT NULL,
+      merkle_proof        TEXT NOT NULL DEFAULT '[]',
+
+      -- tier 2: metadata (not in key)
+      base_uri            TEXT NOT NULL DEFAULT '',
+      temperature         REAL,
+      top_p               REAL,
+      top_k               INTEGER,
+      repetition_penalty  REAL,
+      frequency_penalty   REAL,
+      presence_penalty    REAL,
+      max_tokens          INTEGER,
+      context_window      INTEGER,
+      backend             TEXT,
+      node_id             TEXT,
+      inference_ms        INTEGER,
+
+      -- source context
+      source_type         TEXT NOT NULL DEFAULT 'web',
+      git_commit          TEXT,
+
+      -- polyglot proof fields
+      chain_tip           TEXT,
+      token_root          TEXT,
+      code_hash           TEXT,
+      privacy_mode        TEXT NOT NULL DEFAULT 'transparent',
+      signature           TEXT,
+      public_key          TEXT,
+      poly_session_id     TEXT,
+      turn_number         INTEGER,
+
+      -- bookkeeping
+      created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
+      hit_count           INTEGER NOT NULL DEFAULT 0,
+      last_hit_at         INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_providence_root    ON providence_cache(document_root);
-    CREATE INDEX IF NOT EXISTS idx_providence_uri     ON providence_cache(document_uri);
-    CREATE INDEX IF NOT EXISTS idx_providence_key     ON providence_cache(cache_key);
-    CREATE INDEX IF NOT EXISTS idx_providence_git     ON providence_cache(git_commit) WHERE git_commit IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_providence_model   ON providence_cache(model_id);
-    CREATE INDEX IF NOT EXISTS idx_providence_session ON providence_cache(poly_session_id) WHERE poly_session_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providence_root     ON providence_cache(document_root);
+    CREATE INDEX IF NOT EXISTS idx_providence_uri      ON providence_cache(document_uri);
+    CREATE INDEX IF NOT EXISTS idx_providence_key      ON providence_cache(cache_key);
+    CREATE INDEX IF NOT EXISTS idx_providence_git      ON providence_cache(git_commit) WHERE git_commit IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providence_model    ON providence_cache(model_id);
+    CREATE INDEX IF NOT EXISTS idx_providence_session  ON providence_cache(poly_session_id) WHERE poly_session_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providence_backend  ON providence_cache(backend) WHERE backend IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providence_node     ON providence_cache(node_id) WHERE node_id IS NOT NULL;
   `);
 
   // UUIDv7 unique index — try/catch since it may already exist

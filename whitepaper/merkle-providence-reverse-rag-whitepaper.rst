@@ -179,7 +179,29 @@ A providence record for a cached answer contains the full inference context alon
       "hit_count":        0
     }
 
-The `model_id` & `base_uri` fields record exactly which model at which endpoint produced our answer. `temperature` records our sampling configuration. These three fields close our inference loop: any consumer of our cache record knows not just what our answer says, but which model produced it, where that model ran, & at what temperature. Two records with identical `document_root` + `question_hash` but different `model_id` or `base_uri` remain distinct entries — our cache does not collapse answers across inference providers.
+Our providence record collects maximum metadata, but only a subset enters our cache key. This distinction matters.
+
+**Tier 1 — Cache Key Inputs.** A difference in any of these fields produces a distinct cache entry:
+
+- ``document_root`` — content fingerprint (Merkle hash or git/hg commit)
+- ``question_hash`` — SHA-256 of normalized question text
+- ``model_id`` — canonical model identifier
+- ``model_revision`` — exact weights revision (HuggingFace commit hash or equivalent)
+- ``quantization`` — fp16, bf16, fp8, int8, int4, q4_k_m, etc. Same weights at different quantizations produce measurably different answers.
+- ``system_prompt_hash`` — SHA-256 of the system prompt. Different system prompt = different answer framing. We hash, not store — Operation Voyeur: prompt content never enters our logs.
+- ``seed`` — RNG seed when set. A seeded run produces a deterministic answer; a different seed produces a different one. Null seed entries cache on the other five fields alone.
+
+**Tier 2 — Metadata Only.** Stored for research, routing, & audit. Not part of the key:
+
+- ``base_uri`` — inference endpoint URI
+- ``temperature``, ``top_p``, ``top_k`` — sampling parameters
+- ``repetition_penalty``, ``frequency_penalty``, ``presence_penalty``
+- ``max_tokens``, ``context_window``
+- ``backend`` — vllm, llama.cpp, ollama, transformers, TGI
+- ``node_id`` — mesh node that served the request
+- ``inference_ms`` — wall-clock inference time
+
+Tier 2 metadata does not affect cache correctness. Two answers produced at different temperatures from the same model, revision, & quantization, answering the same question about the same document, represent the same logical answer — stochastically equivalent. We store the temperature of the first run that populated our cache. Future hits return that answer regardless of the caller's temperature setting.
 
 Any recipient of this record can verify our Merkle proof against our document root. If our document root matches what they compute from our same URI, our answer carries full provenance. If their computation produces a different root, our document changed, our answer no longer applies to their version.
 
