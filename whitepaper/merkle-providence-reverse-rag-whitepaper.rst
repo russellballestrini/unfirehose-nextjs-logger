@@ -14,6 +14,8 @@
 .. This paper introduces Merkle Providence: a provenance-preserving cache layer
 .. that lets small language models punch far outside their parameter class by
 .. combining Reverse RAG context injection with Merkle-tree-verified answer chains.
+.. Our reference implementation runs on Hermes 3, a NousResearch fine-tune of
+.. Meta's Llama 3.1 8B, served freely at uncloseai.com.
 .. Public chains share verified knowledge. Private chains stay local.
 .. Code is seeds to sprout on any abandoned technology.
 
@@ -34,7 +36,7 @@ Merkle Providence Reverse RAG
 
 .. class:: center
 
-*How 7B models answer with the confidence of a verified record, not a guess.*
+*How Hermes 3 Llama 3.1 8B answers with the confidence of a verified record, not a guess.*
 
 .. class:: center
 
@@ -57,7 +59,7 @@ Abstract
 
 **License: AGPL-3.0-only** · This algorithm, its implementation, & all associated code carry the GNU Affero General Public License v3.0 (only). You may use, modify, & distribute under those terms. No proprietary relicensing exists.
 
-Reverse Retrieval Augmented Generation (Reverse RAG) demonstrated that client-side context injection lets small 7B-8B parameter language models outperform much larger models on page-specific questions. Our prior work showed that the client already holds the document. No vector database required. No embedding pipeline. No retrieval failures.
+Reverse Retrieval Augmented Generation (Reverse RAG) demonstrated that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference implementation runs **Hermes 3**, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at `uncloseai.com <https://uncloseai.com>`_. Our prior work showed that the client already holds the document. No vector database required. No embedding pipeline. No retrieval failures.
 
 **Merkle Providence Reverse RAG** extends this with a second insight: the client not only holds the document, it can *remember what it already computed about that document*, prove that memory came from an unmodified source, & share that verified knowledge with others on public or private chains.
 
@@ -73,6 +75,22 @@ This combination removes two limits that have constrained small models:
 Once published, this technique forces a reckoning: every RAG system that cannot prove provenance of its retrieved chunks operates on unverifiable context. Merkle Providence makes provenance a first-class primitive.
 
 
+Reference Model: Hermes 3 Llama 3.1 8B
+----------------------------------------
+
+Our reference implementation runs on **Hermes 3**, a fine-tune of Meta's Llama 3.1 8B developed by NousResearch. Hermes 3 builds on Llama 3.1's 128k context window & adds instruction alignment, function-calling discipline, & reasoning consistency that raw base models lack. NousResearch trained Hermes 3 to follow multi-turn conversation formats precisely, making it reliable for our structured providence cache interactions.
+
+We chose Hermes 3 Llama 3.1 8B for three reasons:
+
+**Size matches our thesis.** 8 billion parameters represent a model any person can run on consumer hardware. A single RTX 3080 (10GB VRAM) runs Hermes 3 at full precision. A MacBook M2 Pro runs it in CPU-offload mode. Our technique produces no value if it requires expensive hardware to demonstrate.
+
+**Fine-tuning demonstrates our point.** Hermes 3 shows that fine-tuning a base model for instruction following, not scaling parameters, produces the reliability gains that matter for user-facing applications. Our Merkle Providence layer extends this logic: fine-tuned behavior + verified cached context beats raw parameter count.
+
+**uncloseai.com serves it freely.** Our public inference endpoint at `uncloseai.com <https://uncloseai.com>`_ runs Hermes 3 Llama 3.1 8B at no cost to any user. Our Reverse RAG pipeline in ``uncloseai.js`` targets this endpoint by default. Our Merkle Providence cache layer builds directly on this existing infrastructure. Any person anywhere, on any device with a browser, accesses our same Hermes 3 instance our paper describes.
+
+Hermes 3 Llama 3.1 8B outperforms many larger models on page-specific questions when Reverse RAG supplies full context. With Merkle Providence caching, it delivers consistent, verifiable answers across sessions. Our paper uses Hermes 3 throughout all examples & benchmarks.
+
+
 1. The Problem Reverse RAG Left Open
 --------------------------------------
 
@@ -80,7 +98,7 @@ Reverse RAG solved context retrieval. Client-side DOM extraction replaced vector
 
 One problem remained: **repetition**.
 
-A user visits a technical document. A 7B model reads 8,000 tokens of page content, classifies the page, & answers their question. One hour later, a different user visits the same document. Our same 7B model reads our same 8,000 tokens, classifies our same page, & answers a similar question again. Tomorrow, a third user. Our same 8,000 tokens. Our same classification. Our same inference cycle.
+A user visits a technical document. Hermes 3 Llama 3.1 8B reads 8,000 tokens of page content, classifies the page, & answers their question. One hour later, a different user visits our same document. Our same Hermes 3 instance reads our same 8,000 tokens, classifies our same page, & answers a similar question again. Tomorrow, a third user. Our same 8,000 tokens. Our same classification. Our same inference cycle.
 
 Nothing remembered. Nothing reused. No proof that any two answers came from our same source.
 
@@ -186,7 +204,7 @@ Merkle Providence Reverse RAG gives small models three tools:
 
 **Tool 2: Verified recall (from our providence cache).** Before our model reads our document, we check our cache. A cache hit returns our answer in milliseconds with a Merkle proof. Our model delivers a verified answer faster than any large model can load our full context. Our small model "already knew" because our prior session did our work.
 
-**Tool 3: Peer-verified answers (from public chains).** On a public chain, our small model benefits from every session any participant ran against our same document version. A document processed by 100 sessions across our mesh produces a rich cache. Our 7B model answers from our collective record, not just its own prior work.
+**Tool 3: Peer-verified answers (from public chains).** On a public chain, our small model benefits from every session any participant ran against our same document version. A document processed by 100 sessions across our mesh produces a rich cache. Our Hermes 3 Llama 3.1 8B instance answers from our collective record, not just its own prior work.
 
 These three tools operate at different timescales:
 
@@ -391,7 +409,7 @@ Our Merkle structure aligns with permacomputer values:
 
 **Harmony**: cache hits replace repeated inference. Our same compute produces more answers over time. Our mesh grows more efficient as our cache fills.
 
-**Love**: small models with providence caches remove our infrastructure barrier. A 7B model on a consumer GPU, connected to our public chain, answers with our collective memory of our mesh. Our permacomputer does not require our most expensive hardware to deliver our most reliable answers.
+**Love**: small models with providence caches remove our infrastructure barrier. Hermes 3 Llama 3.1 8B on a consumer GPU, connected to our public chain, answers with our collective memory of our mesh. Our permacomputer does not require our most expensive hardware to deliver our most reliable answers.
 
 
 12. Implementation Roadmap
