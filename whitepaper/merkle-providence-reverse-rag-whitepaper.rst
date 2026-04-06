@@ -23,8 +23,8 @@
    :width: 42%
    :align: center
 
-Merkle Providence Reverse RAG
-==============================
+Unturf Automated General Intelligence: Merkle Providence Reverse RAG
+======================================================================
 
 .. class:: center
 
@@ -44,7 +44,7 @@ Merkle Providence Reverse RAG
 
 .. class:: center
 
-`unfirehose.com <https://unfirehose.com>`_ · `uncloseai.com <https://uncloseai.com>`_ · `permacomputer.com <https://www.permacomputer.com>`_
+`unfirehose.com <https://unfirehose.com>`_ · `uncloseai.com <https://uncloseai.com>`_ · `agnt.gg <https://agnt.gg>`_ · `permacomputer.com <https://www.permacomputer.com>`_
 
 .. class:: center
 
@@ -74,6 +74,8 @@ This combination removes two limits that have constrained small models:
 
 Once published, this technique forces a reckoning: every RAG system that cannot prove provenance of its retrieved chunks operates on unverifiable context. Merkle Providence makes provenance a first-class primitive.
 
+We call this stack **Web 2.5**: the existing web's documents & URIs, augmented with machine learning context injection & Merkle-verified answer chains, without requiring a blockchain, a new protocol, or replacement of any existing infrastructure. Web 2.5 runs on top of what already exists. Any page. Any browser. Any small model. Public or private chain. No permission required.
+
 
 Reference Model: Hermes 3 Llama 3.1 8B
 ----------------------------------------
@@ -82,7 +84,7 @@ Our reference implementation runs on **Hermes 3**, a fine-tune of Meta's Llama 3
 
 We chose Hermes 3 Llama 3.1 8B for three reasons:
 
-**Size matches our thesis.** 8 billion parameters represent a model any person can run on consumer hardware. Our reference deployment runs Hermes 3 on a single RTX 3090 (24GB VRAM) at 8-bit quantization via bitsandbytes, consuming ~10GB VRAM with negligible quality loss over full precision. A MacBook M2 Pro runs it in CPU-offload mode. Our technique produces no value if it requires expensive hardware to demonstrate.
+**Size matches our thesis.** 8 billion parameters represent a model any person can run on consumer hardware. Our reference deployment hardware & quantization details stay current at `uncloseai.com/inference.html <https://uncloseai.com/inference.html>`_. Our technique produces no value if it requires expensive hardware to demonstrate.
 
 **Fine-tuning demonstrates our point.** Hermes 3 shows that fine-tuning a base model for instruction following, not scaling parameters, produces the reliability gains that matter for user-facing applications. Our Merkle Providence layer extends this logic: fine-tuned behavior + verified cached context beats raw parameter count.
 
@@ -366,7 +368,7 @@ Medical documentation. Legal reference material. Security advisories. Financial 
 9. Unfirehose Integration
 ---------------------------
 
-Unfirehose already collects JSONL from Claude Code, Fetch, & uncloseai harnesses across our mesh. Our providence cache extends this with three new API routes:
+Unfirehose already collects JSONL from Claude Code, Orchestra, uncloseai, & `agnt.gg <https://agnt.gg>`_ harnesses across our mesh. Our providence cache extends this with three new API routes:
 
 ``GET /api/providence?uri=...``
     Returns all cached answer records for a document URI. Includes document root hash, question hashes, answer previews, & peer counts. Lets users audit what our mesh knows about a document.
