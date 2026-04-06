@@ -436,6 +436,12 @@ Our Merkle structure aligns with permacomputer values:
 - Add document root display so users can audit our source fingerprint
 
 
+Acknowledgements
+----------------
+
+Our Merkle cache idea emerged from a conversation on X Spaces. We thank **@AR_Milne** & **@without_rulers** for a discussion that sparked the core insight: that a Merkle tree over document content could serve as a fast, verifiable cache layer for machine learning inference. Ideas born in public conversation belong to our commons.
+
+
 Citation
 --------
 
