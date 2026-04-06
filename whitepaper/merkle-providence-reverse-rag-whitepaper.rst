@@ -412,57 +412,26 @@ This posture change does not require every system to adopt Merkle trees immediat
 Medical documentation. Legal reference material. Security advisories. Financial disclosures. Any domain where "I retrieved something similar" falls short of "I can prove this came from our exact source you cited."
 
 
-9. What Unfirehose Curates & Aggregates
------------------------------------------
+9. What the Providence Cache Curates & Aggregates
+---------------------------------------------------
 
-Unfirehose ingests JSONL from every machine learning harness on our mesh — Claude Code, Orchestra, uncloseai, agnt.gg, & any harness that writes the unfirehose/1.0 schema. Every session, every tool call, every token, every thought, every todo flows into a single SQLite database at ``~/.unfirehose/unfirehose.db``.
+Every inference pass through our Merkle Providence layer produces a verified record. Over time these records accumulate into a structured, queryable knowledge base. Here we describe what our cache collects & what emerges from that collection.
 
-As of April 2026, our production instance holds:
+**Document fingerprints.** Every document processed — web page, git-versioned file, or raw content — contributes a ``document_root``: a deterministic hash of its content at a specific moment. Our cache accumulates a catalog of every document any session has processed, keyed by content not by name or URI. A document that moves keeps its fingerprint. A document that changes gets a new one.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 45 15
+**Answer records.** For every (document, conversation, model, revision, quantization) combination, our cache stores one verified answer. The answer record carries: the question text, the answer text, the full Merkle proof path, the conversation hash that produced the context, the model identity & inference configuration that produced the output, & the polyglot proof envelope if our endpoint signed the response. These records aggregate into a corpus of verified knowledge about our document collection.
 
-   * - Collection
-     - Records
-   * - Messages (user, assistant, system turns)
-     - 359,484
-   * - Content blocks (text, thinking, tool calls, tool results)
-     - 345,914
-   * - Sessions across all harnesses
-     - 10,731
-   * - Projects (distinct working directories)
-     - 85
-   * - Cross-session todos extracted from tool calls
-     - 1,261
-   * - Mesh node snapshots (CPU, RAM, GPU, power)
-     - 1,839
-   * - Training runs
-     - 15
-   * - Training events (loss, checkpoint, eval)
-     - 28,685
+**Conversation context fingerprints.** Our ``conversation_hash`` field captures the full OpenAI messages array — system prompt, all prior turns, & the final user message — as a single SHA-256. Our cache accumulates not just answers but the exact conversational paths that produced them. Two agents that reached the same question via different conversation histories leave distinct fingerprints. Over time we observe which conversational approaches yield cache hits & which always miss — signal for prompt engineering.
 
-Total tokens processed across all sessions: **66 million**. Harness breakdown: Claude Code (9,610 sessions), uncloseai (439), agnt.gg (251), with 8 distinct model identifiers recorded.
+**Hit counts & reuse rates.** Every cache lookup that finds an existing record increments ``hit_count`` & updates ``last_hit_at``. Our cache aggregates these into a measure of knowledge reuse: which documents get queried repeatedly, which questions recur, which model + quantization combinations serve the most requests. High-hit records represent our most valuable verified knowledge — answers our mesh has found useful enough to retrieve many times.
 
-From this raw stream, unfirehose curates & aggregates:
+**Model & endpoint diversity.** Each record carries ``model_id``, ``model_revision``, ``quantization``, & ``base_uri``. Our cache aggregates a record of which models answered which questions about which documents. Over time this produces a comparative dataset: the same question about the same document answered by Hermes 3 at fp8, at int4, by a different model entirely. Our cache does not collapse these — it preserves the full diversity for analysis.
 
-**Session intelligence.** Every session carries its project, harness, git branch, first prompt, status, & duration. Stale sessions surface automatically. Cross-session continuity lets a new agent pick up where a prior session left off without re-reading prior context.
+**Inference economics.** ``inference_ms``, ``backend``, ``node_id``, & sampling parameters aggregate into a routing intelligence layer. Our cache knows which nodes answer quickly, which backends run which models efficiently, & which quantization levels trade answer quality for speed. Cache hits carry this history forward — a future routing decision can prefer a node whose cached answers already proved useful.
 
-**Token economics.** Per-minute, per-project, & per-model token rollups feed our usage monitor & alert system. Cache-read tokens, cache-write tokens, & output tokens break down separately. Cost attribution reaches the project level.
+**Git-versioned knowledge graphs.** For codebase queries, our ``git_commit`` field anchors every answer to an exact repository state. Our cache accumulates a version-annotated knowledge graph of our codebase: "at commit abc123, this function does X; at commit def456 it does Y." When a developer asks "what changed?", our cache surfaces the delta between two commit-keyed answer sets without re-reading any file.
 
-**Todo landscape.** 1,261+ todos extracted automatically from ``TodoWrite``, ``TaskCreate``, & ``TaskUpdate`` tool calls across all sessions. Todos carry UUIDv7 identity, time estimates, file attachments, dependency graphs, & staleness signals. Our triage workflow identifies which todos have diverged from reality & which remain actionable.
-
-**Thinking traces.** Reasoning blocks (``<thinking>`` content) land in ``content_blocks`` alongside tool calls. Our ``/api/thinking`` endpoint makes these searchable across all sessions — a searchable record of every reasoning trace our agents produced.
-
-**Mesh telemetry.** Every node on our permacomputer mesh reports CPU load, memory, disk, GPU power draw, running processes, & tmux sessions at configurable intervals. Our mesh history table enables time-series queries: "show me GPU power on cammy over the last 24 hours."
-
-**Training provenance.** Every training run records its model, config, loss curve, checkpoints, & evaluation scores. Loss events link to their session context — we know which agent triggered which training run & what it said about the results.
-
-**Git context.** Every session records its git branch. Our ``/api/projects/git-status`` route surfaces unstaged changes, recent commits, & push status across all 85 projects simultaneously.
-
-**Providence cache (proposed).** Our Merkle-keyed answer cache extends this substrate. Every inference result joins the curated record — keyed by document content, conversation context, model identity, revision, & quantization. Our mesh memory grows with every session.
-
-The complete data schema stays public & self-describing at ``/api/schema`` on any running unfirehose instance.
+**Polyglot proof corpus.** When our inference endpoint runs with polyglot signing enabled, every answer record carries ``chain_tip``, ``token_root``, ``code_hash``, ``privacy_mode``, ``signature``, & ``public_key``. Our cache aggregates these into a corpus of cryptographically verified inference results — a growing ledger of provably correct answers, each signed by the node that produced it, each verifiable by any recipient with the public key.
 
 
 9b. Unfirehose Integration (Proposed)
