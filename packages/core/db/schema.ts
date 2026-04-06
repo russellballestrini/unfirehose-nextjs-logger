@@ -372,7 +372,19 @@ function migrate(db: Database.Database) {
     );
   `);
 
-  // Providence cache — Merkle-keyed answer cache for Reverse RAG & codebase queries
+  // Providence cache — Merkle-keyed answer cache for Reverse RAG & codebase queries.
+  // Proof fields align with the polyglot/poly-network spec (proxy.unturf.com/pkg/polyglot):
+  //   model_id    — canonical model identifier (e.g. adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic)
+  //   base_uri    — inference endpoint (e.g. https://hermes.ai.unturf.com/v1)
+  //   temperature — sampling temperature at inference time
+  //   chain_tip   — IVC chain tip hash (hex) from polyglot proof
+  //   token_root  — Merkle root over output tokens (hex) — each token is a leaf
+  //   code_hash   — hash of the model code/weights (hex)
+  //   privacy_mode — transparent | private_proven | private | encrypted
+  //   signature   — Ed25519 signature of the proof (hex)
+  //   public_key  — Ed25519 public key of the signing node (hex)
+  //   session_id  — polyglot session UUID
+  //   turn_number — turn within the session
   db.exec(`
     CREATE TABLE IF NOT EXISTS providence_cache (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -383,17 +395,29 @@ function migrate(db: Database.Database) {
       question_text   TEXT NOT NULL,
       answer_text     TEXT NOT NULL,
       merkle_proof    TEXT NOT NULL DEFAULT '[]',
-      model           TEXT NOT NULL DEFAULT '',
+      model_id        TEXT NOT NULL DEFAULT '',
+      base_uri        TEXT NOT NULL DEFAULT '',
+      temperature     REAL,
       source_type     TEXT NOT NULL DEFAULT 'web',
       git_commit      TEXT,
+      chain_tip       TEXT,
+      token_root      TEXT,
+      code_hash       TEXT,
+      privacy_mode    TEXT NOT NULL DEFAULT 'transparent',
+      signature       TEXT,
+      public_key      TEXT,
+      poly_session_id TEXT,
+      turn_number     INTEGER,
       created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
       hit_count       INTEGER NOT NULL DEFAULT 0,
       last_hit_at     INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_providence_root ON providence_cache(document_root);
-    CREATE INDEX IF NOT EXISTS idx_providence_uri  ON providence_cache(document_uri);
-    CREATE INDEX IF NOT EXISTS idx_providence_key  ON providence_cache(cache_key);
-    CREATE INDEX IF NOT EXISTS idx_providence_git  ON providence_cache(git_commit) WHERE git_commit IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providence_root    ON providence_cache(document_root);
+    CREATE INDEX IF NOT EXISTS idx_providence_uri     ON providence_cache(document_uri);
+    CREATE INDEX IF NOT EXISTS idx_providence_key     ON providence_cache(cache_key);
+    CREATE INDEX IF NOT EXISTS idx_providence_git     ON providence_cache(git_commit) WHERE git_commit IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providence_model   ON providence_cache(model_id);
+    CREATE INDEX IF NOT EXISTS idx_providence_session ON providence_cache(poly_session_id) WHERE poly_session_id IS NOT NULL;
   `);
 
   // UUIDv7 unique index — try/catch since it may already exist
