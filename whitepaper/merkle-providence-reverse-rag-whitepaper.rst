@@ -40,7 +40,7 @@ Merkle Providence Reverse RAG
 
 .. class:: center
 
-*russell@unturf, cthegray, TimeHexOn, foxhop*
+*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>, Duck <duck.the.musician@gmail.com>*
 
 .. class:: center
 
@@ -441,7 +441,7 @@ Citation
 
 ::
 
-    russell@unturf, cthegray, TimeHexOn, foxhop.
+    Russell Ballestrini, David Wong, Riley Morgan, Duck.
     "Merkle Providence Reverse RAG: Provenance-Preserving Cache Chains
     for Small Language Models."
     unfirehose.com, 2026.
@@ -490,10 +490,11 @@ License
 
     NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
 
-    Copyright (C) 2026 TimeHexOn & foxhop & cthegray & russell@unturf
-    https://www.timehexon.com
-    https://www.foxhop.net
-    https://carltonthegray.com
+    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan & Duck
+    russell@unturf.com
+    david.s.wong@pm.me
+    guybriley02@gmail.com
+    duck.the.musician@gmail.com
     https://www.unturf.com/software
     https://www.permacomputer.com
     https://uncloseai.com
