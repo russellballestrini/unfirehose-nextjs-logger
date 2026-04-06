@@ -647,6 +647,7 @@ export default function UsageMonitorPage() {
           Last ingest: {lastIngest.ingested?.messagesAdded} msgs,{' '}
           {lastIngest.ingested?.blocksAdded} blocks,{' '}
           {lastIngest.ingested?.filesScanned} files scanned,{' '}
+          {lastIngest.ingested?.providenceAdded ?? 0} providence,{' '}
           {lastIngest.ingested?.alertsTriggered} alerts triggered.
           DB: {lastIngest.db?.messages} total msgs, {lastIngest.db?.thinkingBlocks} thinking blocks.
         </div>

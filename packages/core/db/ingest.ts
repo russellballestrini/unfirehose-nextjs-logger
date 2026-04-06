@@ -2,6 +2,7 @@ import { readdir, readFile, stat, mkdir, appendFile } from 'fs/promises';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import { execFile } from 'child_process';
+import { createHash } from 'crypto';
 import path from 'path';
 import { homedir } from 'os';
 import { getDb } from './schema';
@@ -63,6 +64,7 @@ export interface IngestResult {
   blocksAdded: number;
   filesScanned: number;
   alertsTriggered: number;
+  providenceAdded: number;
 }
 
 /**
@@ -767,6 +769,121 @@ function checkThresholds(db: ReturnType<typeof getDb>): number {
   return triggered;
 }
 
+// ── Providence extraction helpers ─────────────────────────────────────────────
+
+/** SHA-256, first 16 hex chars — matches providence API cache_key format */
+function sha256short(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
+
+/** Full SHA-256 hex — used for conversation_hash (same as ProvidenceCache Python SDK) */
+function sha256full(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * Extract Q&A pairs from a session and upsert into providence_cache.
+ *
+ * Pairs every user text message with the next assistant text response.
+ * conversation_hash encodes all prior turns (full SHA-256 of [{role,content}...]).
+ * document_root = sha256short(projectUri) — stable per project path.
+ * Runs outside any transaction, after the session's batch insert completes.
+ * Uses INSERT OR IGNORE so re-ingestion is idempotent; hit_count stays correct.
+ */
+function extractProvidenceFromSession(
+  db: ReturnType<typeof getDb>,
+  sessionId: number,
+  projectUri: string,     // project filesystem path, or project name as fallback
+  sourceType: string,     // 'claude-code', 'uncloseai', harness name, etc.
+): number {
+  // Fetch all user/assistant messages with their text content for this session
+  const rows = db.prepare(`
+    SELECT m.id, m.type, m.model, m.duration_ms,
+           (SELECT GROUP_CONCAT(cb2.text_content, '\n\n')
+            FROM content_blocks cb2
+            WHERE cb2.message_id = m.id AND cb2.block_type = 'text'
+              AND cb2.text_content IS NOT NULL AND cb2.text_content != ''
+           ) AS text_content
+    FROM messages m
+    WHERE m.session_id = ? AND m.type IN ('user', 'assistant')
+    ORDER BY m.timestamp ASC, m.id ASC
+  `).all(sessionId) as Array<{
+    id: number;
+    type: string;
+    model: string | null;
+    duration_ms: number | null;
+    text_content: string | null;
+  }>;
+
+  if (rows.length < 2) return 0;
+
+  const documentRoot = sha256short(projectUri);
+  const conversationSoFar: Array<{ role: string; content: string }> = [];
+  let added = 0;
+
+  const insertStmt = db.prepare(`
+    INSERT OR IGNORE INTO providence_cache (
+      cache_key, document_root, document_uri, question_hash, question_text,
+      model_id, conversation_hash,
+      answer_text, merkle_proof,
+      inference_ms, source_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)
+  `);
+
+  const tx = db.transaction(() => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const text = row.text_content?.trim();
+      if (!text) continue;
+
+      if (row.type === 'user') {
+        // Look ahead for the next assistant message
+        const next = rows.slice(i + 1).find(r => r.type === 'assistant');
+        const answerText = next?.text_content?.trim();
+
+        if (answerText) {
+          // conversation_hash = SHA-256 of all messages up to (and including) this user turn
+          const convArray = [...conversationSoFar, { role: 'user', content: text }];
+          const convHash = sha256full(JSON.stringify(convArray));
+          const questionHash = sha256short(text);
+
+          const keyMaterial = [
+            documentRoot,
+            questionHash,
+            next?.model ?? '',
+            '',  // model_revision
+            '',  // quantization
+            convHash,
+            '',  // seed
+          ].join(':');
+          const cacheKey = sha256short(keyMaterial);
+
+          const r = insertStmt.run(
+            cacheKey,
+            documentRoot,
+            projectUri,
+            questionHash,
+            text,
+            next?.model ?? '',
+            convHash,
+            answerText,
+            next?.duration_ms ?? null,
+            sourceType,
+          );
+          if (r.changes > 0) added++;
+        }
+
+        conversationSoFar.push({ role: 'user', content: text });
+      } else if (row.type === 'assistant') {
+        conversationSoFar.push({ role: 'assistant', content: text });
+      }
+    }
+  });
+
+  tx();
+  return added;
+}
+
 async function ingestFetch(
   db: ReturnType<typeof getDb>
 ): Promise<Omit<IngestResult, 'alertsTriggered'>> {
@@ -776,6 +893,7 @@ async function ingestFetch(
     messagesAdded: 0,
     blocksAdded: 0,
     filesScanned: 0,
+    providenceAdded: 0,
   };
 
   if (!fetchPaths.root) return result;
@@ -891,6 +1009,9 @@ async function ingestFetch(
       db.prepare(
         'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
       ).run(new Date().toISOString(), sessionUuid);
+
+      // Extract Q&A providence records from this session
+      result.providenceAdded += extractProvidenceFromSession(db, sessionId, decodeFetchProjectName(slug), 'fetch');
     }
   }
 
@@ -962,6 +1083,7 @@ async function ingestNativeHarness(
     messagesAdded: 0,
     blocksAdded: 0,
     filesScanned: 0,
+    providenceAdded: 0,
   };
 
   if (!harness.root) return result;
@@ -1076,6 +1198,9 @@ async function ingestNativeHarness(
       db.prepare(
         'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
       ).run(new Date().toISOString(), sessionUuid);
+
+      // Extract Q&A providence records from this session
+      result.providenceAdded += extractProvidenceFromSession(db, sessionId, decodeProjectName(slug), harness.name);
     }
   }
 
@@ -1094,6 +1219,7 @@ export async function ingestAll(): Promise<IngestResult> {
     blocksAdded: 0,
     filesScanned: 0,
     alertsTriggered: 0,
+    providenceAdded: 0,
   };
 
   // Track projects where UNEOF was detected — cull after ingestion completes
@@ -1303,6 +1429,9 @@ export async function ingestAll(): Promise<IngestResult> {
       db.prepare(
         'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
       ).run(new Date().toISOString(), meta.sessionId);
+
+      // Extract Q&A providence records from this session
+      result.providenceAdded += extractProvidenceFromSession(db, sessionId, projectPath || decodeProjectName(dir), 'claude-code');
     }
   }
 
@@ -1316,6 +1445,7 @@ export async function ingestAll(): Promise<IngestResult> {
     result.messagesAdded += fetchResult.messagesAdded;
     result.blocksAdded += fetchResult.blocksAdded;
     result.filesScanned += fetchResult.filesScanned;
+    result.providenceAdded += fetchResult.providenceAdded;
   }
 
   // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.)
@@ -1326,6 +1456,7 @@ export async function ingestAll(): Promise<IngestResult> {
     result.messagesAdded += hResult.messagesAdded;
     result.blocksAdded += hResult.blocksAdded;
     result.filesScanned += hResult.filesScanned;
+    result.providenceAdded += hResult.providenceAdded;
   }
 
   // Backfill display_name for sessions without one OR with preamble names
