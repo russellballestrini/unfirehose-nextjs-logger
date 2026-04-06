@@ -44,7 +44,7 @@ Unturf Automated General Intelligence: Merkle Providence Reverse RAG
 
 .. class:: center
 
-`unfirehose.com <https://unfirehose.com>`_ · `uncloseai.com <https://uncloseai.com>`_ · `agnt.gg <https://agnt.gg>`_ · `permacomputer.com <https://www.permacomputer.com>`_
+`unfirehose.com <https://unfirehose.com>`_ · `uncloseai.com <https://uncloseai.com>`_ · `permacomputer.com <https://www.permacomputer.com>`_
 
 .. class:: center
 
