@@ -153,7 +153,7 @@ endobj
 <<
 /A <<
 /S /URI /Type /Action /URI (https://agnt.gg)
->> /Border [ 0 0 0 ] /Rect [ 408.2636 440.6236 440.2839 452.6236 ] /Subtype /Link /Type /Annot
+>> /Border [ 0 0 0 ] /Rect [ 372.6936 440.6236 408.6971 452.6236 ] /Subtype /Link /Type /Annot
 >>
 endobj
 22 0 obj
@@ -311,7 +311,7 @@ endobj
 endobj
 38 0 obj
 <<
-/Author () /CreationDate (D:20260406155149-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260406155149-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author () /CreationDate (D:20260406155339-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260406155339-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (\(unspecified\)) /Title () /Trapped /False
 >>
 endobj
@@ -398,22 +398,22 @@ endobj
 endobj
 55 0 obj
 <<
-/Dest [ 22 0 R /XYZ 57.02362 473.8236 0 ] /Next 56 0 R /Parent 40 0 R /Prev 54 0 R /Title (9. Unfirehose Integration)
+/Dest [ 22 0 R /XYZ 57.02362 473.8236 0 ] /Next 56 0 R /Parent 40 0 R /Prev 54 0 R /Title (9. Unfirehose Integration \(Proposed\))
 >>
 endobj
 56 0 obj
 <<
-/Dest [ 22 0 R /XYZ 57.02362 239.6236 0 ] /Next 57 0 R /Parent 40 0 R /Prev 55 0 R /Title (10. Relationship to Zero-Knowledge Proofs)
+/Dest [ 22 0 R /XYZ 57.02362 221.6236 0 ] /Next 57 0 R /Parent 40 0 R /Prev 55 0 R /Title (10. Relationship to Zero-Knowledge Proofs)
 >>
 endobj
 57 0 obj
 <<
-/Dest [ 23 0 R /XYZ 57.02362 735.0236 0 ] /Next 58 0 R /Parent 40 0 R /Prev 56 0 R /Title (11. Why This Matters for Permacomputer)
+/Dest [ 23 0 R /XYZ 57.02362 705.0236 0 ] /Next 58 0 R /Parent 40 0 R /Prev 56 0 R /Title (11. Why This Matters for Permacomputer)
 >>
 endobj
 58 0 obj
 <<
-/Dest [ 23 0 R /XYZ 57.02362 467.8236 0 ] /Next 59 0 R /Parent 40 0 R /Prev 57 0 R /Title (12. Implementation Roadmap)
+/Dest [ 23 0 R /XYZ 57.02362 437.8236 0 ] /Next 59 0 R /Parent 40 0 R /Prev 57 0 R /Title (12. Implementation Roadmap)
 >>
 endobj
 59 0 obj
@@ -1261,7 +1261,7 @@ endstream
 endobj
 68 0 obj
 <<
-/Length 7086
+/Length 7182
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -1563,9 +1563,9 @@ BT 1 0 0 1 0 14 Tm /F1 10 Tf 12 TL .633719 Tw (Public chains suit open documenta
 Q
 Q
 q
-1 0 0 1 57.02362 97.02362 cm
+1 0 0 1 57.02362 85.02362 cm
 q
-BT 1 0 0 1 0 14 Tm 1.66189 Tw 12 TL /F1 10 Tf 0 0 0 rg (Our unfirehose router daemon manages chain membership & peer discovery. Our user opts in to public) Tj T* 0 Tw (chains per-document-domain or per-session.) Tj T* ET
+BT 1 0 0 1 0 26 Tm .667739 Tw 12 TL /F1 10 Tf 0 0 0 rg (In our proposed design, our unfirehose router daemon would manage chain membership & peer discovery.) Tj T* 0 Tw 1.449104 Tw (Our user opts in to public chains per-document-domain or per-session. Our current implementation stays) Tj T* 0 Tw (private.) Tj T* ET
 Q
 Q
  
@@ -1573,7 +1573,7 @@ endstream
 endobj
 69 0 obj
 <<
-/Length 6691
+/Length 6708
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -1631,23 +1631,29 @@ Q
 q
 1 0 0 1 57.02362 460.6236 cm
 q
-BT 1 0 0 1 0 2.2 Tm 13.2 TL /F2 11 Tf .133333 .133333 .133333 rg (9. Unfirehose Integration) Tj T* ET
+BT 1 0 0 1 0 2.2 Tm 13.2 TL /F2 11 Tf .133333 .133333 .133333 rg (9. Unfirehose Integration \(Proposed\)) Tj T* ET
 Q
 Q
 q
 1 0 0 1 57.02362 428.6236 cm
 q
-BT 1 0 0 1 0 14 Tm -0.133973 Tw 12 TL /F1 10 Tf 0 0 0 rg (Unfirehose already collects JSONL from Claude Code, Orchestra, uncloseai, & ) Tj 0 .4 .6 rg (agnt.gg) Tj 0 0 0 rg ( harnesses across our) Tj T* 0 Tw (mesh. Our providence cache extends this with three new API routes:) Tj T* ET
+BT 1 0 0 1 0 14 Tm .293719 Tw 12 TL /F1 10 Tf 0 0 0 rg (Unfirehose collects JSONL from Claude Code, Orchestra, uncloseai, & ) Tj 0 .4 .6 rg (agnt.gg) Tj 0 0 0 rg ( harnesses across our mesh.) Tj T* 0 Tw -0.006777 Tw (Our providence cache layer does not yet exist in production. This section describes our proposed integration.) Tj T* 0 Tw ET
 Q
 Q
 q
-1 0 0 1 57.02362 412.6236 cm
+1 0 0 1 57.02362 410.6236 cm
+q
+BT 1 0 0 1 0 2 Tm 12 TL /F1 10 Tf 0 0 0 rg (We propose extending unfirehose with a ) Tj /F5 10 Tf (providence_cache) Tj /F1 10 Tf ( table & three new API routes:) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 394.6236 cm
 q
 BT 1 0 0 1 0 2 Tm 12 TL /F5 10 Tf 0 0 0 rg (GET) Tj ( ) Tj (/api/providence?uri=...) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 385.6236 cm
+1 0 0 1 57.02362 367.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1663,13 +1669,13 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 369.6236 cm
+1 0 0 1 57.02362 351.6236 cm
 q
 BT 1 0 0 1 0 2 Tm 12 TL /F5 10 Tf 0 0 0 rg (POST) Tj ( ) Tj (/api/providence) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 342.6236 cm
+1 0 0 1 57.02362 324.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1685,13 +1691,13 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 326.6236 cm
+1 0 0 1 57.02362 308.6236 cm
 q
 BT 1 0 0 1 0 2 Tm 12 TL /F5 10 Tf 0 0 0 rg (GET) Tj ( ) Tj (/api/providence/peers?root=...) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 287.6236 cm
+1 0 0 1 57.02362 269.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1700,7 +1706,7 @@ q
 1 0 0 1 20 0 cm
 q
 0 0 0 rg
-BT 1 0 0 1 0 26 Tm /F1 10 Tf 12 TL 3.84295 Tw (Queries our mesh for cached records matching a document root hash. Returns answers from) Tj T* 0 Tw 1.064488 Tw (public-chain peers with their Merkle proofs. Currently our providence cache operates in private mode.) Tj T* 0 Tw (Public peer querying remains a future capability, opt-in per domain.) Tj T* ET
+BT 1 0 0 1 0 26 Tm /F1 10 Tf 12 TL .698556 Tw (Queries our mesh for cached records matching a document root hash. Peer querying remains a future) Tj T* 0 Tw 2.945257 Tw (capability, opt-in per domain. Our initial implementation stays private: local cache only, no mesh) Tj T* 0 Tw (broadcasting.) Tj T* ET
 Q
 Q
 q
@@ -1708,39 +1714,39 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 257.6236 cm
+1 0 0 1 57.02362 239.6236 cm
 q
-BT 1 0 0 1 0 14 Tm 3.088453 Tw 12 TL /F1 10 Tf 0 0 0 rg (Our existing unfirehose dashboard gains a Providence page: a view of our cache landscape across) Tj T* 0 Tw (documents, peer contribution rates, cache hit rates per domain, & our chain health.) Tj T* ET
+BT 1 0 0 1 0 14 Tm 1.289223 Tw 12 TL /F1 10 Tf 0 0 0 rg (Our existing unfirehose dashboard would gain a Providence page: a view of our cache landscape across) Tj T* 0 Tw (documents, cache hit rates per domain, & chain health.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 226.4236 cm
+1 0 0 1 57.02362 208.4236 cm
 q
 BT 1 0 0 1 0 2.2 Tm 13.2 TL /F2 11 Tf .133333 .133333 .133333 rg (10. Relationship to Zero-Knowledge Proofs) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 194.4236 cm
+1 0 0 1 57.02362 176.4236 cm
 q
 BT 1 0 0 1 0 14 Tm -0.035092 Tw 12 TL /F1 10 Tf 0 0 0 rg (A Merkle proof constitutes a specific form of zero-knowledge argument: ) Tj /F4 10 Tf (I can prove this leaf exists in this tree) Tj T* 0 Tw (without revealing our other leaves.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 176.4236 cm
+1 0 0 1 57.02362 158.4236 cm
 q
 BT 1 0 0 1 0 2 Tm 12 TL /F1 10 Tf 0 0 0 rg (In our context: ) Tj /F4 10 Tf (I can prove this answer came from this document version without revealing our full document.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 134.4236 cm
+1 0 0 1 57.02362 116.4236 cm
 q
 BT 1 0 0 1 0 26 Tm 1.477362 Tw 12 TL /F1 10 Tf 0 0 0 rg (Our full ZKP apparatus \(zk-SNARKs, Bulletproofs\) provides stronger guarantees & more complex proofs.) Tj T* 0 Tw 2.577025 Tw (Merkle proofs provide a simpler, faster, & more practical subset: membership proofs sufficient for our) Tj T* 0 Tw (provenance use case.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 80.42362 cm
+1 0 0 1 57.02362 86.42362 cm
 q
-BT 1 0 0 1 0 38 Tm 1.289223 Tw 12 TL /F1 10 Tf 0 0 0 rg (Our connection to ZKP deepens when our public chain handles sensitive documents. A user could prove) Tj T* 0 Tw 2.045257 Tw (their answer derived from a specific confidential document without revealing our document content, our) Tj T* 0 Tw 1.538241 Tw (question text, or our answer text. Only our proof path & our document root travel over our network. Our) Tj T* 0 Tw (verifier confirms our proof without seeing our data.) Tj T* ET
+BT 1 0 0 1 0 14 Tm 1.289223 Tw 12 TL /F1 10 Tf 0 0 0 rg (Our connection to ZKP deepens when our public chain handles sensitive documents. A user could prove) Tj T* 0 Tw 2.045257 Tw (their answer derived from a specific confidential document without revealing our document content, our) Tj T* 0 Tw ET
 Q
 Q
  
@@ -1748,88 +1754,94 @@ endstream
 endobj
 70 0 obj
 <<
-/Length 7418
+/Length 7692
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
 q
-1 0 0 1 57.02362 753.0236 cm
+1 0 0 1 57.02362 741.0236 cm
+q
+BT 1 0 0 1 0 14 Tm 1.538241 Tw 12 TL /F1 10 Tf 0 0 0 rg (question text, or our answer text. Only our proof path & our document root travel over our network. Our) Tj T* 0 Tw (verifier confirms our proof without seeing our data.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 723.0236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F1 10 Tf 12 TL (This positions our public chain as opt-in verifiable knowledge sharing, not compelled disclosure.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 721.8236 cm
+1 0 0 1 57.02362 691.8236 cm
 q
 BT 1 0 0 1 0 2.2 Tm 13.2 TL /F2 11 Tf .133333 .133333 .133333 rg (11. Why This Matters for Permacomputer) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 677.8236 cm
+1 0 0 1 57.02362 647.8236 cm
 q
 BT 1 0 0 1 0 26 Tm 4.439835 Tw 12 TL /F1 10 Tf 0 0 0 rg (Permacomputer infrastructure grows knowledge that outlasts our individual sessions, our individual) Tj T* 0 Tw 2.444029 Tw (machines, & our individual participants. Code seeds sprout on any abandoned technology. Knowledge) Tj T* 0 Tw (should do our same.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 635.8236 cm
+1 0 0 1 57.02362 605.8236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 26 Tm /F1 10 Tf 12 TL .98213 Tw (A private chain that lives only on one machine dies with that machine. Our public chain on our unfirehose) Tj T* 0 Tw .584272 Tw (mesh survives node failures because our same document root on a different node still matches our cached) Tj T* 0 Tw (proofs on our other nodes. Our knowledge persists as long as any mesh participant holds a copy.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 617.8236 cm
+1 0 0 1 57.02362 587.8236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F1 10 Tf 12 TL (Our Merkle structure aligns with permacomputer values:) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 587.8236 cm
+1 0 0 1 57.02362 557.8236 cm
 q
 BT 1 0 0 1 0 14 Tm .812739 Tw 12 TL /F3 10 Tf 0 0 0 rg (Truth) Tj /F1 10 Tf (: proofs over assertions. Our answer carries a mathematical certificate, not just a model's confidence) Tj T* 0 Tw (score.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 557.8236 cm
+1 0 0 1 57.02362 527.8236 cm
 q
 BT 1 0 0 1 0 14 Tm .034168 Tw 12 TL /F3 10 Tf 0 0 0 rg (Freedom) Tj /F1 10 Tf (: private chains for sensitive knowledge, public chains for shared knowledge. Our user chooses. No) Tj T* 0 Tw (platform extracts our knowledge without consent.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 527.8236 cm
+1 0 0 1 57.02362 497.8236 cm
 q
 BT 1 0 0 1 0 14 Tm -0.044404 Tw 12 TL /F3 10 Tf 0 0 0 rg (Harmony) Tj /F1 10 Tf (: cache hits replace repeated inference. Our same compute produces more answers over time. Our) Tj T* 0 Tw (mesh grows more efficient as our cache fills.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 485.8236 cm
+1 0 0 1 57.02362 455.8236 cm
 q
 BT 1 0 0 1 0 26 Tm .518022 Tw 12 TL /F3 10 Tf 0 0 0 rg (Love) Tj /F1 10 Tf (: small models with providence caches remove our infrastructure barrier. Hermes 3 Llama 3.1 8B on a) Tj T* 0 Tw 2.404556 Tw (consumer GPU, connected to our public chain, answers with our collective memory of our mesh. Our) Tj T* 0 Tw (permacomputer does not require our most expensive hardware to deliver our most reliable answers.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 454.6236 cm
+1 0 0 1 57.02362 424.6236 cm
 q
 BT 1 0 0 1 0 2.2 Tm 13.2 TL /F2 11 Tf .133333 .133333 .133333 rg (12. Implementation Roadmap) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 434.6236 cm
+1 0 0 1 57.02362 404.6236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F3 10 Tf 12 TL (Phase 1: Local private chain \(unfirehose extension\)) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 428.6236 cm
+1 0 0 1 57.02362 398.6236 cm
 Q
 q
-1 0 0 1 57.02362 428.6236 cm
+1 0 0 1 57.02362 398.6236 cm
 Q
 q
-1 0 0 1 57.02362 416.6236 cm
+1 0 0 1 57.02362 386.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1851,10 +1863,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 410.6236 cm
+1 0 0 1 57.02362 380.6236 cm
 Q
 q
-1 0 0 1 57.02362 386.6236 cm
+1 0 0 1 57.02362 356.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1876,10 +1888,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 380.6236 cm
+1 0 0 1 57.02362 350.6236 cm
 Q
 q
-1 0 0 1 57.02362 368.6236 cm
+1 0 0 1 57.02362 338.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1901,10 +1913,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 362.6236 cm
+1 0 0 1 57.02362 332.6236 cm
 Q
 q
-1 0 0 1 57.02362 350.6236 cm
+1 0 0 1 57.02362 320.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1927,23 +1939,23 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 332.6236 cm
+1 0 0 1 57.02362 302.6236 cm
 Q
 q
-1 0 0 1 57.02362 314.6236 cm
+1 0 0 1 57.02362 284.6236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F3 10 Tf 12 TL (Phase 2: Public chain via unfirehose router) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 308.6236 cm
+1 0 0 1 57.02362 278.6236 cm
 Q
 q
-1 0 0 1 57.02362 308.6236 cm
+1 0 0 1 57.02362 278.6236 cm
 Q
 q
-1 0 0 1 57.02362 296.6236 cm
+1 0 0 1 57.02362 266.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1965,10 +1977,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 290.6236 cm
+1 0 0 1 57.02362 260.6236 cm
 Q
 q
-1 0 0 1 57.02362 278.6236 cm
+1 0 0 1 57.02362 248.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -1991,10 +2003,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 272.6236 cm
+1 0 0 1 57.02362 242.6236 cm
 Q
 q
-1 0 0 1 57.02362 260.6236 cm
+1 0 0 1 57.02362 230.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -2017,10 +2029,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 254.6236 cm
+1 0 0 1 57.02362 224.6236 cm
 Q
 q
-1 0 0 1 57.02362 242.6236 cm
+1 0 0 1 57.02362 212.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -2043,23 +2055,23 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 224.6236 cm
+1 0 0 1 57.02362 194.6236 cm
 Q
 q
-1 0 0 1 57.02362 206.6236 cm
+1 0 0 1 57.02362 176.6236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F3 10 Tf 12 TL (Phase 3: Proof verification in browser) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 200.6236 cm
+1 0 0 1 57.02362 170.6236 cm
 Q
 q
-1 0 0 1 57.02362 200.6236 cm
+1 0 0 1 57.02362 170.6236 cm
 Q
 q
-1 0 0 1 57.02362 188.6236 cm
+1 0 0 1 57.02362 158.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -2081,10 +2093,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 182.6236 cm
+1 0 0 1 57.02362 152.6236 cm
 Q
 q
-1 0 0 1 57.02362 170.6236 cm
+1 0 0 1 57.02362 140.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -2107,10 +2119,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 164.6236 cm
+1 0 0 1 57.02362 134.6236 cm
 Q
 q
-1 0 0 1 57.02362 152.6236 cm
+1 0 0 1 57.02362 122.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -2133,7 +2145,7 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 134.6236 cm
+1 0 0 1 57.02362 104.6236 cm
 Q
  
 endstream
@@ -2714,56 +2726,56 @@ xref
 0001602786 00000 n 
 0001602929 00000 n 
 0001603064 00000 n 
-0001603204 00000 n 
-0001603360 00000 n 
-0001603513 00000 n 
-0001603654 00000 n 
-0001603785 00000 n 
-0001603908 00000 n 
-0001604017 00000 n 
-0001604208 00000 n 
-0001609082 00000 n 
-0001616314 00000 n 
-0001622444 00000 n 
-0001628573 00000 n 
-0001633327 00000 n 
-0001640465 00000 n 
-0001647208 00000 n 
-0001654678 00000 n 
-0001657069 00000 n 
-0001661099 00000 n 
-0001665221 00000 n 
-0001669856 00000 n 
-0001674182 00000 n 
-0001679184 00000 n 
-0001683647 00000 n 
-0001688100 00000 n 
-0001693000 00000 n 
-0001697639 00000 n 
-0001701391 00000 n 
-0001701614 00000 n 
-0001701648 00000 n 
-0001701682 00000 n 
-0001701716 00000 n 
-0001701750 00000 n 
-0001701784 00000 n 
-0001701818 00000 n 
-0001701852 00000 n 
-0001701886 00000 n 
-0001701920 00000 n 
-0001701955 00000 n 
-0001701990 00000 n 
-0001702025 00000 n 
-0001702060 00000 n 
-0001702095 00000 n 
-0001702130 00000 n 
-0001702165 00000 n 
-0001702200 00000 n 
-0001702236 00000 n 
+0001603217 00000 n 
+0001603373 00000 n 
+0001603526 00000 n 
+0001603667 00000 n 
+0001603798 00000 n 
+0001603921 00000 n 
+0001604030 00000 n 
+0001604221 00000 n 
+0001609095 00000 n 
+0001616327 00000 n 
+0001622457 00000 n 
+0001628586 00000 n 
+0001633340 00000 n 
+0001640574 00000 n 
+0001647334 00000 n 
+0001655078 00000 n 
+0001657469 00000 n 
+0001661499 00000 n 
+0001665621 00000 n 
+0001670256 00000 n 
+0001674582 00000 n 
+0001679584 00000 n 
+0001684047 00000 n 
+0001688500 00000 n 
+0001693400 00000 n 
+0001698039 00000 n 
+0001701791 00000 n 
+0001702014 00000 n 
+0001702048 00000 n 
+0001702082 00000 n 
+0001702116 00000 n 
+0001702150 00000 n 
+0001702184 00000 n 
+0001702218 00000 n 
+0001702252 00000 n 
+0001702286 00000 n 
+0001702320 00000 n 
+0001702355 00000 n 
+0001702390 00000 n 
+0001702425 00000 n 
+0001702460 00000 n 
+0001702495 00000 n 
+0001702530 00000 n 
+0001702565 00000 n 
+0001702600 00000 n 
+0001702636 00000 n 
 trailer
 <<
 /ID 
-[<ffca8022d22d695d0eaf95a228040f46><ffca8022d22d695d0eaf95a228040f46>]
+[<409ad338f75b754e126a286ed6383e60><409ad338f75b754e126a286ed6383e60>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 38 0 R
@@ -2771,5 +2783,5 @@ trailer
 /Size 102
 >>
 startxref
-1702272
+1702672
 %%EOF

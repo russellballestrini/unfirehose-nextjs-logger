@@ -344,7 +344,7 @@ Private chains suit corporate knowledge bases, personal research notes, any docu
 
 Public chains suit open documentation, public APIs, research papers, any document where sharing verified answers benefits our community. No document content leaves our originating client. Proofs travel instead.
 
-Our unfirehose router daemon manages chain membership & peer discovery. Our user opts in to public chains per-document-domain or per-session.
+In our proposed design, our unfirehose router daemon would manage chain membership & peer discovery. Our user opts in to public chains per-document-domain or per-session. Our current implementation stays private.
 
 
 8. Forcing the Issue
@@ -365,10 +365,12 @@ This posture change does not require every system to adopt Merkle trees immediat
 Medical documentation. Legal reference material. Security advisories. Financial disclosures. Any domain where "I retrieved something similar" falls short of "I can prove this came from our exact source you cited."
 
 
-9. Unfirehose Integration
----------------------------
+9. Unfirehose Integration (Proposed)
+--------------------------------------
 
-Unfirehose already collects JSONL from Claude Code, Orchestra, uncloseai, & `agnt.gg <https://agnt.gg>`_ harnesses across our mesh. Our providence cache extends this with three new API routes:
+Unfirehose collects JSONL from Claude Code, Orchestra, uncloseai, & `agnt.gg <https://agnt.gg>`_ harnesses across our mesh. Our providence cache layer does not yet exist in production. This section describes our proposed integration.
+
+We propose extending unfirehose with a ``providence_cache`` table & three new API routes:
 
 ``GET /api/providence?uri=...``
     Returns all cached answer records for a document URI. Includes document root hash, question hashes, answer previews, & peer counts. Lets users audit what our mesh knows about a document.
@@ -377,9 +379,9 @@ Unfirehose already collects JSONL from Claude Code, Orchestra, uncloseai, & `agn
     Stores a new providence record. Accepts ``{ document_root, document_uri, question_text, answer_text, merkle_proof, model }``. Validates our proof before storing.
 
 ``GET /api/providence/peers?root=...``
-    Queries our mesh for cached records matching a document root hash. Returns answers from public-chain peers with their Merkle proofs. Currently our providence cache operates in private mode. Public peer querying remains a future capability, opt-in per domain.
+    Queries our mesh for cached records matching a document root hash. Peer querying remains a future capability, opt-in per domain. Our initial implementation stays private: local cache only, no mesh broadcasting.
 
-Our existing unfirehose dashboard gains a Providence page: a view of our cache landscape across documents, peer contribution rates, cache hit rates per domain, & our chain health.
+Our existing unfirehose dashboard would gain a Providence page: a view of our cache landscape across documents, cache hit rates per domain, & chain health.
 
 
 10. Relationship to Zero-Knowledge Proofs
