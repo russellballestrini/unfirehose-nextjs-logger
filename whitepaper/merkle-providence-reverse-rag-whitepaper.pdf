@@ -311,7 +311,7 @@ endobj
 endobj
 38 0 obj
 <<
-/Author () /CreationDate (D:20260406155025-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260406155025-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author () /CreationDate (D:20260406155149-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260406155149-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (\(unspecified\)) /Title () /Trapped /False
 >>
 endobj
@@ -1573,7 +1573,7 @@ endstream
 endobj
 69 0 obj
 <<
-/Length 6651
+/Length 6691
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -1700,7 +1700,7 @@ q
 1 0 0 1 20 0 cm
 q
 0 0 0 rg
-BT 1 0 0 1 0 26 Tm /F1 10 Tf 12 TL 3.84295 Tw (Queries our mesh for cached records matching a document root hash. Returns answers from) Tj T* 0 Tw 1.742739 Tw (public-chain peers with their Merkle proofs. Our uncloseai.js client calls this before any inference to) Tj T* 0 Tw (check for peer cache hits.) Tj T* ET
+BT 1 0 0 1 0 26 Tm /F1 10 Tf 12 TL 3.84295 Tw (Queries our mesh for cached records matching a document root hash. Returns answers from) Tj T* 0 Tw 1.064488 Tw (public-chain peers with their Merkle proofs. Currently our providence cache operates in private mode.) Tj T* 0 Tw (Public peer querying remains a future capability, opt-in per domain.) Tj T* ET
 Q
 Q
 q
@@ -2728,42 +2728,42 @@ xref
 0001628573 00000 n 
 0001633327 00000 n 
 0001640465 00000 n 
-0001647168 00000 n 
-0001654638 00000 n 
-0001657029 00000 n 
-0001661059 00000 n 
-0001665181 00000 n 
-0001669816 00000 n 
-0001674142 00000 n 
-0001679144 00000 n 
-0001683607 00000 n 
-0001688060 00000 n 
-0001692960 00000 n 
-0001697599 00000 n 
-0001701351 00000 n 
-0001701574 00000 n 
-0001701608 00000 n 
-0001701642 00000 n 
-0001701676 00000 n 
-0001701710 00000 n 
-0001701744 00000 n 
-0001701778 00000 n 
-0001701812 00000 n 
-0001701846 00000 n 
-0001701880 00000 n 
-0001701915 00000 n 
-0001701950 00000 n 
-0001701985 00000 n 
-0001702020 00000 n 
-0001702055 00000 n 
-0001702090 00000 n 
-0001702125 00000 n 
-0001702160 00000 n 
-0001702196 00000 n 
+0001647208 00000 n 
+0001654678 00000 n 
+0001657069 00000 n 
+0001661099 00000 n 
+0001665221 00000 n 
+0001669856 00000 n 
+0001674182 00000 n 
+0001679184 00000 n 
+0001683647 00000 n 
+0001688100 00000 n 
+0001693000 00000 n 
+0001697639 00000 n 
+0001701391 00000 n 
+0001701614 00000 n 
+0001701648 00000 n 
+0001701682 00000 n 
+0001701716 00000 n 
+0001701750 00000 n 
+0001701784 00000 n 
+0001701818 00000 n 
+0001701852 00000 n 
+0001701886 00000 n 
+0001701920 00000 n 
+0001701955 00000 n 
+0001701990 00000 n 
+0001702025 00000 n 
+0001702060 00000 n 
+0001702095 00000 n 
+0001702130 00000 n 
+0001702165 00000 n 
+0001702200 00000 n 
+0001702236 00000 n 
 trailer
 <<
 /ID 
-[<397b428f9170b0e6f1ff57e04e88718c><397b428f9170b0e6f1ff57e04e88718c>]
+[<ffca8022d22d695d0eaf95a228040f46><ffca8022d22d695d0eaf95a228040f46>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 38 0 R
@@ -2771,5 +2771,5 @@ trailer
 /Size 102
 >>
 startxref
-1702232
+1702272
 %%EOF

@@ -377,7 +377,7 @@ Unfirehose already collects JSONL from Claude Code, Orchestra, uncloseai, & `agn
     Stores a new providence record. Accepts ``{ document_root, document_uri, question_text, answer_text, merkle_proof, model }``. Validates our proof before storing.
 
 ``GET /api/providence/peers?root=...``
-    Queries our mesh for cached records matching a document root hash. Returns answers from public-chain peers with their Merkle proofs. Our uncloseai.js client calls this before any inference to check for peer cache hits.
+    Queries our mesh for cached records matching a document root hash. Returns answers from public-chain peers with their Merkle proofs. Currently our providence cache operates in private mode. Public peer querying remains a future capability, opt-in per domain.
 
 Our existing unfirehose dashboard gains a Providence page: a view of our cache landscape across documents, peer contribution rates, cache hit rates per domain, & our chain health.
 
