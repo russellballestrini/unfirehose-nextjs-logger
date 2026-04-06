@@ -40,7 +40,7 @@ Unturf Automated General Intelligence: Merkle Providence Reverse RAG
 
 .. class:: center
 
-*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>, Duck <duck.the.musician@gmail.com>, nexon33*
+*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>, Duck <duck.the.musician@gmail.com>, Adrian Belmans (nexon33)*
 
 .. class:: center
 
@@ -480,7 +480,7 @@ This positions unfirehose not just as a log aggregator but as a shared, verifiab
 
 **Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify achieves 71.5x fewer tokens per query compared to raw file reads via graph traversal. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence builds verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result.
 
-**Polyglot / Poly Network** (Russell Ballestrini, Adrian Belmans, nexon33). Polyglot (`github.com/russellballestrini/polyglot <https://github.com/russellballestrini/polyglot>`_) defines a proof schema for verified ML inference: ``model_id``, ``base_uri``, ``chain_tip``, ``token_root`` (Merkle root over output tokens), ``code_hash``, ``privacy_mode``, and Ed25519 ``signature``. Our unfirehose providence schema adopts these fields wholesale. Where Poly Network focuses on proving that a specific model produced a specific output, Merkle Providence focuses on caching & reusing those proven outputs efficiently. The two systems compose: a Poly-signed answer record carries its own proof of origin, which our cache stores & returns verbatim on future hits.
+**Polyglot / Poly Network** (Russell Ballestrini, Adrian Belmans). Polyglot (`github.com/russellballestrini/polyglot <https://github.com/russellballestrini/polyglot>`_) defines a proof schema for verified ML inference: ``model_id``, ``base_uri``, ``chain_tip``, ``token_root`` (Merkle root over output tokens), ``code_hash``, ``privacy_mode``, and Ed25519 ``signature``. Our unfirehose providence schema adopts these fields wholesale. Where Poly Network focuses on proving that a specific model produced a specific output, Merkle Providence focuses on caching & reusing those proven outputs efficiently. The two systems compose: a Poly-signed answer record carries its own proof of origin, which our cache stores & returns verbatim on future hits.
 
 **Git / Mercurial object model.** Both git & Mercurial implement content-addressed Merkle DAGs natively. Git's commit object hashes our entire tree; Merkle Providence inherits this as a free cache boundary signal. Our work makes this implicit property explicit & useful for ML inference caching.
 
@@ -500,7 +500,7 @@ Citation
 
 ::
 
-    Russell Ballestrini, David Wong, Riley Morgan, Duck, nexon33.
+    Russell Ballestrini, David Wong, Riley Morgan, Duck, Adrian Belmans.
     "Unturf Automated General Intelligence: Merkle Providence Reverse RAG."
     unfirehose.com, 2026.
     https://unfirehose.com/merkle-providence-reverse-rag.html
@@ -548,7 +548,7 @@ License
 
     NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
 
-    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan & Duck & nexon33
+    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan & Duck & Adrian Belmans
     russell@unturf.com
     david.s.wong@pm.me
     guybriley02@gmail.com
