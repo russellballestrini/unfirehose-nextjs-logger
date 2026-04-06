@@ -82,7 +82,7 @@ endobj
 <<
 /A <<
 /S /URI /Type /Action /URI (https://uncloseai.com)
->> /Border [ 0 0 0 ] /Rect [ 349.3936 407.8236 419.6733 419.8236 ] /Subtype /Link /Type /Annot
+>> /Border [ 0 0 0 ] /Rect [ 349.3936 395.8236 419.6733 407.8236 ] /Subtype /Link /Type /Annot
 >>
 endobj
 14 0 obj
@@ -290,7 +290,7 @@ endobj
 endobj
 35 0 obj
 <<
-/Author () /CreationDate (D:20260406152312-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260406152312-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author () /CreationDate (D:20260406152406-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260406152406-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (\(unspecified\)) /Title () /Trapped /False
 >>
 endobj
@@ -316,7 +316,7 @@ endobj
 endobj
 40 0 obj
 <<
-/Dest [ 14 0 R /XYZ 57.02362 311.8236 0 ] /Next 41 0 R /Parent 37 0 R /Prev 39 0 R /Title (1. The Problem Reverse RAG Left Open)
+/Dest [ 14 0 R /XYZ 57.02362 299.8236 0 ] /Next 41 0 R /Parent 37 0 R /Prev 39 0 R /Title (1. The Problem Reverse RAG Left Open)
 >>
 endobj
 41 0 obj
@@ -536,7 +536,7 @@ endstream
 endobj
 61 0 obj
 <<
-/Length 7175
+/Length 7288
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -630,76 +630,76 @@ BT 1 0 0 1 0 2 Tm /F1 10 Tf 12 TL (We chose Hermes 3 Llama 3.1 8B for three reas
 Q
 Q
 q
-1 0 0 1 57.02362 479.8236 cm
+1 0 0 1 57.02362 467.8236 cm
 q
-BT 1 0 0 1 0 38 Tm 2.810556 Tw 12 TL /F3 10 Tf 0 0 0 rg (Size matches our thesis.) Tj /F1 10 Tf ( 8 billion parameters represent a model any person can run on consumer) Tj T* 0 Tw 1.906147 Tw (hardware. Our reference deployment runs Hermes 3 on a single RTX 3090 \(24GB VRAM\) at full BF16) Tj T* 0 Tw .976373 Tw (precision. A MacBook M2 Pro runs it in CPU-offload mode. Our technique produces no value if it requires) Tj T* 0 Tw (expensive hardware to demonstrate.) Tj T* ET
+BT 1 0 0 1 0 50 Tm 2.810556 Tw 12 TL /F3 10 Tf 0 0 0 rg (Size matches our thesis.) Tj /F1 10 Tf ( 8 billion parameters represent a model any person can run on consumer) Tj T* 0 Tw 3.367223 Tw (hardware. Our reference deployment runs Hermes 3 on a single RTX 3090 \(24GB VRAM\) at 8-bit) Tj T* 0 Tw 1.725257 Tw (quantization via bitsandbytes, consuming ~10GB VRAM with negligible quality loss over full precision. A) Tj T* 0 Tw 1.488647 Tw (MacBook M2 Pro runs it in CPU-offload mode. Our technique produces no value if it requires expensive) Tj T* 0 Tw (hardware to demonstrate.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 425.8236 cm
+1 0 0 1 57.02362 413.8236 cm
 q
 BT 1 0 0 1 0 38 Tm 2.905257 Tw 12 TL /F3 10 Tf 0 0 0 rg (Fine-tuning demonstrates our point.) Tj /F1 10 Tf ( Hermes 3 shows that fine-tuning a base model for instruction) Tj T* 0 Tw .678334 Tw (following, not scaling parameters, produces the reliability gains that matter for user-facing applications. Our) Tj T* 0 Tw 3.349104 Tw (Merkle Providence layer extends this logic: fine-tuned behavior + verified cached context beats raw) Tj T* 0 Tw (parameter count.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 371.8236 cm
+1 0 0 1 57.02362 359.8236 cm
 q
 BT 1 0 0 1 0 38 Tm .707739 Tw 12 TL /F3 10 Tf 0 0 0 rg (uncloseai.com serves it freely.) Tj /F1 10 Tf ( Our public inference endpoint at ) Tj 0 .4 .6 rg (uncloseai.com) Tj 0 0 0 rg ( runs Hermes 3 Llama 3.1) Tj T* 0 Tw .007686 Tw (8B at no cost to any user. Our Reverse RAG pipeline in ) Tj /F5 10 Tf (uncloseai.js) Tj /F1 10 Tf ( targets this endpoint by default. Our) Tj T* 0 Tw .947739 Tw (Merkle Providence cache layer builds directly on this existing infrastructure. Any person anywhere, on any) Tj T* 0 Tw (device with a browser, accesses our same Hermes 3 instance our paper describes.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 329.8236 cm
+1 0 0 1 57.02362 317.8236 cm
 q
 BT 1 0 0 1 0 26 Tm 1.22631 Tw 12 TL /F1 10 Tf 0 0 0 rg (Hermes 3 Llama 3.1 8B outperforms many larger models on page-specific questions when Reverse RAG) Tj T* 0 Tw 2.682362 Tw (supplies full context. With Merkle Providence caching, it delivers consistent, verifiable answers across) Tj T* 0 Tw (sessions. Our paper uses Hermes 3 throughout all examples & benchmarks.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 298.6236 cm
+1 0 0 1 57.02362 286.6236 cm
 q
 BT 1 0 0 1 0 2.2 Tm 13.2 TL /F2 11 Tf .133333 .133333 .133333 rg (1. The Problem Reverse RAG Left Open) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 254.6236 cm
+1 0 0 1 57.02362 242.6236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 26 Tm /F1 10 Tf 12 TL 2.016213 Tw (Reverse RAG solved context retrieval. Client-side DOM extraction replaced vector databases. Full-page) Tj T* 0 Tw 1.059029 Tw (injection replaced chunk fragmentation. Small models with perfect context outperformed large models with) Tj T* 0 Tw (partial context.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 236.6236 cm
+1 0 0 1 57.02362 224.6236 cm
 q
 BT 1 0 0 1 0 2 Tm 12 TL /F1 10 Tf 0 0 0 rg (One problem remained: ) Tj /F3 10 Tf (repetition) Tj /F1 10 Tf (.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 182.6236 cm
+1 0 0 1 57.02362 170.6236 cm
 q
 BT 1 0 0 1 0 38 Tm .811079 Tw 12 TL /F1 10 Tf 0 0 0 rg (A user visits a technical document. Hermes 3 Llama 3.1 8B reads 8,000 tokens of page content, classifies) Tj T* 0 Tw 1.171079 Tw (the page, & answers their question. One hour later, a different user visits our same document. Our same) Tj T* 0 Tw 1.072397 Tw (Hermes 3 instance reads our same 8,000 tokens, classifies our same page, & answers a similar question) Tj T* 0 Tw (again. Tomorrow, a third user. Our same 8,000 tokens. Our same classification. Our same inference cycle.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 164.6236 cm
+1 0 0 1 57.02362 152.6236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F1 10 Tf 12 TL (Nothing remembered. Nothing reused. No proof that any two answers came from our same source.) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 146.6236 cm
+1 0 0 1 57.02362 134.6236 cm
 q
 0 0 0 rg
 BT 1 0 0 1 0 2 Tm /F1 10 Tf 12 TL (This repetition carries three costs:) Tj T* ET
 Q
 Q
 q
-1 0 0 1 57.02362 140.6236 cm
-Q
-q
-1 0 0 1 57.02362 140.6236 cm
+1 0 0 1 57.02362 128.6236 cm
 Q
 q
 1 0 0 1 57.02362 128.6236 cm
+Q
+q
+1 0 0 1 57.02362 116.6236 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -721,10 +721,10 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 122.6236 cm
+1 0 0 1 57.02362 110.6236 cm
 Q
 q
-1 0 0 1 57.02362 86.62362 cm
+1 0 0 1 57.02362 74.62362 cm
 q
 0 0 0 rg
 BT /F1 10 Tf 12 TL ET
@@ -746,7 +746,7 @@ Q
 Q
 Q
 q
-1 0 0 1 57.02362 80.62362 cm
+1 0 0 1 57.02362 68.62362 cm
 Q
  
 endstream
@@ -2693,47 +2693,47 @@ xref
 0001603420 00000 n 
 0001603611 00000 n 
 0001608401 00000 n 
-0001615628 00000 n 
-0001621206 00000 n 
-0001627335 00000 n 
-0001632089 00000 n 
-0001639227 00000 n 
-0001645883 00000 n 
-0001653353 00000 n 
-0001655744 00000 n 
-0001659774 00000 n 
-0001663896 00000 n 
-0001668531 00000 n 
-0001672857 00000 n 
-0001677859 00000 n 
-0001682322 00000 n 
-0001686775 00000 n 
-0001691675 00000 n 
-0001696314 00000 n 
-0001700066 00000 n 
-0001700287 00000 n 
-0001700321 00000 n 
-0001700355 00000 n 
-0001700389 00000 n 
-0001700423 00000 n 
-0001700457 00000 n 
-0001700491 00000 n 
-0001700525 00000 n 
-0001700559 00000 n 
-0001700593 00000 n 
-0001700628 00000 n 
-0001700663 00000 n 
-0001700698 00000 n 
-0001700733 00000 n 
-0001700768 00000 n 
-0001700803 00000 n 
-0001700838 00000 n 
-0001700873 00000 n 
-0001700908 00000 n 
+0001615741 00000 n 
+0001621319 00000 n 
+0001627448 00000 n 
+0001632202 00000 n 
+0001639340 00000 n 
+0001645996 00000 n 
+0001653466 00000 n 
+0001655857 00000 n 
+0001659887 00000 n 
+0001664009 00000 n 
+0001668644 00000 n 
+0001672970 00000 n 
+0001677972 00000 n 
+0001682435 00000 n 
+0001686888 00000 n 
+0001691788 00000 n 
+0001696427 00000 n 
+0001700179 00000 n 
+0001700400 00000 n 
+0001700434 00000 n 
+0001700468 00000 n 
+0001700502 00000 n 
+0001700536 00000 n 
+0001700570 00000 n 
+0001700604 00000 n 
+0001700638 00000 n 
+0001700672 00000 n 
+0001700706 00000 n 
+0001700741 00000 n 
+0001700776 00000 n 
+0001700811 00000 n 
+0001700846 00000 n 
+0001700881 00000 n 
+0001700916 00000 n 
+0001700951 00000 n 
+0001700986 00000 n 
+0001701021 00000 n 
 trailer
 <<
 /ID 
-[<e12a34aaa2753ff369e68459f9117c63><e12a34aaa2753ff369e68459f9117c63>]
+[<62e1288f7249d119e81aedf2128baee5><62e1288f7249d119e81aedf2128baee5>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 35 0 R
@@ -2741,5 +2741,5 @@ trailer
 /Size 99
 >>
 startxref
-1700943
+1701056
 %%EOF

@@ -82,7 +82,7 @@ Our reference implementation runs on **Hermes 3**, a fine-tune of Meta's Llama 3
 
 We chose Hermes 3 Llama 3.1 8B for three reasons:
 
-**Size matches our thesis.** 8 billion parameters represent a model any person can run on consumer hardware. Our reference deployment runs Hermes 3 on a single RTX 3090 (24GB VRAM) at full BF16 precision. A MacBook M2 Pro runs it in CPU-offload mode. Our technique produces no value if it requires expensive hardware to demonstrate.
+**Size matches our thesis.** 8 billion parameters represent a model any person can run on consumer hardware. Our reference deployment runs Hermes 3 on a single RTX 3090 (24GB VRAM) at 8-bit quantization via bitsandbytes, consuming ~10GB VRAM with negligible quality loss over full precision. A MacBook M2 Pro runs it in CPU-offload mode. Our technique produces no value if it requires expensive hardware to demonstrate.
 
 **Fine-tuning demonstrates our point.** Hermes 3 shows that fine-tuning a base model for instruction following, not scaling parameters, produces the reliability gains that matter for user-facing applications. Our Merkle Providence layer extends this logic: fine-tuned behavior + verified cached context beats raw parameter count.
 
