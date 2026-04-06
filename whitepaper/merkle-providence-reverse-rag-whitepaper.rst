@@ -412,10 +412,63 @@ This posture change does not require every system to adopt Merkle trees immediat
 Medical documentation. Legal reference material. Security advisories. Financial disclosures. Any domain where "I retrieved something similar" falls short of "I can prove this came from our exact source you cited."
 
 
-9. Unfirehose Integration (Proposed)
+9. What Unfirehose Curates & Aggregates
+-----------------------------------------
+
+Unfirehose ingests JSONL from every machine learning harness on our mesh — Claude Code, Orchestra, uncloseai, agnt.gg, & any harness that writes the unfirehose/1.0 schema. Every session, every tool call, every token, every thought, every todo flows into a single SQLite database at ``~/.unfirehose/unfirehose.db``.
+
+As of April 2026, our production instance holds:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 15
+
+   * - Collection
+     - Records
+   * - Messages (user, assistant, system turns)
+     - 359,484
+   * - Content blocks (text, thinking, tool calls, tool results)
+     - 345,914
+   * - Sessions across all harnesses
+     - 10,731
+   * - Projects (distinct working directories)
+     - 85
+   * - Cross-session todos extracted from tool calls
+     - 1,261
+   * - Mesh node snapshots (CPU, RAM, GPU, power)
+     - 1,839
+   * - Training runs
+     - 15
+   * - Training events (loss, checkpoint, eval)
+     - 28,685
+
+Total tokens processed across all sessions: **66 million**. Harness breakdown: Claude Code (9,610 sessions), uncloseai (439), agnt.gg (251), with 8 distinct model identifiers recorded.
+
+From this raw stream, unfirehose curates & aggregates:
+
+**Session intelligence.** Every session carries its project, harness, git branch, first prompt, status, & duration. Stale sessions surface automatically. Cross-session continuity lets a new agent pick up where a prior session left off without re-reading prior context.
+
+**Token economics.** Per-minute, per-project, & per-model token rollups feed our usage monitor & alert system. Cache-read tokens, cache-write tokens, & output tokens break down separately. Cost attribution reaches the project level.
+
+**Todo landscape.** 1,261+ todos extracted automatically from ``TodoWrite``, ``TaskCreate``, & ``TaskUpdate`` tool calls across all sessions. Todos carry UUIDv7 identity, time estimates, file attachments, dependency graphs, & staleness signals. Our triage workflow identifies which todos have diverged from reality & which remain actionable.
+
+**Thinking traces.** Reasoning blocks (``<thinking>`` content) land in ``content_blocks`` alongside tool calls. Our ``/api/thinking`` endpoint makes these searchable across all sessions — a searchable record of every reasoning trace our agents produced.
+
+**Mesh telemetry.** Every node on our permacomputer mesh reports CPU load, memory, disk, GPU power draw, running processes, & tmux sessions at configurable intervals. Our mesh history table enables time-series queries: "show me GPU power on cammy over the last 24 hours."
+
+**Training provenance.** Every training run records its model, config, loss curve, checkpoints, & evaluation scores. Loss events link to their session context — we know which agent triggered which training run & what it said about the results.
+
+**Git context.** Every session records its git branch. Our ``/api/projects/git-status`` route surfaces unstaged changes, recent commits, & push status across all 85 projects simultaneously.
+
+**Providence cache (proposed).** Our Merkle-keyed answer cache extends this substrate. Every inference result joins the curated record — keyed by document content, conversation context, model identity, revision, & quantization. Our mesh memory grows with every session.
+
+The complete data schema stays public & self-describing at ``/api/schema`` on any running unfirehose instance.
+
+
+9b. Unfirehose Integration (Proposed)
 --------------------------------------
 
-Unfirehose collects JSONL from Claude Code, Orchestra, uncloseai, & `agnt.gg <https://agnt.gg>`_ harnesses across our mesh. Our providence cache layer does not yet exist in production. This section describes our proposed integration.
+Unfirehose collects JSONL from Claude Code, Orchestra, uncloseai, & agnt.gg harnesses across our mesh. Our providence cache layer does not yet exist in production. This section describes our proposed integration.
 
 We propose extending unfirehose with a ``providence_cache`` table & three new API routes:
 
