@@ -380,7 +380,11 @@ function migrate(db: Database.Database) {
   //   model_id         — canonical model identifier
   //   model_revision   — exact weights revision / HuggingFace commit hash
   //   quantization     — fp16 | bf16 | fp8 | int8 | int4 | q4_k_m etc.
-  //   system_prompt_hash — SHA-256 of the system prompt (not stored — voyeur protocol)
+  //   conversation_hash — SHA-256 of the full normalized OpenAI messages array
+  //                       [{role, content}, ...] — all turns including system, prior assistant
+  //                       & user messages that led to this answer. Not stored — voyeur protocol.
+  //                       A single-turn Q&A and a 6-turn conversation arriving at the same
+  //                       final question produce different answers and different cache keys.
   //   seed             — RNG seed if set (null = non-deterministic, excluded from key)
   //
   // METADATA ONLY (stored for research/audit, not part of cache key):
@@ -413,7 +417,7 @@ function migrate(db: Database.Database) {
       model_id            TEXT NOT NULL DEFAULT '',
       model_revision      TEXT,
       quantization        TEXT,
-      system_prompt_hash  TEXT,
+      conversation_hash   TEXT,
       seed                INTEGER,
 
       -- answer

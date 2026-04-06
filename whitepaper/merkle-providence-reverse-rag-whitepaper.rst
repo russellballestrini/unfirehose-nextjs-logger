@@ -170,6 +170,7 @@ A providence record for a cached answer contains the full inference context alon
       "chain_tip":        "a3f9...",
       "token_root":       "7b2c...",
       "code_hash":        "e41d...",
+      "conversation_hash": "9a3f...",
       "privacy_mode":     "private_proven",
       "signature":        "ed25519:9f3a...",
       "public_key":       "ed25519:1c7b...",
@@ -188,7 +189,7 @@ Our providence record collects maximum metadata, but only a subset enters our ca
 - ``model_id`` — canonical model identifier
 - ``model_revision`` — exact weights revision (HuggingFace commit hash or equivalent)
 - ``quantization`` — fp16, bf16, fp8, int8, int4, q4_k_m, etc. Same weights at different quantizations produce measurably different answers.
-- ``system_prompt_hash`` — SHA-256 of the system prompt. Different system prompt = different answer framing. We hash, not store — Operation Voyeur: prompt content never enters our logs.
+- ``conversation_hash`` — SHA-256 of the full normalized OpenAI messages array: every turn in order, system prompt through the final user message. A single-turn Q&A and a 6-turn conversation that arrives at the same final question produce different answers & different cache keys. Callers hash client-side & send only the hash. Message content never enters our logs — Operation Voyeur.
 - ``seed`` — RNG seed when set. A seeded run produces a deterministic answer; a different seed produces a different one. Null seed entries cache on the other five fields alone.
 
 **Tier 2 — Metadata Only.** Stored for research, routing, & audit. Not part of the key:

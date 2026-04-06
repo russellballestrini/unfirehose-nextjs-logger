@@ -3,15 +3,24 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 
 // Cache key = hash of tier-1 inputs:
 //   document_root + question_hash + model_id + model_revision + quantization
-//   + system_prompt_hash + seed (only when non-null)
-// Tier-2 metadata is stored but does not affect the key.
+//   + conversation_hash + seed (only when non-null)
+//
+// conversation_hash = SHA-256 of the full normalized OpenAI messages array:
+//   JSON.stringify([{role, content}, ...]) covering all turns in order —
+//   system prompt + all prior assistant & user messages + current user question.
+//   A single-turn Q&A and a multi-turn conversation arriving at the same final
+//   question produce different hashes and different cache keys.
+//   Callers hash client-side and pass only the hash — message content never stored.
+//
+// Tier-2 metadata (base_uri, temperature, sampling params, backend, node_id,
+//   inference_ms) stored for research/audit but does not affect the key.
 async function buildCacheKey(fields: {
   document_root: string;
   question_text: string;
   model_id?: string;
   model_revision?: string | null;
   quantization?: string | null;
-  system_prompt_hash?: string | null;
+  conversation_hash?: string | null;
   seed?: number | null;
 }): Promise<{ cache_key: string; question_hash: string }> {
   const question_hash = await sha256short(fields.question_text);
@@ -21,7 +30,7 @@ async function buildCacheKey(fields: {
     fields.model_id       ?? '',
     fields.model_revision ?? '',
     fields.quantization   ?? '',
-    fields.system_prompt_hash ?? '',
+    fields.conversation_hash ?? '',
     fields.seed != null ? String(fields.seed) : '',
   ].join(':');
   const cache_key = await sha256short(key_material);
@@ -53,7 +62,7 @@ export async function GET(request: NextRequest) {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = db.prepare(
       `SELECT id, cache_key, document_root, document_uri, question_hash, question_text,
-              answer_text, model_id, model_revision, quantization, system_prompt_hash, seed,
+              answer_text, model_id, model_revision, quantization, conversation_hash, seed,
               base_uri, temperature, top_p, top_k, repetition_penalty, frequency_penalty,
               presence_penalty, max_tokens, context_window, backend, node_id, inference_ms,
               source_type, git_commit,
@@ -92,7 +101,7 @@ export async function POST(request: NextRequest) {
       model_id:           b.model_id,
       model_revision:     b.model_revision,
       quantization:       b.quantization,
-      system_prompt_hash: b.system_prompt_hash,
+      conversation_hash: b.conversation_hash,
       seed:               b.seed,
     });
 
@@ -109,7 +118,7 @@ export async function POST(request: NextRequest) {
     const result = db.prepare(`
       INSERT INTO providence_cache (
         cache_key, document_root, document_uri, question_hash, question_text,
-        model_id, model_revision, quantization, system_prompt_hash, seed,
+        model_id, model_revision, quantization, conversation_hash, seed,
         answer_text, merkle_proof,
         base_uri, temperature, top_p, top_k, repetition_penalty, frequency_penalty,
         presence_penalty, max_tokens, context_window, backend, node_id, inference_ms,
@@ -122,7 +131,7 @@ export async function POST(request: NextRequest) {
     `).run(
       cache_key, b.document_root, b.document_uri, question_hash, b.question_text,
       b.model_id ?? '', b.model_revision ?? null, b.quantization ?? null,
-      b.system_prompt_hash ?? null, b.seed ?? null,
+      b.conversation_hash ?? null, b.seed ?? null,
       b.answer_text, JSON.stringify(b.merkle_proof ?? []),
       b.base_uri ?? '', b.temperature ?? null, b.top_p ?? null, b.top_k ?? null,
       b.repetition_penalty ?? null, b.frequency_penalty ?? null,

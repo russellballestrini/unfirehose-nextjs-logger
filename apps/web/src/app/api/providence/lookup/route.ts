@@ -3,9 +3,9 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 
 // GET /api/providence/lookup
 // Required: root= (Merkle/git root) and q= (question text)
-// Optional tier-1 key inputs: model_id, model_revision, quantization, system_prompt_hash, seed
+// Optional tier-1 key inputs: model_id, model_revision, quantization, conversation_hash, seed
 //
-// Cache key = sha256(root + question_hash + model_id + model_revision + quantization + system_prompt_hash + seed)
+// Cache key = sha256(root + question_hash + model_id + model_revision + quantization + conversation_hash + seed)
 // All tier-1 fields that differ = cache miss — a different model/quant/prompt gets its own entry.
 export async function GET(request: NextRequest) {
   const root               = request.nextUrl.searchParams.get('root');
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const model_id           = request.nextUrl.searchParams.get('model_id')           ?? '';
   const model_revision     = request.nextUrl.searchParams.get('model_revision')     ?? '';
   const quantization       = request.nextUrl.searchParams.get('quantization')       ?? '';
-  const system_prompt_hash = request.nextUrl.searchParams.get('system_prompt_hash') ?? '';
+  const conversation_hash = request.nextUrl.searchParams.get('conversation_hash') ?? '';
   const seed               = request.nextUrl.searchParams.get('seed');
 
   if (!q)           return NextResponse.json({ error: 'q (question) required' },      { status: 400 });
@@ -24,14 +24,14 @@ export async function GET(request: NextRequest) {
     const document_root  = root ?? git!;
     const question_hash  = await sha256short(q);
     const key_material   = [document_root, question_hash, model_id, model_revision,
-                            quantization, system_prompt_hash,
+                            quantization, conversation_hash,
                             seed != null ? seed : ''].join(':');
     const cache_key      = await sha256short(key_material);
 
     const db = getDb();
     const row = db.prepare(`
       SELECT id, answer_text,
-             model_id, model_revision, quantization, system_prompt_hash, seed,
+             model_id, model_revision, quantization, conversation_hash, seed,
              base_uri, temperature, top_p, top_k, repetition_penalty, frequency_penalty,
              presence_penalty, max_tokens, context_window, backend, node_id, inference_ms,
              source_type, git_commit,
