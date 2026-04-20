@@ -332,7 +332,7 @@ endobj
 endobj
 40 0 obj
 <<
-/Author () /CreationDate (D:20260420192629-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260420192629-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author () /CreationDate (D:20260420193546-04'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260420193546-04'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (\(unspecified\)) /Title () /Trapped /False
 >>
 endobj
@@ -2319,7 +2319,7 @@ endstream
 endobj
 76 0 obj
 <<
-/Length 8650
+/Length 8671
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -2757,7 +2757,7 @@ Q
 q
 1 0 0 1 23 -3 cm
 q
-BT 1 0 0 1 0 26 Tm 1.646213 Tw 12 TL /F3 10 Tf 0 0 0 rg (71x token reduction) Tj /F1 10 Tf (: graph traversal over pre-summarized, Merkle-verified nodes replaces raw file) Tj T* 0 Tw 1.049882 Tw (reads. A harness navigating a large codebase queries our knowledge graph first. Only cache misses) Tj T* 0 Tw (trigger fresh file reads & inference.) Tj T* ET
+BT 1 0 0 1 0 26 Tm .617565 Tw 12 TL /F3 10 Tf 0 0 0 rg (Graph-first traversal) Tj /F1 10 Tf (: a harness navigating a large codebase queries our knowledge graph first. Only) Tj T* 0 Tw .676147 Tw (cache misses trigger fresh file reads & inference. Whether this reduces token usage, & by how much,) Tj T* 0 Tw (remains for future measurement once a prototype exists.) Tj T* ET
 Q
 Q
 q
@@ -2772,7 +2772,7 @@ endstream
 endobj
 77 0 obj
 <<
-/Length 4670
+/Length 4727
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -2817,7 +2817,7 @@ Q
 q
 1 0 0 1 57.02362 569.8236 cm
 q
-BT 1 0 0 1 0 62 Tm .708453 Tw 12 TL /F3 10 Tf 0 0 0 rg (Graphify) Tj /F1 10 Tf ( \() Tj /F4 10 Tf (pip install graphify) Tj /F1 10 Tf (\) builds navigable knowledge graphs from local folders: code in 13 languages,) Tj T* 0 Tw .093432 Tw (PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain) Tj T* 0 Tw .203647 Tw (English. Graphify achieves 71.5x fewer tokens per query compared to raw file reads via graph traversal. Our) Tj T* 0 Tw -0.003204 Tw (work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence builds) Tj T* 0 Tw -0.005971 Tw (verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance) Tj T* 0 Tw (for every cached result.) Tj T* ET
+BT 1 0 0 1 0 62 Tm .708453 Tw 12 TL /F3 10 Tf 0 0 0 rg (Graphify) Tj /F1 10 Tf ( \() Tj /F4 10 Tf (pip install graphify) Tj /F1 10 Tf (\) builds navigable knowledge graphs from local folders: code in 13 languages,) Tj T* 0 Tw .093432 Tw (PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain) Tj T* 0 Tw 1.919862 Tw (English. Graphify's authors report significant token reductions for graph-traversal queries versus raw file) Tj T* 0 Tw 2.433719 Tw (reads. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle) Tj T* 0 Tw 1.615696 Tw (Providence describes verifiable answer chains over live web documents & git-versioned codebases, with) Tj T* 0 Tw (cryptographic provenance for every cached result. No prototype of our integration exists yet.) Tj T* ET
 Q
 Q
 q
@@ -3454,45 +3454,45 @@ xref
 0001650049 00000 n 
 0001656802 00000 n 
 0001663706 00000 n 
-0001672408 00000 n 
-0001677130 00000 n 
-0001679242 00000 n 
-0001683349 00000 n 
-0001687787 00000 n 
-0001692081 00000 n 
-0001696693 00000 n 
-0001701507 00000 n 
-0001705916 00000 n 
-0001710533 00000 n 
-0001715494 00000 n 
-0001719818 00000 n 
-0001722346 00000 n 
-0001722612 00000 n 
-0001722646 00000 n 
-0001722680 00000 n 
-0001722714 00000 n 
-0001722748 00000 n 
-0001722782 00000 n 
-0001722816 00000 n 
-0001722850 00000 n 
-0001722884 00000 n 
-0001722918 00000 n 
-0001722953 00000 n 
-0001722989 00000 n 
-0001723025 00000 n 
-0001723061 00000 n 
-0001723097 00000 n 
-0001723133 00000 n 
-0001723169 00000 n 
-0001723205 00000 n 
-0001723241 00000 n 
-0001723277 00000 n 
-0001723313 00000 n 
-0001723349 00000 n 
+0001672429 00000 n 
+0001677208 00000 n 
+0001679320 00000 n 
+0001683427 00000 n 
+0001687865 00000 n 
+0001692159 00000 n 
+0001696771 00000 n 
+0001701585 00000 n 
+0001705994 00000 n 
+0001710611 00000 n 
+0001715572 00000 n 
+0001719896 00000 n 
+0001722424 00000 n 
+0001722690 00000 n 
+0001722724 00000 n 
+0001722758 00000 n 
+0001722792 00000 n 
+0001722826 00000 n 
+0001722860 00000 n 
+0001722894 00000 n 
+0001722928 00000 n 
+0001722962 00000 n 
+0001722996 00000 n 
+0001723031 00000 n 
+0001723067 00000 n 
+0001723103 00000 n 
+0001723139 00000 n 
+0001723175 00000 n 
+0001723211 00000 n 
+0001723247 00000 n 
+0001723283 00000 n 
+0001723319 00000 n 
+0001723355 00000 n 
+0001723391 00000 n 
+0001723427 00000 n 
 trailer
 <<
 /ID 
-[<6aa0a5339768a2ce18a00c3fa95de473><6aa0a5339768a2ce18a00c3fa95de473>]
+[<d38e24c37aaff34bfb81b1ac2b07bdce><d38e24c37aaff34bfb81b1ac2b07bdce>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 40 0 R
@@ -3500,5 +3500,5 @@ trailer
 /Size 112
 >>
 startxref
-1723385
+1723463
 %%EOF

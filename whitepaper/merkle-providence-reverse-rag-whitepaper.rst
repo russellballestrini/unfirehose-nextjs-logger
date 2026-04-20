@@ -504,7 +504,7 @@ Unfirehose collects JSONL from every harness session across our mesh. Every file
 
 - **Commit-keyed cache**: when a harness reads a file, we record ``(git_commit_hash, file_path, question_hash) → answer``. Our same question about our same file at our same commit hits our cache on every future session, on any node in our mesh, without re-reading the file.
 - **Knowledge graph construction**: unfirehose builds a graph of concepts, files, functions, & sessions from harness JSONL. Nodes carry Merkle-verified summaries. Edges carry session provenance. Our graph grows with every harness run.
-- **71x token reduction**: graph traversal over pre-summarized, Merkle-verified nodes replaces raw file reads. A harness navigating a large codebase queries our knowledge graph first. Only cache misses trigger fresh file reads & inference.
+- **Graph-first traversal**: a harness navigating a large codebase queries our knowledge graph first. Only cache misses trigger fresh file reads & inference. Whether this reduces token usage, & by how much, remains for future measurement once a prototype exists.
 - **Cross-session continuity**: a new harness session on our same codebase at our same commit inherits our full prior knowledge graph. No re-reading. No re-summarizing. Our mesh memory persists across sessions, machines, & agents.
 
 This positions unfirehose not just as a log aggregator but as a shared, verifiable knowledge substrate for our entire mesh of machine learning agents.
@@ -513,7 +513,7 @@ This positions unfirehose not just as a log aggregator but as a shared, verifiab
 13. Related Work
 -----------------
 
-**Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify achieves 71.5x fewer tokens per query compared to raw file reads via graph traversal. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence builds verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result.
+**Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify's authors report significant token reductions for graph-traversal queries versus raw file reads. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence describes verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result. No prototype of our integration exists yet.
 
 **Git / Mercurial object model.** Both git & Mercurial implement content-addressed Merkle DAGs natively. Git's commit object hashes our entire tree; Merkle Providence inherits this as a free cache boundary signal. Our work makes this implicit property explicit & useful for ML inference caching.
 
