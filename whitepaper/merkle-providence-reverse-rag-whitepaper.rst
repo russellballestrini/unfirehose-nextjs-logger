@@ -40,7 +40,7 @@ Unturf Automated General Intelligence: Merkle Providence Reverse RAG
 
 .. class:: center
 
-*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>, Duck <duck.the.musician@gmail.com>, Adrian Belmans (nexon33)*
+*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>, Duck <duck.the.musician@gmail.com>*
 
 .. class:: center
 
@@ -152,7 +152,7 @@ When a developer commits, our cache key changes automatically. Prior answers exp
 
 **Foresight**: the system appears to "already know" answers to questions asked before. From a user's perspective, a cache hit looks like instant comprehension. Our model responded before seemingly finishing to read. This resembles foresight because our prior sessions did our work ahead of time.
 
-A providence record for a cached answer contains the full inference context alongside the polyglot proof fields (`proxy.unturf.com/pkg/polyglot <https://github.com/russellballestrini/polyglot>`_, forked & extended by `nexon33 <https://github.com/nexon33/polyglot>`_)::
+A providence record for a cached answer contains the full inference context::
 
     {
       "cache_key":        "abc123...:def456...",
@@ -167,14 +167,7 @@ A providence record for a cached answer contains the full inference context alon
       "temperature":      0.1,
       "source_type":      "web",
       "git_commit":       null,
-      "chain_tip":        "a3f9...",
-      "token_root":       "7b2c...",
-      "code_hash":        "e41d...",
       "conversation_hash": "9a3f...",
-      "privacy_mode":     "private_proven",
-      "signature":        "ed25519:9f3a...",
-      "public_key":       "ed25519:1c7b...",
-      "poly_session_id":  "uuid-...",
       "turn_number":      1,
       "created_at":       1744000000,
       "hit_count":        0
@@ -419,7 +412,7 @@ Every inference pass through our Merkle Providence layer produces a verified rec
 
 **Document fingerprints.** Every document processed — web page, git-versioned file, or raw content — contributes a ``document_root``: a deterministic hash of its content at a specific moment. Our cache accumulates a catalog of every document any session has processed, keyed by content not by name or URI. A document that moves keeps its fingerprint. A document that changes gets a new one.
 
-**Answer records.** For every (document, conversation, model, revision, quantization) combination, our cache stores one verified answer. The answer record carries: the question text, the answer text, the full Merkle proof path, the conversation hash that produced the context, the model identity & inference configuration that produced the output, & the polyglot proof envelope if our endpoint signed the response. These records aggregate into a corpus of verified knowledge about our document collection.
+**Answer records.** For every (document, conversation, model, revision, quantization) combination, our cache stores one verified answer. The answer record carries: the question text, the answer text, the full Merkle proof path, the conversation hash that produced the context, & the model identity & inference configuration that produced the output. These records aggregate into a corpus of verified knowledge about our document collection.
 
 **Conversation context fingerprints.** Our ``conversation_hash`` field captures the full OpenAI messages array — system prompt, all prior turns, & the final user message — as a single SHA-256. Our cache accumulates not just answers but the exact conversational paths that produced them. Two agents that reached the same question via different conversation histories leave distinct fingerprints. Over time we observe which conversational approaches yield cache hits & which always miss — signal for prompt engineering.
 
@@ -430,9 +423,6 @@ Every inference pass through our Merkle Providence layer produces a verified rec
 **Inference economics.** ``inference_ms``, ``backend``, ``node_id``, & sampling parameters aggregate into a routing intelligence layer. Our cache knows which nodes answer quickly, which backends run which models efficiently, & which quantization levels trade answer quality for speed. Cache hits carry this history forward — a future routing decision can prefer a node whose cached answers already proved useful.
 
 **Git-versioned knowledge graphs.** For codebase queries, our ``git_commit`` field anchors every answer to an exact repository state. Our cache accumulates a version-annotated knowledge graph of our codebase: "at commit abc123, this function does X; at commit def456 it does Y." When a developer asks "what changed?", our cache surfaces the delta between two commit-keyed answer sets without re-reading any file.
-
-**Polyglot proof corpus.** When our inference endpoint runs with polyglot signing enabled, every answer record carries ``chain_tip``, ``token_root``, ``code_hash``, ``privacy_mode``, ``signature``, & ``public_key``. Our cache aggregates these into a corpus of cryptographically verified inference results — a growing ledger of provably correct answers, each signed by the node that produced it, each verifiable by any recipient with the public key.
-
 
 9b. Unfirehose Integration (Proposed)
 --------------------------------------
@@ -525,8 +515,6 @@ This positions unfirehose not just as a log aggregator but as a shared, verifiab
 
 **Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify achieves 71.5x fewer tokens per query compared to raw file reads via graph traversal. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence builds verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result.
 
-**Polyglot / Poly Network** (Russell Ballestrini, Adrian Belmans). Polyglot (`github.com/russellballestrini/polyglot <https://github.com/russellballestrini/polyglot>`_) defines a proof schema for verified ML inference: ``model_id``, ``base_uri``, ``chain_tip``, ``token_root`` (Merkle root over output tokens), ``code_hash``, ``privacy_mode``, and Ed25519 ``signature``. Our unfirehose providence schema adopts these fields wholesale. Where Poly Network focuses on proving that a specific model produced a specific output, Merkle Providence focuses on caching & reusing those proven outputs efficiently. The two systems compose: a Poly-signed answer record carries its own proof of origin, which our cache stores & returns verbatim on future hits.
-
 **Git / Mercurial object model.** Both git & Mercurial implement content-addressed Merkle DAGs natively. Git's commit object hashes our entire tree; Merkle Providence inherits this as a free cache boundary signal. Our work makes this implicit property explicit & useful for ML inference caching.
 
 **Traditional RAG** (Lewis et al., 2020). Retrieval Augmented Generation introduced server-side vector retrieval for language models. Our Reverse RAG paper documented client-side inversion of this pipeline. Merkle Providence extends Reverse RAG with verifiable caching, eliminating our repetition tax that RAG systems do not address.
@@ -545,7 +533,7 @@ Citation
 
 ::
 
-    Russell Ballestrini, David Wong, Riley Morgan, Duck, Adrian Belmans.
+    Russell Ballestrini, David Wong, Riley Morgan, Duck.
     "Unturf Automated General Intelligence: Merkle Providence Reverse RAG."
     unfirehose.com, 2026.
     https://unfirehose.com/merkle-providence-reverse-rag.html
@@ -593,12 +581,11 @@ License
 
     NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
 
-    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan & Duck & Adrian Belmans
+    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan & Duck
     russell@unturf.com
     david.s.wong@pm.me
     guybriley02@gmail.com
     duck.the.musician@gmail.com
-    https://github.com/nexon33
     https://www.unturf.com/software
     https://www.permacomputer.com
     https://uncloseai.com
