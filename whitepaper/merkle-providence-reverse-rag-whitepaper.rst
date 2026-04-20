@@ -40,7 +40,7 @@ Unturf Automated General Intelligence: Merkle Providence Reverse RAG
 
 .. class:: center
 
-*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>, Duck <duck.the.musician@gmail.com>*
+*Russell Ballestrini <russell@unturf.com>, David Wong <david.s.wong@pm.me>, Riley Morgan <guybriley02@gmail.com>*
 
 .. class:: center
 
@@ -533,7 +533,7 @@ Citation
 
 ::
 
-    Russell Ballestrini, David Wong, Riley Morgan, Duck.
+    Russell Ballestrini, David Wong, Riley Morgan.
     "Unturf Automated General Intelligence: Merkle Providence Reverse RAG."
     unfirehose.com, 2026.
     https://unfirehose.com/merkle-providence-reverse-rag.html
@@ -581,11 +581,10 @@ License
 
     NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
 
-    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan & Duck
+    Copyright (C) 2026 Russell Ballestrini & David Wong & Riley Morgan
     russell@unturf.com
     david.s.wong@pm.me
     guybriley02@gmail.com
-    duck.the.musician@gmail.com
     https://www.unturf.com/software
     https://www.permacomputer.com
     https://uncloseai.com
