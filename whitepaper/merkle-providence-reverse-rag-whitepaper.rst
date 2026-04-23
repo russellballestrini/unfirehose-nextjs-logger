@@ -59,7 +59,7 @@ Abstract
 
 **License: AGPL-3.0-only** · This algorithm, its implementation, & all associated code carry the GNU Affero General Public License v3.0 (only). You may use, modify, & distribute under those terms. No proprietary relicensing exists.
 
-Reverse Retrieval Augmented Generation (Reverse RAG) demonstrated that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference implementation runs **Hermes 3**, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at `uncloseai.com <https://uncloseai.com>`_. Our prior work showed that the client already holds the document. No vector database required. No embedding pipeline. No retrieval failures.
+`Reverse Retrieval Augmented Generation (Reverse RAG) <https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html>`_ demonstrated that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference implementation runs **Hermes 3**, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at `uncloseai.com <https://uncloseai.com>`_. Our prior work showed that the client already holds the document. No vector database required. No embedding pipeline. No retrieval failures.
 
 **Merkle Providence Reverse RAG** extends this with a second insight: the client not only holds the document, it can *remember what it already computed about that document*, prove that memory came from an unmodified source, & share that verified knowledge with others on public or private chains.
 
@@ -517,7 +517,7 @@ This positions unfirehose not just as a log aggregator but as a shared, verifiab
 
 **Git / Mercurial object model.** Both git & Mercurial implement content-addressed Merkle DAGs natively. Git's commit object hashes our entire tree; Merkle Providence inherits this as a free cache boundary signal. Our work makes this implicit property explicit & useful for ML inference caching.
 
-**Traditional RAG** (Lewis et al., 2020). Retrieval Augmented Generation introduced server-side vector retrieval for language models. Our Reverse RAG paper documented client-side inversion of this pipeline. Merkle Providence extends Reverse RAG with verifiable caching, eliminating our repetition tax that RAG systems do not address.
+**Traditional RAG** (Lewis et al., 2020). Retrieval Augmented Generation introduced server-side vector retrieval for language models. Our `Reverse RAG paper <https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html>`_ documented client-side inversion of this pipeline. Merkle Providence extends Reverse RAG with verifiable caching, eliminating our repetition tax that RAG systems do not address.
 
 **Zero-Knowledge Proofs.** Merkle membership proofs constitute a subset of ZKP: proving a leaf exists in a tree without revealing other leaves. Our work applies this primitive to ML answer provenance without requiring full ZKP apparatus (zk-SNARKs, Bulletproofs). We trade completeness for simplicity & speed.
 
