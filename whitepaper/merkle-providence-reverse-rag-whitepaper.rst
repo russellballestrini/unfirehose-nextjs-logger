@@ -182,7 +182,7 @@ Our providence record collects maximum metadata, but only a subset enters our ca
 - ``model_id`` — canonical model identifier
 - ``model_revision`` — exact weights revision (HuggingFace commit hash or equivalent)
 - ``quantization`` — fp16, bf16, fp8, int8, int4, q4_k_m, etc. Same weights at different quantizations produce measurably different answers.
-- ``conversation_hash`` — SHA-256 of the full normalized OpenAI messages array: every turn in order, system prompt through the final user message. A single-turn Q&A and a 6-turn conversation that arrives at the same final question produce different answers & different cache keys. Callers hash client-side & send only the hash. Message content never enters our logs — Operation Voyeur.
+- ``conversation_hash`` — SHA-256 of the full normalized industry-standard chat messages array: every turn in order, system prompt through the final user message. A single-turn Q&A and a 6-turn conversation that arrives at the same final question produce different answers & different cache keys. Callers hash client-side & send only the hash. Message content never enters our logs — Operation Voyeur.
 - ``seed`` — RNG seed when set. A seeded run produces a deterministic answer; a different seed produces a different one. Null seed entries cache on the other five fields alone.
 
 **Tier 2 — Metadata Only.** Stored for research, routing, & audit. Not part of the key:
@@ -414,7 +414,7 @@ Every inference pass through our Merkle Providence layer produces a verified rec
 
 **Answer records.** For every (document, conversation, model, revision, quantization) combination, our cache stores one verified answer. The answer record carries: the question text, the answer text, the full Merkle proof path, the conversation hash that produced the context, & the model identity & inference configuration that produced the output. These records aggregate into a corpus of verified knowledge about our document collection.
 
-**Conversation context fingerprints.** Our ``conversation_hash`` field captures the full OpenAI messages array — system prompt, all prior turns, & the final user message — as a single SHA-256. Our cache accumulates not just answers but the exact conversational paths that produced them. Two agents that reached the same question via different conversation histories leave distinct fingerprints. Over time we observe which conversational approaches yield cache hits & which always miss — signal for prompt engineering.
+**Conversation context fingerprints.** Our ``conversation_hash`` field captures the full industry-standard chat messages array, system prompt, all prior turns, & the final user message, as a single SHA-256. Our cache accumulates not just answers but the exact conversational paths that produced them. Two agents that reached the same question via different conversation histories leave distinct fingerprints. Over time we observe which conversational approaches yield cache hits & which always miss — signal for prompt engineering.
 
 **Hit counts & reuse rates.** Every cache lookup that finds an existing record increments ``hit_count`` & updates ``last_hit_at``. Our cache aggregates these into a measure of knowledge reuse: which documents get queried repeatedly, which questions recur, which model + quantization combinations serve the most requests. High-hit records represent our most valuable verified knowledge — answers our mesh has found useful enough to retrieve many times.
 
