@@ -655,6 +655,57 @@ What does NOT converge across two machines:
 
 Everything in our cache key dimensions converges. Everything that observes our corpus's processing diverges. That separation is our admissibility property: one peer's witness of "what was in our forest at time T" is bit-equal to every other peer's witness of our same forest, while one peer's audit chain proves *that peer* witnessed our forest at our times *they* recorded.
 
+13.8 Audit Mode: Source vs. Emergence
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A Merkle proof binds an answer's *context* to a content-addressed root. It does not bind the *answer* to that context. A model handed a chunk of episode plot summaries can correctly recite the entity names that appear in the chunk, then complete the response with character bios drawn from training data — names that match, claims that emerge. Both layers are real. Conflating them under one "STRICT" label overclaims the proof.
+
+v9.8 names the trichotomy (Section 13.1 inherits it from Merkle-AGI's audit contract): STRICT, HYBRID, VISUAL. Aborist decides which label applies *per answer*, by post-LLM faithfulness check, never as a default. The substrate's "VISUAL" label was named for neural-network proof systems where it meant "FOR-style visualization, no formal guarantee attached." In a RAG layer that semantic reads as *no recoverable proof of grounding*, so aborist persists the label as **UNGROUNDED**::
+
+    STRICT      every evidence unit in answer verifies verbatim against context
+    HYBRID      some claims source-grounded, some emerged from training
+    UNGROUNDED  no evidence, or none verifies — purely emergent
+
+13.8.1 Layered verifier
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+`aborist/qa/verify.py` runs three strategies in sequence. The first to find evidence classifies the answer; later strategies don't run. Each strategy is a lexical substring test under norm-v1 canonicalization (NFC, collapsed whitespace) plus case-folding. The soft-hash boundary from CLAUDE.md applies: embeddings train rankers, hashes carry proofs, & we never mix the two. ``verifier_method`` on the providence record names which path fired so the audit chain stays diagnostic.
+
+**Strategy 1: quote.** The system prompt instructs the model to wrap every factual claim in a verbatim double-quoted span from a source. The verifier locates every double-quote character in the answer & pairs them sequentially: 1st & 2nd, 3rd & 4th, & so on. Each pair brackets one quoted span; text between consecutive pairs is the model's framing prose & is not captured. Pure-regex pairing fails on adjacent quote pairs like ``"title" prose "quote"`` — the regex captures ``prose`` as a phantom span because every ``"`` looks like both an opener & a closer to it. Sequential pairing eliminates the artifact.
+
+**Strategy 2: span.** When the model declines to quote but writes lines verbatim from source, bullet & sentence units from the answer are substring-tested against context. Catches paraphrased-into-prose answers where every claim is grounded but the formatting drifted from explicit quote marks.
+
+**Strategy 3: entity.** When neither quote nor span lands evidence, multi-word capitalized phrases (Carrie-Anne Moss, Thomas A. Anderson, Agent Smith) are extracted from the answer & substring-tested. Catches the Wikipedia-infobox case: source has structured ``[[Keanu Reeves]] [[Laurence Fishburne]]`` markup; model paraphrases into prose; spans diverge but every named entity is intact & grounded. Entity-existence in source is, however, weaker than claim-level evidence — the model could correctly name entities while making *claims around them* that came from training. Aborist gates the entity path with a policy::
+
+    strict     all entities verify → STRICT (legacy; overclaims TMNT-style cases)
+    hybrid     any entity verifies → HYBRID (honest cap)
+    drop       skip entity path entirely → UNGROUNDED (most conservative)
+    proximity  STRICT only if N=3 verified entities cluster within W=300 chars
+               in source. Otherwise demoted to HYBRID/UNGROUNDED.
+
+The default policy is **proximity**. Entity-cluster density distinguishes "source documents these entities as a group" (cast list, infobox, roster) from "source mentions them incidentally in scattered prose." A Wikipedia infobox passes the cluster test & promotes; a TMNT episode plot summary that names the four turtles & Splinter across separate sentences fails it & demotes. The policy lives in ``DEFAULT_QUERY_POLICY["entity_policy"]`` so any change folds into ``governance_policy_hash`` & invalidates prior cache cleanly.
+
+13.8.2 Wikitext base prose
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Aborist stores raw MediaWiki wikitext in chunk content so the link graph & original markup are recoverable from any page. The LLM produces clean prose. Without normalization, every wikilink-carrying source paragraph compares as a different surface form & the verifier wrongly reports UNGROUNDED on genuine source-grounded quotes — the FF7-characters page was the input that triggered the design (six legitimate quotes flagged as ungrounded because the model wrote ``Cloud Strife`` & the source had ``[[Cloud Strife]]``).
+
+``aborist/wikitext.py`` provides ``to_base(raw)``, a pure function pinned by ``BASE_VERSION`` (``wikitext-base-v1``). Same wikitext → same prose, forever, until ``BASE_VERSION`` is bumped. The algorithm runs ``mwparserfromhell``: drop ``<ref>`` tags & namespace-prefixed wikilinks (``[[File:...]]``, ``[[Image:...]]``, ``[[Category:...]]``), call ``strip_code(normalize=True, collapse=True)`` to reduce surviving markup to display text, then collapse whitespace runs. Optional dependency — installations without ``mwparserfromhell`` fall back to identity & verification proceeds against raw wikitext (the strip becomes a no-op rather than a hard requirement). ``BASE_VERSION`` should fold into ``governance_policy_hash`` via ``policy["base_version"]`` so a bump invalidates every prior cache record's 8-dim key on next lookup; no schema migration, the next ``ask`` re-derives against fresh prose.
+
+13.8.3 Emergence is preserved, not suppressed
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A HYBRID or UNGROUNDED record stays live in cache. Training-derived knowledge is often correct (the turtles really do wield katanas), just unverifiable against the current corpus. We label honestly so a downstream consumer can route: STRICT answers carry compliance-grade provenance, UNGROUNDED answers carry *the model believes this, no certificate attached*. A model that genuinely refuses ("I don't know based on the provided sources") classifies UNGROUNDED with ``verifier_method='none'`` & ``n_quotes=0`` — the most honest answer the system can produce.
+
+**Emergence is a corpus-growth signal.** Unverified spans persist on each providence record; ``aborist emergent --aggregate`` ranks them by frequency. Spans the model produces repeatedly that the corpus cannot ground are candidate ingest targets — what training has that ingestion is missing. When the missing source eventually arrives, ``aborist reclassify`` re-runs the verifier against existing answers without any LLM call, persisting the upgraded label & writing one ``providence_reclassify`` audit event per changed row. HYBRID promotes to STRICT, UNGROUNDED to HYBRID, & the audit chain remembers the transition. Prior records stay as historical witnesses: *on this date, against that corpus root, the model emerged this much beyond its sources.*
+
+13.8.4 Verifier stays binary; falsifications carry soft signal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The verifier returns evidence units & a classification — that's the entire output surface. No per-quote diagnosis fields, no match-confidence scores, no partial-match indicators on hard verifier output. "Why didn't this ground?" lives on the falsify+reclassify loop where an operator (or an automated process) inspects the unverified spans, decides whether the failure is a corpus gap or a model fabrication, & either ingests new source or quarantines the record. Keeping the binary discipline on the verifier preserves the soft-hash boundary: classification is a hard bit, not a soft score.
+
+The SOURCE/EMERGENCE distinction also clarifies the v9.8 cache_key invariant. Bumping ``governance_policy_hash`` (e.g. by tightening the system prompt or flipping ``entity_policy``) invalidates cache lookups but leaves the source merkle tree, chunks, document_roots, audit chain, & snapshots bit-identical. Q&A records under the old policy stop being reachable; corpus identity is unchanged. No re-ingest required — the 8-dim key partitions cleanly along architectural seams.
+
 
 14. Related Work
 -----------------
