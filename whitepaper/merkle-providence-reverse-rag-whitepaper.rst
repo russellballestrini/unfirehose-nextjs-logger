@@ -510,7 +510,153 @@ Unfirehose collects JSONL from every harness session across our mesh. Every file
 This positions unfirehose not just as a log aggregator but as a shared, verifiable knowledge substrate for our entire mesh of machine learning agents.
 
 
-13. Related Work
+13. Aborist: A Python Reference Implementation
+------------------------------------------------
+
+Our uncloseai.js Reverse RAG client lives in our user's browser. Our Merkle Providence cache layer described above also belongs in our browser, & in a Next.js logger that aggregates JSONL across our mesh. A complementary surface exists at our other end of our pipeline: a server-side, content-addressed document store that ingests entire corpora at once, computes Merkle commitments at scale, & serves cached answers to any peer that produces matching cache keys.
+
+**Aborist** (`<https://git.unturf.com/engineering/unturf/aborist>`_) is our Python reference implementation of that surface. Our codebase ships under AGPL-3.0-only, runs against `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_ by default, & implements every primitive described in Sections 1 through 12 of this paper as working code with measurements on a real corpus.
+
+13.1 Schema: v9.8 Admissibility Ledger
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Aborist's providence cache uses an 8-dimensional cache key, a strict superset of our 6-dimensional key in Section 3. Two extra dimensions formalize what was previously implicit::
+
+    cache_key = source_root | question_hash | model_profile_hash
+              | conversation_hash | governance_policy_hash
+              | schema_version | canonicalization_version
+              | chunking_version
+
+Bumping any one stales every prior cache record, so a chunker change or a canonicalization rule change cleanly partitions our cache namespace. Records carry a ``falsification_state ∈ {live, failed, stale, quarantined}``: queries always filter on ``state='live'``, & a separate ``falsifications`` table logs every state transition with ``cache_key``, reason, actor, & ``audit_event_hash``.
+
+Every state-changing operation (ingest, distill, falsify, evict, rehydrate, mesh epoch rotation, snapshot creation) appends one row to a tamper-evident audit chain::
+
+    event_hash = sha256(prev_event_hash || canonical_json(body))
+
+Verification is purely local: re-hash forward & confirm. A break in our chain signals tampering on our DB at a specific event index.
+
+13.2 Multi-Source ETL
+^^^^^^^^^^^^^^^^^^^^^^
+
+Aborist ships with five source adapters, each yielding `Document` objects through our same `ingest_source` pipeline:
+
+- **Wikipedia Phase III SQL dumps** (2003–2005). Hand-rolled streaming parser for MySQL extended INSERT syntax, bz2-aware, ~3 minutes per 128k articles on commodity hardware.
+
+- **Wikipedia Phase IV XML dumps** (2006+). Streaming `iterparse` over `pages-articles.xml.bz2` with bounded memory; supports `pages-meta-history.xml.bz2` for full revision history. Tested against 2010-11 enwiki at 6.2 GB compressed.
+
+- **xAI Grok account exports**. One Document per conversation, every message rendered with sender/model/timestamp inline.
+
+- **Git & Mercurial repos** (self-play). Walks `git ls-tree HEAD` or `hg manifest`; one Document per text file. Re-ingest after new commits auto-chains via `supersedes` edges, so our Merkle tree grows alongside our repository.
+
+- **HTML pages**. Robots-aware fetch with `selectolax` extraction; hyperlinks become outbound edges.
+
+Adding a sixth corpus is one new `Source` subclass. Our contract is intentionally minimal: yield Documents, our pipeline canonicalizes, chunks, hashes, persists.
+
+13.3 Storage Cheats: 67% Reduction Measured
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Three orthogonal optimizations stack against SQLite-resident corpora:
+
+- **Zstandard-compressed chunk content.** Plaintext bodies compress 3 to 5x at level 3. Magic-byte detection on read makes legacy uncompressed rows transparent. Cores stay plaintext so SQL substring queries continue working.
+
+- **WITHOUT ROWID on edges.** Our composite primary key covers every column, so a default rowid-keyed table near-doubles row data in our PK index. WITHOUT ROWID makes our table itself a B-tree keyed on our PK. We dropped our partial dst_uri index too, since only one analytic query actually filters on dst_uri.
+
+- **Contentless FTS5.** Our prior schema had FTS5 store its own copy of every chunk's text. Contentless mode (`content=''`, `contentless_delete=1`) keeps only our inverted index. Snippets are built in Python by joining `chunks_fts.rowid = chunks.chunk_id` & decompressing. Requires SQLite 3.43+.
+
+Apples-to-apples reingest of our 2003-05-16 enwiki cur dump (128,245 documents):
+
+::
+
+    OLD schema:  2.6 GB across 4 shards    (~21 KB / doc)
+    NEW schema:  857 MB across 4 shards    (~6.7 KB / doc)
+    reduction:   -67%
+
+Same document set, same Merkle roots, identical query results. Storage cost dropped by two-thirds with no change to our content-addressed identity.
+
+13.4 Retrieval Quality: Recall Fixes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Our reverse-RAG client picks one document; aborist picks K from a corpus & merges. Two structural defects in our ranking pipeline produced poor recall on queries with generic tokens:
+
+- **Title-search baseline dominated FTS5.** A single-token title overlap against a generic word like "intel" used to score 60+, swamping body-relevant FTS5 hits scoring 5-15. Result: every `Intel_*`-prefixed legacy article flooded our top-K for any "intel" query, even when a contemporary article like `Pentium_4` had body relevance & no title overlap. Our fix dropped our title-search baseline so title overlap competes with FTS5 instead of monopolizing it.
+
+- **BM25's short-doc bias surfaced stubs over topical articles.** A 1-paragraph stub mentioning every query token once outranked a 30-page topical article where our same tokens are diluted by length. We added a body-coverage rerank using ``sum(sqrt(count(t))) * 0.6`` over query tokens for each surviving candidate. Sqrt scaling differentiates stubs from topical articles without letting enumerative list pages run away with our score.
+
+Verified on our 2010-11 enwiki corpus (3.47M documents, no distill cores):
+
+::
+
+    before:  Intel_4040 (1974 microcontroller stub) ranked #1
+             for "what is the fastest intel CPU?"
+    after:   Intel_Core_2 #1, Intel_Atom #2, Intel_4040 #3
+             answer cites Core i7 specifications correctly
+
+13.5 Federation: Mesh Layer (Off by Default)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Two peers that ingest our same dump compute bit-identical document_roots & cache_keys. Our mesh layer in aborist is our wire-and-trust scaffolding that lets them gossip those identities, dedup answers, & cleanly distrust an evicted member.
+
+Cryptography (via `cryptography` library):
+
+- **Ed25519** signs every membership mutation & every (future) gossip envelope.
+- **X25519 ECDH** wraps each epoch's symmetric mesh secret to every current member's DH pubkey. HKDF-derives a 32-byte AEAD key from each shared secret.
+- **ChaCha20-Poly1305** authenticates payloads & per-member secret wraps.
+
+Membership state is per-epoch. Adding a member, kicking a member, or rotating our secret bumps our epoch & writes an audit event. Eviction works by rotating to a new epoch whose envelope omits our kicked member: their prior signatures stay verifiable forever (their old roster row is preserved), but they have no entry in our new envelope, so any AEAD-protected gossip from epoch+1 onward is opaque to them. Re-admission requires a fresh add operation by an admin.
+
+Off by default: a `mesh.enabled` flag in our meta table gates everything. Fresh installs report `enabled: false` & no network code paths execute until our user runs `aborist mesh init` & `aborist mesh enable`.
+
+Three classes of derivative reconcile across peers:
+
+- **Deterministic distillers** (e.g., first-sentence cores): same src_root → same core_root, on every machine. Shareable as-is via the existing `derivations.proof_blob`.
+
+- **Corpus-statistical distillers** (e.g., TF-IDF keywords): convergent only under shared corpus scope. Requires a `scope_root` commitment so peers explicitly agree on which corpus statistics underlie our cores.
+
+- **LLM-derived answers**: non-convergent (serving non-determinism), but cryptographically witnessable. Same cache_key from many peers + the same `answer_hash = sha256(answer_text)` collapses to one row with many witnesses; divergent answers stay as multi-witness candidates, each Merkle-bound to a verifiable context_root.
+
+13.6 Corpus Snapshots: One Hash Names Our Forest
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A `snapshot_root` is `MerkleTree.build([sorted DISTINCT document_roots]).root`: one 32-byte hash naming our content-addressed forest at a point in time. Two peers that ingested our same dump compute bit-identical snapshot_roots, so cross-machine "are we synced?" becomes a single hash comparison instead of doc-by-doc gossip.
+
+Snapshot creation pins our root into our audit chain & records `(snapshot_root, taken_at, audit_event_hash, doc_count, parent_snapshot, reason)`. Snapshots auto-link to our most recent prior snapshot, giving a chain for free. The same `snapshot_root` doubles as our TF-IDF `scope_root`, so derivative reconciliation in 13.5 maps directly onto snapshot agreement.
+
+13.7 Cross-Machine Convergence: A Worked Example
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Our 2010-11 enwiki corpus, ingested on a single workstation in 1h 41m (4-way sharded), produces:
+
+::
+
+    snapshot_root = 43797e46605de08dbab06cdcaf5be7ad78243b193c56f8580200dee6bcc7e1b9
+    doc_count     = 3,468,134 (deduplicated)
+    storage       = 38 GB across 4 shards
+    chunks        = 6,235,672
+    edges         = 90,593,523
+    audit_events  = 3,468,308 (chain intact, 30/30 random Merkle proofs verified)
+
+A query against this corpus for "tell me plot of alien film" returned a cache hit:
+
+::
+
+    document_root = 896c27f8d9de8e0fc8c9b337274e794bea4206dccd50b9654b34833d9d29f005
+    document_uri  = https://en.wikipedia.org/wiki/Alien_(film)
+    context_root  = 896c27f8...f005   (single source, equals document_root)
+    cache_key     = 1aa20457e980f9e564641b7c3a86edbc90bd9fb31d6e461e9da2fdc4082ddda1
+    answer        = (plot summary verbatim from the article)
+
+Every one of those four hashes is bit-identical on any machine that ingests our same `enwiki-20101011-pages-articles.xml.bz2` (verifiable via our `md5sums.txt`) with our same aborist commit. Hand `896c27f8…f005` to any peer; if their corpus matches ours, they compute our same hash, with mathematical certainty. No trust required, just shared inputs.
+
+What does NOT converge across two machines:
+
+- `audit_events.event_hash` chain (event order is per-instance witness, not content)
+- `documents.ingest_ts` & `chunks.chunk_id` (per-instance metadata)
+- `answer_text` under fresh LLM inference (Hermes serving carries tiny non-determinism)
+
+Everything in our cache key dimensions converges. Everything that observes our corpus's processing diverges. That separation is our admissibility property: one peer's witness of "what was in our forest at time T" is bit-equal to every other peer's witness of our same forest, while one peer's audit chain proves *that peer* witnessed our forest at our times *they* recorded.
+
+
+14. Related Work
 -----------------
 
 **Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify's authors report significant token reductions for graph-traversal queries versus raw file reads. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence describes verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result. No prototype of our integration exists yet.
