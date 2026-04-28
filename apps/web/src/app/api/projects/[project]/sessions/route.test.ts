@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { createTestDb } from '@/test/db-helper';
+
+const db = createTestDb();
 
 vi.mock('@unturf/unfirehose/claude-paths', () => ({
   claudePaths: {
@@ -7,6 +10,8 @@ vi.mock('@unturf/unfirehose/claude-paths', () => ({
     projectDir: (p: string) => `/mock/${p}`,
   },
 }));
+
+vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(JSON.stringify({
