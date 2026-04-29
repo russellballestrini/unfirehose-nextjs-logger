@@ -586,11 +586,17 @@ Same document set, same Merkle roots, identical query results. Storage cost drop
 13.4 Retrieval Quality: Recall Fixes
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Our reverse-RAG client picks one document; aborist picks K from a corpus & merges. Two structural defects in our ranking pipeline produced poor recall on queries with generic tokens:
+Our reverse-RAG client picks one document; aborist picks K from a corpus & merges. The ranking pipeline grew through five live-corpus catches; each fix earned its place by failing on a real query. The current shape is a multi-stage filter with three accept paths & a stem-tolerant token matcher.
 
-- **Title-search baseline dominated FTS5.** A single-token title overlap against a generic word like "intel" used to score 60+, swamping body-relevant FTS5 hits scoring 5-15. Result: every `Intel_*`-prefixed legacy article flooded our top-K for any "intel" query, even when a contemporary article like `Pentium_4` had body relevance & no title overlap. Our fix dropped our title-search baseline so title overlap competes with FTS5 instead of monopolizing it.
+13.4.1 Title-search baseline dominated FTS5
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- **BM25's short-doc bias surfaced stubs over topical articles.** A 1-paragraph stub mentioning every query token once outranked a 30-page topical article where our same tokens are diluted by length. We added a body-coverage rerank using ``sum(sqrt(count(t))) * 0.6`` over query tokens for each surviving candidate. Sqrt scaling differentiates stubs from topical articles without letting enumerative list pages run away with our score.
+A single-token title overlap against a generic word like ``"intel"`` used to score 60+, swamping body-relevant FTS5 hits scoring 5-15. Result: every ``Intel_*``-prefixed legacy article flooded our top-K for any "intel" query, even when a contemporary article like ``Pentium_4`` had body relevance & no title overlap. Our fix dropped our title-search baseline so title overlap competes with FTS5 instead of monopolizing it. Title contributes a token-overlap boost (``overlap × 10.0``) on top of BM25; it doesn't run as a separate ranking signal.
+
+13.4.2 BM25 short-doc bias surfaced stubs over topical articles
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A 1-paragraph stub mentioning every query token once outranked a 30-page topical article where our same tokens are diluted by length. We added a body-coverage rerank using ``sum(sqrt(count(t))) * 0.6`` over query tokens for each surviving candidate. Sqrt scaling differentiates stubs from topical articles without letting enumerative list pages run away with our score.
 
 Verified on our 2010-11 enwiki corpus (3.47M documents, no distill cores):
 
@@ -600,6 +606,83 @@ Verified on our 2010-11 enwiki corpus (3.47M documents, no distill cores):
              for "what is the fastest intel CPU?"
     after:   Intel_Core_2 #1, Intel_Atom #2, Intel_4040 #3
              answer cites Core i7 specifications correctly
+
+13.4.3 Three accept paths in the title-relevance filter
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A hit clears ``_filter_by_title_relevance`` if any one of three accept paths fires:
+
+1. **Title-token overlap.** Strongest signal. Direct stem-aware match between the query's title-tokens and the document's title-tokens. Synonym fallback (``concepts.synonym_expand``) only fires for 1-token queries — multi-token queries that admit synonyms over-recall (an "amd"-querying agent picking up `Intel_*` titles via the Intel/AMD rivalry group).
+
+2. **TF-IDF core keyword overlap.** Closes the gap for neologisms that never appear in titles but are distinctive enough to be the TF-IDF top-keywords of conversation bodies. ``"permacomputer"`` was the canonical case — never a Wikipedia title, but a strong TF-IDF signal in Grok-conversation cores. Without this path, neologism queries returned empty.
+
+3. **Body density.** ``_body_density_passes`` admits docs that mention at least ``breadth_threshold`` distinct query tokens AND have ``total_mentions >= 3``. Cheap proxy for "actually about the topic" when neither title nor core caught it.
+
+Rivalry exclusion (``rivalry_excluded`` in ``aborist/qa/concepts.py``) applies on every accept path: an Intel-titled doc dropped from an AMD query, & vice versa. Caught the case of competitor docs leaking into single-side queries when both share a topic page.
+
+13.4.4 Breadth-required filter — multi-token queries demand co-occurrence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pre-2026-04-29 the body-density rule was "at least HALF the tokens present" — too lenient for 2-token queries. Fox caught this on 2026-04-29: ``"who is supermans girlfriend?"`` admitted seven unrelated ``Girlfriends``-titled articles (TV show, films, songs) because they had ``girlfriend`` in body but no ``superman`` whatsoever; the half-rule passed at 1-of-2.
+
+The fix scales the breadth threshold with query length::
+
+    ≤ 2 query tokens   require ALL distinct tokens present (in body and in title)
+    3+ query tokens    require N - 1 (one weak signal token may miss)
+
+Plus the depth check (``total_mentions >= 3``) still gates body-density. Title-token-overlap shares the same scaling. The "3+ require N-1" path lets one query token miss for long queries where models throw filler in (``"what is the plot of the matrix film?"`` admits docs that have all of ``plot``/``matrix``/``film`` even when ``what`` is filtered out as a stopword & ``the`` doesn't count).
+
+Verified on the same enwiki corpus:
+
+::
+
+    before:  Girlfriends (1991 album), Girlfriend (Avril Lavigne song),
+             Girlfriends (TV series), Girlfriends Films, ...
+             — 7 of 8 top hits unrelated to Superman
+    after:   Lois_Lane #1, Superman_in_film #2, Smallville #3, ...
+             — Superman/Lois Lane mythology surfaces correctly
+
+13.4.5 Stem-aware token matching — possessive & plural collapse
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Same ``supermans girlfriend`` defect had a second cause: ``superman's`` from the question canonicalized to ``supermans`` (apostrophe stripped by ``_TITLE_TOKEN_RE``), which doesn't substring-match the bare ``superman`` in source bodies. Plurals had the symmetric problem: ``girlfriends`` query token vs ``girlfriend`` source mentions.
+
+``_stem_token_for_match`` is a one-line lite stemmer: trailing ``s`` strip on tokens of length > 4 that don't end in ``ss``. Conservative — short tokens (``"is"``, ``"as"``, ``"us"``) keep their ``s``; ``"miss"``/``"class"``/``"chess"`` are skipped. Both query tokens & document tokens pass through it before set comparison & body counting; matches in either form score.
+
+This is a soft normalization step BEFORE the hard hash. ``question_hash`` itself does NOT stem — it canonicalizes by article-strip + trailing-punct-strip, which is enough for the equivalence-class layer. Stemming lives only in the retrieval ranker, where over-recall is preferable to under-recall (filtering happens later).
+
+13.4.6 Per-source context cap — no single doc monopolizes the budget
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Fox 2026-04-29: a query for ``"who is batman?"`` returned 8 sources but the LLM cited only 2 in its answer. Cause: ``List_of_Batman_comics`` (an 80 KB+ bibliography) was the top FTS5 hit & consumed the entire 60 KB ``max_context_chars`` at hit #1, leaving every subsequent source dropped with ``char_budget <= 0``.
+
+The fix caps each top-K hit at ``max_context_chars / top_k`` chars before respecting the global budget. With ``top_k=8`` and ``max_context_chars=60000``, each source ships at most 7,500 chars. Bibliographies still appear in the source list but as one slice among many; the actual character article (``Batman``), the franchise page, the film article, the rogue's gallery, etc., all reach the LLM. Multi-source diversity restored without raising the global budget.
+
+::
+
+    before:  8 sources retrieved, 1 in context (List_of_Batman_comics ate 60 KB)
+    after:   8 sources retrieved, 8 in context (each capped at 7,500 chars)
+
+13.4.7 Worked example: dinosaurs in Jurassic Park
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Query: ``"what dinosaurs where in jurassic park film?"``. After stopword + stem: ``{dinosaur, jurassic, park, film}``. 4 tokens, so ``title_breadth = N - 1 = 3``.
+
+::
+
+    title-overlap accept (3 of 4 stems in title):
+        Jurassic Park (film)         {jurassic, park, film}
+        Jurassic Park (film score)   {jurassic, park, film}
+        Jurassic Park III (film score) {jurassic, park, film}
+
+    body-density accept (≥ 3 of 4 distinct tokens in body, total ≥ 3):
+        Jurassic Park (franchise)
+        List of Jurassic Park characters
+        Jurassic Park: Operation Genesis
+        Jurassic Park video games
+        The Lost World: Jurassic Park
+
+8-source context, each ≤ 7,500 chars after wikitext-base strip. The model produced 4 quoted spans (Brachiosaurus, Velociraptor, T-rex, Dilophosaurus); 3 verified verbatim, 1 contained the model's own ``[...]`` elision marker & failed substring match. Final classification: HYBRID / quote / 3-of-4. The unverified span surfaces in ``aborist inspect``, where an operator can decide whether the elision is benign or worth re-asking under a tighter prompt.
 
 13.5 Federation: Mesh Layer (Off by Default)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
