@@ -178,7 +178,7 @@ Our providence record collects maximum metadata, but only a subset enters our ca
 **Tier 1 — Cache Key Inputs.** A difference in any of these fields produces a distinct cache entry:
 
 - ``document_root`` — content fingerprint (Merkle hash or git/hg commit)
-- ``question_hash`` — SHA-256 of normalized question text
+- ``question_hash`` — SHA-256 of normalized question text. Three-step canonicalization, in order: NFC + whitespace collapse + edge-strip, then case-fold to lowercase, then trailing-punctuation strip. Trailing chars in the strip set today: ``.?!,;:`` (ASCII), ``？！。、`` (CJK full-width), ``…`` (ellipsis). Pairs (``"`` ``'`` ``)`` ``]`` ``}``) are NOT stripped — naive one-sided stripping breaks balance, and apostrophes carry meaning (``X's`` ≠ ``X``). Equivalence class: ``who is X``, ``who is X?``, ``Who Is X.``, ``who is X？`` all map to the same ``question_hash``, so a providence_cache hit returns the same answer for any of those forms.
 - ``model_id`` — canonical model identifier
 - ``model_revision`` — exact weights revision (HuggingFace commit hash or equivalent)
 - ``quantization`` — fp16, bf16, fp8, int8, int4, q4_k_m, etc. Same weights at different quantizations produce measurably different answers.
