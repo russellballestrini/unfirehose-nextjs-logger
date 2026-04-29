@@ -529,11 +529,19 @@ Aborist's providence cache uses an 8-dimensional cache key, a strict superset of
 
 Bumping any one stales every prior cache record, so a chunker change or a canonicalization rule change cleanly partitions our cache namespace. Records carry a ``falsification_state ∈ {live, failed, stale, quarantined}``: queries always filter on ``state='live'``, & a separate ``falsifications`` table logs every state transition with ``cache_key``, reason, actor, & ``audit_event_hash``.
 
-Every state-changing operation (ingest, distill, falsify, evict, rehydrate, mesh epoch rotation, snapshot creation) appends one row to a tamper-evident audit chain::
+Every state-changing operation (ingest, distill, falsify, evict, rehydrate, burn, mesh epoch rotation, snapshot creation) appends one row to a tamper-evident audit chain::
 
     event_hash = sha256(prev_event_hash || canonical_json(body))
 
 Verification is purely local: re-hash forward & confirm. A break in our chain signals tampering on our DB at a specific event index.
+
+Two leaf-removal verbs cover different stages of corpus life:
+
+- **Falsify** (audit-preserving). Flips ``falsification_state`` from ``live`` to ``failed`` / ``stale`` / ``quarantined`` and writes a row to ``falsifications`` (cache_key, reason, actor, timestamp, audit_event_hash). Cache lookups always filter on ``state='live'`` so the record stops being reachable, but it stays on disk as forensic history. Use when downstream consumers may have ingested the answer.
+
+- **Burn** (kindergarten leaf delete). Actually deletes the row. Kept off the default verb path because it forfeits history. Refuses if the leaf has children — for ``providence_cache`` leaves: any falsifications referencing the cache_key; for ``documents``: any derivations using the doc as a source, any incoming edges, any providence records keyed on its document_root; for ``cores``: same as documents plus downstream cores in derivations. ``--force`` overrides for cleanup edge cases & records ``forced=True`` plus the child count at burn time in the audit body. Always writes a ``providence_burn`` / ``document_burn`` / ``core_burn`` event regardless of forcing. Use during early/scratch corpus building before downstream consumers exist; otherwise prefer falsify.
+
+Both surfaces (``aborist providence --falsify`` & ``aborist burn``) compose with cross-shard scope. Chain integrity after either operation is verifiable in O(1) per shard via ``make chain-check-shards`` — a ``LEFT JOIN`` query that counts dangling ``prev_event_hash`` references; 0 = chain intact, non-zero = a break to investigate.
 
 13.2 Multi-Source ETL
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -550,7 +558,9 @@ Aborist ships with five source adapters, each yielding `Document` objects throug
 
 - **HTML pages**. Robots-aware fetch with `selectolax` extraction; hyperlinks become outbound edges.
 
-Adding a sixth corpus is one new `Source` subclass. Our contract is intentionally minimal: yield Documents, our pipeline canonicalizes, chunks, hashes, persists.
+- **Live website crawl** (off by default, ``aborist[crawler]`` extras). BFS-discovers same-domain URLs from a seed via a verbatim lift of agents.ai.unturf.com's `AsyncWebFetcher` (ethical: respects robots.txt Disallow + Crawl-delay, with a `fast_mode` flag that drops the delay for trusted hosts). Discovered URLs are filtered: feeds (atom/rss/rdf/sitemap) and image/video/audio paths are crawl infrastructure, not knowledge content, & skip ingest. ETag and Last-Modified per response are captured into ``document_http_meta`` so a subsequent ``aborist crawler recrawl-check`` round can issue conditional ``If-None-Match`` / ``If-Modified-Since`` HEAD requests; 304 = fresh (no body transfer), 200 = stale (re-ingest), 404/410 = gone, other = unreachable. The crawl shard filename is derived from the seed hostname (``crawl_<host_with_underscores>.db`` under ``$(SHARDS_DIR)``) so cross-shard query picks up new domains without configuration.
+
+Adding a seventh corpus is one new `Source` subclass. Our contract is intentionally minimal: yield Documents, our pipeline canonicalizes, chunks, hashes, persists.
 
 13.3 Storage Cheats: 67% Reduction Measured
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -598,13 +608,48 @@ Two peers that ingest our same dump compute bit-identical document_roots & cache
 
 Cryptography (via `cryptography` library):
 
-- **Ed25519** signs every membership mutation & every (future) gossip envelope.
+- **Ed25519** signs every membership mutation & every gossip envelope.
 - **X25519 ECDH** wraps each epoch's symmetric mesh secret to every current member's DH pubkey. HKDF-derives a 32-byte AEAD key from each shared secret.
-- **ChaCha20-Poly1305** authenticates payloads & per-member secret wraps.
+- **ChaCha20-Poly1305** authenticates payloads & per-member secret wraps; bodies optionally encrypt under the per-epoch shared secret with envelope metadata as AEAD additional data.
 
 Membership state is per-epoch. Adding a member, kicking a member, or rotating our secret bumps our epoch & writes an audit event. Eviction works by rotating to a new epoch whose envelope omits our kicked member: their prior signatures stay verifiable forever (their old roster row is preserved), but they have no entry in our new envelope, so any AEAD-protected gossip from epoch+1 onward is opaque to them. Re-admission requires a fresh add operation by an admin.
 
 Off by default: a `mesh.enabled` flag in our meta table gates everything. Fresh installs report `enabled: false` & no network code paths execute until our user runs `aborist mesh init` & `aborist mesh enable`.
+
+13.5.1 Wire protocol
+~~~~~~~~~~~~~~~~~~~~~
+
+The HTTP gossip wire ships in ``aborist/mesh/wire.py``. A peer runs ``aborist mesh serve --host 0.0.0.0 --port 8400`` to bind a stdlib ``ThreadingHTTPServer``; another peer's client (``aborist mesh sync --peer http://...`` and ``aborist mesh pull --peer http://... --root <hex>``) speaks five message types, all wrapped in a single signed envelope::
+
+    ANNOUNCE_ROOT          document_root + source_uri + chunking/canonicalization/schema versions
+    ANNOUNCE_DERIVATION    core_root <- surface_roots(s), distiller_id, proof_blob hash
+    ANNOUNCE_PROVIDENCE    cache_key + audit_mode + answer_hash + verifier counts
+    ANNOUNCE_FALSIFICATION cache_key + reason + witness signature
+    REQUEST_BODY/DELIVER_BODY  body pull on local miss + per-chunk leaf hashes for Merkle re-derivation client-side
+
+Receivers verify the Ed25519 signature against the sender's ``sign_pub`` looked up in ``mesh_roster`` at the envelope's ``epoch_id``; non-members of that epoch produce no valid signature & their messages are silently dropped (HTTP 401, no audit event). Each accepted ``ANNOUNCE_*`` writes one ``mesh_received`` event into the local audit chain whose body is the full signed envelope, preserving non-repudiation. ``REQUEST_BODY`` triggers a ``DELIVER_BODY`` carrying the document text + per-chunk leaf hashes; the client re-derives the Merkle root from those leaves & refuses to insert any body whose leaves don't reconstruct the requested root.
+
+13.5.2 Chain-of-claims tracking & fork detection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Per the protocol contract, audit chains across peers cannot "merge" in the literal sense — each peer's chain is a strict-order log of its own actions — but a receiver can detect when a sender broadcasts inconsistent histories. Each gossip envelope carries:
+
+- ``prev_event_hash`` — the SENDER's previous event_hash they broadcast (or null for the first message);
+- ``event_hash`` = ``sha256(prev_event_hash || canonical_envelope_bytes)`` — the sender's deterministic chain-of-claims hash for THIS message.
+
+The receiver's local ``mesh_peer_chains`` table tracks, per peer, their last-known ``event_hash`` & sequence number. On accept: verify Ed25519 signature → recompute ``event_hash`` from canonical bytes & assert equality with the claimed value (400 on mismatch) → look up the sender's prior ``event_hash`` & assert equality with the claimed ``prev_event_hash`` (409 Conflict, "fork detected", on mismatch) → write the ``mesh_received`` audit event & advance the per-peer chain row. The first envelope a receiver sees from any peer is accepted with any ``prev_event_hash`` value because no prior is on file.
+
+Catchup (peer sends multiple events to fill a gap) is deferred to a future commit; v1 raises a 409 on missed events & relies on the operator/agent to retry. The wire-level fork detection composes with the local audit chain: a tampered DB locally fails the ``event_hash`` re-hash chain at ingest time, & a forked sender fails the ``prev_event_hash`` chain at the first received message after the fork.
+
+13.5.3 Optional AEAD body encryption
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Signing the envelope guarantees integrity; the body is cleartext by default for backward compatibility. Senders can opt body content into AEAD encryption under the per-epoch shared secret: at construction time, body content is canonicalized to JSON bytes, ChaCha20-Poly1305 encrypted with a fresh 12-byte nonce & ``f"{type}|{sender_id}|{epoch_id}|{ts}"`` as additional authenticated data, & the resulting ``{nonce_b64, ct_b64}`` lands in a new ``encrypted_body`` envelope field while ``body`` becomes a placeholder. Both fields participate in ``canonical_bytes()``, so the Ed25519 signature binds the ciphertext — a MITM cannot swap encrypted_body without invalidating the envelope.
+
+Receivers detect encryption by the presence of ``encrypted_body``, recover the epoch shared secret via the existing ``mesh.state.recover_epoch_secret`` (audit-chain → rotator → ECDH-unwrap-own-slot, no new sender-side cache needed), AEAD-decrypt, & continue normal handler logic with the recovered cleartext body. A receiver missing the epoch secret (evicted member, never enrolled) returns 401 — confidentiality failure is indistinguishable from auth failure at this layer. Mixed-mode peers interoperate: cleartext envelopes still verify byte-identically to the v1 wire format because ``encrypted_body=null`` is dropped from the canonical form before signing.
+
+13.5.4 What converges across peers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Three classes of derivative reconcile across peers:
 
@@ -613,6 +658,8 @@ Three classes of derivative reconcile across peers:
 - **Corpus-statistical distillers** (e.g., TF-IDF keywords): convergent only under shared corpus scope. Requires a `scope_root` commitment so peers explicitly agree on which corpus statistics underlie our cores.
 
 - **LLM-derived answers**: non-convergent (serving non-determinism), but cryptographically witnessable. Same cache_key from many peers + the same `answer_hash = sha256(answer_text)` collapses to one row with many witnesses; divergent answers stay as multi-witness candidates, each Merkle-bound to a verifiable context_root.
+
+The full operator runbook for a two-host federation lives in ``docs/mesh-deploy.md`` & the protocol contract (with diagrams) in ``docs/mesh.md`` in the aborist repo.
 
 13.6 Corpus Snapshots: One Hash Names Our Forest
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
