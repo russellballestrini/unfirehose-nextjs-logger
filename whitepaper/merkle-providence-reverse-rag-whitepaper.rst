@@ -669,7 +669,7 @@ v9.8 names the trichotomy (Section 13.1 inherits it from Merkle-AGI's audit cont
 13.8.1 Layered verifier
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-`aborist/qa/verify.py` runs three strategies in sequence. The first to find evidence classifies the answer; later strategies don't run. Each strategy is a lexical substring test under norm-v1 canonicalization (NFC, collapsed whitespace) plus case-folding. The soft-hash boundary from CLAUDE.md applies: embeddings train rankers, hashes carry proofs, & we never mix the two. ``verifier_method`` on the providence record names which path fired so the audit chain stays diagnostic.
+`aborist/qa/verify.py` runs four strategies in sequence. The first to find evidence classifies the answer; later strategies don't run. Each strategy is a lexical operation under norm-v1 canonicalization (NFC, collapsed whitespace) plus case-folding — substring tests for strategies 1-3, token-coverage for strategy 4. The soft-hash boundary from CLAUDE.md applies: embeddings train rankers, hashes carry proofs, & we never mix the two. ``verifier_method`` on the providence record names which path fired so the audit chain stays diagnostic.
 
 **Strategy 1: quote.** The system prompt instructs the model to wrap every factual claim in a verbatim double-quoted span from a source. The verifier locates every double-quote character in the answer & pairs them sequentially: 1st & 2nd, 3rd & 4th, & so on. Each pair brackets one quoted span; text between consecutive pairs is the model's framing prose & is not captured. Pure-regex pairing fails on adjacent quote pairs like ``"title" prose "quote"`` — the regex captures ``prose`` as a phantom span because every ``"`` looks like both an opener & a closer to it. Sequential pairing eliminates the artifact.
 
@@ -684,6 +684,10 @@ v9.8 names the trichotomy (Section 13.1 inherits it from Merkle-AGI's audit cont
                in source. Otherwise demoted to HYBRID/UNGROUNDED.
 
 The default policy is **proximity**. Entity-cluster density distinguishes "source documents these entities as a group" (cast list, infobox, roster) from "source mentions them incidentally in scattered prose." A Wikipedia infobox passes the cluster test & promotes; a TMNT episode plot summary that names the four turtles & Splinter across separate sentences fails it & demotes. The policy lives in ``DEFAULT_QUERY_POLICY["entity_policy"]`` so any change folds into ``governance_policy_hash`` & invalidates prior cache cleanly.
+
+**Strategy 4: paraphrase.** The span strategy's secondary path. When a sentence-shaped span fails substring match in strategy 2, a token-coverage probe runs on the same span: tokens of length ≥ 4 chars are extracted, the fraction present anywhere in the normalized base context is computed, & the span is accepted as paraphrase-verified when coverage clears ``DEFAULT_PARAPHRASE_COVERAGE`` (default 0.85) with at least ``DEFAULT_PARAPHRASE_MIN_TOKENS`` (default 4) content tokens. The label ``verifier_method='paraphrase'`` distinguishes records where any soft-verified items contributed from records where every match was lexical-verbatim. Paraphrase fires only on prose-shaped spans, not on lists of proper nouns — a span needs at least 2 lowercase content tokens (`_is_prose_span`) to qualify, so a list like ``"Keanu Reeves, Laurence Fishburne, Carrie-Anne Moss"`` continues through to the entity strategy where proximity policy can tight-cluster check.
+
+Token-coverage is a soft signal: it answers "the same content tokens appear in source," not "the answer is a byte-equivalent transcription." The hard chain still records the trichotomy classification, but auditors reading STRICT can use ``verifier_method`` to tell verbatim-from-source-text from same-tokens-different-sequence. Quote strategy (strategy 1) deliberately does NOT receive paraphrase fallback — the double-quote convention asserts verbatim citation, & paraphrasing-then-quoting is a model error to flag, not auto-promote.
 
 13.8.2 Wikitext base prose
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -713,6 +717,31 @@ A HYBRID or UNGROUNDED record stays live in cache. Training-derived knowledge is
 The verifier returns evidence units & a classification — that's the entire output surface. No per-quote diagnosis fields, no match-confidence scores, no partial-match indicators on hard verifier output. "Why didn't this ground?" lives on the falsify+reclassify loop where an operator (or an automated process) inspects the unverified spans, decides whether the failure is a corpus gap or a model fabrication, & either ingests new source or quarantines the record. Keeping the binary discipline on the verifier preserves the soft-hash boundary: classification is a hard bit, not a soft score.
 
 The SOURCE/EMERGENCE distinction also clarifies the v9.8 cache_key invariant. Bumping ``governance_policy_hash`` (e.g. by tightening the system prompt or flipping ``entity_policy``) invalidates cache lookups but leaves the source merkle tree, chunks, document_roots, audit chain, & snapshots bit-identical. Q&A records under the old policy stop being reachable; corpus identity is unchanged. No re-ingest required — the 8-dim key partitions cleanly along architectural seams.
+
+13.8.5 Trailing-citation strip
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Models trained on cited text often append parentheticals like ``(Source: https://...)`` or ``(citing Wikipedia)`` after a verbatim source sentence. Without preprocessing, the verifier substring-tests the prose **plus** the appended citation; the citation isn't in the corpus, so the whole span fails & the answer flags HYBRID or UNGROUNDED. The prose itself was verbatim.
+
+``extract_quotes`` and ``extract_claim_spans`` strip a single trailing parenthetical at end-of-span before substring testing, gated on a conservative regex: the parenthetical contents must start with a citation cue word (``Source:``, ``citing``, ``see``, ``ref``, ``reference``, ``from``) OR contain a URL. A genuine prose parenthetical like ``Pikachu (a Pokémon species) lives in forests`` carries no cue word & no URL & stays untouched. The strip recovers verbatim-source spans without weakening the verifier on real disagreements.
+
+13.8.6 Sidecar diagnostics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The verifier's output surface is deliberately small: an audit_mode label, an n_verified count, the unverified spans, & the verifier_method that fired. No per-quote diagnosis fields, no match-confidence scores, no nearest-neighbor traces. Keeping the binary discipline preserves the soft-hash boundary — classification is a hard bit, not a soft score, & enters ``governance_policy_hash`` cleanly.
+
+But operators still need to ask "*why* didn't this span ground?" when triaging the unverified list. v9.8's answer is a **sidecar**: a read-only diagnostic verb that pulls the same source chunks the verifier saw, runs the same canonicalizations, & classifies each unverified span against the corpus. Sidecars never write to ``providence_cache``, never extend ``audit_events``, never alter any v9.8 field. They run on demand, observe state, & report. The classification-as-hard-bit invariant survives because sidecars participate in no proof path — they help an operator triage; they do not change what's signed.
+
+The reference sidecar in aborist is ``aborist inspect --cache-key X``. Each unverified span lands in one of:
+
+- ``verbatim_in_base`` — the span IS in the base context. Surfaces a verifier or canonicalization regression so an operator can fix the root cause.
+- ``verbatim_in_raw_only`` — span matches raw wikitext but not the base form. Wikitext-strip edge case worth its own label.
+- ``trailing_artifact`` — a long prefix (≥ 60 chars) matches; the tail is reported separately. Catches model-appended citations that the strip in 13.8.5 didn't reach (different cue words, multi-line, etc.).
+- ``paraphrase`` — high token coverage (≥ 0.85) but not in this sequence. Model rewrote source content; ingest more sources or tune the prompt.
+- ``partial_paraphrase`` — 40-85% token coverage. Mixed sourced/emergent content within a single span.
+- ``no_overlap`` — < 40% coverage. Likely full invention; corpus-growth signal.
+
+The sidecar pattern generalizes beyond `inspect`. Any future tool that wants to surface *why-not-grounded* — embedding-based nearest neighbors, LLM-generated rationales, fuzzy-match scores — belongs in a sidecar. The hard chain stays binary; the soft channel proliferates as the project learns. Sidecars compose cleanly because they all read from the same v9.8 record & contribute nothing back.
 
 
 14. Related Work
