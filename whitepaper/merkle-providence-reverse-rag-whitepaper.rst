@@ -876,6 +876,121 @@ The reference sidecar in aborist is ``aborist inspect --cache-key X``. Each unve
 The sidecar pattern generalizes beyond `inspect`. Any future tool that wants to surface *why-not-grounded* — embedding-based nearest neighbors, LLM-generated rationales, fuzzy-match scores — belongs in a sidecar. The hard chain stays binary; the soft channel proliferates as the project learns. Sidecars compose cleanly because they all read from the same v9.8 record & contribute nothing back.
 
 
+13.9 Claim-Lattice-Pointer Mode (CTI / Quote-by-Pointer)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The quote/span/entity/paraphrase verifier in 13.8 audits answers the model wrote in its own words. It catches one defect class cleanly — *did the quoted text appear verbatim in source* — but it cannot catch a related class: **synthetic elision**. A model emitting ``"prefix [...] suffix"`` produces a span whose halves both verify on their own, glued together by a model-typed ellipsis that flattens our ground truth. The verifier reports STRICT on a frankenquote.
+
+Aborist's response is a second answer mode that makes synthetic elision **structurally impossible**: the model never types the quote string. Instead, the runtime owns extraction, the model owns selection, & the renderer owns display. We call this *Clause Lattice Intelligence* (CTI), or in implementation terms ``policy["answer_mode"] = "claim_lattice_pointer"``::
+
+    raw model output
+    → clause extraction by pointer parser
+    → claim nodes with evidence pointers
+    → deterministic verifier
+    → admissibility decision
+    → rendered prose with literal source spans
+
+The model writes natural prose with bracketed evidence-id tags::
+
+    Steve Jobs co-founded Apple. [E1]
+    Steve Wozniak co-founded Apple. [E1,E2]
+    Ronald Wayne co-founded Apple. [E1]
+
+Each ``[E\d+]`` references an entry in a runtime-built **evidence map** the model saw in the prompt. The runtime carries two ids per evidence object — a short ``pointer_id`` (``E1``, ``E2``, …, sequential within the run) shown to the model, & a ``evidence_id`` (sha256-derived ``E########``, content-addressed) used by the cache, run-DAG, & audit chain::
+
+    EvidenceObject {
+        pointer_id    "E1"                                    # model-facing
+        evidence_id   "E1f8e4c2a"                              # run-stable
+        source_root   <document_root>
+        chunk_root    <chunk leaf hash>
+        offset_start  0
+        offset_end    <len(span)>
+        source_role   primary_answer_source
+        text_hash     sha256(span)
+        span          <literal source text>
+    }
+
+Two-layer id discipline is load-bearing. Showing the model the hex form (``E1f8e4c2a``) tokenizes to 4-6 BPE tokens of out-of-distribution noise that nudges Hermes 3 toward DSL/code-completion mode. Showing it ``E1`` is one BPE token & lands inside the citation-style prose distribution that academic papers, Wikipedia articles, & footnoted text taught the model. Citation style is heavily represented in training; random hex is not. The runtime maps pointer_id → evidence_id at verification time; everything downstream of the verifier sees the content-addressed form.
+
+13.9.1 Why pointer lines, not JSON
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+JSON is one encoding for *(claim_text, [evidence_ids])* pairs but not the only one — & not the right one for an 8B instruction-tuned model. JSON discipline failures (missing braces, prose preamble before the object, escaping errors) generate spurious one-shot SCHEMA_INVALID verdicts even when the model knew the right answer. Pointer-line stays inside the model's prose distribution: the model writes prose, sometimes with bracketed citations, exactly as it has seen citations written ten thousand times. The parser walks lines, pulls every ``[E\d+]`` & ``[E\d+,E\d+,…]`` bracket payload, & returns ``(claim_text, pointer_ids)`` per line. Lines without a tag get ``parse_status = "NO_EVIDENCE_POINTER"`` & count toward the denominator so the model can't smuggle unsourced prose past the verifier. Lines with a tag but no surviving claim text after the strip get ``parse_status = "SCHEMA_INVALID"``.
+
+13.9.2 Hard verifier — five deterministic checks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``verify_claim_lattice`` runs **only** deterministic checks. The hard/soft boundary from 13.8.4 holds — semantic entailment, completeness, predicate compatibility, scope ambiguity, & counterevidence retrieval all stay sidecar territory. The hard checks::
+
+    1. parser_succeeded            line had a recognized [E\d+] bracket
+    2. evidence_id_resolves        pointer maps to an entry in the
+                                   runtime-built evidence map
+    3. source_role_allowed         resolved entry's source_role is in
+                                   the policy allowlist
+    4. no_manual_quotes            zero double-quote characters in claim
+                                   text — strict, any " violates
+    5. claim_text_non_empty        the line carried prose around the tag
+
+Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero violations of any kind; HYBRID = some pairs verified, some failed; UNGROUNDED = no verified pairs. Per-claim statuses sharpen the diagnosis without breaking the binary discipline: ``EVIDENCE_LINKED``, ``EVIDENCE_LINKED_PARTIAL``, ``UNKNOWN_EVIDENCE_ID``, ``SOURCE_ROLE_BLOCKED``, ``MANUAL_QUOTE_VIOLATION``, ``NO_EVIDENCE_POINTER``, ``SCHEMA_INVALID``.
+
+The strict no-quotes rule deserves its own line. Even a 4-char quoted span (``"hi"``) is a model-asserted verbatim citation the runtime didn't authorize. Pointer mode forbids them entirely — the runtime owns quotes via the renderer, not the model. Forcing this property cleanly is the entire architectural contribution: *the model that cannot type a quote cannot synthesize an elision in one*.
+
+13.9.3 Spotlight render — cited evidence, one window per claim
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The renderer interpolates literal source spans from the evidence map at display time. A naive truncation (``span[:200]``) shows the same article-intro sentence under every claim when the model lazy-anchors at the topic id. Aborist instead extracts content tokens from each claim text (≥4-char alphanumeric tokens, stopword-filtered, longest-first) & finds the first match in the cited span. The displayed window centers on that match; if no token matches, the renderer falls back to the leading window with a trailing ellipsis. *Same evidence pointer, different displayed sentence per claim* — anchored on what the claim is actually about.
+
+13.9.4 Per-chunk granularity & query-relevance ordering
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A whole-document evidence object lets a small model lazy-anchor: cite ``[E1]`` (the topic article) for every claim & let the renderer figure out the rest. The fix is structural — each retrieved source contributes one ``EvidenceObject`` per chunk, not one per source. The model sees 30+ short paragraph-scale spans tagged ``E1``…``E30`` & must pick the specific paragraph that supports each claim, or omit the claim.
+
+Within each source, chunks are ranked by query-token overlap before ``pointer_id`` assignment::
+
+    sort key:
+        -distinct_query_tokens_present     # primary: more topic words wins
+        -total_mentions                    # tiebreaker: density wins
+        +chunk_idx                         # final tiebreaker: doc order
+
+So ``E1`` of a source is the chunk most likely to textually support the question, not the chunk that happens to be first in document order. This is a soft signal — token overlap, never enters the proof path — but it shapes the model's anchoring without giving it semantic discretion. Hermes-3-8B's lazy-anchor habit (cite the first thing you see) lands on a relevant chunk by accident.
+
+13.9.5 9-stage CTI run-DAG
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The per-run Merkle-DAG (``run_dag_root``) grows from 7 stages to 9 in pointer mode::
+
+    quote mode (default, 7):
+        question / retrieval / context / prompt / answer /
+        verify / final_label
+
+    pointer mode (9):
+        question / retrieval / evidence_map / prompt / raw_answer /
+        parsed_claim_lattice / verify / render / final_label
+
+The new stages commit each provenance step independently:
+
+- ``evidence_map`` — Merkle root over sorted ``evidence_id``\ s, order-independent so two retrieval runs that returned the same chunks in different orders produce the same root.
+- ``raw_answer`` — sha256 of the model's literal pointer-line output.
+- ``parsed_claim_lattice`` — sha256 of the canonical-JSON of the parsed claim nodes (claim_text + content-addressed evidence_ids per claim). Reordering claims changes the hash.
+- ``render`` — sha256 of the rendered prose with literal spans interpolated.
+
+``context`` drops out — the context IS the evidence map. ``answer`` splits into raw / parsed / render so an auditor can reconstruct each transformation step from the persisted blob. Quote mode keeps the original 7-stage shape so pre-G0 ``run_dag_root`` values stay valid.
+
+13.9.6 No iterative repair — one-shot discipline
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Pointer mode skips the mechanical-repair + reprompt-feedback loop that 13.8 reserves for quote mode. The benchmark contract is *zero-shot ideal, one-shot maximum, no repeated retries until success*. A run may fail honestly. A run may self-label uncertainty. A run may downgrade itself. A run may not keep trying until it passes. UNGROUNDED beats hallucinated success.
+
+The hard discipline carries a measurable cost: small models drop the bracket protocol on perhaps half of cold runs. The lever is the prompt, specifically a one-shot worked example showing the format end-to-end. With the example, JP dinosaurs benchmark went 0/13 → 10/11 → 16/17 verified across the iterations that hardened the pipeline. Without the example, runs were near-random in protocol compliance.
+
+13.9.7 What pointer mode does NOT prove
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The pointer-mode verifier proves *evidence-linked-and-role-OK*. It does **not** prove the cited evidence textually entails the claim. A model citing ``[E1]`` for "Brachiosaurus appears in the film" passes the hard checks if E1 exists, has an allowed source role, & the claim has no manual quote — even if E1's text never says "Brachiosaurus." That gap is by design. Entailment requires either an NLI model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked & quote-safe; semantic entailment is not yet hard-verified," and the spotlight renderer makes the limit visible: when the cited span doesn't contain the claim's terms, the displayed excerpt falls back to the leading window — an auditor reading 16/17 EVIDENCE_LINKED + leading-window excerpts immediately sees "model lazy-anchored; the cited chunk doesn't textually support the claim."
+
+The reverse-RAG / claim-lattice / merkle-providence stack now covers four layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), & quote-safe rendering (spotlight). The next layer — semantic warrant — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary.
+
+
 14. Related Work
 -----------------
 
