@@ -79,7 +79,7 @@
   <li>Relationship to zero-knowledge proofs</li>
   <li>Why this matters for permacomputer infrastructure</li>
   <li>Implementation roadmap</li>
-  <li><strong>Aborist: a Python reference implementation</strong> &mdash; with measurements on a 3.47M-document Wikipedia corpus, including a 67% storage reduction and a worked cross-machine convergence example</li>
+  <li><strong>Aborist: a Python reference implementation</strong> &mdash; measurements on a 3.47M-document Wikipedia corpus (67% storage reduction, worked cross-machine convergence example), the layered quote/span/entity/paraphrase verifier, plus the <strong>Claim-Lattice-Pointer mode</strong> (Clause Lattice Intelligence / CTI) that makes synthetic-elision structurally impossible: the model writes prose with bracketed evidence-id tags, the runtime owns quote text. A seven-check deterministic verifier (parser, evidence-id resolution, source-role allowlist, claim-text non-empty, citation-coverage threshold, pointer-count cap with trim-and-verify, and <strong>anchor-class warrant</strong> covering proper-noun and date anchors) gates admissibility. A density-rank spotlight renderer interpolates literal source spans at display time. Run-DAG grows from 7 stages to 9 to commit each provenance step independently.</li>
   <li>Related work</li>
 </ol>
 
