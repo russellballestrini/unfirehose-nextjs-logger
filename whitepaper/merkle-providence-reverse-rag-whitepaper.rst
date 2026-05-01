@@ -684,6 +684,43 @@ Query: ``"what dinosaurs where in jurassic park film?"``. After stopword + stem:
 
 8-source context, each ≤ 7,500 chars after wikitext-base strip. The model produced 4 quoted spans (Brachiosaurus, Velociraptor, T-rex, Dilophosaurus); 3 verified verbatim, 1 contained the model's own ``[...]`` elision marker & failed substring match. Final classification: HYBRID / quote / 3-of-4. The unverified span surfaces in ``aborist inspect``, where an operator can decide whether the elision is benign or worth re-asking under a tighter prompt.
 
+13.4.8 Phrase-pattern route — closing the allusion / reference-frame gap
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The three accept paths in 13.4.3 (title-token overlap, TF-IDF core, body density) all key on individual content tokens. They miss a class of query whose diagnostic signal lies in a verbatim multi-token sequence rather than in any single token. Caught live 2026-05-01 by fox on::
+
+    Q: "has oceania always been at war with east asia"
+
+Pre-fix, the system surfaced literal-geography articles (``Oceania``, ``Asia``, ``Far East``, ``East Germany``) & answered as if asked about real-world regions. The intended frame: George Orwell's *Nineteen Eighty-Four*, where the Party's propaganda treats Oceania as eternally at war with Eastasia despite alliances changing across the novel's continuity. The 1984 article exists in the 2003 enwiki corpus, but its title shares zero content tokens with the question, so even FTS5 phrase MATCH on ``"always been at war"`` recovered the article only to have ``_filter_by_title_relevance`` drop it before rerank.
+
+Two paired changes close the gap:
+
+1. **Phrase-pattern search route in** ``_search_corpus``. For each n-gram extracted from the question (n=6 score 100, n=5 score 90), run an FTS5 quoted-phrase ``MATCH`` & add hits to the candidate pool. Stopwords stay IN the n-gram — diagnostic value of an allusion lives in the exact sequence including function words (``"always been at war"`` >> ``"always war"``). 4-grams got tried & rejected: ``"always been at war"`` matches generic war-history articles too noisily for downstream rerank to separate. 5+ tokens trade recall for precision; most allusions (``"may the force be with you"``, ``"winter is coming"``, ``"to be or not to be"``) survive at length 5 or higher.
+
+2. **Accept-path 4 in** ``_filter_by_title_relevance``. Phrase-route hits get a ``phrase_match_roots`` set threaded back from search; the filter passes any hit whose ``document_root`` lives in that set, regardless of title-token overlap. Without this path, the route from #1 retrieves the right article only to have it filtered out before it can rerank into top-K. Mirrors the existing TF-IDF core accept-path: a structural signal that bypasses surface-token gates.
+
+A latent bug surfaced & got fixed alongside: ``_search_corpus`` previously returned a bare list while the caller did ``getattr(hits, "_core_match_roots", set())`` to fish out a sidecar set, but the sidecar attribute was never attached. The TF-IDF core accept-path silently received an empty set for an unknown duration. ``_search_corpus`` now returns a tuple ``(hits, core_match_roots, phrase_match_roots, root_to_shard)`` so both routes thread correctly.
+
+Verified live::
+
+    before:  HYBRID 2/16, sources: Oceania, Asia, Outline of Oceania, Far East,
+             Decolonisation of Oceania, Central Asia, East Germany, ...
+             — Nineteen Eighty-Four nowhere in top-K
+    after:   EVIDENCE-LINKED 1/1, citation [E13 | Nineteen Eighty-Four | 682f0a11]
+             answer: "The text does not directly state... The passage describes
+                      a change in alliances, where Oceania switched from being
+                      allies with Eastasia to being allies with Eurasia, and
+                      the public was manipulated to accept this change..."
+
+The route generalizes beyond Orwell. Any verbatim 5+ token sequence from the question that appears in an article body lifts that article into consideration, regardless of whether the corpus document carries an allusion-bearing title. Per fox's 2026-05-01 review: "*A reference query often requires answering under multiple frames, not picking one frame and discarding the others.*" The retrieval side now surfaces the right frame; the answer-compilation side (multi-frame polarity contract) lives as Ticket #000002 in ``docs/`` & remains future work.
+
+13.4.9 Template-phrase stopwords on FTS5 MATCH
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A second 2026-04-30 retrieval miss exposed the dual: ``"tell me all there is to know about york england?"`` returned ``Charles I of England``, ``Elizabeth I of England``, ``Church of England``, etc. Pre-fix, AND-mode FTS5 expanded the question to ``"all" AND "there" AND "know" AND "york" AND "england"``, which favored "X of England" articles that incidentally mention every template token over the bare ``York`` article whose body lacks ``"all"``/``"there"``/``"know"``.
+
+``_FTS5_STOPWORDS`` (in ``aborist/search/fts5.py``) & ``_TITLE_STOPWORDS`` (in ``aborist/qa/query.py``) now strip ``tell show describe explain summarize say give list find make please all there know everything anything something`` plus the standard English stopword set. They must stay in sync — both filter the same set of question-shaping tokens. Retrieval-time only: stopwords don't enter ``cache_key`` or ``governance_policy_hash``.
+
 13.5 Federation: Mesh Layer (Off by Default)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -873,6 +910,12 @@ The reference sidecar in aborist is ``aborist inspect --cache-key X``. Each unve
 - ``partial_paraphrase`` — 40-85% token coverage. Mixed sourced/emergent content within a single span.
 - ``no_overlap`` — < 40% coverage. Likely full invention; corpus-growth signal.
 
+Two additional sidecar diagnostics ship alongside the unverified-span classifier; both share the same write-nothing discipline:
+
+- ``diagnose_deflection(question, answer)`` — surfaces topic-shift on adversarial-premise questions. Empirically caught 2026-04-30 on ``"who is a benevolent dictator for life for mars?"``: the verifier returned STRICT with an answer about Guido van Rossum & Python, never naming Mars. The answer grounded honestly in a real BDFL article; the user's actual question went unanswered. **Subject-anchor heuristic**: the LAST content token in the question (after stopword strip) gets treated as the question's primary subject. If the subject anchor doesn't appear in the answer, classify as ``deflection`` regardless of generic-vocabulary overlap (the BDFL case has 3/4 generic-vocab match — ``benevolent``, ``dictator``, ``life`` — & still misses ``mars``). Suppressed for shape-mismatch cases (``when``, ``what year``, ``how many``, ``why``) where the answer structurally need not echo the question's subject (``"1989"`` answers ``"what year did the berlin wall fall?"`` correctly without re-naming ``"wall"``). Wired into ``inspect_cache_key()`` & per-row in ``bench/qa_sweep.py``; never feeds back into providence.
+
+- ``diagnose_title_relevance(claim, cited_source_titles)`` — flags retrieval-driven hallucinations where the cited chunk's source title shares zero stems with the claim's content tokens. Empirically caught 2026-05-01 on ``"explain spin glass modeling, tensors?"``: the verifier returned STRICT 1/1 on a claim about spin-glass modeling cited to a chunk from the *Quantum chromodynamics* article. The token-coverage check inside the chunk passed accidentally on shared physics vocabulary (``spin``, ``model``); the article isn't about spin glasses. The 2003 corpus's *Spin glass* article (which exists) carries zero occurrences of ``"modeling"`` or ``"tensors"``, so AND-mode FTS5 returned no hits & OR-fallback ranked unrelated articles by raw BM25. The sidecar surfaces the mismatch (``claim_tokens = {spin, glass, modeling, tensor, ...}``, ``title_tokens = {quantum, chromodynamics}``, ``overlap = ∅``) without modifying the binary verifier output. Promotion to a hard verifier check stays deferred pending bench evidence on false-positive risk for legitimate cross-document grounding.
+
 The sidecar pattern generalizes beyond `inspect`. Any future tool that wants to surface *why-not-grounded* — embedding-based nearest neighbors, LLM-generated rationales, fuzzy-match scores — belongs in a sidecar. The hard chain stays binary; the soft channel proliferates as the project learns. Sidecars compose cleanly because they all read from the same v9.8 record & contribute nothing back.
 
 
@@ -1031,6 +1074,87 @@ The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met,* and (
 That ceiling gap is by design. NLI-grade entailment requires either a textual-entailment model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked, role-OK, lexically grounded, and warrant-named; semantic entailment is not yet hard-verified." The spotlight renderer makes residual gaps visible: when the cited span has no token cluster (the density rank finds no high-density region), the displayed excerpt falls back to the leading window — an auditor reading EVIDENCE_LINKED + leading-window excerpts under a relation-shape question immediately sees "the verifier accepted on coverage but the chunk's load-bearing slice for this claim is sparse," even when warrant-lite passed because the answer entity exists somewhere in the chunk.
 
 Warrant-lite (Rule 7) is the first semantic-grounded check to enter the hard layer, and it earns the entry by staying lexical. The lattice now covers five layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), answer-entity warrant (Rule 7 lexical anchor check), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
+
+13.9.8 Claim-count ceiling — TOO_MANY_CLAIMS as defense in depth
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The 2026-04-30 york-england run revealed an answer-shape failure orthogonal to per-claim verification: ``"tell me all there is to know about york england?"`` prompted the model to emit 26-59 claim-pointer pairs of which only 2-4 verified. The model treated the prompt-shape as a license to spam encyclopedic claims from training & assign each a coincidental pointer match. An atomic-claim prompt rule (one focused fact per line, multiple distinct facts become multiple lines) reduced the typical case to ~10 claims, but the runaway pattern persists as a model-behavior risk.
+
+``policy["claim_lattice_max_claims_per_answer"]`` caps the number of claims a single answer can emit (default 12). Beyond the cap, ``verify_claim_lattice`` & ``verify_claim_lattice_json`` record a ``TOO_MANY_CLAIMS`` violation that demotes STRICT → HYBRID via the existing violation path. The cap doesn't truncate — every claim still verifies so the operator sees the full evidence of the runaway. 12 admits typical entity-list questions (5-7 dinosaurs, Simpsons family + pets) while flagging the descriptive-prompt runaway. Folds into ``governance_policy_hash`` on change.
+
+13.9.9 Label discipline — EVIDENCE-LINKED for claim-lattice modes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The audit_mode token ``STRICT`` carries different weight across verifier methods. In quote / span / entity / paraphrase mode, STRICT means "every cited evidence unit textually matches a pinned source span" — a strong claim about lexical grounding. In claim-lattice modes (pointer & JSON), STRICT means "every pointer resolves to a valid evidence object whose source_role is allowed AND every cited span passes citation-coverage." That property is structurally weaker: synthesis-heavy claims (a model joining multiple cited spans into a single explanatory sentence) can pass all hard checks without semantic entailment of the joined assertion.
+
+To prevent operators from reading STRICT-on-claim-lattice as "the answer is correct," the renderer relabels for claim-lattice methods at display time. The schema column stays unchanged — ``providence_cache.audit_mode`` continues to store ``"STRICT"`` / ``"HYBRID"`` / ``"UNGROUNDED"`` so the v9.8 invariant holds across the cache & the audit chain — but the human render maps for ``verifier_method.startswith("claim_lattice")``::
+
+    STRICT     → EVIDENCE-LINKED · via claim_lattice
+    HYBRID     → EVIDENCE-LINKED-PARTIAL · via claim_lattice_pointer
+    UNGROUNDED → UNGROUNDED · via claim_lattice
+
+Quote / span / entity / paraphrase modes keep their original audit_mode tokens. The display label spells out what the lexical verifier could confirm without overclaiming semantic truth. Pure display layer: cache_key, audit chain, mesh wire format, & all programmatic callers see the original audit_mode unchanged.
+
+13.10 Operator surface — capacity metrics & retrieval keywords
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Two operator-facing additions surfaced from bench-driven iteration & live-query feedback. Both stay outside the proof path (never enter ``cache_key``) but get displayed in the human render so an operator can reason about the system's behavior without parsing run-DAG blobs.
+
+13.10.1 Capacity metrics — char-level prompt accounting
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Per-call result dict gains a ``prompt_chars`` breakdown::
+
+    {
+      "system_prompt":      <int>,   # system message
+      "grounding_reminder": <int>,   # restated rule (claim-lattice modes)
+      "user_question":      <int>,   # original question text
+      "evidence_or_context":<int>,   # rendered evidence map / wikitext context
+      "messages_total":     <int>,   # sum of all messages[].content
+    }
+
+Plus ``answer_chars`` for the rendered answer length. Char-level: model-agnostic, fast, & a workable proxy for prompt tokens (~4 chars/token English prose, ~2.5 for JSON-evidence-block heavy contexts). The bench harness aggregates these into a *strict-rate by prompt-size bucket* table (``<8KB / 8-16KB / 16-32KB / 32-64KB / >=64KB``) so an operator can answer "*does context size correlate with verdict quality?*" at scale.
+
+The CLI human render emits a one-liner under the source list::
+
+    capacity: prompt 21,996 chars (sys 1,292 + reminder 342 +
+              evidence 20,304 + question 30) → answer 247 chars
+
+13.10.2 Retrieval keywords — operator-supplied search hints
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Long discursive questions sometimes under-retrieve because their content tokens get diluted by template phrasing. A 2026-05-01 case::
+
+    Q: "what technology may enable one person to reconstruct
+        another person's thoughts or ideas without speaking..."
+
+returned HYBRID 6/10 with mostly-tangential sources (videoconferencing, telepathy fiction). Appending ``"transcranial knowledge acquisition"`` to the question lifted the verdict to STRICT 1/1 with the *Neurotechnology* article cited correctly. The user-supplied keywords narrowed OR-mode FTS5 to topical articles.
+
+The ``--retrieval-keywords`` flag (CLI: ``K="..."`` on ``make query``) makes this pattern explicit. Plumbing: keywords concatenate with the question for the FTS5 search & title-filter token set only. The LLM still sees the original question; the verifier still checks against the original question; ``question_hash`` still computes from the original text. The 8-dim cache_key changes only via downstream effects on ``context_root`` & ``conversation_hash`` (different sources fed to LLM means different conversation state).
+
+This indirect cache_key effect names a provenance gap: keywords change which sources got chosen, but the keyword string itself enters no Merkle commitment. An audit can recover "these documents were selected" but not "these were the keywords that pulled them in." Two runs with the same question & different keywords that surface identical sources are Merkle-indistinguishable. Tracked as Ticket #000001 in ``docs/ticket-000001-retrieval-keywords-audit-gap.md``: capture the retrieval plan in the run-DAG retrieval stage & on a nullable ``providence_cache`` column without folding into ``question_hash``.
+
+13.11 Tickets — design log convention
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Aborist's design log lives in ``docs/`` as flat ``ticket-NNNNNN-<slug>.md`` files. Tickets capture actionable proposals awaiting go/no-go, scoped defects, or queued enhancements. Architecture references (``cti-architecture.md``, ``mesh.md``) & bench journals (``qa-modes-bench-2026-04-30.md``) stay un-numbered: tickets propose change & await decision; reference docs describe state of the world.
+
+``docs/TICKETS.md`` carries the index plus a ``Next ID`` line that gets bumped atomically with new ticket commits. Every ticket starts with::
+
+    # Ticket #NNNNNN — <short title>
+
+    **Status:**       open · awaiting go/no-go    (or "in progress", "closed")
+    **Opened:**       YYYY-MM-DD
+    **Scope:**        <one-liner>
+    **Audience:**     <who reads this>
+    **Hard constraint:** <invariants this ticket commits to NOT break>
+
+Open tickets at time of writing:
+
+- **#000001** — Retrieval-keywords audit gap (provenance binding for ``--retrieval-keywords``).
+- **#000002** — Reference-Frame Polarity Contract (Module L). Multi-frame answer compilation for queries that admit literal vs fictional-actual vs in-universe-propaganda interpretations. Builds on the phrase-pattern retrieval route from 13.4.8 which closed the **retrieval** side; this ticket addresses the **answer** side (today's answer to the Orwell query reads "*The text does not directly state...*" when it should produce a multi-frame answer distinguishing Party propaganda from fictional-actual continuity).
+
+Closed tickets stay in place as the design log; they don't get deleted.
 
 
 14. Related Work
