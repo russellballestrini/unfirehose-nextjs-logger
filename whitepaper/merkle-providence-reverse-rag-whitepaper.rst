@@ -991,22 +991,39 @@ Both modalities stay first-class in the substrate. ``answer_mode = "claim_lattic
                                    protects correct-but-over-cited claims
                                    without letting the over-citation
                                    pattern pass silently
-    7. relation_warrant_present    on relation-shape questions ("who is
-                                   X's Y?", "who founded Z?"), at least
-                                   one answer-entity anchor extracted
-                                   from the claim must appear in at
-                                   least one cited span (case-insensitive
-                                   substring). Closes the lazy-anchor
-                                   class where pointer / role / coverage
-                                   all pass but the cited chunk never
-                                   names the answer entity. Vacuous-pass
-                                   when the claim has no proper-noun
-                                   anchor — non-relation claims flow
-                                   through unchanged
+    7. anchor_class_warrant       two anchor classes compose:
+                                   (a) proper-noun anchors — gated on
+                                       relation-question shape; AT LEAST
+                                       ONE Title-Case anchor extracted
+                                       from the claim must appear in
+                                       some cited span. Catches the
+                                       relation lazy-anchor class.
+                                   (b) date anchors — always-on, gated
+                                       on the CLAIM containing a 4-digit
+                                       year (1500-2199) or full English
+                                       month name; ALL components
+                                       (year + month name when both
+                                       present) must appear in some
+                                       cited span. Catches the date
+                                       lazy-anchor class. Both classes
+                                       compose: a claim with both must
+                                       satisfy both. Vacuous-pass when
+                                       neither class fires — broad
+                                       descriptive claims flow through
+                                       unchanged
 
 Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero violations of any kind; HYBRID = some pairs verified, some failed (or any soft-demote violation: POINTER_OVERFLOW_TRIMMED, LAZY_ANCHOR_DEMOTED, WARRANT_MISSING); UNGROUNDED = no verified pairs. Per-claim statuses sharpen the diagnosis without breaking the binary discipline: ``EVIDENCE_LINKED``, ``EVIDENCE_LINKED_PARTIAL``, ``UNKNOWN_EVIDENCE_ID``, ``SOURCE_ROLE_BLOCKED``, ``CITATION_MISMATCH``, ``NO_EVIDENCE_POINTER``, ``SCHEMA_INVALID``.
 
-Warrant-lite is the lattice's first **semantic-grounded** hard check, and it earns the proof-path entry by staying lexical: a regex shape-detector decides whether a question is relation-shaped, a Title-Case proper-noun extractor pulls candidate answer anchors from the claim text, and a case-insensitive substring test asks whether at least one anchor appears in at least one cited chunk. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte across runs and folds cleanly into ``verifier_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to name the answer entity. Catching this gap was load-bearing in feedback from a 2026-05-01 run where "Homer Simpson's boss is Mr. Burns" cited a voice-actor bio paragraph that mentioned "Homer" but never "Mr. Burns" — the structural checks all passed, the warrant check is what catches it.
+Warrant-lite is the lattice's first **semantic-grounded** hard check, and it earns the proof-path entry by staying lexical: regex shape-detectors decide whether a question is relation-shaped, a Title-Case proper-noun extractor pulls candidate entity anchors, a 4-digit-year regex (1500-2199 to skip ZIP codes / elevations) plus full-month-name regex pull date anchors, and case-insensitive substring tests ask whether the required anchors appear in cited spans. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte across runs and folds cleanly into ``verifier_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to actually contain the claim's load-bearing anchors.
+
+Two 2026-05-01 failures motivated the design:
+
+- *Relation lazy-anchor.* "Who is Homer Simpson's boss?" answered "Homer Simpson's boss is Mr. Burns. [E1]" cited to a voice-actor bio paragraph that mentioned "Homer" but never "Mr. Burns" — the structural checks all passed, the proper-noun warrant catches it.
+- *Date lazy-anchor.* "What date did Back to the Future come out?" answered "Back to the Future was released in theaters on July 3, 1985. [E1]" cited to a trilogy/SNES/pinball paragraph containing "1985" only as a diegetic time-period reference (``...back to the real 1985...``) and no "July" anywhere. Year-alone substring would have passed; requiring **all** date components asserted in the claim catches it.
+
+The anchor-class generalization landed instead of a per-question-type contract framework (``release_date_lookup`` + ``box_office_lookup`` + ``birthday_lookup`` etc.). The general primitive — *claim asserts a specific lexical anchor → cited span must contain it* — catches both failure classes deterministically without a typed-rule library to maintain. Typed contracts earn their slot only if bench evidence shows general anchors miss specific cases the lexical primitive cannot reach.
+
+Limitation accepted: ISO date format (``1985-07-03``) does not satisfy the month-name requirement on its own. Real-world Wikipedia prose uses month names ("released on July 3, 1985"), so the trade-off favors catching the common case. If bench shows ISO false-rejections, layer in a month-number alternation to the month-name regex.
 
 The strict no-manual-quotes rule that earlier drafts of this section described was removed in late April 2026. Hermes-class models routinely paraphrase source prose but copy named-quoted phrases verbatim (e.g. ``"Constitution State"`` from a Connecticut span); rejecting any claim that contained any ``"`` character was rejecting factually-correct, source-grounded claims for cosmetic punctuation. The citation-coverage threshold (Rule 5) and pointer cap (Rule 6) carry the weight of catching the synthetic-elision and mega-claim failures the old rule was meant to catch, without false-rejecting on legitimate quoted phrases. The architectural property — **the runtime owns quote text, not the model** — is preserved because the renderer still interpolates literal spans from the evidence map at display time; the model never types the quote string.
 
@@ -1069,11 +1086,11 @@ The hard discipline carries a measurable cost: small models drop the bracket pro
 13.9.7 What pointer mode does NOT prove
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met,* and (on relation-shape questions) *answer-entity-named-in-cited-chunk*. It does **not** prove the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the seven hard checks if E1 mentions Brachiosaurus and the claim's content tokens overlap E1 at coverage threshold — even if E1's text says nothing about social herding. The structural-and-lexical floor is what is proved; the semantic ceiling above it is what is not.
+The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met,* (on relation-shape questions) *answer-entity-named-in-cited-chunk*, and (on date-asserting claims) *every date component named in some cited chunk*. It does **not** prove the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the seven hard checks if E1 mentions Brachiosaurus and the claim's content tokens overlap E1 at coverage threshold — even if E1's text says nothing about social herding. A model citing ``[E1]`` for "Back to the Future was released on July 3, 1985" passes the date-anchor check if E1 contains both "July" and "1985" — even if those tokens are next to each other in a different release context (game, ride, sequel) than the original film's theatrical release. The structural-and-lexical floor is what is proved; the semantic ceiling above it is what is not.
 
 That ceiling gap is by design. NLI-grade entailment requires either a textual-entailment model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked, role-OK, lexically grounded, and warrant-named; semantic entailment is not yet hard-verified." The spotlight renderer makes residual gaps visible: when the cited span has no token cluster (the density rank finds no high-density region), the displayed excerpt falls back to the leading window — an auditor reading EVIDENCE_LINKED + leading-window excerpts under a relation-shape question immediately sees "the verifier accepted on coverage but the chunk's load-bearing slice for this claim is sparse," even when warrant-lite passed because the answer entity exists somewhere in the chunk.
 
-Warrant-lite (Rule 7) is the first semantic-grounded check to enter the hard layer, and it earns the entry by staying lexical. The lattice now covers five layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), answer-entity warrant (Rule 7 lexical anchor check), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
+Warrant-lite (Rule 7) is the first semantic-grounded check to enter the hard layer, and it earns the entry by staying lexical. The lattice now covers five layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), anchor-class warrant (Rule 7 — proper-noun + date anchors), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
 
 13.9.8 Claim-count ceiling — TOO_MANY_CLAIMS as defense in depth
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
