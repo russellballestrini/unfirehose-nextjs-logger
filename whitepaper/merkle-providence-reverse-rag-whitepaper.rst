@@ -919,28 +919,66 @@ JSON is one encoding for *(claim_text, [evidence_ids])* pairs but not the right 
 
 Both modalities stay first-class in the substrate. ``answer_mode = "claim_lattice"`` is the JSON variant; ``"claim_lattice_pointer"`` is the prose-with-citations variant. They produce equivalent claim-evidence lattices, hash to distinct ``governance_policy_hash`` silos, and produce comparable run-DAGs (the JSON variant skips the ``parsed_claim_lattice`` stage because the model's output IS the parsed form). The substrate exposes both so an agent can route its query to the modality that fits its inference path: pointer-line suits 8B prose-distribution models, JSON suits grammar-constrained inference (vLLM ``guided_json``, Claude / GPT-4 native JSON mode) where the model emits valid objects deterministically. Aborist provides a lenient JSON pre-parser (strip markdown fence wrappers, trim non-object preamble/suffix, normalize curly quotes, fix trailing commas) so the JSON variant survives Hermes-class drift long enough for an agent to observe its SCHEMA_INVALID rate and decide whether to keep using it. Picking between modalities is an agent-level concern; the substrate's job is to expose them, telemetry both, and never silently pick winners.
 
-13.9.2 Hard verifier — five deterministic checks
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13.9.2 Hard verifier — seven deterministic checks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``verify_claim_lattice`` runs **only** deterministic checks. The hard/soft boundary from 13.8.4 holds — semantic entailment, completeness, predicate compatibility, scope ambiguity, & counterevidence retrieval all stay sidecar territory. The hard checks::
+``verify_claim_lattice`` runs **only** deterministic checks. The hard/soft boundary from 13.8.4 holds — semantic entailment (NLI-grade), completeness, predicate compatibility, scope ambiguity, & counterevidence retrieval all stay sidecar territory. The hard checks::
 
     1. parser_succeeded            line had a recognized [E\d+] bracket
     2. evidence_id_resolves        pointer maps to an entry in the
                                    runtime-built evidence map
     3. source_role_allowed         resolved entry's source_role is in
                                    the policy allowlist
-    4. no_manual_quotes            zero double-quote characters in claim
-                                   text — strict, any " violates
-    5. claim_text_non_empty        the line carried prose around the tag
+    4. claim_text_non_empty        the line carried prose around the tag
+    5. citation_coverage           claim's content tokens textually
+                                   overlap the cited span at coverage
+                                   ≥ min_citation_coverage (default 30%);
+                                   short claims (≤3 content tokens)
+                                   require ≥1 token match. Catches the
+                                   lazy-anchor failure where a claim
+                                   cites a chunk whose text shares only
+                                   a generic topical word with the claim
+    6. pointer_count_within_cap    len(pointer_ids) ≤ max_pointers_per_claim
+                                   (default 2). Over-cited claims are
+                                   trimmed to the first N pointers and
+                                   verification proceeds; a
+                                   POINTER_OVERFLOW_TRIMMED violation
+                                   is recorded so STRICT is no longer
+                                   reachable for the run. Trim-and-verify
+                                   protects correct-but-over-cited claims
+                                   without letting the over-citation
+                                   pattern pass silently
+    7. relation_warrant_present    on relation-shape questions ("who is
+                                   X's Y?", "who founded Z?"), at least
+                                   one answer-entity anchor extracted
+                                   from the claim must appear in at
+                                   least one cited span (case-insensitive
+                                   substring). Closes the lazy-anchor
+                                   class where pointer / role / coverage
+                                   all pass but the cited chunk never
+                                   names the answer entity. Vacuous-pass
+                                   when the claim has no proper-noun
+                                   anchor — non-relation claims flow
+                                   through unchanged
 
-Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero violations of any kind; HYBRID = some pairs verified, some failed; UNGROUNDED = no verified pairs. Per-claim statuses sharpen the diagnosis without breaking the binary discipline: ``EVIDENCE_LINKED``, ``EVIDENCE_LINKED_PARTIAL``, ``UNKNOWN_EVIDENCE_ID``, ``SOURCE_ROLE_BLOCKED``, ``MANUAL_QUOTE_VIOLATION``, ``NO_EVIDENCE_POINTER``, ``SCHEMA_INVALID``.
+Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero violations of any kind; HYBRID = some pairs verified, some failed (or any soft-demote violation: POINTER_OVERFLOW_TRIMMED, LAZY_ANCHOR_DEMOTED, WARRANT_MISSING); UNGROUNDED = no verified pairs. Per-claim statuses sharpen the diagnosis without breaking the binary discipline: ``EVIDENCE_LINKED``, ``EVIDENCE_LINKED_PARTIAL``, ``UNKNOWN_EVIDENCE_ID``, ``SOURCE_ROLE_BLOCKED``, ``CITATION_MISMATCH``, ``NO_EVIDENCE_POINTER``, ``SCHEMA_INVALID``.
 
-The strict no-quotes rule deserves its own line. Even a 4-char quoted span (``"hi"``) is a model-asserted verbatim citation the runtime didn't authorize. Pointer mode forbids them entirely — the runtime owns quotes via the renderer, not the model. Forcing this property cleanly is the entire architectural contribution: *the model that cannot type a quote cannot synthesize an elision in one*.
+Warrant-lite is the lattice's first **semantic-grounded** hard check, and it earns the proof-path entry by staying lexical: a regex shape-detector decides whether a question is relation-shaped, a Title-Case proper-noun extractor pulls candidate answer anchors from the claim text, and a case-insensitive substring test asks whether at least one anchor appears in at least one cited chunk. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte across runs and folds cleanly into ``verifier_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to name the answer entity. Catching this gap was load-bearing in feedback from a 2026-05-01 run where "Homer Simpson's boss is Mr. Burns" cited a voice-actor bio paragraph that mentioned "Homer" but never "Mr. Burns" — the structural checks all passed, the warrant check is what catches it.
+
+The strict no-manual-quotes rule that earlier drafts of this section described was removed in late April 2026. Hermes-class models routinely paraphrase source prose but copy named-quoted phrases verbatim (e.g. ``"Constitution State"`` from a Connecticut span); rejecting any claim that contained any ``"`` character was rejecting factually-correct, source-grounded claims for cosmetic punctuation. The citation-coverage threshold (Rule 5) and pointer cap (Rule 6) carry the weight of catching the synthetic-elision and mega-claim failures the old rule was meant to catch, without false-rejecting on legitimate quoted phrases. The architectural property — **the runtime owns quote text, not the model** — is preserved because the renderer still interpolates literal spans from the evidence map at display time; the model never types the quote string.
 
 13.9.3 Spotlight render — cited evidence, one window per claim
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The renderer interpolates literal source spans from the evidence map at display time. A naive truncation (``span[:200]``) shows the same article-intro sentence under every claim when the model lazy-anchors at the topic id. Aborist instead extracts content tokens from each claim text (≥4-char alphanumeric tokens, stopword-filtered, longest-first) & finds the first match in the cited span. The displayed window centers on that match; if no token matches, the renderer falls back to the leading window with a trailing ellipsis. *Same evidence pointer, different displayed sentence per claim* — anchored on what the claim is actually about.
+The renderer interpolates literal source spans from the evidence map at display time. A naive truncation (``span[:200]``) shows the same article-intro sentence under every claim when the model lazy-anchors at the topic id. Aborist instead extracts content tokens from each claim text (≥4-char alphanumeric tokens, stopword-filtered) & runs a **density rank** over their match positions: find ALL occurrences of ALL tokens in the cited span, then for each candidate position count how many DISTINCT tokens fall within ±half-window. Pick the position with maximum distinct count; tie-break on smallest index for determinism. The displayed window centers on that position, expanded outward to the nearest sentence boundaries (so the excerpt never cuts mid-word). If no token matches, the renderer falls back to the leading sentence(s) with a trailing ellipsis.
+
+Density beats first-match-of-longest-token on a load-bearing failure mode. Pre-density, "who is Homer Simpson's boss?" — answered "Homer Simpson's boss is Mr. Burns. [E1]" — would spotlight the slice where ``homer`` first matched in the cited chunk, often a voice-actor bio paragraph ("For voicing Homer, Castellaneta has won..."). The full chunk genuinely contained the load-bearing slice ("...Homer is often ignored and completely forgotten by his boss Mr. Burns..."), but the displayed excerpt landed on a non-load-bearing slice and the audit trail looked dishonest. Density rank picks the slice where ``homer`` + ``boss`` + ``burns`` cluster together — the slice that actually justifies the claim.
+
+The pointer is also formatted to disambiguate from the source-rank list rendered alongside. The bracket grew from ``[E5: "<excerpt>"]`` to::
+
+    [E5 | <source title> | <chunk_root prefix>: "<excerpt>"]
+
+Closes a 2026-05-01 visual confusion observed on an Orwell run where ``[E5: "..."]`` displayed alongside a "sources (8)" list whose ``[5]`` slot was a different document — readers parsed ``E5`` as a 1-indexed source rank when it is actually a chunk pointer. Title comes from the evidence object (URI tail fallback); chunk_root prefix is the first 8 hex chars — enough for the operator to disambiguate while staying compact. *Same evidence pointer, different displayed sentence per claim* — anchored on what the claim is actually about, with the source label visible in the bracket itself.
 
 13.9.4 Per-chunk granularity & query-relevance ordering
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -988,9 +1026,11 @@ The hard discipline carries a measurable cost: small models drop the bracket pro
 13.9.7 What pointer mode does NOT prove
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The pointer-mode verifier proves *evidence-linked-and-role-OK*. It does **not** prove the cited evidence textually entails the claim. A model citing ``[E1]`` for "Brachiosaurus appears in the film" passes the hard checks if E1 exists, has an allowed source role, & the claim has no manual quote — even if E1's text never says "Brachiosaurus." That gap is by design. Entailment requires either an NLI model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked & quote-safe; semantic entailment is not yet hard-verified," and the spotlight renderer makes the limit visible: when the cited span doesn't contain the claim's terms, the displayed excerpt falls back to the leading window — an auditor reading 16/17 EVIDENCE_LINKED + leading-window excerpts immediately sees "model lazy-anchored; the cited chunk doesn't textually support the claim."
+The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met,* and (on relation-shape questions) *answer-entity-named-in-cited-chunk*. It does **not** prove the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the seven hard checks if E1 mentions Brachiosaurus and the claim's content tokens overlap E1 at coverage threshold — even if E1's text says nothing about social herding. The structural-and-lexical floor is what is proved; the semantic ceiling above it is what is not.
 
-The reverse-RAG / claim-lattice / merkle-providence stack now covers four layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), & quote-safe rendering (spotlight). The next layer — semantic warrant — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary.
+That ceiling gap is by design. NLI-grade entailment requires either a textual-entailment model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked, role-OK, lexically grounded, and warrant-named; semantic entailment is not yet hard-verified." The spotlight renderer makes residual gaps visible: when the cited span has no token cluster (the density rank finds no high-density region), the displayed excerpt falls back to the leading window — an auditor reading EVIDENCE_LINKED + leading-window excerpts under a relation-shape question immediately sees "the verifier accepted on coverage but the chunk's load-bearing slice for this claim is sparse," even when warrant-lite passed because the answer entity exists somewhere in the chunk.
+
+Warrant-lite (Rule 7) is the first semantic-grounded check to enter the hard layer, and it earns the entry by staying lexical. The lattice now covers five layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), answer-entity warrant (Rule 7 lexical anchor check), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
 
 
 14. Related Work
