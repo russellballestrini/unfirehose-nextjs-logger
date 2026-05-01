@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Unturf AGI: Merkle Providence Reverse RAG</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Provenance-preserving cache chains for small language models. How Merkle trees turn Reverse RAG into a verifiable, shared knowledge layer.">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      max-width: 720px;
+      margin: 4rem auto;
+      padding: 0 1.5rem;
+      line-height: 1.6;
+      color: #1a1a1a;
+    }
+    h1 { font-size: 1.6rem; line-height: 1.3; margin-bottom: 0.4rem; }
+    .subtitle { color: #666; font-style: italic; margin-bottom: 2rem; }
+    .authors { font-size: 0.95rem; color: #444; margin-bottom: 0.4rem; }
+    .meta { font-size: 0.85rem; color: #888; margin-bottom: 2rem; }
+    a { color: #0a58c8; }
+    .download {
+      display: inline-block;
+      padding: 0.6rem 1.2rem;
+      background: #0a58c8;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+      margin: 1rem 0;
+    }
+    .download:hover { background: #084298; }
+    .abstract {
+      background: #f6f6f6;
+      padding: 1rem 1.4rem;
+      border-left: 3px solid #0a58c8;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+    .abstract h2 { margin-top: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
+    code { background: #eee; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.9em; }
+    .small { font-size: 0.85rem; color: #666; }
+  </style>
+</head>
+<body>
+
+<h1>Unturf Automated General Intelligence: Merkle Providence Reverse RAG</h1>
+<p class="subtitle">Provenance-Preserving Cache Chains for Small Language Models</p>
+<p class="subtitle">How Merkle trees turn Reverse RAG into a verifiable, shared knowledge layer.</p>
+
+<p class="authors">Russell Ballestrini &lt;russell@unturf.com&gt;, David Wong &lt;david.s.wong@pm.me&gt;, Riley Morgan &lt;guybriley02@gmail.com&gt;</p>
+<p class="meta">April 2026 &middot; AGPL-3.0-only &middot; <a href="https://unfirehose.com">unfirehose.com</a> &middot; <a href="https://uncloseai.com">uncloseai.com</a> &middot; <a href="https://www.permacomputer.com">permacomputer.com</a></p>
+
+<a class="download" href="/merkle-providence-reverse-rag-whitepaper.pdf">Download PDF</a>
+
+<div class="abstract">
+  <h2>Abstract</h2>
+  <p><a href="https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html">Reverse Retrieval Augmented Generation (Reverse RAG)</a> demonstrated that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference implementation runs Hermes 3, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at <a href="https://uncloseai.com">uncloseai.com</a>.</p>
+
+  <p>Merkle Providence Reverse RAG extends this with a second insight: the client not only holds the document, it can <em>remember what it already computed about that document</em>, prove that memory came from an unmodified source, &amp; share that verified knowledge with others on public or private chains.</p>
+
+  <p>A Merkle tree over document content chunks produces a root hash: a 32-byte fingerprint that changes when any part of the document changes. Pairing this root hash with a question hash yields a cache key. A cache hit means a previously computed answer returns instantly, with a Merkle proof of origin. A cache miss triggers fresh inference, stores the result, &amp; extends our chain.</p>
+
+  <p>Once published, this technique forces a reckoning: every RAG system that cannot prove provenance of its retrieved chunks operates on unverifiable context. Merkle Providence makes provenance a first-class primitive.</p>
+
+  <p>We call this stack <strong>Web 2.5</strong>: the existing web's documents &amp; URIs, augmented with machine learning context injection &amp; Merkle-verified answer chains, without requiring a blockchain, a new protocol, or replacement of any existing infrastructure.</p>
+</div>
+
+<h2>What's in the paper</h2>
+<ol>
+  <li>Reverse RAG: a recap of client-side context injection</li>
+  <li>Merkle trees as content-addressed cache keys</li>
+  <li>The providence layer: proof of origin</li>
+  <li>Unfirehose as chain substrate</li>
+  <li>Public &amp; private chains</li>
+  <li>Why small models benefit most</li>
+  <li>Pipeline integration</li>
+  <li>Forcing the issue: unverified RAG vs. provable RAG</li>
+  <li>What the providence cache curates &amp; aggregates</li>
+  <li>Relationship to zero-knowledge proofs</li>
+  <li>Why this matters for permacomputer infrastructure</li>
+  <li>Implementation roadmap</li>
+  <li><strong>Aborist: a Python reference implementation</strong> &mdash; measurements on a 3.47M-document Wikipedia corpus (67% storage reduction, worked cross-machine convergence example), the layered quote/span/entity/paraphrase verifier, plus the <strong>Claim-Lattice-Pointer mode</strong> (Clause Lattice Intelligence / CTI) that makes synthetic-elision structurally impossible: the model writes prose with bracketed evidence-id tags, the runtime owns quote text. A seven-check deterministic verifier (parser, evidence-id resolution, source-role allowlist, claim-text non-empty, citation-coverage threshold, pointer-count cap with trim-and-verify, and <strong>anchor-class warrant</strong> covering proper-noun and date anchors) gates admissibility. A density-rank spotlight renderer interpolates literal source spans at display time. Run-DAG grows from 7 stages to 9 to commit each provenance step independently.</li>
+  <li>Related work</li>
+</ol>
+
+<h2>Citation</h2>
+<pre class="small">
+Russell Ballestrini, David Wong, Riley Morgan.
+"Unturf Automated General Intelligence: Merkle Providence Reverse RAG."
+unfirehose.com, 2026.
+https://unfirehose.com/merkle-providence-reverse-rag.html
+</pre>
+
+<p class="small">Source &amp; build: <a href="https://git.unturf.com/engineering/unturf/unfirehose/unfirehose-nextjs-logger/-/tree/main/whitepaper">git.unturf.com/.../whitepaper</a></p>
+
+</body>
+</html>
