@@ -37,6 +37,7 @@
     "./db/api-keys": "./db/api-keys.ts",
     "./db/tenant": "./db/tenant.ts",
     "./db/triage": "./db/triage.ts",
+    "./pricing": "./pricing.ts",
     "./claude-paths": "./claude-paths.ts",
     "./claude-paths-client": "./claude-paths-client.ts",
     "./fetch-paths": "./fetch-paths.ts",
