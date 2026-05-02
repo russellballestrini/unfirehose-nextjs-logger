@@ -187,7 +187,7 @@ Aborist [13]_ is a Python content-addressed document store built on a single SQL
 
 **Surface.** Ingested documents — Wikipedia dumps, HTML pages, git repositories, Mercurial repositories, anything with a URI. Each document is normalized, chunked at 512 tokens (the default ``tok-512-v1`` chunker), Merkle-rooted, & FTS5-indexed [10]_. A surface document's ``document_root`` is the Merkle root over its sorted chunk leaf hashes. Re-ingesting the same content produces the same root & no-ops. Re-ingesting different content under the same URI produces a new document & a ``supersedes`` edge linking the old version to the new one — lossless history.
 
-**Core.** Distilled documents Merkle-bound back to surfaces via per-chunk inclusion proofs in ``derivations.proof_blob``. A core might be a TF-IDF keyword summary, a first-sentence extraction, a hand-curated rewrite, or a recursive distillation of other cores. The derivation proof commits the relationship: a core asserts "I was distilled from these specific surface chunks at this specific Merkle proof path," & any verifier can confirm the assertion against the surface tree. Cores never evict — see §13.
+**Core.** Distilled documents Merkle-bound back to surfaces via per-chunk inclusion proofs in ``derivations.proof_blob``. A core might be a TF-IDF keyword summary, a first-sentence extraction, a hand-curated rewrite, or a recursive distillation of other cores. The derivation proof commits the relationship: a core asserts "I was distilled from these specific surface chunks at this specific Merkle proof path," & any verifier can confirm the assertion against the surface tree. Cores never evict — see §12.
 
 **Providence cache.** Q&A records keyed on the eight-dimensional cache key from §4. Each record carries the question, the answer, the audit_mode label, the verifier_method that fired, the unverified spans, the n_verified count, the source roots that contributed, & the falsification_state. Records are content-addressed by the cache_key itself.
 
@@ -329,22 +329,10 @@ Three classes of derivative reconcile across peers:
 - **Corpus-statistical distillers** (e.g., TF-IDF keywords): convergent only under shared corpus scope. Requires a ``scope_root`` commitment so peers explicitly agree on which corpus statistics underlie their cores.
 - **LLM-derived answers**: non-convergent (serving non-determinism), but cryptographically witnessable. The same cache_key from many peers + the same ``answer_hash = sha256(answer_text)`` collapses to one row with many witnesses; divergent answers stay as multi-witness candidates, each Merkle-bound to a verifiable context_root.
 
-
-11. Personal vs. Public Chains
--------------------------------
-
-The same primitive supports a private corpus on one machine & a public corpus shared by a thousand peers. The trust regime is a per-document choice, not a platform decision.
-
-**Private chain.** Records stay local. Personal session history. The model learns from the practitioner's own prior work on documents they visit repeatedly. The chain belongs to the practitioner alone. No data leaves their machine. Suits corporate knowledge bases, personal research notes, sensitive internal documentation, any document the practitioner does not want to share.
-
-**Public chain.** Records broadcast to peers via the mesh layer in §10. Any node that has processed the same document_root can contribute answers. Any node that queries the same document_root can receive pre-verified answers from others. Suits open documentation, public APIs, research papers, any document where sharing verified answers benefits a community.
-
-Public chains do NOT share document content. They share proofs. The Merkle proof proves an answer came from a specific document version without transmitting the document. Document content stays on the originating client; proofs travel.
-
-A practitioner can run private & public chains simultaneously, partitioned by domain or per-document opt-in. A health practitioner might run a private chain over patient notes & a public chain over open medical guidelines, drawing on community-verified answers for the latter while keeping the former entirely local. The substrate does not care; the same SQLite file can hold both. The eight-dimensional cache_key partitions all of it cleanly.
+**Personal vs. public chains.** The same federation primitive supports a private corpus on one machine & a public corpus shared by a thousand peers — trust regime is a per-document choice, not a platform decision. Private chains stay local: personal session history, no data leaves the machine, suits corporate knowledge bases / sensitive internal documentation. Public chains broadcast records to mesh peers under the same Merkle proofs — they share proofs, never document content. Document text stays on the originating client; only the cryptographic certificate travels. A practitioner can run both simultaneously, partitioned by domain or per-document opt-in (e.g., a private chain over patient notes alongside a public chain over open medical guidelines). The eight-dimensional cache_key partitions all of it cleanly.
 
 
-12. The Truth-Seeking Ratchet
+11. The Truth-Seeking Ratchet
 ------------------------------
 
 Emergence is preserved, not suppressed. UNGROUNDED records & POINTER-LINKED records stay live in the providence cache. Training-derived knowledge is often correct, just unverifiable against the current corpus. The substrate labels honestly so a downstream consumer can route: top-rung records carry compliance-grade provenance, UNGROUNDED records carry "the model believes this, no certificate attached." A model that genuinely refuses ("I don't know based on the provided sources") classifies UNGROUNDED with ``verifier_method='none'`` & ``n_quotes=0`` — the most honest answer the system can produce.
@@ -356,7 +344,7 @@ The ratchet only goes one way. A record can climb the ladder when new evidence a
 Truth-seeking is therefore a property of the *substrate*, not of the model. The model emits its best guess. The substrate measures the gap between the guess & the available evidence, names the gap honestly, persists both, & rewards corpus growth that closes the gap. Over time, & across many practitioners, the substrate accumulates a body of verified answers whose ladder placements reflect what humanity has so far been able to prove. Emergence today is the corpus-growth roadmap of tomorrow.
 
 
-13. Decisions and Constraints
+12. Decisions and Constraints
 ------------------------------
 
 Eleven rules anchor the substrate. Each is a deliberate choice with a rationale; reverting any one without addressing the rationale weakens the system in a specific named way.
@@ -373,7 +361,7 @@ Eleven rules anchor the substrate. Each is a deliberate choice with a rationale;
 
 6. **Local-first; federation opt-in.** The mesh layer is off by default. A fresh installation makes no network calls until the practitioner explicitly enables them. *Rationale:* the practitioner's data is the practitioner's data. Sharing requires consent, & consent requires the practitioner know what is being shared.
 
-7. **Emergence is preserved, not suppressed.** UNGROUNDED & POINTER-LINKED records stay live. Reclassify promotes them up the ladder when new evidence arrives. *Rationale:* see §12. The truth-seeking ratchet is the architecture's reason for existing.
+7. **Emergence is preserved, not suppressed.** UNGROUNDED & POINTER-LINKED records stay live. Reclassify promotes them up the ladder when new evidence arrives. *Rationale:* see §11. The truth-seeking ratchet is the architecture's reason for existing.
 
 8. **Soft hash never enters the proof path.** Embeddings, TF-IDF scores, lexical similarity counts shape ranking & retrieval; they never feed cache_keys, document_roots, or audit_event_hashes. *Rationale:* a ranker that drifts as new training data arrives must not invalidate prior cryptographic claims. The hard channel & the soft channel evolve on independent timelines.
 
@@ -384,7 +372,7 @@ Eleven rules anchor the substrate. Each is a deliberate choice with a rationale;
 11. **Labels name properties, not vibes.** POINTER-LINKED, ANCHOR-WARRANTED, EVIDENCE-WARRANTED, UNGROUNDED each name a property the verifier could lexically confirm or could not. There are no "high confidence", "moderate confidence", or "low confidence" labels. *Rationale:* a confidence label is a soft signal in disguise. Naming the property — pointer linked, anchor warranted, evidence warranted, ungrounded — lets an auditor read the same label & immediately know what was checked.
 
 
-14. What This Proves and What It Does Not
+13. What This Proves and What It Does Not
 ------------------------------------------
 
 The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met, source-title-relevant,* &, when the active anchor class fires, *anchor-named-in-cited-chunk* for every active class. It does **not** prove that the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the eight hard checks if E1's source is the *Jurassic Park (film)* article (Rule 8), the word *Brachiosaurus* appears in E1 (Rule 5), & the relation/date/list/count/why anchor classes do not fire on a *behavior* claim — even if E1's text says nothing about social herding.
@@ -396,51 +384,12 @@ That ceiling gap is by design. NLI-grade entailment requires either a textual-en
 The architecture's promise to its readers is calibration. It does not claim to verify everything. It claims to name exactly what it can verify, & to leave a structural gap visible where it cannot. A practitioner reading a top-rung label knows what the substrate could prove. A practitioner reading any lower rung knows what the substrate could not. Honesty about the ceiling is a feature, not a limitation.
 
 
-15. Forcing the Issue
-----------------------
-
-Some technical formulations compel structural change not because they require adoption but because their existence makes a prior approach indefensible.
-
-The Merkle Providence layer forces one question onto every RAG system: *can you prove where your context came from?*
-
-Traditional RAG [2]_ retrieves chunks by cosine similarity. No chunk carries a Merkle proof. No retrieval carries a document fingerprint. The retrieved context could come from a stale index, a corrupted chunk, or a document that changed since last ingestion. The pipeline trusts embedding similarity as a proxy for relevance. Nothing verifies the source.
-
-Once Merkle-proved answers exist in the ecosystem, unverified RAG answers carry an implicit disclaimer: *I retrieved this from somewhere I believe matches your question, but I cannot prove our source was the document you currently view.*
-
-Providence cache answers carry a different posture: *I computed this answer from the exact bytes of the document whose root hash I can show you. Verify it yourself.*
-
-Merkle membership proofs constitute a subset of Zero-Knowledge Proofs [8]_ [9]_: proving a leaf exists in a tree without revealing other leaves. Full ZKP apparatus (zk-SNARKs, Bulletproofs) provides stronger guarantees & more complex proofs; Merkle proofs provide a simpler, faster, & more practical subset sufficient for our provenance use case. The connection deepens when a public chain handles sensitive documents: a user can prove their answer derived from a specific confidential document without revealing the document's content, the question text, or the answer text. Only the proof path & the document root travel over the network. The verifier confirms without seeing the data.
-
-This posture change does not require every system to adopt Merkle trees immediately. It requires every system to acknowledge that provenance matters, & that systems which cannot demonstrate provenance operate at a disadvantage in trust-sensitive contexts.
-
-Medical documentation. Legal reference material. Security advisories. Financial disclosures. Government regulations. Any domain where "I retrieved something similar" falls short of "I can prove this came from the exact source you cited." These domains will adopt provenance-first machine learning earlier than others, because the cost of indistinguishable-from-confident hallucination is highest there. The rest of the web follows once the pattern is established.
-
-
-16. Web 2.5 & AGI as a Commons — Roadmap & Invitation
-------------------------------------------------------
-
-The stack this paper describes runs on top of what already exists. The existing web's documents & URIs. The existing browsers. The existing OpenAI-compatible inference endpoints. SQLite, which ships with every operating system. The cryptographic primitives — SHA-256, Ed25519, X25519, ChaCha20-Poly1305 — which ship in every standard library worth shipping in. **No blockchain.** No new protocol. No platform replacement. We call this stack **Web 2.5** because it sits between the document web (Web 2.0) & the speculative everything-on-chain (Web 3.0) — it borrows the verifiability of the latter without paying the coordination cost.
-
-The path for a practitioner is concrete:
-
-1. **Install a substrate.** ``pip install aborist`` (or any compatible implementation; the protocol is open). The codebase ships under AGPL-3.0-only at `git.unturf.com/engineering/unturf/aborist <https://git.unturf.com/engineering/unturf/aborist>`_.
-2. **Point it at an inference endpoint.** Default `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_ for free Hermes 3 access. Any OpenAI-compatible alternative works; set ``ABORIST_LLM_ENDPOINT`` & go.
-3. **Ingest a corpus.** Wikipedia dump, git repository, browsing history exported as HTML, anything. The ``aborist ingest`` verb does the rest.
-4. **Ask questions.** ``aborist ask "..."`` runs retrieval, inference, verification, classification, & cache write in one operation. Subsequent identical questions about identical sources hit the cache & return in O(1).
-5. **Choose a chain.** Personal corpus stays local by default. Public corpus opts in via ``aborist mesh enable``. Per-domain opt-in lets the practitioner mix regimes.
-6. **Watch the ratchet.** ``aborist emergent --aggregate`` ranks unverified spans across the cache; ingest corresponding sources & ``aborist reclassify`` promotes records up the ladder.
-
-The pattern generalizes. `uncloseai.com <https://uncloseai.com>`_ already serves the inference endpoint & hosts the Reverse RAG client; an in-browser providence cache that surfaces records for pages the user is reading — with verified-badge UI when a cache hit's Merkle proof matches the live DOM — is a forthcoming consumer of aborist's output. `unfirehose.com <https://unfirehose.com>`_ is a forthcoming JSONL aggregation layer for harness sessions across a mesh of compute nodes; aborist's run-DAG records & providence rows feed naturally into its ingest path. Both consumers are downstream of the substrate this paper describes. Both extend the practitioner's reach without altering the substrate's invariants.
-
-The AGI thesis is straightforward. Small models run on commodity hardware via open APIs. Verified memory accumulates locally & shares optionally over a mesh. The corpus grows when emergence outpaces grounding; the ladder climbs when grounding catches up. Truth-seeking is a property of the substrate, not of any single model or any single practitioner. A community of practitioners running compatible substrates against shared snapshot_roots produces a body of verified knowledge that no single participant could produce alone, & that no single platform can extract. AGI as a commons is the destination this paper sketches. The substrate is the path. The practitioner with a phone is the protagonist.
-
-
-17. Related Work
+14. Related Work
 -----------------
 
 **Reverse RAG** [1]_. Documented the client-side inversion of standard RAG: the browser already holds the document, full-page injection replaces chunk fragmentation, small models with perfect context outperform large models with similarity-retrieved fragments. This paper extends Reverse RAG with verifiable caching, eliminating the repetition tax that prior RAG systems do not address.
 
-**Retrieval-Augmented Generation** [2]_. Introduced server-side vector retrieval for language models. Standard RAG remains the dominant pattern for chunk-similarity retrieval, & the comparative argument in §15 is implicitly about RAG-as-currently-deployed.
+**Retrieval-Augmented Generation** [2]_. Introduced server-side vector retrieval for language models. Standard RAG remains the dominant pattern for chunk-similarity retrieval; this paper's substrate inverts the trust direction (the runtime owns provenance, not the retriever).
 
 **Git & Mercurial object models.** Both implement content-addressed Merkle DAGs natively. Git's commit object hashes the entire tree; this paper's substrate inherits this as a free cache boundary signal. Aborist makes the implicit Merkle-tree property of version control explicit & useful for ML inference caching.
 
