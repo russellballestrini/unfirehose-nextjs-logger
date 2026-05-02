@@ -1,6 +1,6 @@
 {
   "name": "@unturf/unfirehose",
-  "version": "1.0.7",
+  "version": "1.1.0",
   "description": "Core data layer for unfirehose — Claude Code session ingestion, SQLite schema, types, PII detection, and formatters",
   "type": "module",
   "license": "AGPL-3.0-only",
