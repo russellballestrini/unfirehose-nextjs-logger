@@ -34,9 +34,13 @@ function getSessionColor(index: number): string {
   return SESSION_COLORS[index % SESSION_COLORS.length];
 }
 
+// Two shapes flow through the live SSE stream:
+//   - Claude Code:   entry.message.content (string OR ContentBlock[])
+//   - unfirehose/1.0: entry.content        (always ContentBlock[])
+// Both block types use { type: 'text', text: string } for text payload.
 function extractText(entry: any): string {
-  if (!entry?.message?.content) return '';
-  const content = entry.message.content;
+  const content = entry?.message?.content ?? entry?.content;
+  if (!content) return '';
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
 
@@ -45,6 +49,23 @@ function extractText(entry: any): string {
     .map((b: any) => b.text ?? '')
     .join('\n')
     .trim();
+}
+
+// Effective role for an entry, regardless of source shape:
+//   - Claude Code:   entry.type ∈ {user, assistant, system}
+//   - unfirehose/1.0: entry.type === 'message' && entry.role ∈ {user, assistant, system}
+function effectiveType(entry: any): 'user' | 'assistant' | 'system' | 'unknown' {
+  if (entry?.type === 'message' && typeof entry.role === 'string') {
+    return entry.role as 'user' | 'assistant' | 'system';
+  }
+  if (
+    entry?.type === 'user' ||
+    entry?.type === 'assistant' ||
+    entry?.type === 'system'
+  ) {
+    return entry.type;
+  }
+  return 'unknown';
 }
 
 function extractThinking(entry: any): string | null {
@@ -427,9 +448,13 @@ export default function LivePage() {
           const usage = e?.message?.usage;
           const isHovered = hoveredEntry === i;
 
-          const isUser = e.type === 'user';
-          const isAssistant = e.type === 'assistant';
-          const isSystem = e.type === 'system';
+          // effectiveType normalizes Claude (`entry.type`) vs
+          // unfirehose/1.0 (`entry.type='message' + entry.role`)
+          // so the bubble-rendering branch works on both shapes.
+          const et = effectiveType(e);
+          const isUser = et === 'user';
+          const isAssistant = et === 'assistant';
+          const isSystem = et === 'system';
 
           const typeTag = isUser ? 'USR' : isAssistant ? 'AST' : 'SYS';
           const typeBg = isUser

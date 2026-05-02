@@ -1,7 +1,8 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { watch, createReadStream } from 'fs';
+import { readdirSync, statSync, watch, createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import path from 'path';
+import os from 'os';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { decodeProjectName } from '@unturf/unfirehose/claude-paths';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
@@ -12,12 +13,57 @@ interface TrackedFile {
   sessionId: string;
   size: number;
   originalPath?: string;
+  // Source format dictates how we filter entries on the wire.
+  //   'claude'  — Claude Code native (entry.type ∈ {user, assistant, system})
+  //   'unfirehose' — unfirehose/1.0 (entry.type === 'message' with entry.role)
+  format: 'claude' | 'unfirehose';
+  // Display tag for the harness ('claude-code' / 'aborist' / 'agnt' / …).
+  // Mirrored into the SSE payload so the live UI can render an
+  // origin badge per native harness.
+  harness?: string;
+}
+
+// Mirror of `discoverNativeHarnesses` from packages/core/db/ingest.ts.
+// Re-implemented here to avoid pulling the DB layer into a route
+// that runs in the Next.js edge runtime; the discovery itself is a
+// 10-line homedir scan.
+const EXCLUDED_HARNESS_DIRS = new Set(['unfirehose', 'claude', 'fetch']);
+
+interface NativeHarnessRoot {
+  name: string;
+  root: string;
+}
+
+function discoverNativeHarnessRoots(): NativeHarnessRoot[] {
+  const home = os.homedir();
+  const out: NativeHarnessRoot[] = [];
+  let entries: string[];
+  try {
+    entries = readdirSync(home);
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (!entry.startsWith('.')) continue;
+    const name = entry.slice(1);
+    if (!name || EXCLUDED_HARNESS_DIRS.has(name)) continue;
+    const ufDir = path.join(home, entry, 'unfirehose');
+    try {
+      if (statSync(ufDir).isDirectory()) {
+        out.push({ name, root: ufDir });
+      }
+    } catch {
+      // no unfirehose subdir — skip
+    }
+  }
+  return out;
 }
 
 async function findHotSessions(): Promise<TrackedFile[]> {
   const cutoff = Date.now() - 10 * 60 * 1000; // last 10 minutes
   const hot: TrackedFile[] = [];
 
+  // Claude Code session dirs.
   const projectDirs = await readdir(claudePaths.projects).catch(() => []);
 
   for (const dir of projectDirs) {
@@ -47,13 +93,74 @@ async function findHotSessions(): Promise<TrackedFile[]> {
             sessionId: f.replace('.jsonl', ''),
             size: fstat.size,
             originalPath,
+            format: 'claude',
+            harness: 'claude-code',
           });
         }
       }
     } catch { /* skip */ }
   }
 
+  // Native harness session dirs (~/.<name>/unfirehose/<slug>/<uuid>.jsonl).
+  // Same hot-session window (last 10 min mtime); entries from these
+  // live alongside Claude Code rows in the live stream so the UI
+  // shows an interleaved real-time feed.
+  for (const harness of discoverNativeHarnessRoots()) {
+    const slugs = await readdir(harness.root).catch(() => []);
+    for (const slug of slugs) {
+      const slugDir = path.join(harness.root, slug);
+      const dirStat = await stat(slugDir).catch(() => null);
+      if (!dirStat?.isDirectory()) continue;
+      try {
+        const files = await readdir(slugDir);
+        for (const f of files) {
+          if (!f.endsWith('.jsonl')) continue;
+          const filePath = path.join(slugDir, f);
+          const fstat = await stat(filePath).catch(() => null);
+          if (fstat && fstat.mtimeMs >= cutoff) {
+            hot.push({
+              path: filePath,
+              // Project key namespaces by harness so the UI doesn't
+              // collide a Claude project with a native-harness project
+              // sharing the same slug.
+              project: `${harness.name}:${slug}`,
+              sessionId: f.replace('.jsonl', ''),
+              size: fstat.size,
+              format: 'unfirehose',
+              harness: harness.name,
+            });
+          }
+        }
+      } catch { /* skip */ }
+    }
+  }
+
   return hot;
+}
+
+// Decide whether a parsed JSONL entry is something the live stream
+// should emit. Both shapes flow through the same SSE channel; the UI
+// extracts text/role generically from `entry.message` (Claude) or
+// `entry.content[]` (unfirehose/1.0 — handled in extractText).
+function isStreamableEntry(parsed: unknown, format: 'claude' | 'unfirehose'): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const e = parsed as Record<string, unknown>;
+  if (format === 'claude') {
+    return (
+      typeof e.type === 'string' &&
+      ['user', 'assistant', 'system'].includes(e.type)
+    );
+  }
+  // unfirehose/1.0: every payload is type='message' with a role.
+  // Skip the session-header line (type='session') and the implicit
+  // session_end system message — those are envelope-level signals
+  // for the DB ingestion, not stream content.
+  if (e.type !== 'message') return false;
+  if (e.subtype === 'session_end') return false;
+  return (
+    typeof e.role === 'string' &&
+    ['user', 'assistant', 'system'].includes(e.role)
+  );
 }
 
 async function readNewLines(
@@ -112,14 +219,19 @@ export async function GET() {
 
         const hotFiles = await findHotSessions();
 
-        // Send session list update
+        // Send session list update. Native-harness rows (project key
+        // includes "<harness>:") get a friendlier display name via
+        // strip-then-decode so the UI label matches the dashboard.
         send({
           type: 'sessions',
           sessions: hotFiles.map((f) => ({
             project: f.project,
-            projectName: decodeProjectName(f.project),
+            projectName: f.harness && f.harness !== 'claude-code'
+              ? `[${f.harness}] ${decodeProjectName(f.project.split(':').slice(1).join(':'))}`
+              : decodeProjectName(f.project),
             sessionId: f.sessionId,
             originalPath: f.originalPath,
+            harness: f.harness,
           })),
         });
 
@@ -134,13 +246,16 @@ export async function GET() {
             for (const line of recent) {
               try {
                 const parsed = JSON.parse(line);
-                if (['user', 'assistant', 'system'].includes(parsed.type)) {
+                if (isStreamableEntry(parsed, file.format)) {
                   send({
                     type: 'entry',
                     project: file.project,
-                    projectName: decodeProjectName(file.project),
+                    projectName: file.harness && file.harness !== 'claude-code'
+                      ? `[${file.harness}] ${decodeProjectName(file.project.split(':').slice(1).join(':'))}`
+                      : decodeProjectName(file.project),
                     sessionId: file.sessionId,
                     entry: parsed,
+                    harness: file.harness,
                   });
                 }
               } catch { /* skip */ }
@@ -154,13 +269,16 @@ export async function GET() {
             for (const line of lines) {
               try {
                 const parsed = JSON.parse(line);
-                if (['user', 'assistant', 'system'].includes(parsed.type)) {
+                if (isStreamableEntry(parsed, file.format)) {
                   send({
                     type: 'entry',
                     project: file.project,
-                    projectName: decodeProjectName(file.project),
+                    projectName: file.harness && file.harness !== 'claude-code'
+                      ? `[${file.harness}] ${decodeProjectName(file.project.split(':').slice(1).join(':'))}`
+                      : decodeProjectName(file.project),
                     sessionId: file.sessionId,
                     entry: parsed,
+                    harness: file.harness,
                   });
                 }
               } catch { /* skip */ }

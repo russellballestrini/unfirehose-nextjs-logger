@@ -1147,8 +1147,69 @@ async function ingestNativeHarness(
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            // Native unfirehose/1.0 — pass directly to ingest
+
+            // Native unfirehose/1.0 session header (line 1 of every
+            // file). Carries firstPrompt / gitBranch / sidechain that
+            // the session row needs but didn't have at creation time
+            // (we only had the UUID + harness from the filename).
+            // Backfill via UPDATE; session_uuid is the key.
+            if (entry.type === 'session') {
+              const updates: string[] = [];
+              const params: (string | number)[] = [];
+              if (typeof entry.firstPrompt === 'string' && entry.firstPrompt) {
+                const sanitized = sanitizePII(entry.firstPrompt).sanitized;
+                updates.push('first_prompt = ?');
+                params.push(sanitized);
+                // Also refresh display_name now that we have a prompt.
+                updates.push('display_name = ?');
+                params.push(generateSessionName(sanitized, sessionUuid));
+              }
+              if (typeof entry.gitBranch === 'string' && entry.gitBranch) {
+                updates.push('git_branch = ?');
+                params.push(entry.gitBranch);
+              }
+              if (typeof entry.sidechain === 'boolean') {
+                updates.push('is_sidechain = ?');
+                params.push(entry.sidechain ? 1 : 0);
+              }
+              if (typeof entry.createdAt === 'string' && entry.createdAt) {
+                updates.push('created_at = ?');
+                params.push(entry.createdAt);
+              }
+              if (updates.length > 0) {
+                params.push(sessionUuid);
+                db.prepare(
+                  `UPDATE sessions SET ${updates.join(', ')} WHERE session_uuid = ?`
+                ).run(...params);
+              }
+              continue;
+            }
+
             if (entry.type !== 'message') continue;
+
+            // session_end system message — terminal signal that the
+            // harness emitted to mark the session closed. Run BEFORE
+            // the dedupe-skip (insertMessage returning null on
+            // re-ingest of the same row) so the status flip is
+            // idempotent across re-ingests AND survives the case
+            // where the session_end message is a duplicate. Sticky:
+            // don't reopen on a later message — the WHERE guards
+            // against status downgrades.
+            if (
+              entry.role === 'system' &&
+              entry.subtype === 'session_end'
+            ) {
+              const closedAt =
+                (typeof entry.timestamp === 'string' && entry.timestamp) ||
+                new Date().toISOString();
+              db.prepare(
+                `UPDATE sessions
+                   SET status = 'closed',
+                       closed_at = ?
+                 WHERE session_uuid = ?
+                   AND (status IS NULL OR status != 'closed')`
+              ).run(closedAt, sessionUuid);
+            }
 
             const messageId = insertMessage(db, sessionId, entry);
             if (messageId === null) continue;
