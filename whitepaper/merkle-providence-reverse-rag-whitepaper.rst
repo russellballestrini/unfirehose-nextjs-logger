@@ -721,6 +721,30 @@ A second 2026-04-30 retrieval miss exposed the dual: ``"tell me all there is to 
 
 ``_FTS5_STOPWORDS`` (in ``aborist/search/fts5.py``) & ``_TITLE_STOPWORDS`` (in ``aborist/qa/query.py``) now strip ``tell show describe explain summarize say give list find make please all there know everything anything something`` plus the standard English stopword set. They must stay in sync — both filter the same set of question-shaping tokens. Retrieval-time only: stopwords don't enter ``cache_key`` or ``governance_policy_hash``.
 
+13.4.10 Title-LIKE search ORDER BY token-hits
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A 2026-05-02 retrieval miss surfaced two compounding defects in the title-LIKE pass:
+
+::
+
+    Q: "what date did back to the future come out?"
+    Pre-fix top-8: trilogy, ride, animated-series, The Future,
+                   Future Husband, The Day You Come, Ratchet & Clank
+                   Future, Future plc — film article entirely absent.
+
+(1) ``_search_titles`` had no ``ORDER BY``. SQLite returned rows in arbitrary internal order; ``LIMIT 32`` truncated before the genuine matches landed. The ``Back to the Future`` film article (title contains BOTH ``back`` AND ``future``) lost the LIMIT race to substring-match junk: ``Out (poker)`` (single-token match on ``out``), ``Aberdeen, South Dakota`` (``south`` contains ``out``), ``Backplane`` (``back`` substring), ``Outline of biology`` (``out`` substring), etc.
+
+(2) The caller's post-filter check used substring match (``if t in title_lower``) — same defect at a higher layer. ``"south"`` contains ``"out"``, ``"outline"`` contains ``"out"``, ``"backbone"`` contains ``"back"`` — all passed the no-op overlap check.
+
+Two paired fixes:
+
+(a) The SQL builds a token-hit score via ``CASE WHEN LOWER(title) LIKE ? THEN 1 ELSE 0 END`` per token & ORDERs BY ``(title_score DESC, LENGTH(title) ASC)``. The film article's score = 2 (back+future) ranks above garbage's score = 1. Title length asc tie-breaks toward title purity (shorter title + same overlap = higher per-token signal).
+
+(b) The post-filter intersects token-sets stem-aware via ``_title_query_tokens`` & ``_stem_token_for_match``. Word-boundary semantics; only genuine title tokens count.
+
+Verified live: post-fix the BTTF film article ranks #1, the trilogy at #2, junk gone from top-8.
+
 13.5 Federation: Mesh Layer (Off by Default)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -962,7 +986,7 @@ JSON is one encoding for *(claim_text, [evidence_ids])* pairs but not the right 
 
 Both modalities stay first-class in the substrate. ``answer_mode = "claim_lattice"`` is the JSON variant; ``"claim_lattice_pointer"`` is the prose-with-citations variant. They produce equivalent claim-evidence lattices, hash to distinct ``governance_policy_hash`` silos, and produce comparable run-DAGs (the JSON variant skips the ``parsed_claim_lattice`` stage because the model's output IS the parsed form). The substrate exposes both so an agent can route its query to the modality that fits its inference path: pointer-line suits 8B prose-distribution models, JSON suits grammar-constrained inference (vLLM ``guided_json``, Claude / GPT-4 native JSON mode) where the model emits valid objects deterministically. Aborist provides a lenient JSON pre-parser (strip markdown fence wrappers, trim non-object preamble/suffix, normalize curly quotes, fix trailing commas) so the JSON variant survives Hermes-class drift long enough for an agent to observe its SCHEMA_INVALID rate and decide whether to keep using it. Picking between modalities is an agent-level concern; the substrate's job is to expose them, telemetry both, and never silently pick winners.
 
-13.9.2 Hard verifier — seven deterministic checks
+13.9.2 Hard verifier — eight deterministic checks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``verify_claim_lattice`` runs **only** deterministic checks. The hard/soft boundary from 13.8.4 holds — semantic entailment (NLI-grade), completeness, predicate compatibility, scope ambiguity, & counterevidence retrieval all stay sidecar territory. The hard checks::
@@ -1036,6 +1060,22 @@ Both modalities stay first-class in the substrate. ``answer_mode = "claim_lattic
                                    Vacuous-pass when no class fires —
                                    broad descriptive claims flow
                                    through unchanged.
+    8. title_relevance            cited evidence's source title must
+                                   share ≥1 stemmed content token with
+                                   the claim text. Per-claim, ANY-match
+                                   across cited sources: the rule fires
+                                   only when ALL cited titles miss.
+                                   Demote-to-HYBRID via TITLE_MISMATCH
+                                   violation. Catches the
+                                   retrieval-driven hallucination class
+                                   (2026-05-02 spin-glass case): claim
+                                   about spin glass modeling cited to a
+                                   chunk from *Quantum chromodynamics*
+                                   passed Rules 1-7 on incidental
+                                   physics-vocab overlap, but the
+                                   SOURCE was never about the claim's
+                                   subject. Vacuous-pass when claim or
+                                   title has no extractable tokens.
 
 Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero violations of any kind; HYBRID = some pairs verified, some failed (or any soft-demote violation: POINTER_OVERFLOW_TRIMMED, LAZY_ANCHOR_DEMOTED, WARRANT_MISSING); UNGROUNDED = no verified pairs. Per-claim statuses sharpen the diagnosis without breaking the binary discipline: ``EVIDENCE_LINKED``, ``EVIDENCE_LINKED_PARTIAL``, ``UNKNOWN_EVIDENCE_ID``, ``SOURCE_ROLE_BLOCKED``, ``CITATION_MISMATCH``, ``NO_EVIDENCE_POINTER``, ``SCHEMA_INVALID``.
 
@@ -1122,11 +1162,11 @@ The hard discipline carries a measurable cost: small models drop the bracket pro
 13.9.7 What pointer mode does NOT prove
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met,* and (when the active anchor class fires) *anchor-named-in-cited-chunk* for every active class — proper-noun on relation-shape questions, date components on date-asserting claims, named entity on entity-list-shape questions, count token on count-shape questions, cause anchor on why-shape questions. It does **not** prove the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the seven hard checks if E1 mentions Brachiosaurus and the claim's content tokens overlap E1 at coverage threshold — even if E1's text says nothing about social herding. A model citing ``[E1]`` for "Back to the Future was released on July 3, 1985" passes the date-anchor check if E1 contains both "July" and "1985" — even if those tokens sit next to each other in a different release context (game, ride, sequel) than the original film's theatrical release. The structural-and-lexical floor is what is proved; the semantic ceiling above it is what is not.
+The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met, source-title-relevant,* and (when the active anchor class fires) *anchor-named-in-cited-chunk* for every active class — proper-noun on relation-shape questions, date components on date-asserting claims, named entity on entity-list-shape questions, count token on count-shape questions, cause anchor on why-shape questions. It does **not** prove the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the eight hard checks if E1's source is the Jurassic Park film article (Rule 8 title-overlap), Brachiosaurus appears in E1 (Rule 5 coverage), and the relation/date/list/count/why anchor classes don't fire on a "behavior" claim — even if E1's text says nothing about social herding. A model citing ``[E1]`` for "Back to the Future was released on July 3, 1985" passes the date-anchor check if E1 contains both "July" and "1985" — even if those tokens sit next to each other in a different release context (game, ride, sequel) than the original film's theatrical release. The structural-and-lexical floor is what is proved; the semantic ceiling above it is what is not.
 
 That ceiling gap is by design. NLI-grade entailment requires either a textual-entailment model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked, role-OK, lexically grounded, and warrant-named; semantic entailment is not yet hard-verified." The spotlight renderer makes residual gaps visible: when the cited span has no token cluster (the density rank finds no high-density region), the displayed excerpt falls back to the leading window — an auditor reading EVIDENCE_LINKED + leading-window excerpts under a relation-shape question immediately sees "the verifier accepted on coverage but the chunk's load-bearing slice for this claim is sparse," even when warrant-lite passed because the answer entity exists somewhere in the chunk.
 
-Warrant-lite (Rule 7) is the first semantic-grounded check to enter the hard layer, and it earns the entry by staying lexical. The lattice now covers five layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), anchor-class warrant (Rule 7 — proper-noun, date, entity-list, count, cause anchors), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
+Warrant-lite (Rule 7) and title-relevance (Rule 8) are the first semantic-grounded checks to enter the hard layer, and they earn the entry by staying lexical. The lattice now covers six layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), anchor-class warrant (Rule 7 — proper-noun, date, entity-list, count, cause anchors), source-title relevance (Rule 8 — claim must share content tokens with the cited source's title, catching retrieval-driven hallucinations where the source itself is structurally unrelated), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
 
 13.9.8 Claim-count ceiling — TOO_MANY_CLAIMS as defense in depth
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
