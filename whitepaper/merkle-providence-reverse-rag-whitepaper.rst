@@ -612,13 +612,13 @@ Verified on our 2010-11 enwiki corpus (3.47M documents, no distill cores):
 
 A hit clears ``_filter_by_title_relevance`` if any one of three accept paths fires:
 
-1. **Title-token overlap.** Strongest signal. Direct stem-aware match between the query's title-tokens and the document's title-tokens. Synonym fallback (``concepts.synonym_expand``) only fires for 1-token queries — multi-token queries that admit synonyms over-recall (an "amd"-querying agent picking up `Intel_*` titles via the Intel/AMD rivalry group).
+1. **Title-token overlap.** Strongest signal. Direct stem-aware match between the query's title-tokens and the document's title-tokens. Synonym fallback (``aborist.concepts.synonym_expand``, backed by the ``concept_relations`` table — see 13.4.11) only fires for 1-token queries — multi-token queries that admit synonyms over-recall (an "amd"-querying agent picking up `Intel_*` titles via the Intel/AMD rivalry group).
 
 2. **TF-IDF core keyword overlap.** Closes the gap for neologisms that never appear in titles but are distinctive enough to be the TF-IDF top-keywords of conversation bodies. ``"permacomputer"`` was the canonical case — never a Wikipedia title, but a strong TF-IDF signal in Grok-conversation cores. Without this path, neologism queries returned empty.
 
 3. **Body density.** ``_body_density_passes`` admits docs that mention at least ``breadth_threshold`` distinct query tokens AND have ``total_mentions >= 3``. Cheap proxy for "actually about the topic" when neither title nor core caught it.
 
-Rivalry exclusion (``rivalry_excluded`` in ``aborist/qa/concepts.py``) applies on every accept path: an Intel-titled doc dropped from an AMD query, & vice versa. Caught the case of competitor docs leaking into single-side queries when both share a topic page.
+Rivalry exclusion (``rivalry_excluded`` in ``aborist/concepts/query.py``, reading the ``concept_relations`` table — see 13.4.11) applies on every accept path: an Intel-titled doc dropped from an AMD query, & vice versa. Caught the case of competitor docs leaking into single-side queries when both share a topic page.
 
 13.4.4 Breadth-required filter — multi-token queries demand co-occurrence
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -744,6 +744,99 @@ Two paired fixes:
 (b) The post-filter intersects token-sets stem-aware via ``_title_query_tokens`` & ``_stem_token_for_match``. Word-boundary semantics; only genuine title tokens count.
 
 Verified live: post-fix the BTTF film article ranks #1, the trilogy at #2, junk gone from top-8.
+
+13.4.11 Concept relations — corpus-derived synonym & rivalry layer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Synonym expansion (an "athlon" query also retrieving AMD-titled docs) & rivalry exclusion (an Intel-titled doc dropping from an AMD query) shipped 2026-04-27 as a small Python module of hand-curated ``frozenset``\ s. The original commit message itself flagged the limit::
+
+    Phase 1: hand-curated. Phase 2 idea: derive from Wikipedia's
+    category graph or "See also" sections.
+
+Phase 1 didn't scale. Adding a domain meant editing Python source, committing, pushing, redeploying. A 3.47M-doc corpus has thousands of concept families; hand-curating them is a fool's errand. The corpus already encodes the relationships we'd be hand-rebuilding — every wikilink already lands as an ``edges`` row at ingest, every HTML ``<a href>`` already lands as an ``edges`` row from ``aborist/sources/html_page.py``. Phase 2 reads what's already there.
+
+Phase 2 (2026-05-01) replaces the frozensets with a per-shard ``concept_relations`` SQLite table::
+
+    CREATE TABLE concept_relations (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_root     TEXT NOT NULL,
+        relation_kind   TEXT NOT NULL CHECK (relation_kind IN
+                            ('synonym','antonym','rivalry','category')),
+        token           TEXT NOT NULL,
+        target          TEXT NOT NULL,
+        evidence_kind   TEXT NOT NULL,
+        confidence      REAL NOT NULL DEFAULT 1.0,
+        derived_at      INTEGER NOT NULL,
+        derived_from    TEXT,
+        UNIQUE (source_root, relation_kind, token, target, evidence_kind)
+    );
+
+Three properties hold by construction:
+
+- **Append-only.** ``UNIQUE (source_root, relation_kind, token, target, evidence_kind)`` makes re-derivation idempotent — re-running an extractor adds nothing if no new relations have appeared. ``INSERT OR IGNORE`` is the only write path.
+- **Per-shard.** Concept relations live in the shard whose document derived them. Mesh sync moves shards between peers; relations come along.
+- **Orthogonal to Merkle.** Writes to ``concept_relations`` NEVER affect ``document_root``, ``chunk_root``, or ``cache_key``. Backfilling is safe across the entire corpus without invalidating any cached answer. The layer is a *secondary index* over the Merkle-committed corpus, not a competing primary.
+
+The built-in ``link_reciprocity_synonym`` extractor walks the existing ``edges`` table for reciprocal A↔B link pairs (the strongest topical-cluster signal a link graph carries) & emits a synonym edge between every (title-token-of-A, title-token-of-B) pair. Title-tokens are filtered to ≥4 chars + a small stopword list to keep generic words like "the" or "and" from generating noise.
+
+**Storage cost — measured.** Backfill on the 6 GB Wikipedia 2003 cur dump (4 shards, 3.47M docs):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 10 14 13 14 11 11
+
+   * - Shard
+     - Docs
+     - Resolved edges
+     - Reciprocal pairs
+     - Synonyms inserted
+     - Backfill time
+     - Storage
+   * - ``000.db``
+     - ~870k
+     - 2,703,287
+     - 13,562
+     - 71,288
+     - 50.6s
+     - 23.52 MB
+   * - ``001.db``
+     - ~870k
+     - 2,571,390
+     - 14,078
+     - 73,351
+     - 47.7s
+     - 24.20 MB
+   * - ``002.db``
+     - ~870k
+     - 2,772,156
+     - 13,708
+     - 72,576
+     - 1m34s
+     - 23.92 MB
+   * - ``003.db``
+     - ~870k
+     - 2,707,627
+     - 13,800
+     - 72,633
+     - 1m03s
+     - 23.94 MB
+   * - **total**
+     - **3.47M**
+     - **10,754,460**
+     - **55,148**
+     - **289,848**
+     - **4m16s**
+     - **95.58 MB**
+
+Per-row cost averages ~330 bytes. The bulk is the 64-char hex ``source_root`` column appearing both in the table & in the UNIQUE auto-index that enforces the idempotent-re-derivation key — that one column is ~50% of per-row storage. **95.58 MB on a 6 GB corpus = 1.6% storage tax** for the entire denormalization. Full backfill took 4m16s wall-clock — the cost is paid once.
+
+**Storage choice — keep, don't compact.** Three compactions were considered & rejected, documented here so a future maintainer doesn't reopen without a measured reason:
+
+- *Drop* ``idx_concept_evid`` (saves 1.8 MB / shard, ~7 MB total). Kept — the index makes ``purge --evidence-kind X`` cheap. Without it, purge becomes O(N) over the whole table, painful in a tight extractor-development loop.
+- *Store* ``source_root`` *as 32-byte BLOB instead of 64-char hex TEXT* (saves 5 MB / shard, ~20 MB total). Kept TEXT. The rest of the schema (``documents.document_root``, ``chunks.leaf_hash``, ``providence_cache.source_root``, ``audit_events.subject_root``) all use hex TEXT. Mixing TEXT vs BLOB across tables hurts schema legibility & complicates joins.
+- *Normalize* ``source_root`` *into a* ``source_lookup(id, hex)`` *foreign key* (saves 7 MB / shard, ~28 MB total). Kept flat. The savings are real but every concept lookup would add a JOIN. ``synonym_expand`` is called per-query in the retrieval hot path; adding a JOIN for a 0.5% storage win is the wrong direction.
+
+**Verdict:** 1.6% storage tax is fine. Concept relations accelerate retrieval over an already-3.5GB-per-shard corpus. The tax is paid once at backfill; every retrieval-time lookup benefits. If a future shard layout pushes total storage to a different cost regime (compressed columnstore, etc.), Option B is worth revisiting at that boundary — the schema-consistency cost ratio shifts.
 
 13.5 Federation: Mesh Layer (Off by Default)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
