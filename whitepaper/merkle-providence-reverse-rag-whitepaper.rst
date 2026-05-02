@@ -197,6 +197,8 @@ Three orthogonal storage optimizations stack against SQLite-resident corpora: zs
 
 The substrate also distinguishes hard hashes from soft hashes. Hard hashes — SHA-256 over canonical bytes — back commitments, proofs, & cache keys. Soft hashes — embeddings, TF-IDF scores, lexical similarity counts — back ranking & retrieval. The soft channel never enters the proof path. A retrieval ranker that reorders search results does not change any cache_key, document_root, or audit_event_hash. The architectural separation prevents soft-signal drift from contaminating cryptographic claims.
 
+A subtler form of the same discipline lives in the per-mode context budget. Different answer modes peak at different prompt sizes — quote mode benefits from tight retrievals (8-32 KB), JSON-claim-lattice benefits from larger evidence per claim (32-64 KB), pointer mode plateaus around 16-32 KB. The substrate measures these peaks empirically, surfaces them in the bench's recommended-context-budget table, and exposes them as a per-mode policy field that folds into ``governance_policy_hash``. The bench is the substrate's voice telling the policy where each mode peaks; the policy is the substrate's commitment to honour what it learned. When a budget changes, the cache namespace cleanly partitions, prior records stay live as historical witnesses of the old policy, and new lookups land at the new bucket without re-running inference on past questions.
+
 
 7. The Layered Verifier — Lexical, No LLM in the Proof Path
 ------------------------------------------------------------
