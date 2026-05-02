@@ -1016,6 +1016,14 @@ Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero viol
 
 Warrant-lite is the lattice's first **semantic-grounded** hard check, and it earns the proof-path entry by staying lexical: regex shape-detectors decide whether a question is relation-shaped, a Title-Case proper-noun extractor pulls candidate entity anchors, a 4-digit-year regex (1500-2199 to skip ZIP codes / elevations) plus full-month-name regex pull date anchors, and case-insensitive substring tests ask whether the required anchors appear in cited spans. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte across runs and folds cleanly into ``verifier_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to actually contain the claim's load-bearing anchors.
 
+Warrant-lite generalized in May 2026 (Ticket #000003) to cover three additional question shapes whose lazy-anchor signature the original two classes missed:
+
+- **Entity-list shape** (``name X``, ``list X``, ``who are the members of X``). List-aware extractor returns multi-word phrases ∪ solo-cap individual names so comma-separated entities each contribute to the anchor pool. ANY-match semantics (demote-don't-reject): an extra entity from training-prior is acceptable as long as the cited evidence anchors at least one named entity.
+- **Count shape** (``how many X``, ``how much X``). Digit ↔ word equivalence with ordinal collapse: a claim saying ``"six"`` matches a span containing ``"6"``, & ``"sixth"`` collapses to cardinal ``"6"`` for the substring test. Year-shaped digits filter out (those belong to the existing date-anchor class). ALL-match semantics: every count token in the claim must appear in some cited span as digit or word.
+- **Why-cause shape** (``why X``). Cause-anchor pool widens to ≥5-char lowercase common nouns post a quantifier-adjective stopword set (``various`` / ``factors`` / ``situation`` filter out) plus the existing proper-noun anchors. Catches lowercase common nouns the relation-shape extractor misses (``iceberg`` / ``asteroid`` / ``propaganda``). Gated on why-shape only: lowercase common-noun extraction has higher false-positive risk elsewhere.
+
+Each shape's anchors get extracted when the question shape matches & failures accumulate across classes — a relation-shape claim with both a year & a proper-noun must satisfy both. Per-class policy gates were intentionally not added: the single ``warrant_check_enabled: bool`` flag is the minimum-viable mechanism. Per-class flags earn their slot only when bench evidence shows over-firing on a specific class — see the five-step algorithm below.
+
 Two 2026-05-01 failures motivated the design:
 
 - *Relation lazy-anchor.* "Who is Homer Simpson's boss?" answered "Homer Simpson's boss is Mr. Burns. [E1]" cited to a voice-actor bio paragraph that mentioned "Homer" but never "Mr. Burns" — the structural checks all passed, the proper-noun warrant catches it.
@@ -1099,18 +1107,25 @@ The 2026-04-30 york-england run revealed an answer-shape failure orthogonal to p
 
 ``policy["claim_lattice_max_claims_per_answer"]`` caps the number of claims a single answer can emit (default 12). Beyond the cap, ``verify_claim_lattice`` & ``verify_claim_lattice_json`` record a ``TOO_MANY_CLAIMS`` violation that demotes STRICT → HYBRID via the existing violation path. The cap doesn't truncate — every claim still verifies so the operator sees the full evidence of the runaway. 12 admits typical entity-list questions (5-7 dinosaurs, Simpsons family + pets) while flagging the descriptive-prompt runaway. Folds into ``governance_policy_hash`` on change.
 
-13.9.9 Label discipline — EVIDENCE-LINKED for claim-lattice modes
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13.9.9 Label discipline — four-rung ladder for claim-lattice modes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The audit_mode token ``STRICT`` carries different weight across verifier methods. In quote / span / entity / paraphrase mode, STRICT means "every cited evidence unit textually matches a pinned source span" — a strong claim about lexical grounding. In claim-lattice modes (pointer & JSON), STRICT means "every pointer resolves to a valid evidence object whose source_role is allowed AND every cited span passes citation-coverage." That property is structurally weaker: synthesis-heavy claims (a model joining multiple cited spans into a single explanatory sentence) can pass all hard checks without semantic entailment of the joined assertion.
 
-To prevent operators from reading STRICT-on-claim-lattice as "the answer is correct," the renderer relabels for claim-lattice methods at display time. The schema column stays unchanged — ``providence_cache.audit_mode`` continues to store ``"STRICT"`` / ``"HYBRID"`` / ``"UNGROUNDED"`` so the v9.8 invariant holds across the cache & the audit chain — but the human render maps for ``verifier_method.startswith("claim_lattice")``::
+The renderer maps lattice-mode audit_mode tokens to a four-rung ladder where each rung names a strictly stronger property::
 
-    STRICT     → EVIDENCE-LINKED · via claim_lattice
-    HYBRID     → EVIDENCE-LINKED-PARTIAL · via claim_lattice_pointer
-    UNGROUNDED → UNGROUNDED · via claim_lattice
+    POINTER-LINKED       pointer/source/chunk verified;
+                         warrant either did not apply or failed
+    ANCHOR-WARRANTED     pointer-linked + warrant passed where it
+                         ran; other soft demotes may apply
+    EVIDENCE-WARRANTED   anchor-warranted + no soft demotes
+    UNGROUNDED           no verified pairs
 
-Quote / span / entity / paraphrase modes keep their original audit_mode tokens. The display label spells out what the lexical verifier could confirm without overclaiming semantic truth. Pure display layer: cache_key, audit chain, mesh wire format, & all programmatic callers see the original audit_mode unchanged.
+HYBRID adds a ``-PARTIAL`` suffix to whichever rung applies. ``ENTAILMENT-VERIFIED`` reserves a fifth rung for a future committed entailment engine; today's stack does not produce it.
+
+Rung discrimination uses the existing violations list — no new verifier output field needed. ``WARRANT_MISSING`` violations drop the rung to POINTER-LINKED (warrant ran & failed for at least one claim). Soft-demote violations like ``LAZY_ANCHOR_DEMOTED`` / ``POINTER_OVERFLOW_TRIMMED`` / ``TOO_MANY_CLAIMS`` / ``BARE_NAME_CLAIM`` cap the rung at ANCHOR-WARRANTED. No demotes & warrant clean → EVIDENCE-WARRANTED.
+
+Quote / span / entity / paraphrase modes keep their original audit_mode tokens (those verify against pinned spans, not synthesis). The schema column stays ``{STRICT, HYBRID, UNGROUNDED}`` so the v9.8 invariant holds across cache, audit chain, & mesh wire format. Pure display-layer transformation; cache_key, governance_policy_hash, & all programmatic callers see the original audit_mode unchanged. The earlier two-rung surface (``EVIDENCE-LINKED`` / ``EVIDENCE-LINKED-PARTIAL``) was the v1 of this work; the four-rung ladder lands the property names directly so operators read what the lexical verifier could confirm without inferring from the verifier_method tail.
 
 13.10 Operator surface — capacity metrics & retrieval keywords
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1149,7 +1164,25 @@ returned HYBRID 6/10 with mostly-tangential sources (videoconferencing, telepath
 
 The ``--retrieval-keywords`` flag (CLI: ``K="..."`` on ``make query``) makes this pattern explicit. Plumbing: keywords concatenate with the question for the FTS5 search & title-filter token set only. The LLM still sees the original question; the verifier still checks against the original question; ``question_hash`` still computes from the original text. The 8-dim cache_key changes only via downstream effects on ``context_root`` & ``conversation_hash`` (different sources fed to LLM means different conversation state).
 
-This indirect cache_key effect names a provenance gap: keywords change which sources got chosen, but the keyword string itself enters no Merkle commitment. An audit can recover "these documents were selected" but not "these were the keywords that pulled them in." Two runs with the same question & different keywords that surface identical sources are Merkle-indistinguishable. Tracked as Ticket #000001 in ``docs/ticket-000001-retrieval-keywords-audit-gap.md``: capture the retrieval plan in the run-DAG retrieval stage & on a nullable ``providence_cache`` column without folding into ``question_hash``.
+This indirect cache_key effect named a provenance gap: keywords changed which sources got chosen, but the keyword string itself entered no Merkle commitment. An audit could recover "these documents were selected" but not "these were the keywords that pulled them in." Two runs with the same question & different keywords that surfaced identical sources were Merkle-indistinguishable.
+
+Ticket #000001 closed that gap 2026-05-02 via ``aborist/qa/retrieval_plan.py``::
+
+    @dataclass(frozen=True)
+    class RetrievalPlan:
+        retrieval_keywords: str
+        top_k: int
+        over_fetch: int
+        max_context_chars: int
+        shard_ids: tuple[str, ...]
+
+    def retrieval_plan_hash(plan: RetrievalPlan) -> str:
+        # SHA-256 over canonical-JSON. Deterministic per call;
+        # folds into the run-DAG retrieval stage as a bound input.
+
+``aborist/qa/dag.py:build_run_dag`` now accepts a ``retrieval_plan_hash`` parameter. When provided, the retrieval-stage hash binds BOTH the plan (input) & the sources_summary (output) — ``H({"retrieval_plan_hash": <hex>, "sources_summary_hash": <hex>})``. When omitted, falls back to the historical sources-summary-only hash so pre-#000001 ``run_dag_root`` values stay byte-stable. ``aborist/qa/query.py`` constructs the plan per call & threads the hash through.
+
+Two runs with identical sources but different retrieval keywords now produce different ``run_dag_root`` values. Audit can recover the keywords from the persisted run-DAG blob. The 8-dim cache_key invariant holds — the plan does NOT enter ``question_hash`` or ``governance_policy_hash``, since keywords stay operator metadata, not user-question intent. SQL-column queryability & ``retrieval_plan_built`` audit events stay deferred (ergonomic enhancements that earn their own tickets when the run-DAG-blob path proves too friction-heavy).
 
 13.11 Tickets — design log convention
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1166,12 +1199,121 @@ Aborist's design log lives in ``docs/`` as flat ``ticket-NNNNNN-<slug>.md`` file
     **Audience:**     <who reads this>
     **Hard constraint:** <invariants this ticket commits to NOT break>
 
-Open tickets at time of writing:
-
-- **#000001** — Retrieval-keywords audit gap (provenance binding for ``--retrieval-keywords``).
-- **#000002** — Reference-Frame Polarity Contract (Module L). Multi-frame answer compilation for queries that admit literal vs fictional-actual vs in-universe-propaganda interpretations. Builds on the phrase-pattern retrieval route from 13.4.8 which closed the **retrieval** side; this ticket addresses the **answer** side (today's answer to the Orwell query reads "*The text does not directly state...*" when it should produce a multi-frame answer distinguishing Party propaganda from fictional-actual continuity).
-
 Closed tickets stay in place as the design log; they don't get deleted.
+
+Tickets shipped as of 2026-05-02:
+
+- **#000001** — Retrieval-keywords audit gap. Closed via ``RetrievalPlan`` dataclass + ``retrieval_plan_hash`` folded into the run-DAG retrieval stage (see 13.10.2 above). Two runs with identical sources but different retrieval keywords now produce different ``run_dag_root`` values.
+- **#000002** — Reference-Frame Polarity Contract (Module L). Closed via the frame detector + polarity preamble below (see 13.12).
+- **#000003** — Anchor-class warrant generalization. Closed via per-shape detectors + extractors for entity-list / count / why-cause shapes (see 13.9.2 above).
+- **#000004** — Directive coverage in bench summary. Closed at landing time (the directive_compliance per-row column in ``bench/qa_sweep.py`` plus the markdown summary's ``directive coverage`` table; see 13.13).
+- **#000005** — Label ladder migration. Closed via the four-rung POINTER-LINKED → ANCHOR-WARRANTED → EVIDENCE-WARRANTED → UNGROUNDED ladder (see 13.9.9 above), with ENTAILMENT-VERIFIED reserved for a future committed entailment engine.
+
+13.12 Reference-frame polarity contract (Module L)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The phrase-pattern retrieval route (13.4.8) closed the **retrieval** side of reference-frame failure — for an Orwell-shape query like ``"has oceania always been at war with east asia"``, the verbatim 5-token sequence ``"oceania always been at war"`` surfaces the ``Nineteen_Eighty-Four`` article into top-K. The remaining gap was answer **shape**: the model's pre-#000002 response read ``"The text does not directly state..."`` — a defensive hedge that ignored the literary frame the retrieved evidence opened.
+
+The substrate now classifies the query's intended frame & nudges the prompt accordingly. New module ``aborist/qa/frame.py`` adds a ``FrameDetection`` dataclass plus ``detect_frame(question, sources, phrase_match_roots)`` heuristic. The classification fires when:
+
+1. The phrase-pattern retrieval route surfaced at least one source (``phrase_match_roots`` non-empty).
+2. At least one phrase-matched source is a reference work, determined by either:
+
+   - title parenthetical disambig (``"(novel)"``, ``"(film)"``, ``"(play)"``, ``"(franchise)"``, etc.); or
+   - body sample contains ≥3 distinct fiction markers from a set including ``novel``, ``published``, ``protagonist``, ``plot``, ``narrator``, ``adaptation``, ``directed``, ``starring``, ``screenplay``, etc.
+
+Distinct-marker count keeps the heuristic robust against single-marker repetition: a history article saying ``"a novel approach"`` twice doesn't trip the detector; a reference-work lead clusters several distinct markers (``novel`` + ``published`` + ``characters`` + ``plot`` + ``protagonist``).
+
+The body sample uses the **article LEAD** (chunk_idx=0, post-wikitext-strip) — fiction markers cluster in the lead on Wikipedia, not in plot chunks the query-relevance ranker may have surfaced higher. Wikitext strip ensures markers buried under ``[[wikilinks]]`` & ``{{templates}}`` reach the density check.
+
+When ``frame_kind == "reference"``, ``aborist/qa/query.py`` injects a polarity preamble as a user-role message before the existing grounding_reminder::
+
+    "This question may be a reference to {reference_title}. When you
+    answer, distinguish what the cited work depicts as actual continuity
+    from what in-universe propaganda or characters claim within it. Cite
+    evidence for each substantive claim using the pointer format above."
+
+The renderer adds a ``reference frame: <title>`` line to the human output. Result dict gains a ``frame_detection`` field carrying the kind / title / URI / confidence — sidecar; never enters cache_key, governance_policy_hash, or the run-DAG.
+
+Live verification on the Orwell case::
+
+    Pre-#000002:  "The text does not directly state that Oceania has
+                  always been at war with East Asia."
+
+    Post-#000002: "In George Orwell's dystopian novel Nineteen
+                  Eighty-Four, the nation of Oceania is always at war
+                  with Eastasia, but this is a result of propaganda &
+                  doublethink, not actual historical continuity. The
+                  war with Eastasia is a fabricated conflict to
+                  maintain control..."
+                  reference frame: Nineteen Eighty-Four
+
+The post-fix answer distinguishes the propaganda claim from the fictional-actual continuity, the multi-frame compilation the polarity contract abstraction proposed. Literal queries (``"what is the capital of france?"``) keep their clean single-frame answers — the polarity preamble injects only when ``detect_frame`` classifies the query as reference.
+
+Per-frame answer compilation as a runtime concern (programmatically emit per-frame paragraphs rather than nudging via prompt) stays deferred. The prompt-side approach lands first; the runtime compiler earns its slot if bench evidence shows the prompt nudge proves unreliable.
+
+13.13 Engineering doctrine — seven-point program & five-step algorithm
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The session that landed #000001-#000005 also formalized the architectural directives that drove them. Two artifacts now sit upstream of every ticket: the **seven-point program** (the directive catalogue) & the **five-step algorithm** (the discipline for evaluating change). Both live in ``docs/`` & in ``CLAUDE.md`` so every shift, human or agent, walks past them before touching code.
+
+13.13.1 Seven-point program
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Distilled 2026-05-01::
+
+    Stop making Hermes prove things. Make Hermes emit pointer
+    clauses; build CTI internally; bind the retrieval map &
+    evidence map; verify pointers deterministically; add general
+    anchor-class warrant before semantic NLI; rename labels
+    honestly; & automate only after these invariants are
+    test-pinned.
+
+Each directive maps to a structural pin in ``tests/test_directives.py`` & to the run-time substrate that enforces it:
+
+- **D1** — No LLM in hard verifier path. Substrate (``aborist/qa/verify.py`` signatures forbid ``chat_client`` / ``llm`` / ``judge`` / ``model`` params; CHECK constraint enum on ``verifier_method`` excludes LLM-judge tokens).
+- **D2** — Hermes emits pointer clauses. Substrate (``ANSWER_MODES`` carries ``claim_lattice_pointer`` & ``claim_lattice``; runtime pointer parser at ``aborist/qa/parse_claims.py``).
+- **D3** — Build CTI internally. Closed via #000002 (frame detector + polarity preamble + multi-frame answers).
+- **D4** — Bind retrieval map AND evidence map. Closed via #000001 (``retrieval_plan_hash`` folded into the run-DAG retrieval stage).
+- **D5** — Verify pointers deterministically. Substrate (seven hard checks in ``verify_claim_lattice``; deterministic byte-for-byte across runs).
+- **D6** — Anchor-class warrant before semantic NLI. Closed via #000003 (entity-list / count / why-cause shapes added to the warrant dispatch).
+- **D7** — Rename labels honestly. Closed via #000005 (four-rung ladder POINTER-LINKED → ANCHOR-WARRANTED → EVIDENCE-WARRANTED → UNGROUNDED, with ENTAILMENT-VERIFIED reserved).
+- **D8** — Automate only after the invariants are test-pinned. Closed via #000004 (bench-side ``directive_compliance`` per-row column + ``directive coverage`` markdown summary section).
+
+All seven structural directives close as of 2026-05-02. ``docs/seven-point-program.md`` carries the catalogue; ``tests/test_directives.py`` carries 23 anti-regression tests that fail by name when a future PR silently weakens any directive (e.g. adds a ``chat_client`` parameter to ``verify_quotes``, or admits ``llm`` / ``judge`` / ``nli`` to the ``verifier_method`` CHECK constraint enum).
+
+13.13.2 Five-step algorithm
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Walk these in sequence; skipping a step makes the next ones expensive::
+
+    1. Make the requirements less dumb. Every requirement gets a
+       person's name, not a department. If you can't name who asked
+       or which defect closed, the requirement is suspect.
+
+    2. Delete the part or the process. If you aren't putting back at
+       least 10% of what you delete, you aren't deleting hard
+       enough. The verifier-stays-binary discipline & "no soft
+       signals in the hard chain" rules are deletion-first
+       guardrails.
+
+    3. Simplify & optimize. Only after 1+2. Don't optimize a
+       process that shouldn't exist.
+
+    4. Accelerate cycle time. Only after simplifying. Don't dig
+       the grave faster.
+
+    5. Automate. Last, not first. Hand-rolled before scripted,
+       scripted before declarative, declarative before generated.
+
+The five-step algorithm shows up structurally in the ticket bodies. Per-class warrant policy gates were proposed in #000003 §3.4 & deferred under step 2: the single ``warrant_check_enabled: bool`` flag is the minimum-viable mechanism. Per-class flags earn their slot when bench evidence shows over-firing on a specific class — not before. The ``verifier_steps_ran`` field proposed in #000005 §3 was similarly deferred: the existing ``violations`` list carries enough signal to discriminate the four ladder rungs without adding a new field.
+
+13.13.3 Bench-as-build-gate
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``bench/qa_sweep.py`` enforces directive coverage on every sweep. Each row carries a ``directive_compliance: dict[str, bool]`` field for the directives whose pinning is observable per-row (D2 / D3 / D4 / D6 / D7). The summary markdown emits a ``## directive coverage (seven-point program)`` table showing per-mode pass rates as ``count/N (pct%)``. D1 / D5 / D8 stay system-global properties tracked once in the program doc.
+
+Bench scores that climb without directive coverage climbing are graveyard-digging (five-step algorithm step 4). The bench harness IS the automation substrate, so it must enforce the directives before any feature gets layered on top.
 
 
 14. Related Work
