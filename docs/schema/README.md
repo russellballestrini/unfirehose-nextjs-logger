@@ -34,6 +34,7 @@ Native format documentation and field mapping for each harness:
 | Harness | Provider | Status | File |
 |---------|----------|--------|------|
 | [Claude Code](./harnesses/claude-code.md) | Anthropic | Reference impl | Adapter: identity |
+| [Aborist](./harnesses/aborist.md) | Local (Hermes) | Implemented (native) | Adapter: none — auto-discovered |
 | [Fetch](./harnesses/fetch.md) | Anthropic | Supported | Adapter: identity |
 | [Gemini CLI](./harnesses/gemini-cli.md) | Google | Documented | Adapter: planned |
 | [uncloseai-cli](./harnesses/uncloseai-cli.md) | Local (Hermes) | Supported | Adapter: live |
