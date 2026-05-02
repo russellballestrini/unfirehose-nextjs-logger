@@ -54,33 +54,38 @@
 
 <div class="abstract">
   <h2>Abstract</h2>
-  <p><a href="https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html">Reverse Retrieval Augmented Generation (Reverse RAG)</a> demonstrated that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference implementation runs Hermes 3, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at <a href="https://uncloseai.com">uncloseai.com</a>.</p>
+  <p><a href="https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html">Reverse Retrieval Augmented Generation (Reverse RAG)</a> showed that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference inference endpoint runs <strong>Hermes 3</strong>, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at <a href="https://uncloseai.com">uncloseai.com</a>. The client already holds the document. No vector database. No embedding pipeline. No retrieval failures.</p>
 
   <p>Merkle Providence Reverse RAG extends this with a second insight: the client not only holds the document, it can <em>remember what it already computed about that document</em>, prove that memory came from an unmodified source, &amp; share that verified knowledge with others on public or private chains.</p>
 
-  <p>A Merkle tree over document content chunks produces a root hash: a 32-byte fingerprint that changes when any part of the document changes. Pairing this root hash with a question hash yields a cache key. A cache hit means a previously computed answer returns instantly, with a Merkle proof of origin. A cache miss triggers fresh inference, stores the result, &amp; extends our chain.</p>
+  <p>A Merkle tree over document content chunks produces a root hash: a 32-byte fingerprint that changes when any byte of the document changes. Pairing this root hash with a question hash, a model identity, &amp; a small set of governance dimensions yields a content-addressed cache key. A cache hit returns a previously computed answer with a Merkle proof of origin; a cache miss triggers fresh inference, classifies the result against its source, &amp; extends the chain.</p>
+
+  <p>Our reference implementation is <strong>Aborist</strong>, a Python content-addressed document store that ingests entire corpora at once, computes Merkle commitments at scale, classifies each answer's faithfulness against its sources with a deterministic lexical verifier, &amp; serves cached answers to any peer that produces a matching cache key. Aborist runs against <a href="https://hermes.ai.unturf.com">hermes.ai.unturf.com</a> by default &amp; ships under AGPL-3.0-only at <a href="https://git.unturf.com/engineering/unturf/aborist">git.unturf.com/engineering/unturf/aborist</a>.</p>
 
   <p>Once published, this technique forces a reckoning: every RAG system that cannot prove provenance of its retrieved chunks operates on unverifiable context. Merkle Providence makes provenance a first-class primitive.</p>
 
-  <p>We call this stack <strong>Web 2.5</strong>: the existing web's documents &amp; URIs, augmented with machine learning context injection &amp; Merkle-verified answer chains, without requiring a blockchain, a new protocol, or replacement of any existing infrastructure.</p>
+  <p>We call this stack <strong>Web 2.5</strong>: the existing web's documents &amp; URIs, augmented with machine learning context injection &amp; Merkle-verified answer chains, without requiring a blockchain, a new protocol, or replacement of any existing infrastructure. Web 2.5 runs on top of what already exists. Any page. Any browser. Any small model. Public or private chain. No permission required.</p>
 </div>
 
 <h2>What's in the paper</h2>
 <ol>
-  <li>Reverse RAG: a recap of client-side context injection</li>
-  <li>Merkle trees as content-addressed cache keys</li>
-  <li>The providence layer: proof of origin</li>
-  <li>Unfirehose as chain substrate</li>
-  <li>Public &amp; private chains</li>
-  <li>Why small models benefit most</li>
-  <li>Pipeline integration</li>
-  <li>Forcing the issue: unverified RAG vs. provable RAG</li>
-  <li>What the providence cache curates &amp; aggregates</li>
-  <li>Relationship to zero-knowledge proofs</li>
-  <li>Why this matters for permacomputer infrastructure</li>
-  <li>Implementation roadmap</li>
-  <li><strong>Aborist: a Python reference implementation</strong> &mdash; measurements on a 3.47M-document Wikipedia corpus (67% storage reduction, worked cross-machine convergence example), the layered quote/span/entity/paraphrase verifier, plus the <strong>Claim-Lattice-Pointer mode</strong> (Clause Lattice Intelligence / CTI) that makes synthetic-elision structurally impossible: the model writes prose with bracketed evidence-id tags, the runtime owns quote text. A seven-check deterministic verifier (parser, evidence-id resolution, source-role allowlist, claim-text non-empty, citation-coverage threshold, pointer-count cap with trim-and-verify, and <strong>anchor-class warrant</strong> composing five lexical classes: proper-noun, date, entity-list, count with digit&harr;word equivalence, and why-cause) gates admissibility. A density-rank spotlight renderer interpolates literal source spans at display time. Run-DAG grows from 7 stages to 9 to commit each provenance step independently.</li>
-  <li>Related work</li>
+  <li><strong>The Practitioner With a Phone</strong> &mdash; commodity hardware + remote inference + local provenance is enough for AGI participation. No GPU farm, no corporate gatekeeper. A browser, a small model, &amp; a Merkle root.</li>
+  <li><strong>Reference Stack &amp; Reverse RAG Primer</strong> &mdash; Hermes 3 Llama 3.1 8B at <a href="https://hermes.ai.unturf.com">hermes.ai.unturf.com</a>; why 8B is a thesis, not a constraint.</li>
+  <li><strong>Merkle Trees as Content-Addressed Cache Keys</strong> &mdash; determinism + tamper sensitivity. Git &amp; Mercurial commit hashes are already Merkle roots.</li>
+  <li><strong>The Eight-Dimensional Cache Key</strong> &mdash; <code>source_root</code>, <code>question_hash</code>, <code>model_profile_hash</code>, <code>conversation_hash</code>, <code>governance_policy_hash</code>, <code>schema_version</code>, <code>canonicalization_version</code>, <code>chunking_version</code>. Each dimension partitions the cache namespace cleanly.</li>
+  <li><strong>The Audit Chain &amp; Falsification States</strong> &mdash; tamper-evident local log; <code>live</code> / <code>failed</code> / <code>stale</code> / <code>quarantined</code>; falsify (audit-preserving) vs. burn (kindergarten leaf-delete).</li>
+  <li><strong>Aborist &mdash; Reference Architecture</strong> &mdash; surface / core / providence cache stacked on one SQLite file. <strong>67% storage reduction</strong> measured on the 2003-05-16 enwiki cur dump (128,245 documents). Soft hash vs. hard hash discipline.</li>
+  <li><strong>The Layered Verifier &mdash; Lexical, No LLM in the Proof Path</strong> &mdash; quote, span, entity, paraphrase strategies. Deterministic byte-for-byte. Wikitext-base normalization runs before the LLM AND inside the verifier.</li>
+  <li><strong>Claim-Lattice Mode &mdash; Runtime Owns Quote Text</strong> &mdash; the model never types a quote string; it types a pointer. Synthetic-elision structurally impossible. Pointer-line &amp; JSON modalities both first-class. <strong>Eight deterministic hard checks</strong>, including anchor-class warrant (proper-noun, date, entity-list, count with digit&harr;word equivalence, why-cause) and source-title relevance. Nine-stage run-DAG.</li>
+  <li><strong>The Four-Rung Ladder</strong> &mdash; <code>POINTER-LINKED &rarr; ANCHOR-WARRANTED &rarr; EVIDENCE-WARRANTED &rarr; (ENTAILMENT-VERIFIED reserved)</code>, with <code>UNGROUNDED</code> below. Each rung names a strictly stronger property.</li>
+  <li><strong>Federation &mdash; Snapshot Roots &amp; Mesh</strong> &mdash; one hash names the corpus at a point in time. Ed25519 signs envelopes; X25519+ChaCha20-Poly1305 wraps per-epoch secrets. Off by default. Worked example: 38 GB enwiki snapshot at 3.47M docs.</li>
+  <li><strong>Personal vs. Public Chains</strong> &mdash; same primitive supports both. Document content never travels; proofs do.</li>
+  <li><strong>The Truth-Seeking Ratchet</strong> &mdash; emergence preserved, not suppressed. <code>aborist reclassify</code> promotes records up the ladder when new evidence arrives. The ratchet only goes one way: guess &rarr; warranted record.</li>
+  <li><strong>Decisions and Constraints</strong> &mdash; eleven first-principles rules: verifier stays binary, runtime owns quotes, cores never evict, one-shot discipline, idempotent re-ingest, local-first, emergence preserved, soft hash never enters proof path, cache is not consent, governance partitions the cache (not the corpus), labels name properties (not vibes).</li>
+  <li><strong>What This Proves and What It Does Not</strong> &mdash; structural-and-lexical floor named honestly; semantic ceiling named honestly. Calibration is the architecture's promise.</li>
+  <li><strong>Forcing the Issue</strong> &mdash; once Merkle-proved answers exist, every RAG without provenance carries an implicit disclaimer. Medical, legal, financial, security domains adopt first.</li>
+  <li><strong>Web 2.5 &amp; AGI as a Commons &mdash; Roadmap &amp; Invitation</strong> &mdash; no blockchain, no new protocol, no platform replacement. The practitioner's onboard in six concrete steps.</li>
+  <li><strong>Related Work</strong> &mdash; Reverse RAG, RAG, Git/Mercurial object models, Zero-Knowledge Proofs, Merkle-AGI v9.8 substrate, Merkle's original construction.</li>
 </ol>
 
 <h2>Citation</h2>
