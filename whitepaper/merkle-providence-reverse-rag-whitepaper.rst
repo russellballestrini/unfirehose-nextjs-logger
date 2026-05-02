@@ -14,10 +14,10 @@
 .. This paper introduces Merkle Providence: a provenance-preserving cache layer
 .. that lets small language models punch far outside their parameter class by
 .. combining Reverse RAG context injection with Merkle-tree-verified answer chains.
-.. Our reference implementation runs on Hermes 3, a NousResearch fine-tune of
-.. Meta's Llama 3.1 8B, served freely at uncloseai.com.
-.. Public chains share verified knowledge. Private chains stay local.
-.. Code is seeds to sprout on any abandoned technology.
+.. Our reference implementation is Aborist, a Python content-addressed document
+.. store running against Hermes 3, a NousResearch fine-tune of Meta's Llama 3.1 8B,
+.. served freely at uncloseai.com. Public chains share verified knowledge.
+.. Private chains stay local. Code is seeds to sprout on any abandoned technology.
 
 .. figure:: diagrams/permacomputer-logo.jpg
    :width: 42%
@@ -44,7 +44,7 @@ Unturf Automated General Intelligence: Merkle Providence Reverse RAG
 
 .. class:: center
 
-`unfirehose.com <https://unfirehose.com>`_ · `uncloseai.com <https://uncloseai.com>`_ · `permacomputer.com <https://www.permacomputer.com>`_
+`uncloseai.com <https://uncloseai.com>`_ · `permacomputer.com <https://www.permacomputer.com>`_ · `unfirehose.com <https://unfirehose.com>`_
 
 .. class:: center
 
@@ -59,989 +59,173 @@ Abstract
 
 **License: AGPL-3.0-only** · This algorithm, its implementation, & all associated code carry the GNU Affero General Public License v3.0 (only). You may use, modify, & distribute under those terms. No proprietary relicensing exists.
 
-`Reverse Retrieval Augmented Generation (Reverse RAG) <https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html>`_ demonstrated that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference implementation runs **Hermes 3**, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at `uncloseai.com <https://uncloseai.com>`_. Our prior work showed that the client already holds the document. No vector database required. No embedding pipeline. No retrieval failures.
+`Reverse Retrieval Augmented Generation (Reverse RAG) <https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html>`_ showed that client-side context injection lets small 8B-parameter language models outperform much larger models on page-specific questions. Our reference inference endpoint runs **Hermes 3**, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served freely at `uncloseai.com <https://uncloseai.com>`_. The client already holds the document. No vector database. No embedding pipeline. No retrieval failures.
 
 **Merkle Providence Reverse RAG** extends this with a second insight: the client not only holds the document, it can *remember what it already computed about that document*, prove that memory came from an unmodified source, & share that verified knowledge with others on public or private chains.
 
-A Merkle tree over document content chunks produces a root hash: a 32-byte fingerprint that changes when any part of the document changes. Pairing this root hash with a question hash yields a cache key. A cache hit means a previously computed answer returns instantly, with a Merkle proof of origin. A cache miss triggers fresh inference, stores the result, & extends our chain.
-
-**Unfirehose** serves as our chain substrate. Every inference session produces JSONL records that feed into SQLite at ``~/.unfirehose/unfirehose.db``. Public chains broadcast verified answer records to peers. Private chains stay local. Either way, a small model gains access to a growing body of pre-verified answers, each carrying cryptographic proof of the document version that produced it.
+A Merkle tree over document content chunks produces a root hash: a 32-byte fingerprint that changes when any byte of the document changes. Pairing this root hash with a question hash, a model identity, & a small set of governance dimensions yields a content-addressed cache key. A cache hit returns a previously computed answer with a Merkle proof of origin; a cache miss triggers fresh inference, classifies the result against its source, & extends the chain.
 
 This combination removes two limits that have constrained small models:
 
-1. **The repetition tax**: answering the same question about the same document on every visit, burning inference tokens & time, producing answers that may vary slightly each run.
-2. **The trust deficit**: small models hallucinate. Cached answers with Merkle proofs do not hallucinate. They either match a verified record or they do not exist yet.
+1. **The repetition tax.** Answering the same question about the same document on every visit, burning inference tokens & time, producing answers that may vary slightly each run.
+2. **The trust deficit.** Small models hallucinate. A cached answer with a Merkle proof either matches a verified record or does not exist yet.
+
+Our reference implementation is **Aborist**, a Python content-addressed document store that ingests entire corpora at once, computes Merkle commitments at scale, classifies each answer's faithfulness against its sources with a deterministic lexical verifier, & serves cached answers to any peer that produces a matching cache key. Aborist runs against `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_ by default & ships under AGPL-3.0-only at `git.unturf.com/engineering/unturf/aborist <https://git.unturf.com/engineering/unturf/aborist>`_.
 
 Once published, this technique forces a reckoning: every RAG system that cannot prove provenance of its retrieved chunks operates on unverifiable context. Merkle Providence makes provenance a first-class primitive.
 
 We call this stack **Web 2.5**: the existing web's documents & URIs, augmented with machine learning context injection & Merkle-verified answer chains, without requiring a blockchain, a new protocol, or replacement of any existing infrastructure. Web 2.5 runs on top of what already exists. Any page. Any browser. Any small model. Public or private chain. No permission required.
 
 
-Reference Model: Hermes 3 Llama 3.1 8B
+1. The Practitioner With a Phone
+---------------------------------
+
+This paper is for a person with a phone, a browser, & a willingness to participate in machine learning intelligence on their own terms. It is not for the operator of a sixteen-GPU cluster, & it is not for the platform that bills per token. It is for the reader who has watched the cost of capable inference fall by an order of magnitude every eighteen months, who has noticed that an 8-billion-parameter model running on a community endpoint already answers most page-specific questions correctly, & who suspects that the remaining barrier to real participation in machine intelligence is not compute but trust.
+
+Three legs hold up the pattern this paper describes.
+
+**Commodity hardware.** A consumer phone, a refurbished laptop, a Raspberry Pi with an SSD — any device that can run a SQLite database & make HTTPS requests is sufficient. No GPU. No tensor accelerator. No proprietary runtime. The substrate is bytes on disk, hashes over those bytes, & a tamper-evident chain of audit events. The total disk footprint of a working knowledge base scales with the corpus the practitioner cares about, not with the model that answers questions over it.
+
+**Remote inference over open APIs.** A small instruction-aligned model — Hermes 3 Llama 3.1 8B at our reference endpoint `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_, any OpenAI-compatible alternative elsewhere — runs on someone else's hardware, charges nothing or near nothing per call, & answers questions when asked. The model is the engine. It is not the memory & it is not the source of truth. A practitioner whose endpoint disappears swaps in another endpoint of the same class & the cache they have already accumulated remains valid against any model whose ``model_profile_hash`` matches.
+
+**Local provenance.** Every answer that returns from the inference endpoint enters a content-addressed cache on the practitioner's own device. The cache key binds the document the answer was about, the question that was asked, the model that produced it, & a small set of governance dimensions that name how the answer was checked. Each cached answer carries a Merkle proof of origin & a label naming exactly what the runtime could verify about it. The practitioner owns the cache. They choose whether to share it.
+
+These three legs together are enough. A phone, a browser, & a Merkle root let any person operate as a peer in a community truth-seeking system, on equal footing with the largest research lab. The lab can run more inference per second; the lab cannot run *more truthful* inference per answer. Verifiable provenance levels the ground.
+
+The remaining sections of this paper describe the substrate that closes the gap between "the model said so" & "the document & the runtime jointly proved so." The substrate is small. The substrate is open. The substrate is already running.
+
+
+2. Reference Stack & Reverse RAG Primer
 ----------------------------------------
 
-Our reference implementation runs on **Hermes 3**, a fine-tune of Meta's Llama 3.1 8B developed by NousResearch. Hermes 3 builds on Llama 3.1's 128k context window & adds instruction alignment, function-calling discipline, & reasoning consistency that raw base models lack. NousResearch trained Hermes 3 to follow multi-turn conversation formats precisely, making it reliable for our structured providence cache interactions.
+`Reverse RAG <https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html>`_ inverted the standard retrieval pipeline. Where traditional RAG retrieves chunks from a server-side vector database & injects them into the model's context, Reverse RAG observed that the client *already holds the document* the user is reading. Browser-side DOM extraction replaces the vector database. Full-page injection replaces chunk fragmentation. A small model with full document context outperforms a large model with similarity-retrieved fragments on page-specific questions [1]_.
 
-We chose Hermes 3 Llama 3.1 8B for three reasons:
+Our reference inference endpoint is **Hermes 3 Llama 3.1 8B** [4]_ [5]_, a NousResearch instruction fine-tune of Meta's Llama 3.1 8B, served at `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_. The 8-billion-parameter size is a thesis, not a constraint. Eight billion is small enough to run on consumer hardware. Eight billion is fine-tunable by independent labs. Eight billion is replicable by communities, not just corporations. A pattern that works at 8B parameters generalizes upward to larger models without architectural change; a pattern that requires a frontier model to demonstrate is a pattern only the frontier-lab can ship.
 
-**Size matches our thesis.** 8 billion parameters represent a model any person can run on consumer hardware. Our reference deployment hardware & quantization details stay current at `uncloseai.com/inference.html <https://uncloseai.com/inference.html>`_. Our technique produces no value if it requires expensive hardware to demonstrate.
+Hermes 3 adds three properties Llama 3.1's base weights lack: instruction alignment that follows multi-turn conversation formats precisely, function-calling discipline that produces well-formed structured outputs, & reasoning consistency across runs. NousResearch trained Hermes 3 to follow the kind of structured prompt this paper relies on. Any OpenAI-compatible endpoint serving a model of similar class — Qwen3, DeepSeek-V3 small variants, Mistral instruction tunes — is a substitute; the substrate does not require Hermes specifically.
 
-**Fine-tuning demonstrates our point.** Hermes 3 shows that fine-tuning a base model for instruction following, not scaling parameters, produces the reliability gains that matter for user-facing applications. Our Merkle Providence layer extends this logic: fine-tuned behavior + verified cached context beats raw parameter count.
+The combination this paper proposes is straightforward. The model produces text. The runtime extracts evidence from sources. The verifier checks the produced text against the extracted evidence. The cache stores answers content-addressed by the conditions that produced them. The federation layer optionally shares those records with peers. None of these components requires a frontier model. None of these components requires expensive hardware. The complexity is architectural, not computational.
 
-**uncloseai.com serves it freely.** Our public inference endpoint at `uncloseai.com <https://uncloseai.com>`_ runs Hermes 3 Llama 3.1 8B at no cost to any user. Our Reverse RAG pipeline in ``uncloseai.js`` targets this endpoint by default. Our Merkle Providence cache layer builds directly on this existing infrastructure. Any person anywhere, on any device with a browser, accesses our same Hermes 3 instance our paper describes.
 
-Hermes 3 Llama 3.1 8B outperforms many larger models on page-specific questions when Reverse RAG supplies full context. With Merkle Providence caching, it delivers consistent, verifiable answers across sessions. Our paper uses Hermes 3 throughout all examples & benchmarks.
-
-
-1. The Problem Reverse RAG Left Open
---------------------------------------
-
-Reverse RAG solved context retrieval. Client-side DOM extraction replaced vector databases. Full-page injection replaced chunk fragmentation. Small models with perfect context outperformed large models with partial context.
-
-One problem remained: **repetition**.
-
-A user visits a technical document. Hermes 3 Llama 3.1 8B reads 8,000 tokens of page content, classifies the page, & answers their question. One hour later, a different user visits our same document. Our same Hermes 3 instance reads our same 8,000 tokens, classifies our same page, & answers a similar question again. Tomorrow, a third user. Our same 8,000 tokens. Our same classification. Our same inference cycle.
-
-Nothing remembered. Nothing reused. No proof that any two answers came from our same source.
-
-This repetition carries three costs:
-
-- **Compute cost**: every visit re-runs inference on content that has not changed.
-- **Consistency cost**: stochastic inference on identical inputs produces slightly different answers. Two users asking near-identical questions may receive meaningfully different responses from our same page.
-- **Trust cost**: no mechanism exists to verify that an answer actually derived from a specific document version. A model can claim anything.
-
-Merkle Providence addresses all three.
-
-
-2. Merkle Trees as Content-Addressed Cache Keys
---------------------------------------------------
-
-A Merkle tree splits a document into chunks, hashes each chunk, then builds a binary tree of hashes upward until a single root hash remains. This root hash has two properties that make it ideal for caching:
-
-**Property 1: Determinism.** Our same document always produces our same root hash. Two clients processing our same page independently compute identical roots. No coordination required.
-
-**Property 2: Tamper sensitivity.** Any change to any byte of the document changes at least one leaf hash, which propagates upward to invalidate our root. A document that changed since our last visit produces a new root hash automatically. Our cache never serves a stale answer for a modified document.
-
-Cache key construction::
-
-    document_root = merkle_root(chunks(page_content))
-    question_key  = sha256(normalize(user_question))
-    cache_key     = document_root + ":" + question_key
-
-A cache hit at this key means: *an earlier session computed an answer to this question, about this exact version of this document.* Our answer arrives in O(1) time. Our Merkle proof confirms our document version.
-
-A cache miss means: run inference, store our result, extend our chain.
-
-**Git & Mercurial are already Merkle trees.** For source code repositories, we do not need to build our own Merkle tree. Every git commit hash IS a Merkle root: a SHA-1 (or SHA-256 in git 2.x) digest of our entire repository tree at that point in time. Every ``hg`` commit carries an identical guarantee. The version control system has already done our hashing work.
-
-For codebases, our cache key simplifies to::
-
-    document_root = git_commit_hash   # or hg changeset hash
-    question_key  = sha256(normalize(user_question))
-    cache_key     = document_root + ":" + question_key
-
-When a developer commits, our cache key changes automatically. Prior answers expire. Fresh inference runs against our new commit. No manual invalidation. No polling. Our version control system signals our cache boundary by design.
-
-
-3. The Providence Layer: Proof of Origin
-------------------------------------------
-
-"Providence" carries two meanings that both apply here:
-
-**Provenance**: where something came from. A Merkle proof lets any verifier confirm that an answer derived from a specific document version without receiving our full document. Our proof path, a sequence of sibling hashes from leaf to root, constitutes a compact cryptographic certificate of origin.
-
-**Foresight**: the system appears to "already know" answers to questions asked before. From a user's perspective, a cache hit looks like instant comprehension. Our model responded before seemingly finishing to read. This resembles foresight because our prior sessions did our work ahead of time.
-
-A providence record for a cached answer contains the full inference context::
-
-    {
-      "cache_key":        "abc123...:def456...",
-      "document_root":    "sha256:abc123...",
-      "document_uri":     "https://example.com/docs/api",
-      "question_hash":    "def456...",
-      "question_text":    "What does the rate_limit field mean?",
-      "answer_text":      "The rate_limit field specifies...",
-      "merkle_proof":     ["sha256:111...", "sha256:222...", ...],
-      "model_id":         "adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic",
-      "base_uri":         "https://hermes.ai.unturf.com/v1",
-      "temperature":      0.1,
-      "source_type":      "web",
-      "git_commit":       null,
-      "conversation_hash": "9a3f...",
-      "turn_number":      1,
-      "created_at":       1744000000,
-      "hit_count":        0
-    }
-
-Our providence record collects maximum metadata, but only a subset enters our cache key. This distinction matters.
-
-**Tier 1 — Cache Key Inputs.** A difference in any of these fields produces a distinct cache entry:
-
-- ``document_root`` — content fingerprint (Merkle hash or git/hg commit)
-- ``question_hash`` — SHA-256 of normalized question text. Four-step canonicalization, in order: NFC + whitespace collapse + edge-strip, then case-fold to lowercase, then trailing-punctuation strip, then drop standalone English articles (``the`` / ``a`` / ``an``). Trailing chars in the strip set today: ``.?!,;:`` (ASCII), ``？！。、`` (CJK full-width), ``…`` (ellipsis). Pairs (``"`` ``'`` ``)`` ``]`` ``}``) are NOT stripped — naive one-sided stripping breaks balance, and apostrophes carry meaning (``X's`` ≠ ``X``). Articles are matched as exact lowercase standalone tokens, so substrings like ``thesis`` (contains ``the``) stay untouched. Equivalence class: ``who is X``, ``who is X?``, ``Who Is X.``, ``who is the X``, ``who is a X``, ``who is an X？`` all map to the same ``question_hash``, so a providence_cache hit returns the same answer for any of those forms.
-- ``model_id`` — canonical model identifier
-- ``model_revision`` — exact weights revision (HuggingFace commit hash or equivalent)
-- ``quantization`` — fp16, bf16, fp8, int8, int4, q4_k_m, etc. Same weights at different quantizations produce measurably different answers.
-- ``conversation_hash`` — SHA-256 of the full normalized industry-standard chat messages array: every turn in order, system prompt through the final user message. A single-turn Q&A and a 6-turn conversation that arrives at the same final question produce different answers & different cache keys. Callers hash client-side & send only the hash. Message content never enters our logs — Operation Voyeur.
-- ``seed`` — RNG seed when set. A seeded run produces a deterministic answer; a different seed produces a different one. Null seed entries cache on the other five fields alone.
-
-**Tier 2 — Metadata Only.** Stored for research, routing, & audit. Not part of the key:
-
-- ``base_uri`` — inference endpoint URI
-- ``temperature``, ``top_p``, ``top_k`` — sampling parameters
-- ``repetition_penalty``, ``frequency_penalty``, ``presence_penalty``
-- ``max_tokens``, ``context_window``
-- ``backend`` — vllm, llama.cpp, ollama, transformers, TGI
-- ``node_id`` — mesh node that served the request
-- ``inference_ms`` — wall-clock inference time
-
-Tier 2 metadata does not affect cache correctness. Two answers produced at different temperatures from the same model, revision, & quantization, answering the same question about the same document, represent the same logical answer — stochastically equivalent. We store the temperature of the first run that populated our cache. Future hits return that answer regardless of the caller's temperature setting.
-
-Any recipient of this record can verify our Merkle proof against our document root. If our document root matches what they compute from our same URI, our answer carries full provenance. If their computation produces a different root, our document changed, our answer no longer applies to their version.
-
-
-4. Unfirehose as Chain Substrate
------------------------------------
-
-Unfirehose collects JSONL session data from machine learning harnesses across a mesh of compute nodes. Every tool call, every model response, every session event flows into ``~/.unfirehose/unfirehose.db`` via our background ingestion worker.
-
-Our Merkle providence layer extends this existing infrastructure with a providence cache table::
-
-    CREATE TABLE providence_cache (
-      cache_key        TEXT PRIMARY KEY,
-      document_root    TEXT NOT NULL,
-      document_uri     TEXT NOT NULL,
-      question_hash    TEXT NOT NULL,
-      question_text    TEXT NOT NULL,
-      answer_text      TEXT NOT NULL,
-      merkle_proof     TEXT NOT NULL,  -- JSON array of sibling hashes
-      model            TEXT NOT NULL,
-      created_at       INTEGER NOT NULL,
-      chain            TEXT NOT NULL DEFAULT 'private',
-      peer_count       INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE INDEX idx_providence_root ON providence_cache(document_root);
-    CREATE INDEX idx_providence_uri  ON providence_cache(document_uri);
-
-Two chain modes:
-
-**Private chain**: records stay local at ``~/.unfirehose/``. Our personal session history. Our model learns from our own prior work on documents we visit repeatedly. Our chain belongs to us alone.
-
-**Public chain**: records broadcast to peers via our unfirehose router daemon. Any node on our mesh that has processed our same document root can contribute answers. Any node that queries our same document root can receive pre-verified answers from others. Our chain grows with every participant.
-
-Public chains do not share document content. They share proofs. Our Merkle proof proves an answer came from a specific document version without transmitting our document. Document content stays on our originating client, exactly as Reverse RAG intended.
-
-
-5. How Small Models Punch Outside Their Weight Class
--------------------------------------------------------
-
-Parameter count governs a model's ability to reason from first principles. Context quality governs a model's ability to answer questions about specific documents. Verified memory governs a model's ability to give consistent, trustworthy answers over time.
-
-Large models win on reasoning from first principles. Small models, given the right tools, win on everything else.
-
-Merkle Providence Reverse RAG gives small models three tools:
-
-**Tool 1: Full context (from Reverse RAG).** Our same page injection described in our prior paper. Our model receives every word, every heading, every entity, every code block of our document. Nothing retrieved by cosine similarity. Nothing fragmented. Our full document, live from our DOM.
-
-**Tool 2: Verified recall (from our providence cache).** Before our model reads our document, we check our cache. A cache hit returns our answer in milliseconds with a Merkle proof. Our model delivers a verified answer faster than any large model can load our full context. Our small model "already knew" because our prior session did our work.
-
-**Tool 3: Peer-verified answers (from public chains).** On a public chain, our small model benefits from every session any participant ran against our same document version. A document processed by 100 sessions across our mesh produces a rich cache. Our Hermes 3 Llama 3.1 8B instance answers from our collective record, not just its own prior work.
-
-These three tools operate at different timescales:
-
-- **O(1)**: cache hit, local or peer. Instant. No inference required.
-- **O(context)**: Reverse RAG with full page injection. Fast. One inference pass over complete context.
-- **O(reasoning)**: fresh inference on novel questions. Standard. One inference pass, uncached.
-
-A large model operates exclusively at O(reasoning). Our small model with Merkle Providence operates at O(1) for previously answered questions, O(context) for new questions on known documents, & O(reasoning) only for truly novel questions on new documents.
-
-
-6. Architecture
------------------
-
-Stage 1: Document Fingerprinting
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Our same DOM extraction from Reverse RAG runs first. Once our extraction completes, we split our content into 512-token chunks & build our Merkle tree::
-
-    function merkleRoot(chunks) {
-        let layer = chunks.map(c => sha256(c));
-        while (layer.length > 1) {
-            const next = [];
-            for (let i = 0; i < layer.length; i += 2) {
-                const left  = layer[i];
-                const right = layer[i + 1] ?? left;  // odd node doubles itself
-                next.push(sha256(left + right));
-            }
-            layer = next;
-        }
-        return layer[0];
-    }
-
-Our root hash serves as our document fingerprint for our entire session. One hash computation. No server calls.
-
-Stage 2: Cache Lookup
-^^^^^^^^^^^^^^^^^^^^^^
-
-Before any LLM call, we check our providence cache::
-
-    async function lookupProvidence(documentRoot, questionText) {
-        const questionHash = sha256(normalize(questionText));
-        const cacheKey     = `${documentRoot}:${questionHash}`;
-
-        // Check local chain first
-        const local = await db.get(
-            'SELECT * FROM providence_cache WHERE cache_key = ?',
-            [cacheKey]
-        );
-        if (local) return { answer: local.answer_text, proof: local.merkle_proof, source: 'local' };
-
-        // Check public chain peers
-        if (publicChainEnabled) {
-            const peer = await queryPeers(cacheKey);
-            if (peer && verifyMerkleProof(peer.merkle_proof, documentRoot)) {
-                await storeLocal(peer);  // cache locally for future hits
-                return { answer: peer.answer_text, proof: peer.merkle_proof, source: 'peer' };
-            }
-        }
-
-        return null;  // cache miss, proceed to inference
-    }
-
-Stage 3: Inference & Cache Write
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-On a cache miss, our standard Reverse RAG inference runs. Once our answer arrives, we store our providence record::
-
-    async function storeProvidence(documentRoot, documentUri, question, answer, model) {
-        const questionHash = sha256(normalize(question));
-        const cacheKey     = `${documentRoot}:${questionHash}`;
-        const merkleProof  = computeProof(documentRoot, question);  // path to root
-
-        await db.run(`
-            INSERT OR REPLACE INTO providence_cache
-            (cache_key, document_root, document_uri, question_hash, question_text,
-             answer_text, merkle_proof, model, created_at, chain)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [cacheKey, documentRoot, documentUri, questionHash, question,
-            answer, JSON.stringify(merkleProof), model, Date.now(), chainMode]);
-
-        if (chainMode === 'public') broadcastToMesh(cacheKey);
-    }
-
-Stage 4: Proof Verification
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Any party that receives a providence record can verify it::
-
-    function verifyMerkleProof(proof, claimedRoot, leafContent) {
-        let current = sha256(leafContent);
-        for (const sibling of proof) {
-            current = sha256(current < sibling
-                ? current + sibling
-                : sibling + current);
-        }
-        return current === claimedRoot;
-    }
-
-If our document root computed from our verifier's live DOM matches ``claimedRoot``, our answer carries full provenance. Our answer derives from our exact document version our verifier currently views. If our roots diverge, our document changed. Our cache entry no longer applies.
-
-
-7. Public vs. Private Chains
-------------------------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 40 40
-
-   * - Property
-     - Private Chain
-     - Public Chain
-   * - Storage
-     - ``~/.unfirehose/`` local only
-     - Broadcast via unfirehose router mesh
-   * - Participants
-     - One user, one machine
-     - Any node on our mesh
-   * - Document content shared
-     - Never
-     - Never (proofs only)
-   * - Answer content shared
-     - Never
-     - Yes, with Merkle proof
-   * - Trust model
-     - Self-trust: our own prior work
-     - Peer-trust: verified by Merkle proof
-   * - Best for
-     - Personal document libraries, sensitive internal docs
-     - Open documentation, public research, shared reference material
-   * - Cache growth rate
-     - Linear in our own sessions
-     - Linear in mesh participant sessions
-
-Private chains suit corporate knowledge bases, personal research notes, any document our user does not want to share. Our local model benefits from our own prior sessions. No data leaves our machine.
-
-Public chains suit open documentation, public APIs, research papers, any document where sharing verified answers benefits our community. No document content leaves our originating client. Proofs travel instead.
-
-In our proposed design, our unfirehose router daemon would manage chain membership & peer discovery. Our user opts in to public chains per-document-domain or per-session. Our current implementation stays private.
-
-
-8. Forcing the Issue
-----------------------
-
-Some technical formulations compel structural change not because they require adoption but because their existence makes our prior approach indefensible.
-
-Our Merkle Providence layer forces one question onto every RAG system: *can you prove where your context came from?*
-
-Traditional RAG retrieves chunks by cosine similarity. No chunk carries a Merkle proof. No retrieval carries a document fingerprint. Our retrieved context could come from a stale index, a corrupted chunk, or a document that changed since our last ingestion. Our RAG pipeline trusts our embedding similarity as a proxy for relevance. Nothing verifies our source.
-
-Once Merkle-proved answers exist in our ecosystem, unverified RAG answers carry an implicit disclaimer: *I retrieved this from somewhere, I believe it matches your question, but I cannot prove our source was our document you currently view.*
-
-Our providence cache answers carry a different posture: *I computed this answer from our exact bytes of our document whose root hash I can show you. Verify it yourself.*
-
-This posture change does not require every system to adopt Merkle trees immediately. It requires every system to acknowledge that provenance matters, & that systems which cannot demonstrate provenance operate at a disadvantage in trust-sensitive contexts.
-
-Medical documentation. Legal reference material. Security advisories. Financial disclosures. Any domain where "I retrieved something similar" falls short of "I can prove this came from our exact source you cited."
-
-
-9. What the Providence Cache Curates & Aggregates
----------------------------------------------------
-
-Every inference pass through our Merkle Providence layer produces a verified record. Over time these records accumulate into a structured, queryable knowledge base. Here we describe what our cache collects & what emerges from that collection.
-
-**Document fingerprints.** Every document processed — web page, git-versioned file, or raw content — contributes a ``document_root``: a deterministic hash of its content at a specific moment. Our cache accumulates a catalog of every document any session has processed, keyed by content not by name or URI. A document that moves keeps its fingerprint. A document that changes gets a new one.
-
-**Answer records.** For every (document, conversation, model, revision, quantization) combination, our cache stores one verified answer. The answer record carries: the question text, the answer text, the full Merkle proof path, the conversation hash that produced the context, & the model identity & inference configuration that produced the output. These records aggregate into a corpus of verified knowledge about our document collection.
-
-**Conversation context fingerprints.** Our ``conversation_hash`` field captures the full industry-standard chat messages array, system prompt, all prior turns, & the final user message, as a single SHA-256. Our cache accumulates not just answers but the exact conversational paths that produced them. Two agents that reached the same question via different conversation histories leave distinct fingerprints. Over time we observe which conversational approaches yield cache hits & which always miss — signal for prompt engineering.
-
-**Hit counts & reuse rates.** Every cache lookup that finds an existing record increments ``hit_count`` & updates ``last_hit_at``. Our cache aggregates these into a measure of knowledge reuse: which documents get queried repeatedly, which questions recur, which model + quantization combinations serve the most requests. High-hit records represent our most valuable verified knowledge — answers our mesh has found useful enough to retrieve many times.
-
-**Model & endpoint diversity.** Each record carries ``model_id``, ``model_revision``, ``quantization``, & ``base_uri``. Our cache aggregates a record of which models answered which questions about which documents. Over time this produces a comparative dataset: the same question about the same document answered by Hermes 3 at fp8, at int4, by a different model entirely. Our cache does not collapse these — it preserves the full diversity for analysis.
-
-**Inference economics.** ``inference_ms``, ``backend``, ``node_id``, & sampling parameters aggregate into a routing intelligence layer. Our cache knows which nodes answer quickly, which backends run which models efficiently, & which quantization levels trade answer quality for speed. Cache hits carry this history forward — a future routing decision can prefer a node whose cached answers already proved useful.
-
-**Git-versioned knowledge graphs.** For codebase queries, our ``git_commit`` field anchors every answer to an exact repository state. Our cache accumulates a version-annotated knowledge graph of our codebase: "at commit abc123, this function does X; at commit def456 it does Y." When a developer asks "what changed?", our cache surfaces the delta between two commit-keyed answer sets without re-reading any file.
-
-9b. Unfirehose Integration (Proposed)
---------------------------------------
-
-Unfirehose collects JSONL from Claude Code, Orchestra, uncloseai, & agnt.gg harnesses across our mesh. Our providence cache layer does not yet exist in production. This section describes our proposed integration.
-
-We propose extending unfirehose with a ``providence_cache`` table & three new API routes:
-
-``GET /api/providence?uri=...``
-    Returns all cached answer records for a document URI. Includes document root hash, question hashes, answer previews, & peer counts. Lets users audit what our mesh knows about a document.
-
-``POST /api/providence``
-    Stores a new providence record. Accepts ``{ document_root, document_uri, question_text, answer_text, merkle_proof, model }``. Validates our proof before storing.
-
-``GET /api/providence/peers?root=...``
-    Queries our mesh for cached records matching a document root hash. Peer querying remains a future capability, opt-in per domain. Our initial implementation stays private: local cache only, no mesh broadcasting.
-
-Our existing unfirehose dashboard would gain a Providence page: a view of our cache landscape across documents, cache hit rates per domain, & chain health.
-
-
-10. Relationship to Zero-Knowledge Proofs
--------------------------------------------
-
-A Merkle proof constitutes a specific form of zero-knowledge argument: *I can prove this leaf exists in this tree without revealing our other leaves.*
-
-In our context: *I can prove this answer came from this document version without revealing our full document.*
-
-Our full ZKP apparatus (zk-SNARKs, Bulletproofs) provides stronger guarantees & more complex proofs. Merkle proofs provide a simpler, faster, & more practical subset: membership proofs sufficient for our provenance use case.
-
-Our connection to ZKP deepens when our public chain handles sensitive documents. A user could prove their answer derived from a specific confidential document without revealing our document content, our question text, or our answer text. Only our proof path & our document root travel over our network. Our verifier confirms our proof without seeing our data.
-
-This positions our public chain as opt-in verifiable knowledge sharing, not compelled disclosure.
-
-
-11. Why This Matters for Permacomputer
------------------------------------------
-
-Permacomputer infrastructure grows knowledge that outlasts our individual sessions, our individual machines, & our individual participants. Code seeds sprout on any abandoned technology. Knowledge should do our same.
-
-A private chain that lives only on one machine dies with that machine. Our public chain on our unfirehose mesh survives node failures because our same document root on a different node still matches our cached proofs on our other nodes. Our knowledge persists as long as any mesh participant holds a copy.
-
-Our Merkle structure aligns with permacomputer values:
-
-**Truth**: proofs over assertions. Our answer carries a mathematical certificate, not just a model's confidence score.
-
-**Freedom**: private chains for sensitive knowledge, public chains for shared knowledge. Our user chooses. No platform extracts our knowledge without consent.
-
-**Harmony**: cache hits replace repeated inference. Our same compute produces more answers over time. Our mesh grows more efficient as our cache fills.
-
-**Love**: small models with providence caches remove our infrastructure barrier. Hermes 3 Llama 3.1 8B on a consumer GPU, connected to our public chain, answers with our collective memory of our mesh. Our permacomputer does not require our most expensive hardware to deliver our most reliable answers.
-
-
-12. Implementation Roadmap
-----------------------------
-
-**Phase 1: Local private chain (unfirehose extension)**
-
-- Add ``providence_cache`` table to our unfirehose SQLite schema
-- Extend our uncloseai.js Reverse RAG pipeline with pre-inference cache lookup & post-inference cache write
-- Add ``GET /api/providence`` & ``POST /api/providence`` routes to our unfirehose web app
-- Add Providence view to our dashboard
-
-**Phase 2: Public chain via unfirehose router**
-
-- Extend our router daemon with ``/providence/broadcast`` & ``/providence/query`` endpoints
-- Add peer discovery to our mesh probe logic
-- Add per-domain opt-in controls to our settings page
-- Add peer contribution metrics to our Providence dashboard view
-
-**Phase 3: Proof verification in browser**
-
-- Implement ``verifyMerkleProof()`` in our uncloseai.js client
-- Surface proof status in our chat UI (verified badge vs. fresh inference)
-- Add document root display so users can audit our source fingerprint
-
-**Phase 4: Harness-level knowledge graph via unfirehose**
-
-Unfirehose collects JSONL from every harness session across our mesh. Every file read, every tool call, every assistant response produces a record. At the harness level, our Merkle Providence layer extends beyond web pages to entire codebases & research corpora:
-
-- **Commit-keyed cache**: when a harness reads a file, we record ``(git_commit_hash, file_path, question_hash) → answer``. Our same question about our same file at our same commit hits our cache on every future session, on any node in our mesh, without re-reading the file.
-- **Knowledge graph construction**: unfirehose builds a graph of concepts, files, functions, & sessions from harness JSONL. Nodes carry Merkle-verified summaries. Edges carry session provenance. Our graph grows with every harness run.
-- **Graph-first traversal**: a harness navigating a large codebase queries our knowledge graph first. Only cache misses trigger fresh file reads & inference. Whether this reduces token usage, & by how much, remains for future measurement once a prototype exists.
-- **Cross-session continuity**: a new harness session on our same codebase at our same commit inherits our full prior knowledge graph. No re-reading. No re-summarizing. Our mesh memory persists across sessions, machines, & agents.
-
-This positions unfirehose not just as a log aggregator but as a shared, verifiable knowledge substrate for our entire mesh of machine learning agents.
-
-
-13. Aborist: A Python Reference Implementation
+3. Merkle Trees as Content-Addressed Cache Keys
 ------------------------------------------------
 
-Our uncloseai.js Reverse RAG client lives in our user's browser. Our Merkle Providence cache layer described above also belongs in our browser, & in a Next.js logger that aggregates JSONL across our mesh. A complementary surface exists at our other end of our pipeline: a server-side, content-addressed document store that ingests entire corpora at once, computes Merkle commitments at scale, & serves cached answers to any peer that produces matching cache keys.
+A Merkle tree splits a document into chunks, hashes each chunk, then builds a binary tree of hashes upward until a single root hash remains. Merkle's original construction [3]_ paired adjacent leaves to form parents, paired adjacent parents to form grandparents, & so on; the root is a 32-byte fingerprint of the entire tree. Two properties make a Merkle root ideal for caching machine learning answers.
 
-**Aborist** (`<https://git.unturf.com/engineering/unturf/aborist>`_) is our Python reference implementation of that surface. Our codebase ships under AGPL-3.0-only, runs against `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_ by default, & implements every primitive described in Sections 1 through 12 of this paper as working code with measurements on a real corpus.
+**Property 1: determinism.** The same document, chunked the same way, hashed with the same function, always produces the same root. Two clients processing the same page independently compute identical roots. No coordination required.
 
-13.1 Schema: v9.8 Admissibility Ledger
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Property 2: tamper sensitivity.** Any change to any byte of the document changes at least one leaf hash, which propagates upward to invalidate the root. A document that changed since the last visit produces a new root automatically. The cache never serves a stale answer for a modified document.
 
-Aborist's providence cache uses an 8-dimensional cache key, a strict superset of our 6-dimensional key in Section 3. Two extra dimensions formalize what was previously implicit::
+The construction this paper uses prefixes leaves with a domain-separator byte ``0x00`` & internal node combinations with ``0x03``; odd elements at any level duplicate themselves rather than zero-padding. The combine function is non-commutative — ``HashCombine(a, b)`` is distinct from ``HashCombine(b, a)`` — so a proof must carry an ``is_left`` flag for each sibling rather than relying on lexicographic ordering. These choices match Bitcoin's Merkle convention closely & reuse implementations a practitioner can audit independently.
 
-    cache_key = source_root | question_hash | model_profile_hash
-              | conversation_hash | governance_policy_hash
-              | schema_version | canonicalization_version
-              | chunking_version
+A simple cache key construction looks like this::
 
-Bumping any one stales every prior cache record, so a chunker change or a canonicalization rule change cleanly partitions our cache namespace. Records carry a ``falsification_state ∈ {live, failed, stale, quarantined}``: queries always filter on ``state='live'``, & a separate ``falsifications`` table logs every state transition with ``cache_key``, reason, actor, & ``audit_event_hash``.
+    document_root = merkle_root(chunks(document_content))
+    question_key  = sha256(normalize(user_question))
+    cache_key     = sha256(document_root || question_key)
 
-Every state-changing operation (ingest, distill, falsify, evict, rehydrate, burn, mesh epoch rotation, snapshot creation) appends one row to a tamper-evident audit chain::
+A cache hit at this key means: an earlier session computed an answer to this question, about this exact version of this document. The answer arrives in O(1) time. The Merkle proof confirms the document version.
+
+**Git & Mercurial are already Merkle trees.** For source code repositories, the practitioner does not need to build their own Merkle tree. Every git commit hash IS a Merkle root: a SHA-1 (or SHA-256 in git 2.x) digest of the entire repository tree at that point in time. Every Mercurial changeset carries an identical guarantee. Aborist's git & Mercurial source adapters use the commit hash directly as the document_root — the version control system has already done the hashing work, & the cache boundary aligns automatically with each commit.
+
+
+4. The Eight-Dimensional Cache Key
+-----------------------------------
+
+The simple two-dimensional construction in §3 is sufficient when the only variables are the document & the question. In practice an answer also depends on which model produced it, what conversational context preceded it, what verification policy the runtime applied, & which versions of canonicalization & chunking were in force. The Merkle-AGI v9.8 admissibility ledger formalizes these as eight cache-key dimensions::
+
+    cache_key = sha256(
+        source_root              ||  # Merkle root over the document(s) the answer was computed against
+        question_hash            ||  # SHA-256 of the canonicalized question text
+        model_profile_hash       ||  # model_id + revision + quantization + sampling-determinism markers
+        conversation_hash        ||  # SHA-256 of the full normalized chat-messages array
+        governance_policy_hash   ||  # verifier policy, answer mode, prompt template versions
+        schema_version           ||  # v9.8.0 today; bumped when the schema changes
+        canonicalization_version ||  # norm-v1 today; bumped when normalization rules change
+        chunking_version             # tok-512-v1 today; bumped when the chunker changes
+    )
+
+Each dimension partitions the cache namespace cleanly. Bumping any one stales prior records on lookup, never on disk: the records remain, but a new lookup with the bumped dimension misses them & triggers fresh inference. No migration. No deletion. No coordination. The eight dimensions are the architectural seams along which the cache cleaves.
+
+A few dimensions deserve specific attention.
+
+The **``question_hash``** computes from a four-step canonicalization in fixed order: NFC + whitespace collapse + edge-strip; case-fold to lowercase; trailing-punctuation strip (ASCII ``.?!,;:``, CJK full-width ``？！。、``, ellipsis ``…``); drop standalone English articles ``the`` / ``a`` / ``an``. Apostrophes & paired quotes survive untouched because naïve one-sided stripping breaks balance & apostrophes carry meaning. The equivalence class is intentional: ``who is X``, ``who is X?``, ``Who Is X.``, ``who is the X``, ``who is a X`` all map to the same hash, & the cache returns the same answer for any of those forms.
+
+The **``conversation_hash``** SHA-256s the full industry-standard chat-messages array: every turn in order, system prompt through the final user message. A single-turn Q&A & a six-turn conversation that arrives at the same final question produce different cache keys & different answers. Callers may hash client-side & send only the hash; message content never has to enter logs.
+
+The **``governance_policy_hash``** is the most powerful seam. It folds the verifier policy, the answer mode (quote / pointer / JSON), the prompt template version, the entity-policy variant, the warrant-check enabled flag, the wikitext-base version, & the maximum-claims-per-answer ceiling into a single hash. Tightening any one of these — flipping ``entity_policy`` from ``strict`` to ``proximity``, adding a hard verifier check, swapping the system prompt — bumps the hash & cleanly partitions the cache. Old records stay on disk as historical witnesses of what the prior policy classified.
+
+The **``source_root``**, finally, generalizes the document_root from §3 to handle multi-source contexts. When an answer was computed against five retrieved documents instead of one, ``source_root`` is the Merkle root over the sorted distinct document_roots that contributed. Single-source answers degenerate to the single document_root; multi-source answers carry an aggregate fingerprint that any other peer can verify.
+
+
+5. The Audit Chain & Falsification States
+------------------------------------------
+
+Cryptographic provenance for individual answers is necessary but not sufficient. A practitioner also needs to prove the *history* of their substrate: every ingest, every distill, every reclassify, every falsification, every mesh epoch rotation, every snapshot creation, in order. Tampering with a single record after the fact must be detectable at the substrate level, not just at the per-record level.
+
+Aborist appends every state-changing operation to a tamper-evident chain in the local SQLite database::
 
     event_hash = sha256(prev_event_hash || canonical_json(body))
 
-Verification is purely local: re-hash forward & confirm. A break in our chain signals tampering on our DB at a specific event index.
+The first event hashes a fixed null-prefix; every subsequent event hashes its own canonical body together with the previous event's hash. Verification is purely local: re-hash forward & confirm. A break in the chain at index ``i`` proves that some operation touched the database between ``i-1`` & ``i+1`` without writing a corresponding audit row, & the operator knows the exact range to investigate. The check is O(1) per shard via a ``LEFT JOIN`` query that counts dangling ``prev_event_hash`` references; zero means intact.
 
-Two leaf-removal verbs cover different stages of corpus life:
+Records in the providence cache carry a ``falsification_state ∈ {live, failed, stale, quarantined}``. Cache lookups always filter on ``state='live'``. Drift in the underlying source produces ``stale``. Verifier downgrades produce ``failed``. Operator-quarantined records produce ``quarantined``. A separate ``falsifications`` table logs every state transition with the cache_key, the reason, the actor, & the audit_event_hash of the row that recorded the transition.
 
-- **Falsify** (audit-preserving). Flips ``falsification_state`` from ``live`` to ``failed`` / ``stale`` / ``quarantined`` and writes a row to ``falsifications`` (cache_key, reason, actor, timestamp, audit_event_hash). Cache lookups always filter on ``state='live'`` so the record stops being reachable, but it stays on disk as forensic history. Use when downstream consumers may have ingested the answer.
+Two leaf-removal verbs cover different stages of corpus life.
 
-- **Burn** (kindergarten leaf delete). Actually deletes the row. Kept off the default verb path because it forfeits history. Refuses if the leaf has children — for ``providence_cache`` leaves: any falsifications referencing the cache_key; for ``documents``: any derivations using the doc as a source, any incoming edges, any providence records keyed on its document_root; for ``cores``: same as documents plus downstream cores in derivations. ``--force`` overrides for cleanup edge cases & records ``forced=True`` plus the child count at burn time in the audit body. Always writes a ``providence_burn`` / ``document_burn`` / ``core_burn`` event regardless of forcing. Use during early/scratch corpus building before downstream consumers exist; otherwise prefer falsify.
+**Falsify** is audit-preserving. It flips ``falsification_state`` from ``live`` to ``failed`` / ``stale`` / ``quarantined`` & writes a row to ``falsifications``. Cache lookups stop returning the record because the live filter excludes it, but the row stays on disk as forensic history. Falsify is the right verb when downstream consumers may have ingested the answer; the historical witness is preserved.
 
-Both surfaces (``aborist providence --falsify`` & ``aborist burn``) compose with cross-shard scope. Chain integrity after either operation is verifiable in O(1) per shard via ``make chain-check-shards`` — a ``LEFT JOIN`` query that counts dangling ``prev_event_hash`` references; 0 = chain intact, non-zero = a break to investigate.
+**Burn** is the kindergarten leaf-delete. It actually removes the row. Burn refuses by default if the leaf has children — for ``providence_cache`` leaves, any falsifications referencing the cache_key; for ``documents``, any derivations using the doc as a source, any incoming edges, any providence records keyed on its document_root. A ``--force`` override exists for cleanup edge cases & records ``forced=True`` plus the child count at burn time in the audit body. Burn always writes a corresponding burn event regardless of forcing.
 
-13.2 Multi-Source ETL
-^^^^^^^^^^^^^^^^^^^^^^
+The default verb is falsify. Burn is reserved for early or scratch corpus building, before downstream consumers exist & before the audit chain has accumulated enough history to make deletion a loss of context.
 
-Aborist ships with five source adapters, each yielding `Document` objects through our same `ingest_source` pipeline:
 
-- **Wikipedia Phase III SQL dumps** (2003–2005). Hand-rolled streaming parser for MySQL extended INSERT syntax, bz2-aware, ~3 minutes per 128k articles on commodity hardware.
+6. Aborist — Reference Architecture
+------------------------------------
 
-- **Wikipedia Phase IV XML dumps** (2006+). Streaming `iterparse` over `pages-articles.xml.bz2` with bounded memory; supports `pages-meta-history.xml.bz2` for full revision history. Tested against 2010-11 enwiki at 6.2 GB compressed.
+Aborist [13]_ is a Python content-addressed document store built on a single SQLite file per shard. Three layers stack on the shared schema:
 
-- **xAI Grok account exports**. One Document per conversation, every message rendered with sender/model/timestamp inline.
+**Surface.** Ingested documents — Wikipedia dumps, HTML pages, git repositories, Mercurial repositories, anything with a URI. Each document is normalized, chunked at 512 tokens (the default ``tok-512-v1`` chunker), Merkle-rooted, & FTS5-indexed [10]_. A surface document's ``document_root`` is the Merkle root over its sorted chunk leaf hashes. Re-ingesting the same content produces the same root & no-ops. Re-ingesting different content under the same URI produces a new document & a ``supersedes`` edge linking the old version to the new one — lossless history.
 
-- **Git & Mercurial repos** (self-play). Walks `git ls-tree HEAD` or `hg manifest`; one Document per text file. Re-ingest after new commits auto-chains via `supersedes` edges, so our Merkle tree grows alongside our repository.
+**Core.** Distilled documents Merkle-bound back to surfaces via per-chunk inclusion proofs in ``derivations.proof_blob``. A core might be a TF-IDF keyword summary, a first-sentence extraction, a hand-curated rewrite, or a recursive distillation of other cores. The derivation proof commits the relationship: a core asserts "I was distilled from these specific surface chunks at this specific Merkle proof path," & any verifier can confirm the assertion against the surface tree. Cores never evict — see §13.
 
-- **HTML pages**. Robots-aware fetch with `selectolax` extraction; hyperlinks become outbound edges.
+**Providence cache.** Q&A records keyed on the eight-dimensional cache key from §4. Each record carries the question, the answer, the audit_mode label, the verifier_method that fired, the unverified spans, the n_verified count, the source roots that contributed, & the falsification_state. Records are content-addressed by the cache_key itself.
 
-- **Live website crawl** (off by default, ``aborist[crawler]`` extras). BFS-discovers same-domain URLs from a seed via a verbatim lift of agents.ai.unturf.com's `AsyncWebFetcher` (ethical: respects robots.txt Disallow + Crawl-delay, with a `fast_mode` flag that drops the delay for trusted hosts). Discovered URLs are filtered: feeds (atom/rss/rdf/sitemap) and image/video/audio paths are crawl infrastructure, not knowledge content, & skip ingest. ETag and Last-Modified per response are captured into ``document_http_meta`` so a subsequent ``aborist crawler recrawl-check`` round can issue conditional ``If-None-Match`` / ``If-Modified-Since`` HEAD requests; 304 = fresh (no body transfer), 200 = stale (re-ingest), 404/410 = gone, other = unreachable. The crawl shard filename is derived from the seed hostname (``crawl_<host_with_underscores>.db`` under ``$(SHARDS_DIR)``) so cross-shard query picks up new domains without configuration.
+Six source adapters ship out of the box: Wikipedia Phase III SQL dumps, Wikipedia Phase IV XML dumps, xAI Grok account exports, git & Mercurial repositories, HTML pages with optional ``selectolax`` extraction, & a live website crawler under the ``aborist[crawler]`` extra (off by default, with full robots.txt compliance & ETag/Last-Modified-aware re-crawl). Adding a seventh corpus is one new ``Source`` subclass implementing ``iter_documents()``.
 
-Adding a seventh corpus is one new `Source` subclass. Our contract is intentionally minimal: yield Documents, our pipeline canonicalizes, chunks, hashes, persists.
+Three orthogonal storage optimizations stack against SQLite-resident corpora: zstandard-compressed chunk content [11]_, ``WITHOUT ROWID`` on the edges table, & contentless FTS5. Apples-to-apples re-ingest of the 2003-05-16 enwiki cur dump (128,245 documents) measured **67% storage reduction** (2.6 GB → 857 MB across four shards) with bit-identical Merkle roots. Storage cost dropped by two-thirds with no change to content-addressed identity.
 
-13.3 Storage Cheats: 67% Reduction Measured
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The substrate also distinguishes hard hashes from soft hashes. Hard hashes — SHA-256 over canonical bytes — back commitments, proofs, & cache keys. Soft hashes — embeddings, TF-IDF scores, lexical similarity counts — back ranking & retrieval. The soft channel never enters the proof path. A retrieval ranker that reorders search results does not change any cache_key, document_root, or audit_event_hash. The architectural separation prevents soft-signal drift from contaminating cryptographic claims.
 
-Three orthogonal optimizations stack against SQLite-resident corpora:
 
-- **Zstandard-compressed chunk content.** Plaintext bodies compress 3 to 5x at level 3. Magic-byte detection on read makes legacy uncompressed rows transparent. Cores stay plaintext so SQL substring queries continue working.
+7. The Layered Verifier — Lexical, No LLM in the Proof Path
+------------------------------------------------------------
 
-- **WITHOUT ROWID on edges.** Our composite primary key covers every column, so a default rowid-keyed table near-doubles row data in our PK index. WITHOUT ROWID makes our table itself a B-tree keyed on our PK. We dropped our partial dst_uri index too, since only one analytic query actually filters on dst_uri.
+A Merkle proof binds an answer's *context* to a content-addressed root. It does not bind the *answer* to that context. A model handed a chunk of episode plot summaries can correctly recite the entity names that appear in the chunk, then complete the response with character bios drawn from training data — names that match, claims that emerge. Both layers are real. Conflating them under one strong label overclaims the proof.
 
-- **Contentless FTS5.** Our prior schema had FTS5 store its own copy of every chunk's text. Contentless mode (`content=''`, `contentless_delete=1`) keeps only our inverted index. Snippets are built in Python by joining `chunks_fts.rowid = chunks.chunk_id` & decompressing. Requires SQLite 3.43+.
+Aborist's verifier classifies *per answer*, by post-LLM faithfulness check, never as a default. Four lexical strategies run in sequence; the first to find evidence classifies the answer & later strategies stop. Each strategy is a deterministic operation on canonicalized text — substring tests for the first three, token-coverage for the fourth — that produces the same byte-for-byte result on every machine.
 
-Apples-to-apples reingest of our 2003-05-16 enwiki cur dump (128,245 documents):
+**Quote.** The system prompt instructs the model to wrap every factual claim in a verbatim double-quoted span from a source. The verifier walks the answer linearly, locates every double-quote character, & pairs them sequentially: 1st & 2nd, 3rd & 4th, & so on. Each pair brackets one quoted span. Pure-regex pairing fails on adjacent quote pairs because every ``"`` looks like both an opener & a closer to a regex; sequential pairing eliminates the artifact.
 
-::
+**Span.** When the model declines to quote but writes lines verbatim from source, bullet & sentence units from the answer are substring-tested against the context. Catches paraphrased-into-prose answers where every claim is grounded but the formatting drifted from explicit quotation.
 
-    OLD schema:  2.6 GB across 4 shards    (~21 KB / doc)
-    NEW schema:  857 MB across 4 shards    (~6.7 KB / doc)
-    reduction:   -67%
+**Entity.** When neither quote nor span lands evidence, multi-word capitalized phrases extracted from the answer are substring-tested. Catches Wikipedia-infobox cases where structured ``[[Wikilink]]`` markup paraphrases into prose. Entity-existence is, however, weaker than claim-level evidence — a model could correctly name entities while making *claims around them* that came from training. Aborist defaults to a ``proximity`` policy: pass only if the verified entities cluster densely in the source (default: at least three within a 300-character window). Cast lists, infoboxes, & rosters pass; scattered incidental mentions do not.
 
-Same document set, same Merkle roots, identical query results. Storage cost dropped by two-thirds with no change to our content-addressed identity.
+**Paraphrase.** A token-coverage probe on prose-shaped sentence spans. Tokens of length ≥4 chars are extracted, filtered against an English stopword set, & the fraction of remaining content tokens present in the normalized base context is computed. The span passes when coverage clears 0.85 & at least four content tokens contribute. Paraphrase fires only on prose-shaped spans, not lists of proper nouns, so the entity strategy continues to handle proper-noun spans where proximity policy can tight-cluster check.
 
-13.4 Retrieval Quality: Recall Fixes
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The verifier returns evidence units & a classification — that's the entire output surface. No per-quote diagnosis fields, no match-confidence scores, no partial-match indicators. The binary discipline is deliberate: classification is a hard bit, not a soft score, & enters ``governance_policy_hash`` cleanly. Diagnostics that ask "*why* didn't this span ground?" live in sidecars — read-only verbs that pull the same source chunks, run the same canonicalizations, & report. Sidecars never write to the providence cache, never extend the audit chain, never alter any v9.8 field.
 
-Our reverse-RAG client picks one document; aborist picks K from a corpus & merges. The ranking pipeline grew through five live-corpus catches; each fix earned its place by failing on a real query. The current shape is a multi-stage filter with three accept paths & a stem-tolerant token matcher.
+Source canonicalization runs in two places, gated by the same ``policy["base_version"]`` flag. Wikitext-base normalization (``aborist/wikitext.py:to_base()``) drops ``<ref>`` tags & namespace-prefixed wikilinks, calls ``mwparserfromhell.strip_code(normalize=True, collapse=True)`` [12]_, & collapses whitespace. The conversion runs *before the LLM call* so the model sees prose a human reader would see, & runs again *inside the verifier* so the substrate compares like-against-like. Same canonicalization on both sides means the verifier compares prose-grade text to prose-grade text, not prose to wikitext markup. The function is pinned by ``BASE_VERSION = "wikitext-base-v1"`` & folds into ``governance_policy_hash``; bumping the version cleanly partitions the cache.
 
-13.4.1 Title-search baseline dominated FTS5
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The schema column underneath this layer carries an audit_mode trichotomy that the renderer maps to the four-rung ladder described in §9. Programmatic callers see the underlying token unchanged; human-facing surfaces read the ladder. The trichotomy is an inheritance from the broader Merkle-AGI substrate; the ladder is the language this paper uses.
 
-A single-token title overlap against a generic word like ``"intel"`` used to score 60+, swamping body-relevant FTS5 hits scoring 5-15. Result: every ``Intel_*``-prefixed legacy article flooded our top-K for any "intel" query, even when a contemporary article like ``Pentium_4`` had body relevance & no title overlap. Our fix dropped our title-search baseline so title overlap competes with FTS5 instead of monopolizing it. Title contributes a token-overlap boost (``overlap × 10.0``) on top of BM25; it doesn't run as a separate ranking signal.
 
-13.4.2 BM25 short-doc bias surfaced stubs over topical articles
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+8. Claim-Lattice Mode — Runtime Owns Quote Text
+------------------------------------------------
 
-A 1-paragraph stub mentioning every query token once outranked a 30-page topical article where our same tokens are diluted by length. We added a body-coverage rerank using ``sum(sqrt(count(t))) * 0.6`` over query tokens for each surviving candidate. Sqrt scaling differentiates stubs from topical articles without letting enumerative list pages run away with our score.
+The verifier in §7 audits answers the model wrote in its own words. It catches one defect class cleanly: did the quoted text appear verbatim in source. It cannot catch a related class: **synthetic elision**. A model emitting ``"prefix [...] suffix"`` produces a span whose halves both verify on their own, glued together by a model-typed ellipsis that flattens ground truth. The simple verifier reports a clean classification on a frankenquote.
 
-Verified on our 2010-11 enwiki corpus (3.47M documents, no distill cores):
-
-::
-
-    before:  Intel_4040 (1974 microcontroller stub) ranked #1
-             for "what is the fastest intel CPU?"
-    after:   Intel_Core_2 #1, Intel_Atom #2, Intel_4040 #3
-             answer cites Core i7 specifications correctly
-
-13.4.3 Three accept paths in the title-relevance filter
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A hit clears ``_filter_by_title_relevance`` if any one of three accept paths fires:
-
-1. **Title-token overlap.** Strongest signal. Direct stem-aware match between the query's title-tokens and the document's title-tokens. Synonym fallback (``aborist.concepts.synonym_expand``, backed by the ``concept_relations`` table — see 13.4.11) only fires for 1-token queries — multi-token queries that admit synonyms over-recall (an "amd"-querying agent picking up `Intel_*` titles via the Intel/AMD rivalry group).
-
-2. **TF-IDF core keyword overlap.** Closes the gap for neologisms that never appear in titles but are distinctive enough to be the TF-IDF top-keywords of conversation bodies. ``"permacomputer"`` was the canonical case — never a Wikipedia title, but a strong TF-IDF signal in Grok-conversation cores. Without this path, neologism queries returned empty.
-
-3. **Body density.** ``_body_density_passes`` admits docs that mention at least ``breadth_threshold`` distinct query tokens AND have ``total_mentions >= 3``. Cheap proxy for "actually about the topic" when neither title nor core caught it.
-
-Rivalry exclusion (``rivalry_excluded`` in ``aborist/concepts/query.py``, reading the ``concept_relations`` table — see 13.4.11) applies on every accept path: an Intel-titled doc dropped from an AMD query, & vice versa. Caught the case of competitor docs leaking into single-side queries when both share a topic page.
-
-13.4.4 Breadth-required filter — multi-token queries demand co-occurrence
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Pre-2026-04-29 the body-density rule was "at least HALF the tokens present" — too lenient for 2-token queries. Fox caught this on 2026-04-29: ``"who is supermans girlfriend?"`` admitted seven unrelated ``Girlfriends``-titled articles (TV show, films, songs) because they had ``girlfriend`` in body but no ``superman`` whatsoever; the half-rule passed at 1-of-2.
-
-The fix scales the breadth threshold with query length::
-
-    ≤ 2 query tokens   require ALL distinct tokens present (in body and in title)
-    3+ query tokens    require N - 1 (one weak signal token may miss)
-
-Plus the depth check (``total_mentions >= 3``) still gates body-density. Title-token-overlap shares the same scaling. The "3+ require N-1" path lets one query token miss for long queries where models throw filler in (``"what is the plot of the matrix film?"`` admits docs that have all of ``plot``/``matrix``/``film`` even when ``what`` is filtered out as a stopword & ``the`` doesn't count).
-
-Verified on the same enwiki corpus:
-
-::
-
-    before:  Girlfriends (1991 album), Girlfriend (Avril Lavigne song),
-             Girlfriends (TV series), Girlfriends Films, ...
-             — 7 of 8 top hits unrelated to Superman
-    after:   Lois_Lane #1, Superman_in_film #2, Smallville #3, ...
-             — Superman/Lois Lane mythology surfaces correctly
-
-13.4.5 Stem-aware token matching — possessive & plural collapse
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Same ``supermans girlfriend`` defect had a second cause: ``superman's`` from the question canonicalized to ``supermans`` (apostrophe stripped by ``_TITLE_TOKEN_RE``), which doesn't substring-match the bare ``superman`` in source bodies. Plurals had the symmetric problem: ``girlfriends`` query token vs ``girlfriend`` source mentions.
-
-``_stem_token_for_match`` is a one-line lite stemmer: trailing ``s`` strip on tokens of length > 4 that don't end in ``ss``. Conservative — short tokens (``"is"``, ``"as"``, ``"us"``) keep their ``s``; ``"miss"``/``"class"``/``"chess"`` are skipped. Both query tokens & document tokens pass through it before set comparison & body counting; matches in either form score.
-
-This is a soft normalization step BEFORE the hard hash. ``question_hash`` itself does NOT stem — it canonicalizes by article-strip + trailing-punct-strip, which is enough for the equivalence-class layer. Stemming lives only in the retrieval ranker, where over-recall is preferable to under-recall (filtering happens later).
-
-13.4.6 Per-source context cap — no single doc monopolizes the budget
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Fox 2026-04-29: a query for ``"who is batman?"`` returned 8 sources but the LLM cited only 2 in its answer. Cause: ``List_of_Batman_comics`` (an 80 KB+ bibliography) was the top FTS5 hit & consumed the entire 60 KB ``max_context_chars`` at hit #1, leaving every subsequent source dropped with ``char_budget <= 0``.
-
-The fix caps each top-K hit at ``max_context_chars / top_k`` chars before respecting the global budget. With ``top_k=8`` and ``max_context_chars=60000``, each source ships at most 7,500 chars. Bibliographies still appear in the source list but as one slice among many; the actual character article (``Batman``), the franchise page, the film article, the rogue's gallery, etc., all reach the LLM. Multi-source diversity restored without raising the global budget.
-
-::
-
-    before:  8 sources retrieved, 1 in context (List_of_Batman_comics ate 60 KB)
-    after:   8 sources retrieved, 8 in context (each capped at 7,500 chars)
-
-13.4.7 Worked example: dinosaurs in Jurassic Park
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Query: ``"what dinosaurs where in jurassic park film?"``. After stopword + stem: ``{dinosaur, jurassic, park, film}``. 4 tokens, so ``title_breadth = N - 1 = 3``.
-
-::
-
-    title-overlap accept (3 of 4 stems in title):
-        Jurassic Park (film)         {jurassic, park, film}
-        Jurassic Park (film score)   {jurassic, park, film}
-        Jurassic Park III (film score) {jurassic, park, film}
-
-    body-density accept (≥ 3 of 4 distinct tokens in body, total ≥ 3):
-        Jurassic Park (franchise)
-        List of Jurassic Park characters
-        Jurassic Park: Operation Genesis
-        Jurassic Park video games
-        The Lost World: Jurassic Park
-
-8-source context, each ≤ 7,500 chars after wikitext-base strip. The model produced 4 quoted spans (Brachiosaurus, Velociraptor, T-rex, Dilophosaurus); 3 verified verbatim, 1 contained the model's own ``[...]`` elision marker & failed substring match. Final classification: HYBRID / quote / 3-of-4. The unverified span surfaces in ``aborist inspect``, where an operator can decide whether the elision is benign or worth re-asking under a tighter prompt.
-
-13.4.8 Phrase-pattern route — closing the allusion / reference-frame gap
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The three accept paths in 13.4.3 (title-token overlap, TF-IDF core, body density) all key on individual content tokens. They miss a class of query whose diagnostic signal lies in a verbatim multi-token sequence rather than in any single token. Caught live 2026-05-01 by fox on::
-
-    Q: "has oceania always been at war with east asia"
-
-Pre-fix, the system surfaced literal-geography articles (``Oceania``, ``Asia``, ``Far East``, ``East Germany``) & answered as if asked about real-world regions. The intended frame: George Orwell's *Nineteen Eighty-Four*, where the Party's propaganda treats Oceania as eternally at war with Eastasia despite alliances changing across the novel's continuity. The 1984 article exists in the 2003 enwiki corpus, but its title shares zero content tokens with the question, so even FTS5 phrase MATCH on ``"always been at war"`` recovered the article only to have ``_filter_by_title_relevance`` drop it before rerank.
-
-Two paired changes close the gap:
-
-1. **Phrase-pattern search route in** ``_search_corpus``. For each n-gram extracted from the question (n=6 score 100, n=5 score 90), run an FTS5 quoted-phrase ``MATCH`` & add hits to the candidate pool. Stopwords stay IN the n-gram — diagnostic value of an allusion lives in the exact sequence including function words (``"always been at war"`` >> ``"always war"``). 4-grams got tried & rejected: ``"always been at war"`` matches generic war-history articles too noisily for downstream rerank to separate. 5+ tokens trade recall for precision; most allusions (``"may the force be with you"``, ``"winter is coming"``, ``"to be or not to be"``) survive at length 5 or higher.
-
-2. **Accept-path 4 in** ``_filter_by_title_relevance``. Phrase-route hits get a ``phrase_match_roots`` set threaded back from search; the filter passes any hit whose ``document_root`` lives in that set, regardless of title-token overlap. Without this path, the route from #1 retrieves the right article only to have it filtered out before it can rerank into top-K. Mirrors the existing TF-IDF core accept-path: a structural signal that bypasses surface-token gates.
-
-A latent bug surfaced & got fixed alongside: ``_search_corpus`` previously returned a bare list while the caller did ``getattr(hits, "_core_match_roots", set())`` to fish out a sidecar set, but the sidecar attribute was never attached. The TF-IDF core accept-path silently received an empty set for an unknown duration. ``_search_corpus`` now returns a tuple ``(hits, core_match_roots, phrase_match_roots, root_to_shard)`` so both routes thread correctly.
-
-Verified live::
-
-    before:  HYBRID 2/16, sources: Oceania, Asia, Outline of Oceania, Far East,
-             Decolonisation of Oceania, Central Asia, East Germany, ...
-             — Nineteen Eighty-Four nowhere in top-K
-    after:   EVIDENCE-LINKED 1/1, citation [E13 | Nineteen Eighty-Four | 682f0a11]
-             answer: "The text does not directly state... The passage describes
-                      a change in alliances, where Oceania switched from being
-                      allies with Eastasia to being allies with Eurasia, and
-                      the public was manipulated to accept this change..."
-
-The route generalizes beyond Orwell. Any verbatim 5+ token sequence from the question that appears in an article body lifts that article into consideration, regardless of whether the corpus document carries an allusion-bearing title. Per fox's 2026-05-01 review: "*A reference query often requires answering under multiple frames, not picking one frame and discarding the others.*" The retrieval side now surfaces the right frame; the answer-compilation side (multi-frame polarity contract) lives as Ticket #000002 in ``docs/`` & remains future work.
-
-13.4.9 Template-phrase stopwords on FTS5 MATCH
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A second 2026-04-30 retrieval miss exposed the dual: ``"tell me all there is to know about york england?"`` returned ``Charles I of England``, ``Elizabeth I of England``, ``Church of England``, etc. Pre-fix, AND-mode FTS5 expanded the question to ``"all" AND "there" AND "know" AND "york" AND "england"``, which favored "X of England" articles that incidentally mention every template token over the bare ``York`` article whose body lacks ``"all"``/``"there"``/``"know"``.
-
-``_FTS5_STOPWORDS`` (in ``aborist/search/fts5.py``) & ``_TITLE_STOPWORDS`` (in ``aborist/qa/query.py``) now strip ``tell show describe explain summarize say give list find make please all there know everything anything something`` plus the standard English stopword set. They must stay in sync — both filter the same set of question-shaping tokens. Retrieval-time only: stopwords don't enter ``cache_key`` or ``governance_policy_hash``.
-
-13.4.10 Title-LIKE search ORDER BY token-hits
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A 2026-05-02 retrieval miss surfaced two compounding defects in the title-LIKE pass:
-
-::
-
-    Q: "what date did back to the future come out?"
-    Pre-fix top-8: trilogy, ride, animated-series, The Future,
-                   Future Husband, The Day You Come, Ratchet & Clank
-                   Future, Future plc — film article entirely absent.
-
-(1) ``_search_titles`` had no ``ORDER BY``. SQLite returned rows in arbitrary internal order; ``LIMIT 32`` truncated before the genuine matches landed. The ``Back to the Future`` film article (title contains BOTH ``back`` AND ``future``) lost the LIMIT race to substring-match junk: ``Out (poker)`` (single-token match on ``out``), ``Aberdeen, South Dakota`` (``south`` contains ``out``), ``Backplane`` (``back`` substring), ``Outline of biology`` (``out`` substring), etc.
-
-(2) The caller's post-filter check used substring match (``if t in title_lower``) — same defect at a higher layer. ``"south"`` contains ``"out"``, ``"outline"`` contains ``"out"``, ``"backbone"`` contains ``"back"`` — all passed the no-op overlap check.
-
-Two paired fixes:
-
-(a) The SQL builds a token-hit score via ``CASE WHEN LOWER(title) LIKE ? THEN 1 ELSE 0 END`` per token & ORDERs BY ``(title_score DESC, LENGTH(title) ASC)``. The film article's score = 2 (back+future) ranks above garbage's score = 1. Title length asc tie-breaks toward title purity (shorter title + same overlap = higher per-token signal).
-
-(b) The post-filter intersects token-sets stem-aware via ``_title_query_tokens`` & ``_stem_token_for_match``. Word-boundary semantics; only genuine title tokens count.
-
-Verified live: post-fix the BTTF film article ranks #1, the trilogy at #2, junk gone from top-8.
-
-13.4.11 Concept relations — corpus-derived synonym & rivalry layer
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Synonym expansion (an "athlon" query also retrieving AMD-titled docs) & rivalry exclusion (an Intel-titled doc dropping from an AMD query) shipped 2026-04-27 as a small Python module of hand-curated ``frozenset``\ s. The original commit message itself flagged the limit::
-
-    Phase 1: hand-curated. Phase 2 idea: derive from Wikipedia's
-    category graph or "See also" sections.
-
-Phase 1 didn't scale. Adding a domain meant editing Python source, committing, pushing, redeploying. A 3.47M-doc corpus has thousands of concept families; hand-curating them is a fool's errand. The corpus already encodes the relationships we'd be hand-rebuilding — every wikilink already lands as an ``edges`` row at ingest, every HTML ``<a href>`` already lands as an ``edges`` row from ``aborist/sources/html_page.py``. Phase 2 reads what's already there.
-
-Phase 2 (2026-05-01) replaces the frozensets with a per-shard ``concept_relations`` SQLite table::
-
-    CREATE TABLE concept_relations (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_root     TEXT NOT NULL,
-        relation_kind   TEXT NOT NULL CHECK (relation_kind IN
-                            ('synonym','antonym','rivalry','category')),
-        token           TEXT NOT NULL,
-        target          TEXT NOT NULL,
-        evidence_kind   TEXT NOT NULL,
-        confidence      REAL NOT NULL DEFAULT 1.0,
-        derived_at      INTEGER NOT NULL,
-        derived_from    TEXT,
-        UNIQUE (source_root, relation_kind, token, target, evidence_kind)
-    );
-
-Three properties hold by construction:
-
-- **Append-only.** ``UNIQUE (source_root, relation_kind, token, target, evidence_kind)`` makes re-derivation idempotent — re-running an extractor adds nothing if no new relations have appeared. ``INSERT OR IGNORE`` is the only write path.
-- **Per-shard.** Concept relations live in the shard whose document derived them. Mesh sync moves shards between peers; relations come along.
-- **Orthogonal to Merkle.** Writes to ``concept_relations`` NEVER affect ``document_root``, ``chunk_root``, or ``cache_key``. Backfilling is safe across the entire corpus without invalidating any cached answer. The layer is a *secondary index* over the Merkle-committed corpus, not a competing primary.
-
-The built-in ``link_reciprocity_synonym`` extractor walks the existing ``edges`` table for reciprocal A↔B link pairs (the strongest topical-cluster signal a link graph carries) & emits a synonym edge between every (title-token-of-A, title-token-of-B) pair. Title-tokens are filtered to ≥4 chars + a small stopword list to keep generic words like "the" or "and" from generating noise.
-
-**Storage cost — measured.** Backfill on the 6 GB Wikipedia 2003 cur dump (4 shards, 3.47M docs):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 12 10 14 13 14 11 11
-
-   * - Shard
-     - Docs
-     - Resolved edges
-     - Reciprocal pairs
-     - Synonyms inserted
-     - Backfill time
-     - Storage
-   * - ``000.db``
-     - ~870k
-     - 2,703,287
-     - 13,562
-     - 71,288
-     - 50.6s
-     - 23.52 MB
-   * - ``001.db``
-     - ~870k
-     - 2,571,390
-     - 14,078
-     - 73,351
-     - 47.7s
-     - 24.20 MB
-   * - ``002.db``
-     - ~870k
-     - 2,772,156
-     - 13,708
-     - 72,576
-     - 1m34s
-     - 23.92 MB
-   * - ``003.db``
-     - ~870k
-     - 2,707,627
-     - 13,800
-     - 72,633
-     - 1m03s
-     - 23.94 MB
-   * - **total**
-     - **3.47M**
-     - **10,754,460**
-     - **55,148**
-     - **289,848**
-     - **4m16s**
-     - **95.58 MB**
-
-Per-row cost averages ~330 bytes. The bulk is the 64-char hex ``source_root`` column appearing both in the table & in the UNIQUE auto-index that enforces the idempotent-re-derivation key — that one column is ~50% of per-row storage. **95.58 MB on a 6 GB corpus = 1.6% storage tax** for the entire denormalization. Full backfill took 4m16s wall-clock — the cost is paid once.
-
-**Storage choice — keep, don't compact.** Three compactions were considered & rejected, documented here so a future maintainer doesn't reopen without a measured reason:
-
-- *Drop* ``idx_concept_evid`` (saves 1.8 MB / shard, ~7 MB total). Kept — the index makes ``purge --evidence-kind X`` cheap. Without it, purge becomes O(N) over the whole table, painful in a tight extractor-development loop.
-- *Store* ``source_root`` *as 32-byte BLOB instead of 64-char hex TEXT* (saves 5 MB / shard, ~20 MB total). Kept TEXT. The rest of the schema (``documents.document_root``, ``chunks.leaf_hash``, ``providence_cache.source_root``, ``audit_events.subject_root``) all use hex TEXT. Mixing TEXT vs BLOB across tables hurts schema legibility & complicates joins.
-- *Normalize* ``source_root`` *into a* ``source_lookup(id, hex)`` *foreign key* (saves 7 MB / shard, ~28 MB total). Kept flat. The savings are real but every concept lookup would add a JOIN. ``synonym_expand`` is called per-query in the retrieval hot path; adding a JOIN for a 0.5% storage win is the wrong direction.
-
-**Verdict:** 1.6% storage tax is fine. Concept relations accelerate retrieval over an already-3.5GB-per-shard corpus. The tax is paid once at backfill; every retrieval-time lookup benefits. If a future shard layout pushes total storage to a different cost regime (compressed columnstore, etc.), Option B is worth revisiting at that boundary — the schema-consistency cost ratio shifts.
-
-13.5 Federation: Mesh Layer (Off by Default)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Two peers that ingest our same dump compute bit-identical document_roots & cache_keys. Our mesh layer in aborist is our wire-and-trust scaffolding that lets them gossip those identities, dedup answers, & cleanly distrust an evicted member.
-
-Cryptography (via `cryptography` library):
-
-- **Ed25519** signs every membership mutation & every gossip envelope.
-- **X25519 ECDH** wraps each epoch's symmetric mesh secret to every current member's DH pubkey. HKDF-derives a 32-byte AEAD key from each shared secret.
-- **ChaCha20-Poly1305** authenticates payloads & per-member secret wraps; bodies optionally encrypt under the per-epoch shared secret with envelope metadata as AEAD additional data.
-
-Membership state is per-epoch. Adding a member, kicking a member, or rotating our secret bumps our epoch & writes an audit event. Eviction works by rotating to a new epoch whose envelope omits our kicked member: their prior signatures stay verifiable forever (their old roster row is preserved), but they have no entry in our new envelope, so any AEAD-protected gossip from epoch+1 onward is opaque to them. Re-admission requires a fresh add operation by an admin.
-
-Off by default: a `mesh.enabled` flag in our meta table gates everything. Fresh installs report `enabled: false` & no network code paths execute until our user runs `aborist mesh init` & `aborist mesh enable`.
-
-13.5.1 Wire protocol
-~~~~~~~~~~~~~~~~~~~~~
-
-The HTTP gossip wire ships in ``aborist/mesh/wire.py``. A peer runs ``aborist mesh serve --host 0.0.0.0 --port 8400`` to bind a stdlib ``ThreadingHTTPServer``; another peer's client (``aborist mesh sync --peer http://...`` and ``aborist mesh pull --peer http://... --root <hex>``) speaks five message types, all wrapped in a single signed envelope::
-
-    ANNOUNCE_ROOT          document_root + source_uri + chunking/canonicalization/schema versions
-    ANNOUNCE_DERIVATION    core_root <- surface_roots(s), distiller_id, proof_blob hash
-    ANNOUNCE_PROVIDENCE    cache_key + audit_mode + answer_hash + verifier counts
-    ANNOUNCE_FALSIFICATION cache_key + reason + witness signature
-    REQUEST_BODY/DELIVER_BODY  body pull on local miss + per-chunk leaf hashes for Merkle re-derivation client-side
-
-Receivers verify the Ed25519 signature against the sender's ``sign_pub`` looked up in ``mesh_roster`` at the envelope's ``epoch_id``; non-members of that epoch produce no valid signature & their messages are silently dropped (HTTP 401, no audit event). Each accepted ``ANNOUNCE_*`` writes one ``mesh_received`` event into the local audit chain whose body is the full signed envelope, preserving non-repudiation. ``REQUEST_BODY`` triggers a ``DELIVER_BODY`` carrying the document text + per-chunk leaf hashes; the client re-derives the Merkle root from those leaves & refuses to insert any body whose leaves don't reconstruct the requested root.
-
-13.5.2 Chain-of-claims tracking & fork detection
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Per the protocol contract, audit chains across peers cannot "merge" in the literal sense — each peer's chain is a strict-order log of its own actions — but a receiver can detect when a sender broadcasts inconsistent histories. Each gossip envelope carries:
-
-- ``prev_event_hash`` — the SENDER's previous event_hash they broadcast (or null for the first message);
-- ``event_hash`` = ``sha256(prev_event_hash || canonical_envelope_bytes)`` — the sender's deterministic chain-of-claims hash for THIS message.
-
-The receiver's local ``mesh_peer_chains`` table tracks, per peer, their last-known ``event_hash`` & sequence number. On accept: verify Ed25519 signature → recompute ``event_hash`` from canonical bytes & assert equality with the claimed value (400 on mismatch) → look up the sender's prior ``event_hash`` & assert equality with the claimed ``prev_event_hash`` (409 Conflict, "fork detected", on mismatch) → write the ``mesh_received`` audit event & advance the per-peer chain row. The first envelope a receiver sees from any peer is accepted with any ``prev_event_hash`` value because no prior is on file.
-
-Catchup (peer sends multiple events to fill a gap) is deferred to a future commit; v1 raises a 409 on missed events & relies on the operator/agent to retry. The wire-level fork detection composes with the local audit chain: a tampered DB locally fails the ``event_hash`` re-hash chain at ingest time, & a forked sender fails the ``prev_event_hash`` chain at the first received message after the fork.
-
-13.5.3 Optional AEAD body encryption
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Signing the envelope guarantees integrity; the body is cleartext by default for backward compatibility. Senders can opt body content into AEAD encryption under the per-epoch shared secret: at construction time, body content is canonicalized to JSON bytes, ChaCha20-Poly1305 encrypted with a fresh 12-byte nonce & ``f"{type}|{sender_id}|{epoch_id}|{ts}"`` as additional authenticated data, & the resulting ``{nonce_b64, ct_b64}`` lands in a new ``encrypted_body`` envelope field while ``body`` becomes a placeholder. Both fields participate in ``canonical_bytes()``, so the Ed25519 signature binds the ciphertext — a MITM cannot swap encrypted_body without invalidating the envelope.
-
-Receivers detect encryption by the presence of ``encrypted_body``, recover the epoch shared secret via the existing ``mesh.state.recover_epoch_secret`` (audit-chain → rotator → ECDH-unwrap-own-slot, no new sender-side cache needed), AEAD-decrypt, & continue normal handler logic with the recovered cleartext body. A receiver missing the epoch secret (evicted member, never enrolled) returns 401 — confidentiality failure is indistinguishable from auth failure at this layer. Mixed-mode peers interoperate: cleartext envelopes still verify byte-identically to the v1 wire format because ``encrypted_body=null`` is dropped from the canonical form before signing.
-
-13.5.4 What converges across peers
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Three classes of derivative reconcile across peers:
-
-- **Deterministic distillers** (e.g., first-sentence cores): same src_root → same core_root, on every machine. Shareable as-is via the existing `derivations.proof_blob`.
-
-- **Corpus-statistical distillers** (e.g., TF-IDF keywords): convergent only under shared corpus scope. Requires a `scope_root` commitment so peers explicitly agree on which corpus statistics underlie our cores.
-
-- **LLM-derived answers**: non-convergent (serving non-determinism), but cryptographically witnessable. Same cache_key from many peers + the same `answer_hash = sha256(answer_text)` collapses to one row with many witnesses; divergent answers stay as multi-witness candidates, each Merkle-bound to a verifiable context_root.
-
-The full operator runbook for a two-host federation lives in ``docs/mesh-deploy.md`` & the protocol contract (with diagrams) in ``docs/mesh.md`` in the aborist repo.
-
-13.6 Corpus Snapshots: One Hash Names Our Forest
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-A `snapshot_root` is `MerkleTree.build([sorted DISTINCT document_roots]).root`: one 32-byte hash naming our content-addressed forest at a point in time. Two peers that ingested our same dump compute bit-identical snapshot_roots, so cross-machine "are we synced?" becomes a single hash comparison instead of doc-by-doc gossip.
-
-Snapshot creation pins our root into our audit chain & records `(snapshot_root, taken_at, audit_event_hash, doc_count, parent_snapshot, reason)`. Snapshots auto-link to our most recent prior snapshot, giving a chain for free. The same `snapshot_root` doubles as our TF-IDF `scope_root`, so derivative reconciliation in 13.5 maps directly onto snapshot agreement.
-
-13.7 Cross-Machine Convergence: A Worked Example
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Our 2010-11 enwiki corpus, ingested on a single workstation in 1h 41m (4-way sharded), produces:
-
-::
-
-    snapshot_root = 43797e46605de08dbab06cdcaf5be7ad78243b193c56f8580200dee6bcc7e1b9
-    doc_count     = 3,468,134 (deduplicated)
-    storage       = 38 GB across 4 shards
-    chunks        = 6,235,672
-    edges         = 90,593,523
-    audit_events  = 3,468,308 (chain intact, 30/30 random Merkle proofs verified)
-
-A query against this corpus for "tell me plot of alien film" returned a cache hit:
-
-::
-
-    document_root = 896c27f8d9de8e0fc8c9b337274e794bea4206dccd50b9654b34833d9d29f005
-    document_uri  = https://en.wikipedia.org/wiki/Alien_(film)
-    context_root  = 896c27f8...f005   (single source, equals document_root)
-    cache_key     = 1aa20457e980f9e564641b7c3a86edbc90bd9fb31d6e461e9da2fdc4082ddda1
-    answer        = (plot summary verbatim from the article)
-
-Every one of those four hashes is bit-identical on any machine that ingests our same `enwiki-20101011-pages-articles.xml.bz2` (verifiable via our `md5sums.txt`) with our same aborist commit. Hand `896c27f8…f005` to any peer; if their corpus matches ours, they compute our same hash, with mathematical certainty. No trust required, just shared inputs.
-
-What does NOT converge across two machines:
-
-- `audit_events.event_hash` chain (event order is per-instance witness, not content)
-- `documents.ingest_ts` & `chunks.chunk_id` (per-instance metadata)
-- `answer_text` under fresh LLM inference (Hermes serving carries tiny non-determinism)
-
-Everything in our cache key dimensions converges. Everything that observes our corpus's processing diverges. That separation is our admissibility property: one peer's witness of "what was in our forest at time T" is bit-equal to every other peer's witness of our same forest, while one peer's audit chain proves *that peer* witnessed our forest at our times *they* recorded.
-
-13.8 Audit Mode: Source vs. Emergence
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-A Merkle proof binds an answer's *context* to a content-addressed root. It does not bind the *answer* to that context. A model handed a chunk of episode plot summaries can correctly recite the entity names that appear in the chunk, then complete the response with character bios drawn from training data — names that match, claims that emerge. Both layers are real. Conflating them under one "STRICT" label overclaims the proof.
-
-v9.8 names the trichotomy (Section 13.1 inherits it from Merkle-AGI's audit contract): STRICT, HYBRID, VISUAL. Aborist decides which label applies *per answer*, by post-LLM faithfulness check, never as a default. The substrate's "VISUAL" label was named for neural-network proof systems where it meant "FOR-style visualization, no formal guarantee attached." In a RAG layer that semantic reads as *no recoverable proof of grounding*, so aborist persists the label as **UNGROUNDED**::
-
-    STRICT      every evidence unit in answer verifies verbatim against context
-    HYBRID      some claims source-grounded, some emerged from training
-    UNGROUNDED  no evidence, or none verifies — purely emergent
-
-13.8.1 Layered verifier
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-`aborist/qa/verify.py` runs four strategies in sequence. The first to find evidence classifies the answer; later strategies don't run. Each strategy is a lexical operation under norm-v1 canonicalization (NFC, collapsed whitespace) plus case-folding — substring tests for strategies 1-3, token-coverage for strategy 4. The soft-hash boundary from CLAUDE.md applies: embeddings train rankers, hashes carry proofs, & we never mix the two. ``verifier_method`` on the providence record names which path fired so the audit chain stays diagnostic.
-
-**Strategy 1: quote.** The system prompt instructs the model to wrap every factual claim in a verbatim double-quoted span from a source. The verifier locates every double-quote character in the answer & pairs them sequentially: 1st & 2nd, 3rd & 4th, & so on. Each pair brackets one quoted span; text between consecutive pairs is the model's framing prose & is not captured. Pure-regex pairing fails on adjacent quote pairs like ``"title" prose "quote"`` — the regex captures ``prose`` as a phantom span because every ``"`` looks like both an opener & a closer to it. Sequential pairing eliminates the artifact.
-
-**Strategy 2: span.** When the model declines to quote but writes lines verbatim from source, bullet & sentence units from the answer are substring-tested against context. Catches paraphrased-into-prose answers where every claim is grounded but the formatting drifted from explicit quote marks.
-
-**Strategy 3: entity.** When neither quote nor span lands evidence, multi-word capitalized phrases (Carrie-Anne Moss, Thomas A. Anderson, Agent Smith) are extracted from the answer & substring-tested. Catches the Wikipedia-infobox case: source has structured ``[[Keanu Reeves]] [[Laurence Fishburne]]`` markup; model paraphrases into prose; spans diverge but every named entity is intact & grounded. Entity-existence in source is, however, weaker than claim-level evidence — the model could correctly name entities while making *claims around them* that came from training. Aborist gates the entity path with a policy::
-
-    strict     all entities verify → STRICT (legacy; overclaims TMNT-style cases)
-    hybrid     any entity verifies → HYBRID (honest cap)
-    drop       skip entity path entirely → UNGROUNDED (most conservative)
-    proximity  STRICT only if N=3 verified entities cluster within W=300 chars
-               in source. Otherwise demoted to HYBRID/UNGROUNDED.
-
-The default policy is **proximity**. Entity-cluster density distinguishes "source documents these entities as a group" (cast list, infobox, roster) from "source mentions them incidentally in scattered prose." A Wikipedia infobox passes the cluster test & promotes; a TMNT episode plot summary that names the four turtles & Splinter across separate sentences fails it & demotes. The policy lives in ``DEFAULT_QUERY_POLICY["entity_policy"]`` so any change folds into ``governance_policy_hash`` & invalidates prior cache cleanly.
-
-**Strategy 4: paraphrase.** The span strategy's secondary path. When a sentence-shaped span fails substring match in strategy 2, a token-coverage probe runs on the same span: tokens of length ≥ 4 chars are extracted (less per-token punctuation strip so ``wayne,`` lines up with bare ``wayne``), filtered against an English stopword set (``from``, ``with``, ``have``, ``would``, ``which``, ``where``, ``their``, etc. — high-frequency fillers that match almost any English text), and the fraction of remaining content tokens present anywhere in the normalized base context is computed. The span is accepted as paraphrase-verified when coverage clears ``DEFAULT_PARAPHRASE_COVERAGE`` (default 0.85) with at least ``DEFAULT_PARAPHRASE_MIN_TOKENS`` (default 4) content tokens. The label ``verifier_method='paraphrase'`` distinguishes records where any soft-verified items contributed from records where every match was lexical-verbatim. Paraphrase fires only on prose-shaped spans, not on lists of proper nouns — a span needs at least 2 lowercase content tokens (``_is_prose_span``) to qualify, so a list like ``"Keanu Reeves, Laurence Fishburne, Carrie-Anne Moss"`` continues through to the entity strategy where proximity policy can tight-cluster check.
-
-The stopword filter is calibration choice, not threshold relaxation. Including stopwords in the denominator inflates coverage scores for cases where topical content is missing — a fabrication like ``"Batman is the alias of Bruce Wayne, a wealthy businessman who resides in Gotham City"`` (where ``wealthy`` / ``businessman`` / ``resides`` aren't in source) would score ~0.67 raw but should NOT promote. Filtering the stopwords drops the denominator to topical tokens only; the missing topical tokens dominate the score & the span correctly stays UNGROUNDED. Lowering the threshold itself (e.g. 0.85 → 0.67) would have promoted the fabrication; tightening the signal preserves discrimination.
-
-Token-coverage is a soft signal: it answers "the same content tokens appear in source," not "the answer is a byte-equivalent transcription." The hard chain still records the trichotomy classification, but auditors reading STRICT can use ``verifier_method`` to tell verbatim-from-source-text from same-tokens-different-sequence. Quote strategy (strategy 1) deliberately does NOT receive paraphrase fallback — the double-quote convention asserts verbatim citation, & paraphrasing-then-quoting is a model error to flag, not auto-promote.
-
-13.8.2 Wikitext base prose
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Aborist stores raw MediaWiki wikitext in chunk content so the link graph & original markup are recoverable from any page. The LLM produces clean prose. Without normalization, every wikilink-carrying source paragraph compares as a different surface form & the verifier wrongly reports UNGROUNDED on genuine source-grounded quotes — the FF7-characters page was the input that triggered the design (six legitimate quotes flagged as ungrounded because the model wrote ``Cloud Strife`` & the source had ``[[Cloud Strife]]``).
-
-``aborist/wikitext.py`` provides ``to_base(raw)``, a pure function pinned by ``BASE_VERSION`` (``wikitext-base-v1``). Same wikitext → same prose, forever, until ``BASE_VERSION`` is bumped. The algorithm runs ``mwparserfromhell``: drop ``<ref>`` tags & namespace-prefixed wikilinks (``[[File:...]]``, ``[[Image:...]]``, ``[[Category:...]]``), call ``strip_code(normalize=True, collapse=True)`` to reduce surviving markup to display text, then collapse whitespace runs. Optional dependency — installations without ``mwparserfromhell`` fall back to identity & both LLM and verifier proceed against raw wikitext (the strip becomes a no-op rather than a hard requirement).
-
-The conversion runs in **two places**, gated by the same ``policy["base_version"]`` flag:
-
-1. **Before the LLM call.** ``aborist/qa/runner.py`` and ``aborist/qa/query.py`` apply ``to_base()`` to the assembled context before the user-turn arrives at Hermes. The model never sees ``[[wikilinks]]``, ``{{templates}}``, or ``<ref>`` tags — it sees the prose a human reader would see. Two consequences: the model can quote source paragraphs verbatim instead of escaping markup it doesn't understand, & Wikipedia chunks ship with ~43% fewer tokens (measured against the FF7-characters chunk). The token reduction compounds across context windows packed with multiple sources.
-
-2. **Inside the verifier.** ``verify_quotes`` re-applies ``to_base()`` to the context before substring-testing the model's quoted spans. Idempotent — passing already-stripped prose through ``to_base()`` returns it unchanged. Same canonicalization on both sides means the verifier compares like-against-like.
-
-``policy["base_version"]`` lives in ``DEFAULT_POLICY`` and ``DEFAULT_QUERY_POLICY`` so it folds into ``governance_policy_hash``. Bumping ``BASE_VERSION`` (e.g. ``wikitext-base-v1`` → ``v2`` after an algorithm change) invalidates every prior cache record's 8-dim key on next lookup; no schema migration, the next ``ask`` re-derives against fresh prose.
-
-13.8.3 Emergence is preserved, not suppressed
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A HYBRID or UNGROUNDED record stays live in cache. Training-derived knowledge is often correct (the turtles really do wield katanas), just unverifiable against the current corpus. We label honestly so a downstream consumer can route: STRICT answers carry compliance-grade provenance, UNGROUNDED answers carry *the model believes this, no certificate attached*. A model that genuinely refuses ("I don't know based on the provided sources") classifies UNGROUNDED with ``verifier_method='none'`` & ``n_quotes=0`` — the most honest answer the system can produce.
-
-**Emergence is a corpus-growth signal.** Unverified spans persist on each providence record; ``aborist emergent --aggregate`` ranks them by frequency. Spans the model produces repeatedly that the corpus cannot ground are candidate ingest targets — what training has that ingestion is missing. When the missing source eventually arrives, ``aborist reclassify`` re-runs the verifier against existing answers without any LLM call, persisting the upgraded label & writing one ``providence_reclassify`` audit event per changed row. HYBRID promotes to STRICT, UNGROUNDED to HYBRID, & the audit chain remembers the transition. Prior records stay as historical witnesses: *on this date, against that corpus root, the model emerged this much beyond its sources.*
-
-13.8.4 Verifier stays binary; falsifications carry soft signal
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The verifier returns evidence units & a classification — that's the entire output surface. No per-quote diagnosis fields, no match-confidence scores, no partial-match indicators on hard verifier output. "Why didn't this ground?" lives on the falsify+reclassify loop where an operator (or an automated process) inspects the unverified spans, decides whether the failure is a corpus gap or a model fabrication, & either ingests new source or quarantines the record. Keeping the binary discipline on the verifier preserves the soft-hash boundary: classification is a hard bit, not a soft score.
-
-The SOURCE/EMERGENCE distinction also clarifies the v9.8 cache_key invariant. Bumping ``governance_policy_hash`` (e.g. by tightening the system prompt or flipping ``entity_policy``) invalidates cache lookups but leaves the source merkle tree, chunks, document_roots, audit chain, & snapshots bit-identical. Q&A records under the old policy stop being reachable; corpus identity is unchanged. No re-ingest required — the 8-dim key partitions cleanly along architectural seams.
-
-13.8.5 Trailing-citation strip
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Models trained on cited text often append parentheticals like ``(Source: https://...)`` or ``(citing Wikipedia)`` after a verbatim source sentence. Without preprocessing, the verifier substring-tests the prose **plus** the appended citation; the citation isn't in the corpus, so the whole span fails & the answer flags HYBRID or UNGROUNDED. The prose itself was verbatim.
-
-``extract_quotes`` and ``extract_claim_spans`` strip a single trailing parenthetical at end-of-span before substring testing, gated on a conservative regex: the parenthetical contents must start with a citation cue word (``Source:``, ``citing``, ``see``, ``ref``, ``reference``, ``from``) OR contain a URL. A genuine prose parenthetical like ``Pikachu (a Pokémon species) lives in forests`` carries no cue word & no URL & stays untouched. The strip recovers verbatim-source spans without weakening the verifier on real disagreements.
-
-13.8.6 Sidecar diagnostics
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The verifier's output surface is deliberately small: an audit_mode label, an n_verified count, the unverified spans, & the verifier_method that fired. No per-quote diagnosis fields, no match-confidence scores, no nearest-neighbor traces. Keeping the binary discipline preserves the soft-hash boundary — classification is a hard bit, not a soft score, & enters ``governance_policy_hash`` cleanly.
-
-But operators still need to ask "*why* didn't this span ground?" when triaging the unverified list. v9.8's answer is a **sidecar**: a read-only diagnostic verb that pulls the same source chunks the verifier saw, runs the same canonicalizations, & classifies each unverified span against the corpus. Sidecars never write to ``providence_cache``, never extend ``audit_events``, never alter any v9.8 field. They run on demand, observe state, & report. The classification-as-hard-bit invariant survives because sidecars participate in no proof path — they help an operator triage; they do not change what's signed.
-
-The reference sidecar in aborist is ``aborist inspect --cache-key X``. Each unverified span lands in one of:
-
-- ``verbatim_in_base`` — the span IS in the base context. Surfaces a verifier or canonicalization regression so an operator can fix the root cause.
-- ``verbatim_in_raw_only`` — span matches raw wikitext but not the base form. Wikitext-strip edge case worth its own label.
-- ``trailing_artifact`` — a long prefix (≥ 60 chars) matches; the tail is reported separately. Catches model-appended citations that the strip in 13.8.5 didn't reach (different cue words, multi-line, etc.).
-- ``paraphrase`` — high token coverage (≥ 0.85) but not in this sequence. Model rewrote source content; ingest more sources or tune the prompt.
-- ``partial_paraphrase`` — 40-85% token coverage. Mixed sourced/emergent content within a single span.
-- ``no_overlap`` — < 40% coverage. Likely full invention; corpus-growth signal.
-
-Two additional sidecar diagnostics ship alongside the unverified-span classifier; both share the same write-nothing discipline:
-
-- ``diagnose_deflection(question, answer)`` — surfaces topic-shift on adversarial-premise questions. Empirically caught 2026-04-30 on ``"who is a benevolent dictator for life for mars?"``: the verifier returned STRICT with an answer about Guido van Rossum & Python, never naming Mars. The answer grounded honestly in a real BDFL article; the user's actual question went unanswered. **Subject-anchor heuristic**: the LAST content token in the question (after stopword strip) gets treated as the question's primary subject. If the subject anchor doesn't appear in the answer, classify as ``deflection`` regardless of generic-vocabulary overlap (the BDFL case has 3/4 generic-vocab match — ``benevolent``, ``dictator``, ``life`` — & still misses ``mars``). Suppressed for shape-mismatch cases (``when``, ``what year``, ``how many``, ``why``) where the answer structurally need not echo the question's subject (``"1989"`` answers ``"what year did the berlin wall fall?"`` correctly without re-naming ``"wall"``). Wired into ``inspect_cache_key()`` & per-row in ``bench/qa_sweep.py``; never feeds back into providence.
-
-- ``diagnose_title_relevance(claim, cited_source_titles)`` — flags retrieval-driven hallucinations where the cited chunk's source title shares zero stems with the claim's content tokens. Empirically caught 2026-05-01 on ``"explain spin glass modeling, tensors?"``: the verifier returned STRICT 1/1 on a claim about spin-glass modeling cited to a chunk from the *Quantum chromodynamics* article. The token-coverage check inside the chunk passed accidentally on shared physics vocabulary (``spin``, ``model``); the article isn't about spin glasses. The 2003 corpus's *Spin glass* article (which exists) carries zero occurrences of ``"modeling"`` or ``"tensors"``, so AND-mode FTS5 returned no hits & OR-fallback ranked unrelated articles by raw BM25. The sidecar surfaces the mismatch (``claim_tokens = {spin, glass, modeling, tensor, ...}``, ``title_tokens = {quantum, chromodynamics}``, ``overlap = ∅``) without modifying the binary verifier output. Promotion to a hard verifier check stays deferred pending bench evidence on false-positive risk for legitimate cross-document grounding.
-
-The sidecar pattern generalizes beyond `inspect`. Any future tool that wants to surface *why-not-grounded* — embedding-based nearest neighbors, LLM-generated rationales, fuzzy-match scores — belongs in a sidecar. The hard chain stays binary; the soft channel proliferates as the project learns. Sidecars compose cleanly because they all read from the same v9.8 record & contribute nothing back.
-
-
-13.9 Claim-Lattice-Pointer Mode (CTI / Quote-by-Pointer)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The quote/span/entity/paraphrase verifier in 13.8 audits answers the model wrote in its own words. It catches one defect class cleanly — *did the quoted text appear verbatim in source* — but it cannot catch a related class: **synthetic elision**. A model emitting ``"prefix [...] suffix"`` produces a span whose halves both verify on their own, glued together by a model-typed ellipsis that flattens our ground truth. The verifier reports STRICT on a frankenquote.
-
-Aborist's response is a second answer mode that makes synthetic elision **structurally impossible**: the model never types the quote string. Instead, the runtime owns extraction, the model owns selection, & the renderer owns display. We call this *Clause Lattice Intelligence* (CTI), or in implementation terms ``policy["answer_mode"] = "claim_lattice_pointer"``::
+Aborist's response is a second answer mode that makes synthetic elision **structurally impossible**: the model never types the quote string. Instead, the runtime owns extraction, the model owns selection, & the renderer owns display. We call this *Clause Lattice Intelligence* (CTI). The pipeline runs::
 
     raw model output
     → clause extraction by pointer parser
@@ -1056,437 +240,243 @@ The model writes natural prose with bracketed evidence-id tags::
     Steve Wozniak co-founded Apple. [E1,E2]
     Ronald Wayne co-founded Apple. [E1]
 
-Each ``[E\d+]`` references an entry in a runtime-built **evidence map** the model saw in the prompt. The runtime carries two ids per evidence object — a short ``pointer_id`` (``E1``, ``E2``, …, sequential within the run) shown to the model, & a ``evidence_id`` (sha256-derived ``E########``, content-addressed) used by the cache, run-DAG, & audit chain::
+Each ``[E\d+]`` references an entry in a runtime-built **evidence map** the model saw in its prompt. The runtime carries two ids per evidence object — a short ``pointer_id`` (``E1``, ``E2``, … sequential within the run) shown to the model, & a content-addressed ``evidence_id`` (sha256-derived ``E########``) used by the cache, run-DAG, & audit chain. Two-layer id discipline matters: showing the model the hex form tokenizes to several BPE tokens of out-of-distribution noise that nudges the model toward DSL/code-completion mode; showing it ``E1`` is one BPE token & lands inside the citation-style prose distribution that academic papers, Wikipedia articles, & footnoted text taught the model. Citation style is heavily represented in pretraining; random hex is not.
 
-    EvidenceObject {
-        pointer_id    "E1"                                    # model-facing
-        evidence_id   "E1f8e4c2a"                              # run-stable
-        source_root   <document_root>
-        chunk_root    <chunk leaf hash>
-        offset_start  0
-        offset_end    <len(span)>
-        source_role   primary_answer_source
-        text_hash     sha256(span)
-        span          <literal source text>
-    }
+Two modalities stay first-class: pointer-line prose (``answer_mode = "claim_lattice_pointer"``) & JSON (``answer_mode = "claim_lattice"``). Both produce equivalent claim-evidence lattices & hash to distinct ``governance_policy_hash`` silos. Pointer-line suits 8B prose-distribution models; JSON suits grammar-constrained inference (vLLM ``guided_json``, native JSON modes on larger models). An agent picks the modality that fits its inference path; the substrate exposes both, telemetry both, & never silently picks a winner.
 
-Two-layer id discipline is load-bearing. Showing the model the hex form (``E1f8e4c2a``) tokenizes to 4-6 BPE tokens of out-of-distribution noise that nudges Hermes 3 toward DSL/code-completion mode. Showing it ``E1`` is one BPE token & lands inside the citation-style prose distribution that academic papers, Wikipedia articles, & footnoted text taught the model. Citation style is heavily represented in training; random hex is not. The runtime maps pointer_id → evidence_id at verification time; everything downstream of the verifier sees the content-addressed form.
+The hard verifier runs eight deterministic checks on every claim-evidence pair:
 
-13.9.1 Pointer lines vs JSON — both first-class, different defaults
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1. **parser_succeeded** — the line had a recognized ``[E\d+]`` bracket.
+2. **evidence_id_resolves** — the pointer maps to an entry in the runtime-built evidence map.
+3. **source_role_allowed** — the resolved entry's ``source_role`` is in the policy allowlist.
+4. **claim_text_non_empty** — the line carried prose around the tag.
+5. **citation_coverage** — the claim's content tokens textually overlap the cited span at coverage ≥ a threshold (default 30%); short claims (≤3 content tokens) require ≥1 token match.
+6. **pointer_count_within_cap** — ``len(pointer_ids) ≤ max_pointers_per_claim`` (default 2). Over-cited claims trim to the first N & a ``POINTER_OVERFLOW_TRIMMED`` violation is recorded so the run cannot reach the top rung of the ladder.
+7. **anchor_class_warrant** — five anchor classes compose. Each gates on either question shape, claim content, or both. Proper-noun anchors gate on relation-shape questions: at least one Title-Case anchor must appear in some cited span. Date anchors are always-on, gated on the claim containing a 4-digit year (1500–2199) or a full English month name; ALL date components must appear. Entity-list anchors gate on entity-list-shape questions ("name the X", "list the Y"); at least one named entity from the claim must appear. Count anchors gate on count-shape questions ("how many X"); ALL count tokens must appear in either word OR digit form, with digit↔word equivalence ("two" ↔ "2"). Cause anchors gate on why-shape questions; at least one cause anchor (proper noun OR ≥5-char common noun outside a small stopword pool) must appear.
+8. **title_relevance** — the cited evidence's source title must share ≥1 stemmed content token with the claim text. Per-claim, ANY-match across cited sources: the rule fires only when ALL cited titles miss. Catches retrieval-driven hallucinations where the cited chunk's source is structurally unrelated to the claim's subject — incidental vocabulary overlap inside the chunk passed Rules 1–7 but the source itself was never about the claim's subject.
 
-JSON is one encoding for *(claim_text, [evidence_ids])* pairs but not the right *default* for an 8B instruction-tuned model. JSON discipline failures (missing braces, prose preamble before the object, escaping errors) generate spurious one-shot SCHEMA_INVALID verdicts even when the model knew the right answer. Pointer-line stays inside the model's prose distribution: the model writes prose, sometimes with bracketed citations, exactly as it has seen citations written ten thousand times. The parser walks lines, pulls every ``[E\d+]`` & ``[E\d+,E\d+,…]`` bracket payload, & returns ``(claim_text, pointer_ids)`` per line. Lines without a tag get ``parse_status = "NO_EVIDENCE_POINTER"`` & count toward the denominator so the model can't smuggle unsourced prose past the verifier. Lines with a tag but no surviving claim text after the strip get ``parse_status = "SCHEMA_INVALID"``.
+Warrant-lite is the lattice's first **semantically-grounded** hard check, & it earns its proof-path entry by staying lexical. Regex shape-detectors decide which classes activate. Title-Case proper-noun extraction, 4-digit-year extraction, full-month-name extraction, count-token extraction with digit↔word equivalence, & lowercase-common-noun extraction pull the candidate anchors. Case-insensitive substring tests ask whether the required anchors appear in cited spans. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte & folds cleanly into ``governance_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to actually contain the claim's load-bearing anchors.
 
-Both modalities stay first-class in the substrate. ``answer_mode = "claim_lattice"`` is the JSON variant; ``"claim_lattice_pointer"`` is the prose-with-citations variant. They produce equivalent claim-evidence lattices, hash to distinct ``governance_policy_hash`` silos, and produce comparable run-DAGs (the JSON variant skips the ``parsed_claim_lattice`` stage because the model's output IS the parsed form). The substrate exposes both so an agent can route its query to the modality that fits its inference path: pointer-line suits 8B prose-distribution models, JSON suits grammar-constrained inference (vLLM ``guided_json``, Claude / GPT-4 native JSON mode) where the model emits valid objects deterministically. Aborist provides a lenient JSON pre-parser (strip markdown fence wrappers, trim non-object preamble/suffix, normalize curly quotes, fix trailing commas) so the JSON variant survives Hermes-class drift long enough for an agent to observe its SCHEMA_INVALID rate and decide whether to keep using it. Picking between modalities is an agent-level concern; the substrate's job is to expose them, telemetry both, and never silently pick winners.
+The per-run Merkle-DAG (``run_dag_root``) commits each provenance step independently. Quote mode runs seven stages (question / retrieval / context / prompt / answer / verify / final_label); claim-lattice mode runs nine (question / retrieval / evidence_map / prompt / raw_answer / parsed_claim_lattice / verify / render / final_label). The new stages — ``evidence_map``, ``raw_answer``, ``parsed_claim_lattice``, ``render`` — let an auditor reconstruct each transformation step from the persisted blob. The retrieval stage binds both the retrieval-plan hash (the operator-supplied parameters that selected sources) & the sources-summary hash (the documents that survived selection), so two runs with identical sources but different retrieval plans produce different ``run_dag_root`` values & the keyword string itself enters cryptographic provenance.
 
-13.9.2 Hard verifier — eight deterministic checks
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The renderer interpolates literal source spans from the evidence map at display time. A naïve truncation would show the same article-intro sentence under every claim when the model anchored at the topic id. Aborist instead extracts content tokens from each claim text & runs a *density rank* over their match positions in the cited span: find ALL occurrences of ALL tokens, then for each candidate position count how many DISTINCT tokens fall within ±half-window. Pick the position with maximum distinct count, expanded outward to the nearest sentence boundaries. Different claims pointing at the same evidence get different displayed sentences, anchored on what each claim is actually about.
 
-``verify_claim_lattice`` runs **only** deterministic checks. The hard/soft boundary from 13.8.4 holds — semantic entailment (NLI-grade), completeness, predicate compatibility, scope ambiguity, & counterevidence retrieval all stay sidecar territory. The hard checks::
+Pointer mode also adopts a one-shot discipline: zero-shot ideal, one-shot maximum, no repeated retries until success. A run may fail honestly. A run may self-label uncertainty. A run may downgrade itself. A run may not keep trying until it passes. UNGROUNDED beats hallucinated success.
 
-    1. parser_succeeded            line had a recognized [E\d+] bracket
-    2. evidence_id_resolves        pointer maps to an entry in the
-                                   runtime-built evidence map
-    3. source_role_allowed         resolved entry's source_role is in
-                                   the policy allowlist
-    4. claim_text_non_empty        the line carried prose around the tag
-    5. citation_coverage           claim's content tokens textually
-                                   overlap the cited span at coverage
-                                   ≥ min_citation_coverage (default 30%);
-                                   short claims (≤3 content tokens)
-                                   require ≥1 token match. Catches the
-                                   lazy-anchor failure where a claim
-                                   cites a chunk whose text shares only
-                                   a generic topical word with the claim
-    6. pointer_count_within_cap    len(pointer_ids) ≤ max_pointers_per_claim
-                                   (default 2). Over-cited claims are
-                                   trimmed to the first N pointers and
-                                   verification proceeds; a
-                                   POINTER_OVERFLOW_TRIMMED violation
-                                   is recorded so STRICT is no longer
-                                   reachable for the run. Trim-and-verify
-                                   protects correct-but-over-cited claims
-                                   without letting the over-citation
-                                   pattern pass silently
-    7. anchor_class_warrant       five anchor classes compose. Each
-                                   gates on either question shape, claim
-                                   content, or both. A claim flunks
-                                   warrant when ANY required anchor in
-                                   ANY active class is missing from
-                                   every cited span.
-                                   (a) proper-noun anchors — gated on
-                                       relation-question shape; AT LEAST
-                                       ONE Title-Case anchor must appear
-                                       in some cited span. Catches the
-                                       relation lazy-anchor class.
-                                   (b) date anchors — always-on, gated
-                                       on the CLAIM containing a 4-digit
-                                       year (1500-2199) or full English
-                                       month name; ALL components must
-                                       appear in some cited span.
-                                       Catches the date lazy-anchor
-                                       class.
-                                   (c) entity-list anchors — gated on
-                                       entity-list-shape questions
-                                       ("name the X", "list the Y");
-                                       AT LEAST ONE named entity from
-                                       the claim must appear in some
-                                       cited span. Demote-don't-reject:
-                                       an extra entity from training
-                                       prior is acceptable as long as
-                                       cited evidence anchors at least
-                                       one of the named entities.
-                                   (d) count anchors — gated on
-                                       count-shape questions ("how many
-                                       X"); ALL count tokens in the
-                                       claim must appear in some cited
-                                       span in either word OR digit
-                                       form (digit↔word equivalence:
-                                       "two" ↔ "2", "twelve" ↔ "12").
-                                   (e) cause anchors — gated on
-                                       why-shape questions ("why did X
-                                       happen"); AT LEAST ONE cause
-                                       anchor (proper noun OR ≥5-char
-                                       lowercase common noun outside
-                                       a small stopword pool) must
-                                       appear in some cited span.
-                                   Vacuous-pass when no class fires —
-                                   broad descriptive claims flow
-                                   through unchanged.
-    8. title_relevance            cited evidence's source title must
-                                   share ≥1 stemmed content token with
-                                   the claim text. Per-claim, ANY-match
-                                   across cited sources: the rule fires
-                                   only when ALL cited titles miss.
-                                   Demote-to-HYBRID via TITLE_MISMATCH
-                                   violation. Catches the
-                                   retrieval-driven hallucination class
-                                   (2026-05-02 spin-glass case): claim
-                                   about spin glass modeling cited to a
-                                   chunk from *Quantum chromodynamics*
-                                   passed Rules 1-7 on incidental
-                                   physics-vocab overlap, but the
-                                   SOURCE was never about the claim's
-                                   subject. Vacuous-pass when claim or
-                                   title has no extractable tokens.
 
-Aggregation matches 13.8's trichotomy: STRICT = ≥1 verified pair AND zero violations of any kind; HYBRID = some pairs verified, some failed (or any soft-demote violation: POINTER_OVERFLOW_TRIMMED, LAZY_ANCHOR_DEMOTED, WARRANT_MISSING); UNGROUNDED = no verified pairs. Per-claim statuses sharpen the diagnosis without breaking the binary discipline: ``EVIDENCE_LINKED``, ``EVIDENCE_LINKED_PARTIAL``, ``UNKNOWN_EVIDENCE_ID``, ``SOURCE_ROLE_BLOCKED``, ``CITATION_MISMATCH``, ``NO_EVIDENCE_POINTER``, ``SCHEMA_INVALID``.
+9. The Four-Rung Ladder
+------------------------
 
-Warrant-lite is the lattice's first **semantic-grounded** hard check, and it earns the proof-path entry by staying lexical. Regex shape-detectors decide which classes activate (relation, entity-list, count, why-cause); Title-Case proper-noun extraction, 4-digit-year extraction (1500-2199, skipping ZIP codes / elevations), full-month-name extraction, count-token extraction with digit↔word equivalence, and lowercase-common-noun extraction (≥5 chars, outside a small stopword pool) pull the candidate anchors; case-insensitive substring tests ask whether the required anchors appear in cited spans. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte across runs and folds cleanly into ``verifier_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to actually contain the claim's load-bearing anchors.
+A single audit_mode token carries different weight across verifier methods. In quote / span / entity / paraphrase mode, a top label means every cited evidence unit textually matches a pinned source span — a strong claim about lexical grounding. In claim-lattice modes, the same token means every pointer resolves to a valid evidence object whose source_role is allowed AND every cited span passes citation coverage & the active anchor classes. That property is structurally weaker: synthesis-heavy claims (a model joining multiple cited spans into a single explanatory sentence) can pass all hard checks without semantic entailment of the joined assertion.
 
-Warrant-lite generalized in May 2026 (Ticket #000003) to cover three additional question shapes whose lazy-anchor signature the original two classes missed:
+The renderer maps lattice-mode labels to a four-rung ladder where each rung names a strictly stronger property::
 
-- **Entity-list shape** (``name X``, ``list X``, ``who are the members of X``). List-aware extractor returns multi-word phrases ∪ solo-cap individual names so comma-separated entities each contribute to the anchor pool. ANY-match semantics (demote-don't-reject): an extra entity from training-prior is acceptable as long as the cited evidence anchors at least one named entity.
-- **Count shape** (``how many X``, ``how much X``). Digit ↔ word equivalence with ordinal collapse: a claim saying ``"six"`` matches a span containing ``"6"``, & ``"sixth"`` collapses to cardinal ``"6"`` for the substring test. Year-shaped digits filter out (those belong to the existing date-anchor class). ALL-match semantics: every count token in the claim must appear in some cited span as digit or word.
-- **Why-cause shape** (``why X``). Cause-anchor pool widens to ≥5-char lowercase common nouns post a quantifier-adjective stopword set (``various`` / ``factors`` / ``situation`` filter out) plus the existing proper-noun anchors. Catches lowercase common nouns the relation-shape extractor misses (``iceberg`` / ``asteroid`` / ``propaganda``). Gated on why-shape only: lowercase common-noun extraction has higher false-positive risk elsewhere.
-
-Each shape's anchors get extracted when the question shape matches & failures accumulate across classes — a relation-shape claim with both a year & a proper-noun must satisfy both. Per-class policy gates were intentionally not added: the single ``warrant_check_enabled: bool`` flag is the minimum-viable mechanism. Per-class flags earn their slot only when bench evidence shows over-firing on a specific class — see the five-step algorithm below.
-
-Five 2026-05-01 failure classes motivated the design:
-
-- *Relation lazy-anchor.* "Who is Homer Simpson's boss?" answered "Homer Simpson's boss is Mr. Burns. [E1]" cited to a voice-actor bio paragraph that mentioned "Homer" but never "Mr. Burns" — the structural checks all passed, the proper-noun warrant catches it.
-- *Date lazy-anchor.* "What date did Back to the Future come out?" answered "Back to the Future was released in theaters on July 3, 1985. [E1]" cited to a trilogy/SNES/pinball paragraph containing "1985" only as a diegetic time-period reference (``...back to the real 1985...``) and no "July" anywhere. Year-alone substring would have passed; requiring **all** date components asserted in the claim catches it.
-- *Entity-list lazy-anchor.* "Name the Simpsons family members and their pets." A model emits a list including a training-prior entity that does not appear in any cited chunk. The any-match semantics passes the claim if at least one of the named entities is anchored — demote-don't-reject keeps the auditor sees the listing intact while the cap-at-HYBRID signal flags the claim as not fully grounded.
-- *Count lazy-anchor.* "How many wives did Henry VIII have?" answered "Henry VIII had six wives. [E1]" cited to a span that uses the digit form ("...married 6 women...") or the word form ("...had six wives..."). Digit↔word equivalence ("six" ↔ "6", "twelve" ↔ "12") passes either form; only when neither form appears does count warrant fail. Catches the case where the model emits a count from training prior cited to a span with a *different* number.
-- *Why-cause lazy-anchor.* "Why did the Roman Empire fall?" answered with a list of causes (economic, political, military) cited to a span that talks about emperor names and battle dates only. At least one cause anchor (proper noun OR ≥5-char common noun outside a small stopword pool) must appear in some cited span — the any-match semantics tolerates the model adding extra causes from prior as long as at least one is grounded.
-
-The anchor-class generalization landed instead of a per-question-type contract framework (``release_date_lookup`` + ``box_office_lookup`` + ``birthday_lookup`` etc.). The general primitive — *claim asserts a specific lexical anchor → cited span must contain it* — catches both failure classes deterministically without a typed-rule library to maintain. Typed contracts earn their slot only if bench evidence shows general anchors miss specific cases the lexical primitive cannot reach.
-
-Limitation accepted: ISO date format (``1985-07-03``) does not satisfy the month-name requirement on its own. Real-world Wikipedia prose uses month names ("released on July 3, 1985"), so the trade-off favors catching the common case. If bench shows ISO false-rejections, layer in a month-number alternation to the month-name regex.
-
-The strict no-manual-quotes rule that earlier drafts of this section described was removed in late April 2026. Hermes-class models routinely paraphrase source prose but copy named-quoted phrases verbatim (e.g. ``"Constitution State"`` from a Connecticut span); rejecting any claim that contained any ``"`` character was rejecting factually-correct, source-grounded claims for cosmetic punctuation. The citation-coverage threshold (Rule 5) and pointer cap (Rule 6) carry the weight of catching the synthetic-elision and mega-claim failures the old rule was meant to catch, without false-rejecting on legitimate quoted phrases. The architectural property — **the runtime owns quote text, not the model** — is preserved because the renderer still interpolates literal spans from the evidence map at display time; the model never types the quote string.
-
-13.9.3 Spotlight render — cited evidence, one window per claim
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The renderer interpolates literal source spans from the evidence map at display time. A naive truncation (``span[:200]``) shows the same article-intro sentence under every claim when the model lazy-anchors at the topic id. Aborist instead extracts content tokens from each claim text (≥4-char alphanumeric tokens, stopword-filtered) & runs a **density rank** over their match positions: find ALL occurrences of ALL tokens in the cited span, then for each candidate position count how many DISTINCT tokens fall within ±half-window. Pick the position with maximum distinct count; tie-break on smallest index for determinism. The displayed window centers on that position, expanded outward to the nearest sentence boundaries (so the excerpt never cuts mid-word). If no token matches, the renderer falls back to the leading sentence(s) with a trailing ellipsis.
-
-Density beats first-match-of-longest-token on a load-bearing failure mode. Pre-density, "who is Homer Simpson's boss?" — answered "Homer Simpson's boss is Mr. Burns. [E1]" — would spotlight the slice where ``homer`` first matched in the cited chunk, often a voice-actor bio paragraph ("For voicing Homer, Castellaneta has won..."). The full chunk genuinely contained the load-bearing slice ("...Homer is often ignored and completely forgotten by his boss Mr. Burns..."), but the displayed excerpt landed on a non-load-bearing slice and the audit trail looked dishonest. Density rank picks the slice where ``homer`` + ``boss`` + ``burns`` cluster together — the slice that actually justifies the claim.
-
-The pointer is also formatted to disambiguate from the source-rank list rendered alongside. The bracket grew from ``[E5: "<excerpt>"]`` to::
-
-    [E5 | <source title> | <chunk_root prefix>: "<excerpt>"]
-
-Closes a 2026-05-01 visual confusion observed on an Orwell run where ``[E5: "..."]`` displayed alongside a "sources (8)" list whose ``[5]`` slot was a different document — readers parsed ``E5`` as a 1-indexed source rank when it is actually a chunk pointer. Title comes from the evidence object (URI tail fallback); chunk_root prefix is the first 8 hex chars — enough for the operator to disambiguate while staying compact. *Same evidence pointer, different displayed sentence per claim* — anchored on what the claim is actually about, with the source label visible in the bracket itself.
-
-13.9.4 Per-chunk granularity & query-relevance ordering
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-A whole-document evidence object lets a small model lazy-anchor: cite ``[E1]`` (the topic article) for every claim & let the renderer figure out the rest. The fix is structural — each retrieved source contributes one ``EvidenceObject`` per chunk, not one per source. The model sees 30+ short paragraph-scale spans tagged ``E1``…``E30`` & must pick the specific paragraph that supports each claim, or omit the claim.
-
-Within each source, chunks are ranked by query-token overlap before ``pointer_id`` assignment::
-
-    sort key:
-        -distinct_query_tokens_present     # primary: more topic words wins
-        -total_mentions                    # tiebreaker: density wins
-        +chunk_idx                         # final tiebreaker: doc order
-
-So ``E1`` of a source is the chunk most likely to textually support the question, not the chunk that happens to be first in document order. This is a soft signal — token overlap, never enters the proof path — but it shapes the model's anchoring without giving it semantic discretion. Hermes-3-8B's lazy-anchor habit (cite the first thing you see) lands on a relevant chunk by accident.
-
-13.9.5 9-stage CTI run-DAG
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The per-run Merkle-DAG (``run_dag_root``) grows from 7 stages to 9 in pointer mode::
-
-    quote mode (default, 7):
-        question / retrieval / context / prompt / answer /
-        verify / final_label
-
-    pointer mode (9):
-        question / retrieval / evidence_map / prompt / raw_answer /
-        parsed_claim_lattice / verify / render / final_label
-
-The new stages commit each provenance step independently:
-
-- ``evidence_map`` — Merkle root over sorted ``evidence_id``\ s, order-independent so two retrieval runs that returned the same chunks in different orders produce the same root.
-- ``raw_answer`` — sha256 of the model's literal pointer-line output.
-- ``parsed_claim_lattice`` — sha256 of the canonical-JSON of the parsed claim nodes (claim_text + content-addressed evidence_ids per claim). Reordering claims changes the hash.
-- ``render`` — sha256 of the rendered prose with literal spans interpolated.
-
-``context`` drops out — the context IS the evidence map. ``answer`` splits into raw / parsed / render so an auditor can reconstruct each transformation step from the persisted blob. Quote mode keeps the original 7-stage shape so pre-G0 ``run_dag_root`` values stay valid.
-
-13.9.6 No iterative repair — one-shot discipline
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Pointer mode skips the mechanical-repair + reprompt-feedback loop that 13.8 reserves for quote mode. The benchmark contract is *zero-shot ideal, one-shot maximum, no repeated retries until success*. A run may fail honestly. A run may self-label uncertainty. A run may downgrade itself. A run may not keep trying until it passes. UNGROUNDED beats hallucinated success.
-
-The hard discipline carries a measurable cost: small models drop the bracket protocol on perhaps half of cold runs. The lever is the prompt, specifically a one-shot worked example showing the format end-to-end. With the example, JP dinosaurs benchmark went 0/13 → 10/11 → 16/17 verified across the iterations that hardened the pipeline. Without the example, runs were near-random in protocol compliance.
-
-13.9.7 What pointer mode does NOT prove
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met, source-title-relevant,* and (when the active anchor class fires) *anchor-named-in-cited-chunk* for every active class — proper-noun on relation-shape questions, date components on date-asserting claims, named entity on entity-list-shape questions, count token on count-shape questions, cause anchor on why-shape questions. It does **not** prove the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the eight hard checks if E1's source is the Jurassic Park film article (Rule 8 title-overlap), Brachiosaurus appears in E1 (Rule 5 coverage), and the relation/date/list/count/why anchor classes don't fire on a "behavior" claim — even if E1's text says nothing about social herding. A model citing ``[E1]`` for "Back to the Future was released on July 3, 1985" passes the date-anchor check if E1 contains both "July" and "1985" — even if those tokens sit next to each other in a different release context (game, ride, sequel) than the original film's theatrical release. The structural-and-lexical floor is what is proved; the semantic ceiling above it is what is not.
-
-That ceiling gap is by design. NLI-grade entailment requires either a textual-entailment model (soft signal) or LLM-as-judge (Hermes round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. The honest report is "this claim is evidence-linked, role-OK, lexically grounded, and warrant-named; semantic entailment is not yet hard-verified." The spotlight renderer makes residual gaps visible: when the cited span has no token cluster (the density rank finds no high-density region), the displayed excerpt falls back to the leading window — an auditor reading EVIDENCE_LINKED + leading-window excerpts under a relation-shape question immediately sees "the verifier accepted on coverage but the chunk's load-bearing slice for this claim is sparse," even when warrant-lite passed because the answer entity exists somewhere in the chunk.
-
-Warrant-lite (Rule 7) and title-relevance (Rule 8) are the first semantic-grounded checks to enter the hard layer, and they earn the entry by staying lexical. The lattice now covers six layers cleanly: provenance commitment (Merkle-AGI), source linkage (Reverse-RAG), claim decomposition (CTI), anchor-class warrant (Rule 7 — proper-noun, date, entity-list, count, cause anchors), source-title relevance (Rule 8 — claim must share content tokens with the cited source's title, catching retrieval-driven hallucinations where the source itself is structurally unrelated), & quote-safe rendering (density-spotlight). The remaining layer — semantic / NLI-grade entailment — is intentionally deferred until a deterministic-enough entailment substrate exists to enter the proof path without staining the soft/hard boundary. Today's stack is honest about that ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is HYBRID with a smell-sidecar warning, never STRICT-with-bogus-citation.
-
-13.9.8 Claim-count ceiling — TOO_MANY_CLAIMS as defense in depth
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The 2026-04-30 york-england run revealed an answer-shape failure orthogonal to per-claim verification: ``"tell me all there is to know about york england?"`` prompted the model to emit 26-59 claim-pointer pairs of which only 2-4 verified. The model treated the prompt-shape as a license to spam encyclopedic claims from training & assign each a coincidental pointer match. An atomic-claim prompt rule (one focused fact per line, multiple distinct facts become multiple lines) reduced the typical case to ~10 claims, but the runaway pattern persists as a model-behavior risk.
-
-``policy["claim_lattice_max_claims_per_answer"]`` caps the number of claims a single answer can emit (default 12). Beyond the cap, ``verify_claim_lattice`` & ``verify_claim_lattice_json`` record a ``TOO_MANY_CLAIMS`` violation that demotes STRICT → HYBRID via the existing violation path. The cap doesn't truncate — every claim still verifies so the operator sees the full evidence of the runaway. 12 admits typical entity-list questions (5-7 dinosaurs, Simpsons family + pets) while flagging the descriptive-prompt runaway. Folds into ``governance_policy_hash`` on change.
-
-13.9.9 Label discipline — four-rung ladder for claim-lattice modes
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The audit_mode token ``STRICT`` carries different weight across verifier methods. In quote / span / entity / paraphrase mode, STRICT means "every cited evidence unit textually matches a pinned source span" — a strong claim about lexical grounding. In claim-lattice modes (pointer & JSON), STRICT means "every pointer resolves to a valid evidence object whose source_role is allowed AND every cited span passes citation-coverage." That property is structurally weaker: synthesis-heavy claims (a model joining multiple cited spans into a single explanatory sentence) can pass all hard checks without semantic entailment of the joined assertion.
-
-The renderer maps lattice-mode audit_mode tokens to a four-rung ladder where each rung names a strictly stronger property::
-
-    POINTER-LINKED       pointer/source/chunk verified;
+    POINTER-LINKED       pointer / source / chunk verified;
                          warrant either did not apply or failed
-    ANCHOR-WARRANTED     pointer-linked + warrant passed where it
-                         ran; other soft demotes may apply
+    ANCHOR-WARRANTED     pointer-linked + warrant passed where it ran;
+                         other soft demotes may apply
     EVIDENCE-WARRANTED   anchor-warranted + no soft demotes
     UNGROUNDED           no verified pairs
 
-HYBRID adds a ``-PARTIAL`` suffix to whichever rung applies. ``ENTAILMENT-VERIFIED`` reserves a fifth rung for a future committed entailment engine; today's stack does not produce it.
+A fifth rung — ``ENTAILMENT-VERIFIED`` — is reserved for a future committed entailment engine; today's stack does not produce it. Records that mix verified & unverified claims carry a ``-PARTIAL`` suffix on whichever rung applies, naming exactly that some claims passed & some did not.
 
-Rung discrimination uses the existing violations list — no new verifier output field needed. ``WARRANT_MISSING`` violations drop the rung to POINTER-LINKED (warrant ran & failed for at least one claim). Soft-demote violations like ``LAZY_ANCHOR_DEMOTED`` / ``POINTER_OVERFLOW_TRIMMED`` / ``TOO_MANY_CLAIMS`` / ``BARE_NAME_CLAIM`` cap the rung at ANCHOR-WARRANTED. No demotes & warrant clean → EVIDENCE-WARRANTED.
+Rung discrimination uses the violations list — no new verifier output field needed. ``WARRANT_MISSING`` violations drop the rung to POINTER-LINKED. Soft-demote violations like ``LAZY_ANCHOR_DEMOTED``, ``POINTER_OVERFLOW_TRIMMED``, ``TOO_MANY_CLAIMS``, & ``BARE_NAME_CLAIM`` cap the rung at ANCHOR-WARRANTED. Clean runs reach EVIDENCE-WARRANTED. The four-rung surface lands the property names directly so operators read what the lexical verifier could confirm without inferring from a ``verifier_method`` tail.
 
-Quote / span / entity / paraphrase modes keep their original audit_mode tokens (those verify against pinned spans, not synthesis). The schema column stays ``{STRICT, HYBRID, UNGROUNDED}`` so the v9.8 invariant holds across cache, audit chain, & mesh wire format. Pure display-layer transformation; cache_key, governance_policy_hash, & all programmatic callers see the original audit_mode unchanged. The earlier two-rung surface (``EVIDENCE-LINKED`` / ``EVIDENCE-LINKED-PARTIAL``) was the v1 of this work; the four-rung ladder lands the property names directly so operators read what the lexical verifier could confirm without inferring from the verifier_method tail.
+The schema column stays unchanged. The ladder is a pure display-layer transformation; cache_key, governance_policy_hash, & all programmatic callers see the underlying audit_mode unchanged. The ladder is the language of the paper & the language of the human-facing surface; the substrate beneath it is the v9.8 invariant the broader Merkle-AGI ledger commits to across systems.
 
-13.10 Operator surface — capacity metrics & retrieval keywords
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Two operator-facing additions surfaced from bench-driven iteration & live-query feedback. Both stay outside the proof path (never enter ``cache_key``) but get displayed in the human render so an operator can reason about the system's behavior without parsing run-DAG blobs.
+10. Federation — Snapshot Roots & Mesh
+---------------------------------------
 
-13.10.1 Capacity metrics — char-level prompt accounting
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+A ``snapshot_root`` is ``MerkleTree.build([sorted DISTINCT document_roots]).root`` — one 32-byte hash naming the content-addressed forest at a point in time. Two peers that ingested the same dump compute bit-identical snapshot_roots, so cross-machine "are we synced?" becomes a single hash comparison instead of doc-by-doc gossip. Snapshot creation pins the root into the audit chain & records ``(snapshot_root, taken_at, audit_event_hash, doc_count, parent_snapshot, reason)``. Snapshots auto-link to the most recent prior snapshot, giving a chain for free. The same snapshot_root doubles as the TF-IDF ``scope_root``, so corpus-statistical cores reconcile under explicit corpus agreement.
 
-Per-call result dict gains a ``prompt_chars`` breakdown::
+The 2010-11 enwiki corpus, ingested on a single workstation in 1h 41m (4-way sharded), produces::
 
-    {
-      "system_prompt":      <int>,   # system message
-      "grounding_reminder": <int>,   # restated rule (claim-lattice modes)
-      "user_question":      <int>,   # original question text
-      "evidence_or_context":<int>,   # rendered evidence map / wikitext context
-      "messages_total":     <int>,   # sum of all messages[].content
-    }
+    snapshot_root = 43797e46605de08dbab06cdcaf5be7ad78243b193c56f8580200dee6bcc7e1b9
+    doc_count     = 3,468,134 (deduplicated)
+    storage       = 38 GB across 4 shards
+    chunks        = 6,235,672
+    edges         = 90,593,523
+    audit_events  = 3,468,308 (chain intact, 30/30 random Merkle proofs verified)
 
-Plus ``answer_chars`` for the rendered answer length. Char-level: model-agnostic, fast, & a workable proxy for prompt tokens (~4 chars/token English prose, ~2.5 for JSON-evidence-block heavy contexts). The bench harness aggregates these into a *strict-rate by prompt-size bucket* table (``<8KB / 8-16KB / 16-32KB / 32-64KB / >=64KB``) so an operator can answer "*does context size correlate with verdict quality?*" at scale.
+Every one of those hashes is bit-identical on any machine that ingests the same ``enwiki-20101011-pages-articles.xml.bz2`` with the same aborist commit. Hand the snapshot_root to any peer; if their corpus matches, they compute the same hash, with mathematical certainty. No trust required, just shared inputs.
 
-The CLI human render emits a one-liner under the source list::
+The mesh layer is wire-and-trust scaffolding for peers that already share a snapshot_root or want to. Cryptography:
 
-    capacity: prompt 21,996 chars (sys 1,292 + reminder 342 +
-              evidence 20,304 + question 30) → answer 247 chars
+- **Ed25519** signs every membership mutation & every gossip envelope. Forgery requires breaking Ed25519.
+- **X25519 ECDH** [6]_ wraps each epoch's symmetric mesh secret to every current member's Diffie-Hellman pubkey. HKDF derives a 32-byte AEAD key from each shared secret.
+- **ChaCha20-Poly1305** [7]_ authenticates payloads & per-member secret wraps; bodies optionally encrypt under the per-epoch shared secret with envelope metadata as additional authenticated data.
 
-13.10.2 Retrieval keywords — operator-supplied search hints
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Membership state is per-epoch. Adding a member, kicking a member, or rotating the secret bumps the epoch & writes an audit event. Eviction works by rotating to a new epoch whose envelope omits the kicked member: their prior signatures stay verifiable forever (their old roster row is preserved), but they have no entry in the new envelope, so any AEAD-protected gossip from ``epoch+1`` onward is opaque to them.
 
-Long discursive questions sometimes under-retrieve because their content tokens get diluted by template phrasing. A 2026-05-01 case::
+Five message types carry across the wire, all wrapped in a single signed envelope::
 
-    Q: "what technology may enable one person to reconstruct
-        another person's thoughts or ideas without speaking..."
+    ANNOUNCE_ROOT          document_root + source_uri + chunking/canonicalization/schema versions
+    ANNOUNCE_DERIVATION    core_root <- surface_roots(s), distiller_id, proof_blob hash
+    ANNOUNCE_PROVIDENCE    cache_key + audit_mode + answer_hash + verifier counts
+    ANNOUNCE_FALSIFICATION cache_key + reason + witness signature
+    REQUEST_BODY/DELIVER_BODY  body pull on local miss + per-chunk leaf hashes for client-side Merkle re-derivation
 
-returned HYBRID 6/10 with mostly-tangential sources (videoconferencing, telepathy fiction). Appending ``"transcranial knowledge acquisition"`` to the question lifted the verdict to STRICT 1/1 with the *Neurotechnology* article cited correctly. The user-supplied keywords narrowed OR-mode FTS5 to topical articles.
+Receivers verify the Ed25519 signature against the sender's ``sign_pub`` looked up in ``mesh_roster`` at the envelope's ``epoch_id``; non-members of that epoch produce no valid signature & their messages are silently dropped. Each accepted ``ANNOUNCE_*`` writes one ``mesh_received`` event into the local audit chain whose body is the full signed envelope, preserving non-repudiation. ``REQUEST_BODY`` triggers a ``DELIVER_BODY`` carrying document text + per-chunk leaf hashes; the client re-derives the Merkle root from those leaves & refuses to insert any body whose leaves don't reconstruct the requested root.
 
-The ``--retrieval-keywords`` flag (CLI: ``K="..."`` on ``make query``) makes this pattern explicit. Plumbing: keywords concatenate with the question for the FTS5 search & title-filter token set only. The LLM still sees the original question; the verifier still checks against the original question; ``question_hash`` still computes from the original text. The 8-dim cache_key changes only via downstream effects on ``context_root`` & ``conversation_hash`` (different sources fed to LLM means different conversation state).
+The mesh is **off by default**. A ``mesh.enabled`` flag in the meta table gates everything. Fresh installs report ``enabled: false`` & no network code paths execute until the practitioner runs ``aborist mesh init`` & ``aborist mesh enable``.
 
-This indirect cache_key effect named a provenance gap: keywords changed which sources got chosen, but the keyword string itself entered no Merkle commitment. An audit could recover "these documents were selected" but not "these were the keywords that pulled them in." Two runs with the same question & different keywords that surfaced identical sources were Merkle-indistinguishable.
+Three classes of derivative reconcile across peers:
 
-Ticket #000001 closed that gap 2026-05-02 via ``aborist/qa/retrieval_plan.py``::
+- **Deterministic distillers** (e.g., first-sentence cores): same source_root → same core_root, on every machine. Shareable as-is via the existing ``derivations.proof_blob``.
+- **Corpus-statistical distillers** (e.g., TF-IDF keywords): convergent only under shared corpus scope. Requires a ``scope_root`` commitment so peers explicitly agree on which corpus statistics underlie their cores.
+- **LLM-derived answers**: non-convergent (serving non-determinism), but cryptographically witnessable. The same cache_key from many peers + the same ``answer_hash = sha256(answer_text)`` collapses to one row with many witnesses; divergent answers stay as multi-witness candidates, each Merkle-bound to a verifiable context_root.
 
-    @dataclass(frozen=True)
-    class RetrievalPlan:
-        retrieval_keywords: str
-        top_k: int
-        over_fetch: int
-        max_context_chars: int
-        shard_ids: tuple[str, ...]
 
-    def retrieval_plan_hash(plan: RetrievalPlan) -> str:
-        # SHA-256 over canonical-JSON. Deterministic per call;
-        # folds into the run-DAG retrieval stage as a bound input.
+11. Personal vs. Public Chains
+-------------------------------
 
-``aborist/qa/dag.py:build_run_dag`` now accepts a ``retrieval_plan_hash`` parameter. When provided, the retrieval-stage hash binds BOTH the plan (input) & the sources_summary (output) — ``H({"retrieval_plan_hash": <hex>, "sources_summary_hash": <hex>})``. When omitted, falls back to the historical sources-summary-only hash so pre-#000001 ``run_dag_root`` values stay byte-stable. ``aborist/qa/query.py`` constructs the plan per call & threads the hash through.
+The same primitive supports a private corpus on one machine & a public corpus shared by a thousand peers. The trust regime is a per-document choice, not a platform decision.
 
-Two runs with identical sources but different retrieval keywords now produce different ``run_dag_root`` values. Audit can recover the keywords from the persisted run-DAG blob. The 8-dim cache_key invariant holds — the plan does NOT enter ``question_hash`` or ``governance_policy_hash``, since keywords stay operator metadata, not user-question intent. SQL-column queryability & ``retrieval_plan_built`` audit events stay deferred (ergonomic enhancements that earn their own tickets when the run-DAG-blob path proves too friction-heavy).
+**Private chain.** Records stay local. Personal session history. The model learns from the practitioner's own prior work on documents they visit repeatedly. The chain belongs to the practitioner alone. No data leaves their machine. Suits corporate knowledge bases, personal research notes, sensitive internal documentation, any document the practitioner does not want to share.
 
-13.11 Tickets — design log convention
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Public chain.** Records broadcast to peers via the mesh layer in §10. Any node that has processed the same document_root can contribute answers. Any node that queries the same document_root can receive pre-verified answers from others. Suits open documentation, public APIs, research papers, any document where sharing verified answers benefits a community.
 
-Aborist's design log lives in ``docs/`` as flat ``ticket-NNNNNN-<slug>.md`` files. Tickets capture actionable proposals awaiting go/no-go, scoped defects, or queued enhancements. Architecture references (``cti-architecture.md``, ``mesh.md``) & bench journals (``qa-modes-bench-2026-04-30.md``) stay un-numbered: tickets propose change & await decision; reference docs describe state of the world.
+Public chains do NOT share document content. They share proofs. The Merkle proof proves an answer came from a specific document version without transmitting the document. Document content stays on the originating client; proofs travel.
 
-``docs/TICKETS.md`` carries the index plus a ``Next ID`` line that gets bumped atomically with new ticket commits. Every ticket starts with::
+A practitioner can run private & public chains simultaneously, partitioned by domain or per-document opt-in. A health practitioner might run a private chain over patient notes & a public chain over open medical guidelines, drawing on community-verified answers for the latter while keeping the former entirely local. The substrate does not care; the same SQLite file can hold both. The eight-dimensional cache_key partitions all of it cleanly.
 
-    # Ticket #NNNNNN — <short title>
 
-    **Status:**       open · awaiting go/no-go    (or "in progress", "closed")
-    **Opened:**       YYYY-MM-DD
-    **Scope:**        <one-liner>
-    **Audience:**     <who reads this>
-    **Hard constraint:** <invariants this ticket commits to NOT break>
+12. The Truth-Seeking Ratchet
+------------------------------
 
-Closed tickets stay in place as the design log; they don't get deleted.
+Emergence is preserved, not suppressed. UNGROUNDED records & POINTER-LINKED records stay live in the providence cache. Training-derived knowledge is often correct, just unverifiable against the current corpus. The substrate labels honestly so a downstream consumer can route: top-rung records carry compliance-grade provenance, UNGROUNDED records carry "the model believes this, no certificate attached." A model that genuinely refuses ("I don't know based on the provided sources") classifies UNGROUNDED with ``verifier_method='none'`` & ``n_quotes=0`` — the most honest answer the system can produce.
 
-Tickets shipped as of 2026-05-02:
+Emergence is also a **corpus-growth signal**. Unverified spans persist on each providence record; ``aborist emergent --aggregate`` ranks them by frequency. Spans the model produces repeatedly that the corpus cannot ground are candidate ingest targets — what training has that ingestion is missing. When the missing source eventually arrives, ``aborist reclassify`` re-runs the verifier against existing answers without any LLM call, persists the upgraded label, & writes one ``providence_reclassify`` audit event per changed row. POINTER-LINKED records promote to ANCHOR-WARRANTED. ANCHOR-WARRANTED promotes to EVIDENCE-WARRANTED. UNGROUNDED records that find their grounding promote to whichever rung the verifier now reaches. The audit chain remembers the transition. Prior records stay as historical witnesses: *on this date, against that corpus root, the model emerged this much beyond its sources*.
 
-- **#000001** — Retrieval-keywords audit gap. Closed via ``RetrievalPlan`` dataclass + ``retrieval_plan_hash`` folded into the run-DAG retrieval stage (see 13.10.2 above). Two runs with identical sources but different retrieval keywords now produce different ``run_dag_root`` values.
-- **#000002** — Reference-Frame Polarity Contract (Module L). Closed via the frame detector + polarity preamble below (see 13.12).
-- **#000003** — Anchor-class warrant generalization. Closed via per-shape detectors + extractors for entity-list / count / why-cause shapes (see 13.9.2 above).
-- **#000004** — Directive coverage in bench summary. Closed at landing time (the directive_compliance per-row column in ``bench/qa_sweep.py`` plus the markdown summary's ``directive coverage`` table; see 13.13).
-- **#000005** — Label ladder migration. Closed via the four-rung POINTER-LINKED → ANCHOR-WARRANTED → EVIDENCE-WARRANTED → UNGROUNDED ladder (see 13.9.9 above), with ENTAILMENT-VERIFIED reserved for a future committed entailment engine.
+The ratchet only goes one way. A record can climb the ladder when new evidence arrives. A record cannot silently fall down the ladder; demotion requires a verifier change that bumps ``governance_policy_hash`` & cleanly partitions the cache namespace, leaving the prior record live under the prior policy. Re-classification under the new policy starts a fresh cache record at the appropriate rung. The two records coexist, bound to their respective policies, & an auditor can compare the same answer's classification under different verifier regimes to study how the substrate's standards have evolved.
 
-13.12 Reference-frame polarity contract (Module L)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Truth-seeking is therefore a property of the *substrate*, not of the model. The model emits its best guess. The substrate measures the gap between the guess & the available evidence, names the gap honestly, persists both, & rewards corpus growth that closes the gap. Over time, & across many practitioners, the substrate accumulates a body of verified answers whose ladder placements reflect what humanity has so far been able to prove. Emergence today is the corpus-growth roadmap of tomorrow.
 
-The phrase-pattern retrieval route (13.4.8) closed the **retrieval** side of reference-frame failure — for an Orwell-shape query like ``"has oceania always been at war with east asia"``, the verbatim 5-token sequence ``"oceania always been at war"`` surfaces the ``Nineteen_Eighty-Four`` article into top-K. The remaining gap was answer **shape**: the model's pre-#000002 response read ``"The text does not directly state..."`` — a defensive hedge that ignored the literary frame the retrieved evidence opened.
 
-The substrate now classifies the query's intended frame & nudges the prompt accordingly. New module ``aborist/qa/frame.py`` adds a ``FrameDetection`` dataclass plus ``detect_frame(question, sources, phrase_match_roots)`` heuristic. The classification fires when:
+13. Decisions and Constraints
+------------------------------
 
-1. The phrase-pattern retrieval route surfaced at least one source (``phrase_match_roots`` non-empty).
-2. At least one phrase-matched source is a reference work, determined by either:
+Eleven rules anchor the substrate. Each is a deliberate choice with a rationale; reverting any one without addressing the rationale weakens the system in a specific named way.
 
-   - title parenthetical disambig (``"(novel)"``, ``"(film)"``, ``"(play)"``, ``"(franchise)"``, etc.); or
-   - body sample contains ≥3 distinct fiction markers from a set including ``novel``, ``published``, ``protagonist``, ``plot``, ``narrator``, ``adaptation``, ``directed``, ``starring``, ``screenplay``, etc.
+1. **The verifier stays binary.** Each evidence unit either verifies or does not. No per-unit confidence scores, no fuzzy-match indicators, no soft labels. Soft signals proliferate elsewhere — sidecars, retrieval rankers, token-coverage probes — but never enter the proof path. *Rationale:* classification is a hard bit, not a soft score, & enters ``governance_policy_hash`` cleanly. Once a soft signal contaminates the chain, every prior cryptographic claim becomes negotiable.
 
-Distinct-marker count keeps the heuristic robust against single-marker repetition: a history article saying ``"a novel approach"`` twice doesn't trip the detector; a reference-work lead clusters several distinct markers (``novel`` + ``published`` + ``characters`` + ``plot`` + ``protagonist``).
+2. **The runtime owns quote text.** In claim-lattice mode the model never types a quote string; it types a pointer. The runtime interpolates the literal source span at render time. *Rationale:* synthetic-elision-by-construction-impossible. A model cannot produce a frankenquote it cannot type.
 
-The body sample uses the **article LEAD** (chunk_idx=0, post-wikitext-strip) — fiction markers cluster in the lead on Wikipedia, not in plot chunks the query-relevance ranker may have surfaced higher. Wikitext strip ensures markers buried under ``[[wikilinks]]`` & ``{{templates}}`` reach the density check.
+3. **Cores never evict.** The eviction policy reclaims surface-tier documents when storage pressure mounts; cores are derivatives & their underlying surfaces can be re-fetched, but the core itself stays pinned. *Rationale:* a core represents irreversible work — distillation, summarization, recursive cores-of-cores — that cannot be cheaply reproduced. Evicting a core forfeits the work; evicting a surface forfeits a fetch.
 
-When ``frame_kind == "reference"``, ``aborist/qa/query.py`` injects a polarity preamble as a user-role message before the existing grounding_reminder::
+4. **One-shot discipline.** A run may fail honestly. A run may self-label uncertainty. A run may downgrade itself. A run may not keep trying until it passes. *Rationale:* UNGROUNDED beats hallucinated success. Iterative repair + reprompt-feedback loops produce records that cannot be distinguished from cherry-picking. The substrate prefers an honest failure to an opportunistic success.
 
-    "This question may be a reference to {reference_title}. When you
-    answer, distinguish what the cited work depicts as actual continuity
-    from what in-universe propaganda or characters claim within it. Cite
-    evidence for each substantive claim using the pointer format above."
+5. **Idempotent re-ingest.** Same content → same ``document_root`` → no-op insert. Same URI + different content → new doc + ``supersedes`` edge. *Rationale:* re-running the pipeline is always safe. Nothing duplicates. Nothing overwrites silently. Lossless history.
 
-The renderer adds a ``reference frame: <title>`` line to the human output. Result dict gains a ``frame_detection`` field carrying the kind / title / URI / confidence — sidecar; never enters cache_key, governance_policy_hash, or the run-DAG.
+6. **Local-first; federation opt-in.** The mesh layer is off by default. A fresh installation makes no network calls until the practitioner explicitly enables them. *Rationale:* the practitioner's data is the practitioner's data. Sharing requires consent, & consent requires the practitioner know what is being shared.
 
-Live verification on the Orwell case::
+7. **Emergence is preserved, not suppressed.** UNGROUNDED & POINTER-LINKED records stay live. Reclassify promotes them up the ladder when new evidence arrives. *Rationale:* see §12. The truth-seeking ratchet is the architecture's reason for existing.
 
-    Pre-#000002:  "The text does not directly state that Oceania has
-                  always been at war with East Asia."
+8. **Soft hash never enters the proof path.** Embeddings, TF-IDF scores, lexical similarity counts shape ranking & retrieval; they never feed cache_keys, document_roots, or audit_event_hashes. *Rationale:* a ranker that drifts as new training data arrives must not invalidate prior cryptographic claims. The hard channel & the soft channel evolve on independent timelines.
 
-    Post-#000002: "In George Orwell's dystopian novel Nineteen
-                  Eighty-Four, the nation of Oceania is always at war
-                  with Eastasia, but this is a result of propaganda &
-                  doublethink, not actual historical continuity. The
-                  war with Eastasia is a fabricated conflict to
-                  maintain control..."
-                  reference frame: Nineteen Eighty-Four
+9. **Cache is not consent.** A cached answer is a record of what the runtime computed & what the verifier could confirm. It is not a claim about whether the user agreed with the answer, found it useful, or wants it shared. *Rationale:* the cache is content-addressed, not endorsement-addressed. Endorsement, ratings, & social signals belong in separate tables that can be edited & retracted; the cache is append-mostly history.
 
-The post-fix answer distinguishes the propaganda claim from the fictional-actual continuity, the multi-frame compilation the polarity contract abstraction proposed. Literal queries (``"what is the capital of france?"``) keep their clean single-frame answers — the polarity preamble injects only when ``detect_frame`` classifies the query as reference.
+10. **Governance dimensions partition the cache, never the corpus.** Bumping ``governance_policy_hash`` stales cache records on lookup & cleanly partitions the namespace. It does not touch surfaces, cores, derivations, or the audit chain. *Rationale:* the corpus is the ground truth. Governance evolves; the corpus does not get rewritten when governance evolves.
 
-Per-frame answer compilation as a runtime concern (programmatically emit per-frame paragraphs rather than nudging via prompt) stays deferred. The prompt-side approach lands first; the runtime compiler earns its slot if bench evidence shows the prompt nudge proves unreliable.
+11. **Labels name properties, not vibes.** POINTER-LINKED, ANCHOR-WARRANTED, EVIDENCE-WARRANTED, UNGROUNDED each name a property the verifier could lexically confirm or could not. There are no "high confidence", "moderate confidence", or "low confidence" labels. *Rationale:* a confidence label is a soft signal in disguise. Naming the property — pointer linked, anchor warranted, evidence warranted, ungrounded — lets an auditor read the same label & immediately know what was checked.
 
-13.13 Engineering doctrine — seven-point program & five-step algorithm
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The session that landed #000001-#000005 also formalized the architectural directives that drove them. Two artifacts now sit upstream of every ticket: the **seven-point program** (the directive catalogue) & the **five-step algorithm** (the discipline for evaluating change). Both live in ``docs/`` & in ``CLAUDE.md`` so every shift, human or agent, walks past them before touching code.
+14. What This Proves and What It Does Not
+------------------------------------------
 
-13.13.1 Seven-point program
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met, source-title-relevant,* &, when the active anchor class fires, *anchor-named-in-cited-chunk* for every active class. It does **not** prove that the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the eight hard checks if E1's source is the *Jurassic Park (film)* article (Rule 8), the word *Brachiosaurus* appears in E1 (Rule 5), & the relation/date/list/count/why anchor classes do not fire on a *behavior* claim — even if E1's text says nothing about social herding.
 
-Distilled 2026-05-01::
+The structural-and-lexical floor is what is proved. The semantic ceiling is what is not. The honest report on every claim-lattice answer is "this claim is evidence-linked, role-OK, lexically grounded, & warrant-named; semantic entailment is not yet hard-verified." The spotlight renderer makes residual gaps visible: when the cited span has no token cluster, the displayed excerpt falls back to the leading window — an auditor reading EVIDENCE-WARRANTED with leading-window excerpts under a relation-shape question immediately sees that the verifier accepted on coverage but the chunk's load-bearing slice for this claim is sparse.
 
-    Stop making Hermes prove things. Make Hermes emit pointer
-    clauses; build CTI internally; bind the retrieval map &
-    evidence map; verify pointers deterministically; add general
-    anchor-class warrant before semantic NLI; rename labels
-    honestly; & automate only after these invariants are
-    test-pinned.
+That ceiling gap is by design. NLI-grade entailment requires either a textual-entailment model (soft signal) or LLM-as-judge (model round-trip) — both of which would re-introduce the soft/hard boundary leak the architecture is built to prevent. Today's stack is honest about the ceiling: when a small model emits a claim its cited evidence cannot semantically support, the verdict is ANCHOR-WARRANTED with a smell-sidecar warning, never EVIDENCE-WARRANTED with a bogus citation. A future committed entailment engine, deterministic enough to enter the proof path without staining the soft/hard boundary, lifts records to ENTAILMENT-VERIFIED; until that engine exists, the rung is reserved & deliberately empty.
 
-Each directive maps to a structural pin in ``tests/test_directives.py`` & to the run-time substrate that enforces it:
+The architecture's promise to its readers is calibration. It does not claim to verify everything. It claims to name exactly what it can verify, & to leave a structural gap visible where it cannot. A practitioner reading a top-rung label knows what the substrate could prove. A practitioner reading any lower rung knows what the substrate could not. Honesty about the ceiling is a feature, not a limitation.
 
-- **D1** — No LLM in hard verifier path. Substrate (``aborist/qa/verify.py`` signatures forbid ``chat_client`` / ``llm`` / ``judge`` / ``model`` params; CHECK constraint enum on ``verifier_method`` excludes LLM-judge tokens).
-- **D2** — Hermes emits pointer clauses. Substrate (``ANSWER_MODES`` carries ``claim_lattice_pointer`` & ``claim_lattice``; runtime pointer parser at ``aborist/qa/parse_claims.py``).
-- **D3** — Build CTI internally. Closed via #000002 (frame detector + polarity preamble + multi-frame answers).
-- **D4** — Bind retrieval map AND evidence map. Closed via #000001 (``retrieval_plan_hash`` folded into the run-DAG retrieval stage).
-- **D5** — Verify pointers deterministically. Substrate (seven hard checks in ``verify_claim_lattice``; deterministic byte-for-byte across runs).
-- **D6** — Anchor-class warrant before semantic NLI. Closed via #000003 (entity-list / count / why-cause shapes added to the warrant dispatch).
-- **D7** — Rename labels honestly. Closed via #000005 (four-rung ladder POINTER-LINKED → ANCHOR-WARRANTED → EVIDENCE-WARRANTED → UNGROUNDED, with ENTAILMENT-VERIFIED reserved).
-- **D8** — Automate only after the invariants are test-pinned. Closed via #000004 (bench-side ``directive_compliance`` per-row column + ``directive coverage`` markdown summary section).
 
-All seven structural directives close as of 2026-05-02. ``docs/seven-point-program.md`` carries the catalogue; ``tests/test_directives.py`` carries 23 anti-regression tests that fail by name when a future PR silently weakens any directive (e.g. adds a ``chat_client`` parameter to ``verify_quotes``, or admits ``llm`` / ``judge`` / ``nli`` to the ``verifier_method`` CHECK constraint enum).
+15. Forcing the Issue
+----------------------
 
-13.13.2 Five-step algorithm
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Some technical formulations compel structural change not because they require adoption but because their existence makes a prior approach indefensible.
 
-Walk these in sequence; skipping a step makes the next ones expensive::
+The Merkle Providence layer forces one question onto every RAG system: *can you prove where your context came from?*
 
-    1. Make the requirements less dumb. Every requirement gets a
-       person's name, not a department. If you can't name who asked
-       or which defect closed, the requirement is suspect.
+Traditional RAG [2]_ retrieves chunks by cosine similarity. No chunk carries a Merkle proof. No retrieval carries a document fingerprint. The retrieved context could come from a stale index, a corrupted chunk, or a document that changed since last ingestion. The pipeline trusts embedding similarity as a proxy for relevance. Nothing verifies the source.
 
-    2. Delete the part or the process. If you aren't putting back at
-       least 10% of what you delete, you aren't deleting hard
-       enough. The verifier-stays-binary discipline & "no soft
-       signals in the hard chain" rules are deletion-first
-       guardrails.
+Once Merkle-proved answers exist in the ecosystem, unverified RAG answers carry an implicit disclaimer: *I retrieved this from somewhere I believe matches your question, but I cannot prove our source was the document you currently view.*
 
-    3. Simplify & optimize. Only after 1+2. Don't optimize a
-       process that shouldn't exist.
+Providence cache answers carry a different posture: *I computed this answer from the exact bytes of the document whose root hash I can show you. Verify it yourself.*
 
-    4. Accelerate cycle time. Only after simplifying. Don't dig
-       the grave faster.
+Merkle membership proofs constitute a subset of Zero-Knowledge Proofs [8]_ [9]_: proving a leaf exists in a tree without revealing other leaves. Full ZKP apparatus (zk-SNARKs, Bulletproofs) provides stronger guarantees & more complex proofs; Merkle proofs provide a simpler, faster, & more practical subset sufficient for our provenance use case. The connection deepens when a public chain handles sensitive documents: a user can prove their answer derived from a specific confidential document without revealing the document's content, the question text, or the answer text. Only the proof path & the document root travel over the network. The verifier confirms without seeing the data.
 
-    5. Automate. Last, not first. Hand-rolled before scripted,
-       scripted before declarative, declarative before generated.
+This posture change does not require every system to adopt Merkle trees immediately. It requires every system to acknowledge that provenance matters, & that systems which cannot demonstrate provenance operate at a disadvantage in trust-sensitive contexts.
 
-The five-step algorithm shows up structurally in the ticket bodies. Per-class warrant policy gates were proposed in #000003 §3.4 & deferred under step 2: the single ``warrant_check_enabled: bool`` flag is the minimum-viable mechanism. Per-class flags earn their slot when bench evidence shows over-firing on a specific class — not before. The ``verifier_steps_ran`` field proposed in #000005 §3 was similarly deferred: the existing ``violations`` list carries enough signal to discriminate the four ladder rungs without adding a new field.
+Medical documentation. Legal reference material. Security advisories. Financial disclosures. Government regulations. Any domain where "I retrieved something similar" falls short of "I can prove this came from the exact source you cited." These domains will adopt provenance-first machine learning earlier than others, because the cost of indistinguishable-from-confident hallucination is highest there. The rest of the web follows once the pattern is established.
 
-13.13.3 Bench-as-build-gate
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``bench/qa_sweep.py`` enforces directive coverage on every sweep. Each row carries a ``directive_compliance: dict[str, bool]`` field for the directives whose pinning is observable per-row (D2 / D3 / D4 / D6 / D7). The summary markdown emits a ``## directive coverage (seven-point program)`` table showing per-mode pass rates as ``count/N (pct%)``. D1 / D5 / D8 stay system-global properties tracked once in the program doc.
+16. Web 2.5 & AGI as a Commons — Roadmap & Invitation
+------------------------------------------------------
 
-Bench scores that climb without directive coverage climbing are graveyard-digging (five-step algorithm step 4). The bench harness IS the automation substrate, so it must enforce the directives before any feature gets layered on top.
+The stack this paper describes runs on top of what already exists. The existing web's documents & URIs. The existing browsers. The existing OpenAI-compatible inference endpoints. SQLite, which ships with every operating system. The cryptographic primitives — SHA-256, Ed25519, X25519, ChaCha20-Poly1305 — which ship in every standard library worth shipping in. **No blockchain.** No new protocol. No platform replacement. We call this stack **Web 2.5** because it sits between the document web (Web 2.0) & the speculative everything-on-chain (Web 3.0) — it borrows the verifiability of the latter without paying the coordination cost.
 
+The path for a practitioner is concrete:
 
-14. Related Work
+1. **Install a substrate.** ``pip install aborist`` (or any compatible implementation; the protocol is open). The codebase ships under AGPL-3.0-only at `git.unturf.com/engineering/unturf/aborist <https://git.unturf.com/engineering/unturf/aborist>`_.
+2. **Point it at an inference endpoint.** Default `hermes.ai.unturf.com <https://hermes.ai.unturf.com>`_ for free Hermes 3 access. Any OpenAI-compatible alternative works; set ``ABORIST_LLM_ENDPOINT`` & go.
+3. **Ingest a corpus.** Wikipedia dump, git repository, browsing history exported as HTML, anything. The ``aborist ingest`` verb does the rest.
+4. **Ask questions.** ``aborist ask "..."`` runs retrieval, inference, verification, classification, & cache write in one operation. Subsequent identical questions about identical sources hit the cache & return in O(1).
+5. **Choose a chain.** Personal corpus stays local by default. Public corpus opts in via ``aborist mesh enable``. Per-domain opt-in lets the practitioner mix regimes.
+6. **Watch the ratchet.** ``aborist emergent --aggregate`` ranks unverified spans across the cache; ingest corresponding sources & ``aborist reclassify`` promotes records up the ladder.
+
+The pattern generalizes. `uncloseai.com <https://uncloseai.com>`_ already serves the inference endpoint & hosts the Reverse RAG client; an in-browser providence cache that surfaces records for pages the user is reading — with verified-badge UI when a cache hit's Merkle proof matches the live DOM — is a forthcoming consumer of aborist's output. `unfirehose.com <https://unfirehose.com>`_ is a forthcoming JSONL aggregation layer for harness sessions across a mesh of compute nodes; aborist's run-DAG records & providence rows feed naturally into its ingest path. Both consumers are downstream of the substrate this paper describes. Both extend the practitioner's reach without altering the substrate's invariants.
+
+The AGI thesis is straightforward. Small models run on commodity hardware via open APIs. Verified memory accumulates locally & shares optionally over a mesh. The corpus grows when emergence outpaces grounding; the ladder climbs when grounding catches up. Truth-seeking is a property of the substrate, not of any single model or any single practitioner. A community of practitioners running compatible substrates against shared snapshot_roots produces a body of verified knowledge that no single participant could produce alone, & that no single platform can extract. AGI as a commons is the destination this paper sketches. The substrate is the path. The practitioner with a phone is the protagonist.
+
+
+17. Related Work
 -----------------
 
-**Graphify** (`pip install graphify`) builds navigable knowledge graphs from local folders: code in 13 languages, PDFs, images, & markdown. One command produces an Obsidian vault, a wiki, & a graph queryable in plain English. Graphify's authors report significant token reductions for graph-traversal queries versus raw file reads. Our work complements Graphify: where Graphify builds graphs over static local folders, Merkle Providence describes verifiable answer chains over live web documents & git-versioned codebases, with cryptographic provenance for every cached result. No prototype of our integration exists yet.
+**Reverse RAG** [1]_. Documented the client-side inversion of standard RAG: the browser already holds the document, full-page injection replaces chunk fragmentation, small models with perfect context outperform large models with similarity-retrieved fragments. This paper extends Reverse RAG with verifiable caching, eliminating the repetition tax that prior RAG systems do not address.
 
-**Git / Mercurial object model.** Both git & Mercurial implement content-addressed Merkle DAGs natively. Git's commit object hashes our entire tree; Merkle Providence inherits this as a free cache boundary signal. Our work makes this implicit property explicit & useful for ML inference caching.
+**Retrieval-Augmented Generation** [2]_. Introduced server-side vector retrieval for language models. Standard RAG remains the dominant pattern for chunk-similarity retrieval, & the comparative argument in §15 is implicitly about RAG-as-currently-deployed.
 
-**Traditional RAG** (Lewis et al., 2020). Retrieval Augmented Generation introduced server-side vector retrieval for language models. Our `Reverse RAG paper <https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html>`_ documented client-side inversion of this pipeline. Merkle Providence extends Reverse RAG with verifiable caching, eliminating our repetition tax that RAG systems do not address.
+**Git & Mercurial object models.** Both implement content-addressed Merkle DAGs natively. Git's commit object hashes the entire tree; this paper's substrate inherits this as a free cache boundary signal. Aborist makes the implicit Merkle-tree property of version control explicit & useful for ML inference caching.
 
-**Zero-Knowledge Proofs.** Merkle membership proofs constitute a subset of ZKP: proving a leaf exists in a tree without revealing other leaves. Our work applies this primitive to ML answer provenance without requiring full ZKP apparatus (zk-SNARKs, Bulletproofs). We trade completeness for simplicity & speed.
+**Zero-Knowledge Proofs** [8]_ [9]_. Merkle membership proofs constitute a subset of ZKP: proving a leaf exists in a tree without revealing other leaves. This paper applies the membership-proof primitive to ML answer provenance without requiring full ZKP apparatus. We trade completeness for simplicity & speed.
+
+**Merkle-AGI v9.8 substrate.** Aborist's underlying admissibility ledger inherits the eight-dimensional cache key, the falsification states, the audit chain, & the trichotomy schema column from the broader Merkle-AGI substrate. This paper describes the runtime spec implemented on top of v9.8; the substrate is generic across implementations, the runtime is one possible mapping.
+
+**Merkle's original construction** [3]_. The cryptographic primitive underlying every modern Merkle tree, including Bitcoin's transaction tree, Git's object model, & this paper's content-addressed substrate. The construction has not been improved upon in any architecturally relevant way since 1979; we apply it to ML provenance without modification.
+
+
+References
+----------
+
+.. [1] russell@unturf, cthegray, TimeHexOn, foxhop. *Reverse Retrieval Augmented Generation: Client-Side Context Injection for Small Language Models*. uncloseai.com, 2026. https://uncloseai.com/reverse-retrieval-augmented-generations-rag.html
+
+.. [2] Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Küttler, H., Lewis, M., Yih, W., Rocktäschel, T., Riedel, S., Kiela, D. *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks*. NeurIPS, 2020.
+
+.. [3] Merkle, R. C. *Secrecy, Authentication, and Public Key Systems*. Stanford PhD thesis, 1979.
+
+.. [4] Meta AI. *The Llama 3 Herd of Models*. Technical report, 2024.
+
+.. [5] NousResearch. *Hermes 3 Technical Report*. 2024.
+
+.. [6] Bernstein, D. J. *Curve25519: New Diffie-Hellman Speed Records*. PKC, 2006.
+
+.. [7] Bernstein, D. J. *ChaCha20 and Poly1305 for IETF Protocols*. RFC 8439, 2018.
+
+.. [8] Goldwasser, S., Micali, S., Rackoff, C. *The Knowledge Complexity of Interactive Proof-Systems*. STOC, 1985.
+
+.. [9] Bitansky, N., Canetti, R., Chiesa, A., Tromer, E. *From Extractable Collision Resistance to Succinct Non-Interactive Arguments of Knowledge*. ITCS, 2012.
+
+.. [10] SQLite Consortium. *SQLite FTS5 Extension*. https://sqlite.org/fts5.html
+
+.. [11] Collet, Y. *Zstandard*. https://facebook.github.io/zstd/
+
+.. [12] Earwig (Ben Kurtovic). *mwparserfromhell*. https://github.com/earwig/mwparserfromhell
+
+.. [13] *Aborist — Python reference implementation under AGPL-3.0-only*. https://git.unturf.com/engineering/unturf/aborist
 
 
 Acknowledgements
