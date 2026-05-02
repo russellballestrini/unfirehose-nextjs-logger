@@ -14,6 +14,7 @@ This document describes the schema used by [unfirehose](https://github.com/russe
 |---------|------------|--------|---------|
 | Claude Code | `~/.claude/projects/{slug}/{session}.jsonl` | Native (reference) | Direct ingestion |
 | Fetch | `~/.fetch/sessions/{slug}/{session}.jsonl` | Claude-compatible | Direct ingestion |
+| Aborist | `~/.aborist/unfirehose/{slug}/{session}.jsonl` | Native (`unfirehose/1.0`) | Auto-discovered (`discoverNativeHarnesses`) |
 | uncloseai | `~/.uncloseai/sessions/{slug}/{session}.jsonl` | Custom events | `uncloseai-adapter.ts` |
 | Codex (OpenAI) | `~/.codex/sessions/` | OpenAI-format | Planned |
 | Aider | `.aider.chat.history.md` + `.aider.input.history` | Markdown | Planned |
