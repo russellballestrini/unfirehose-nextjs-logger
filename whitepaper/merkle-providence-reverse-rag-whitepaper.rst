@@ -187,7 +187,7 @@ Aborist [13]_ is a Python content-addressed document store built on a single SQL
 
 **Surface.** Ingested documents — Wikipedia dumps, HTML pages, git repositories, Mercurial repositories, anything with a URI. Each document is normalized, chunked at 512 tokens (the default ``tok-512-v1`` chunker), Merkle-rooted, & FTS5-indexed [10]_. A surface document's ``document_root`` is the Merkle root over its sorted chunk leaf hashes. Re-ingesting the same content produces the same root & no-ops. Re-ingesting different content under the same URI produces a new document & a ``supersedes`` edge linking the old version to the new one — lossless history.
 
-**Core.** Distilled documents Merkle-bound back to surfaces via per-chunk inclusion proofs in ``derivations.proof_blob``. A core might be a TF-IDF keyword summary, a first-sentence extraction, a hand-curated rewrite, or a recursive distillation of other cores. The derivation proof commits the relationship: a core asserts "I was distilled from these specific surface chunks at this specific Merkle proof path," & any verifier can confirm the assertion against the surface tree. Cores never evict — see §12.
+**Core.** Distilled documents Merkle-bound back to surfaces via per-chunk inclusion proofs in ``derivations.proof_blob``. A core might be a TF-IDF keyword summary, a first-sentence extraction, a hand-curated rewrite, or a recursive distillation of other cores. The derivation proof commits the relationship: a core asserts "I was distilled from these specific surface chunks at this specific Merkle proof path," & any verifier can confirm the assertion against the surface tree. Cores never evict — see §13.
 
 **Providence cache.** Q&A records keyed on the eight-dimensional cache key from §4. Each record carries the question, the answer, the audit_mode label, the verifier_method that fired, the unverified spans, the n_verified count, the source roots that contributed, & the falsification_state. Records are content-addressed by the cache_key itself.
 
@@ -262,7 +262,7 @@ The hard verifier runs nine deterministic checks on every claim-evidence pair:
 
 Warrant-lite is the lattice's first **semantically-grounded** hard check, & it earns its proof-path entry by staying lexical. Regex shape-detectors decide which classes activate. Title-Case proper-noun extraction, 4-digit-year extraction, full-month-name extraction, count-token extraction with digit↔word equivalence, & lowercase-common-noun extraction pull the candidate anchors. Case-insensitive substring tests ask whether the required anchors appear in cited spans. No NLI, no embeddings, no LLM-as-judge. The check is reproducible byte-for-byte & folds cleanly into ``governance_policy_hash`` via ``policy["claim_lattice_warrant_check_enabled"]``. The principle: **pointer verification is not warrant verification**. A pointer resolves to a span; a warrant requires the span to actually contain the claim's load-bearing anchors.
 
-The per-run Merkle-DAG (``run_dag_root``) commits each provenance step independently. Quote mode runs seven stages (question / retrieval / context / prompt / answer / verify / final_label); claim-lattice mode runs nine (question / retrieval / evidence_map / prompt / raw_answer / parsed_claim_lattice / verify / render / final_label). The new stages — ``evidence_map``, ``raw_answer``, ``parsed_claim_lattice``, ``render`` — let an auditor reconstruct each transformation step from the persisted blob. The retrieval stage binds both the retrieval-plan hash (the operator-supplied parameters that selected sources) & the sources-summary hash (the documents that survived selection), so two runs with identical sources but different retrieval plans produce different ``run_dag_root`` values & the keyword string itself enters cryptographic provenance.
+The per-run Merkle-DAG (``run_dag_root``) commits each provenance step independently. Five DAG shapes cover the full path matrix: legacy quote mode runs seven stages (question / retrieval / context / prompt / answer / verify / final_label); legacy claim-lattice mode runs nine (question / retrieval / evidence_map / prompt / raw_answer / parsed_claim_lattice / verify / render / final_label). When the preflight contract from §10 is active, both shapes gain a ``preflight`` stage between ``question`` & ``retrieval`` — eight stages quote-mode, ten stages CTI. A reject-broad early-return path emits a three-stage minimal DAG (question / preflight / final_label) so audit replay sees the rejection alongside the policy state that produced it. The CTI-specific stages — ``evidence_map``, ``raw_answer``, ``parsed_claim_lattice``, ``render`` — let an auditor reconstruct each transformation step from the persisted blob. The retrieval stage binds both the retrieval-plan hash (the operator-supplied parameters that selected sources) & the sources-summary hash (the documents that survived selection), so two runs with identical sources but different retrieval plans produce different ``run_dag_root`` values & the keyword string itself enters cryptographic provenance.
 
 The renderer interpolates literal source spans from the evidence map at display time. A naïve truncation would show the same article-intro sentence under every claim when the model anchored at the topic id. Aborist instead extracts content tokens from each claim text & runs a *density rank* over their match positions in the cited span: find ALL occurrences of ALL tokens, then for each candidate position count how many DISTINCT tokens fall within ±half-window. Pick the position with maximum distinct count, expanded outward to the nearest sentence boundaries. Different claims pointing at the same evidence get different displayed sentences, anchored on what each claim is actually about.
 
@@ -290,7 +290,116 @@ Rung discrimination uses the violations list — no new verifier output field ne
 The schema column stays unchanged. The ladder is a pure display-layer transformation; cache_key, governance_policy_hash, & all programmatic callers see the underlying audit_mode unchanged. The ladder is the language of the paper & the language of the human-facing surface; the substrate beneath it is the v9.8 invariant the broader Merkle-AGI ledger commits to across systems.
 
 
-10. Federation — Snapshot Roots & Mesh
+10. The Preflight Contract — Pre-Generation Epistemic Control
+--------------------------------------------------------------
+
+The verifier in §7-§8 audits an answer *after* the model wrote it. The four-rung ladder in §9 names what the substrate could prove about that written answer. Both layers operate post-generation. A class of failure escapes them: questions the substrate should refuse to answer at all. A model handed *Winners of all major sports?* under a sub-second latency budget will enumerate fifty winners drawn from training prior, none of which reach STRICT, none of which the evidence map can ground. The verifier reports UNGROUNDED honestly. The LLM call still burned wall time, the user still received a fifty-claim wall of unverified prose, & the cache still wrote the failed run.
+
+The substrate's response is a **pre-generation epistemic control layer** that runs before retrieval. The layer detects question shapes that are likely to fail — under-specified broad quantifiers, false-premise traps, contradictory clauses, time-sensitive shapes against a stale corpus, references to documents not in the corpus — & either **caps**, **rejects**, or **labels** them before the LLM call ever happens. The layer is purely lexical: regex patterns over the question string, a per-model intensity-to-cap profile lookup, & a six-cell disable hierarchy gating each detector independently. No model call, no retrieval call, no soft signals.
+
+A model cannot reliably infer the limits of its own knowledge from inside generation. But a runtime *can* maintain explicit epistemic state — corpus boundaries, source roots, retrieval coverage, model profile, cutoff metadata, verifier policy, admissibility labels — & force every answer through that state. The preflight contract is that state, named & committed.
+
+**Quantifier intensity ladder.** A pure classifier maps the question string onto one of ten rungs:
+
+::
+
+    ABSENT             universal-negation, single claim
+                       (none, no X, nothing, never, not a single)
+
+    SINGULAR           one-fact wh / definite reference
+                       (what is X, who is X, the X)
+
+    PROPORTIONAL       descriptive fraction
+                       (most, majority of, half, a third of)
+
+    SMALL_NUM_EXPLICIT bounded by digit/word
+                       (top 3, seven X, dozen, pair of)
+
+    COMPARATIVE_BOUND  bounded by inequality
+                       (at least 5, more than 10, between 3 and 7)
+
+    FEW                small set, vague
+                       (some, a few, several)
+
+    MANY               medium set, vague
+                       (many, various, numerous, lots of)
+
+    ALL                universal quantifier
+                       (all, every, each, the whole, any)
+
+    OPEN_REQUEST       verb-driven enumeration
+                       (tell me about, describe, explain, summarize)
+
+    COMPREHENSIVE      exhaustive request, strictly stronger than ALL
+                       (complete list, exhaustive, definitive,
+                        everything you know, the whole story)
+
+Highest-intensity wins under multiple matches: *tell me everything about all wars* classifies COMPREHENSIVE rather than dropping to OPEN_REQUEST or ALL, because *tell me everything* is the explicit exhaustive marker & ALL matched only incidentally.
+
+**Bounded vs unbounded universals.** A second axis distinguishes broad quantifiers whose answer set is *corpus-known finite* (``name all members of the Beatles`` — four members, naturally bounded) from broad quantifiers whose scope is undefined under current policy (``winners of all major sports?`` — which sports, which leagues, which year, which country?). The classifier emits ``scope_bound_hint ∈ {bounded, unbounded, unknown}``. Bounded universals are answerable & should not be rejected; unbounded universals warrant either a cap or an explicit refusal. Lexical anchors decide bound: named-set markers (Beatles, US states, planets, founding fathers, continents), year-anchored questions ("…in 2024"), & league-anchored questions tilt to ``bounded``. Broad-intensity queries lacking any such anchor default to ``unbounded``.
+
+**Per-model intensity caps.** A profile dict keyed on ``model_profile_id`` holds the (intensity → claim cap) mapping. Hermes-3-Llama-3.1-8B-FP8-Dynamic, the substrate's reference small-model endpoint, caps broad intensities tightly (ALL=8, COMPREHENSIVE=5, OPEN_REQUEST=5) reflecting empirical small-model weakness under broad-quantifier pressure. A larger reasoner profile ("default") caps the same intensities loosely (ALL=12, COMPREHENSIVE=15, OPEN_REQUEST=12) because format discipline holds at the higher cap. The cap does not have to apply: the policy field ``quantifier_guard_apply_caps`` defaults to False (dry-run) so the cap is *recorded* on every run-DAG without altering verifier behavior, & a separate ``quantifier_apply_caps_modes = ["claim_lattice"]`` allowlist gates which answer modes actually have caps applied when the master switch flips True.
+
+**Meta-cognition detectors.** Four lightweight detectors run alongside the quantifier classifier, each a deterministic pattern match returning a boolean or a structured hint:
+
+- **Temporal sensitivity** — explicit anchors (``current``, ``latest``, ``today``, ``this year``) plus rapid-turnover role patterns (``CEO``, ``president of``, ``current champion``). High-sensitivity questions bind ``corpus_requirement = needs_current_source``; an answer attempted against a corpus older than the question's effective cutoff carries a ``stale_risk`` status.
+- **Contradiction detection** — lexical pairs that cannot both be true in a well-formed question: (``unmarried``, ``spouse``), (``alive``, ``dead``), (``never``, ``always``). Conservative by design — only fires when both members of a pair appear in the question string.
+- **False-premise (lite)** — presupposition patterns: ``when did X stop Y`` presupposes ``X did Y``; ``how did X become Y`` presupposes ``X became Y``. The detector extracts the implied relation as a soft hint the verifier can use as required-evidence; the question is *not* hard-blocked, but the audit-line tail surfaces "false premise" so an auditor reading the trace can see the substrate did not blindly accept the premise.
+- **Out-of-corpus** — references to private uploads (``my unpublished file``, ``the document I sent``, ``in my email inbox``). The encyclopedic corpus cannot have these; the question is hard-blocked at preflight.
+
+The four detectors compose into a ``QuestionState`` dataclass carrying ``logical_statuses`` (a tuple of zero or more from the eight enum values: ``well_formed``, ``under_specified``, ``false_premise_suspected``, ``contradictory_question``, ``out_of_corpus_risk``, ``stale_risk``, ``reference_frame_ambiguous``, ``broad_quantifier_unbounded``), ``preflight_result ∈ {PREFLIGHT_OK, PREFLIGHT_PARTIAL, PREFLIGHT_BLOCKED}``, & six per-detector enable switches that fold into ``governance_policy_hash``. No LLM in the hard path. A model-assisted preflight, if one is added later, labels itself ``SOFT_PREFLIGHT_HINT`` & cannot create ``PREFLIGHT_OK`` or ``PREFLIGHT_BLOCKED`` without deterministic support.
+
+**Audit binding via the run-DAG.** The preflight decision changes how the LLM behaves; cryptographic provenance must capture it. A new ``preflight`` stage inserts between ``question`` & ``retrieval`` in the per-run Merkle-DAG, lifting quote mode from seven to eight stages & pointer-mode CTI from nine to ten. The stage payload is a single Merkle leaf with five nested CTI clauses:
+
+::
+
+    classifier         intensity, matched_token, explicit_count,
+                       scope_bound_hint, is_broad,
+                       operational_shape, classifier_version
+
+    answer_contract    guard_enabled, mode_gated,
+                       apply_caps_active, claim_cap_resolved,
+                       claim_cap_applied, manual_quotes_allowed,
+                       evidence_pointer_required,
+                       allow_unbounded_enumeration,
+                       reject_broad_active,
+                       metacognition_enabled,
+                       block_on_contradiction
+
+    prompt_contract    reminder_enabled, reminder_injected,
+                       reminder_template_id
+
+    evidence_contract  max_evidence_ids_exposed,
+                       one_claim_per_line
+
+    policy_refs        governance_policy_hash,
+                       model_profile_hash, answer_mode
+
+    question_state     QuestionState dataclass
+                       (logical_statuses, preflight_result,
+                        false_premise_hints, contradiction_pairs,
+                        temporal_sensitivity, etc.)
+
+The payload is versioned via ``PREFLIGHT_NODE_VERSION = "preflight-node-v1"`` so legacy runs without the stage are unambiguously distinguishable from runs where preflight was disabled. Reference-by-hash for ``governance_policy_hash`` & ``model_profile_hash`` rather than re-bundling raw policy state — the hashes already commit to the underlying fields; double-committing would inflate the leaf without adding information.
+
+**Reject-broad early-return.** When ``--reject-broad`` is opt-in & the question is broad-unbounded, ``query()`` returns UNGROUNDED *before* the LLM call with a ``BROAD_QUANTIFIER_REJECTED`` violation. The reject path emits its own three-stage Merkle-DAG (``question → preflight → final_label``) so audit replay sees the rejection alongside the policy state that produced it. Three stages always means reject path; an auditor reading the stage list identifies the row instantly without parsing the payload. The bounded-vs-unbounded discrimination matters here: ``name all members of the Beatles`` does not reject under ``--reject-broad`` because its scope is bounded; ``winners of all major sports?`` rejects in zero seconds with no LLM cost.
+
+**Audit-replay payoff.** Two cache rows that share the same question + same model output + same verifier verdict but different preflight policy state — cap on/off, reminder injected/not, reject path taken/not, metacog detectors enabled/disabled — now produce **different** ``run_dag_root`` values. An auditor querying ``providence_cache`` can tell which preflight contract governed each row by reading the persisted ``run_dag_blob``. Regression bisection becomes a SQL query: *show me all rows where ``apply_caps_active=true`` and the verifier verdict is HYBRID*; cross-policy A/B reconstruction becomes possible after the fact, even when the cells weren't planned in advance.
+
+**Bench validation (Hermes-3-8B, 9-question broad subset, n=3).** Defaults flipped 2026-05-03 after a four-cell A/B (preflight off, reminder only, cap only, cap+reminder) plus an n=5 verification on the cap+reminder cell. The reminder-on cell's compound effect is robust:
+
+- Pointer-mode mean ratio: 0.483 (preflight off) → 0.643 (reminder on), a 16-point absolute improvement in per-claim grounding density.
+- JSON-mode mean ratio: 0.570 → 0.735, a 17-point improvement.
+- JSON-mode UNGROUNDED rate: 7/27 (26%) → 1/27 (4%), a 22-point reduction. The "didn't ground" pool reclassifies into "partially grounded" — operator-visible win.
+- Pointer-mode FORMAT_COLLAPSED (the model emits free prose with zero ``[E\d+]`` tags): 2/27 → 0/27. The reminder explicitly restates the citation rule one user-turn before the question, & the model follows it.
+- STRICT-rate moves are within the 5pp signal floor on 27-sample cells. The signal lives in mean-ratio & UNGROUNDED-reduction, not in headline STRICT counts.
+
+The cap-only cell's single-knob signal moves a different metric: JSON-mode STRICT-rate climbs from 0.19 to 0.33 (+14pp) when the cap forces the model to ground fewer-but-better claims. Reminder & cap address different failure modes — reminder rescues UNGROUNDED → HYBRID, cap rescues HYBRID → STRICT — & the substrate ships them as independent knobs that can be flipped per call, per mode, per model.
+
+The broader principle the preflight contract codifies: **every policy field that can alter generation must be both governance-bound for cache identity & run-DAG-bound for audit replay**. Governance binding (``governance_policy_hash``) ensures two cache rows under different policies cleanly partition; run-DAG binding (the new ``preflight`` stage) ensures audit replay can see *which* policy state produced each row even when the cache_keys collide. The two commitments serve different reader populations — the cache is read forward by lookup, the DAG is read backward by audit — & the architecture asks for both.
+
+
+11. Federation — Snapshot Roots & Mesh
 ---------------------------------------
 
 A ``snapshot_root`` is ``MerkleTree.build([sorted DISTINCT document_roots]).root`` — one 32-byte hash naming the content-addressed forest at a point in time. Two peers that ingested the same dump compute bit-identical snapshot_roots, so cross-machine "are we synced?" becomes a single hash comparison instead of doc-by-doc gossip. Snapshot creation pins the root into the audit chain & records ``(snapshot_root, taken_at, audit_event_hash, doc_count, parent_snapshot, reason)``. Snapshots auto-link to the most recent prior snapshot, giving a chain for free. The same snapshot_root doubles as the TF-IDF ``scope_root``, so corpus-statistical cores reconcile under explicit corpus agreement.
@@ -335,7 +444,7 @@ Three classes of derivative reconcile across peers:
 **Personal vs. public chains.** The same federation primitive supports a private corpus on one machine & a public corpus shared by a thousand peers — trust regime is a per-document choice, not a platform decision. Private chains stay local: personal session history, no data leaves the machine, suits corporate knowledge bases / sensitive internal documentation. Public chains broadcast records to mesh peers under the same Merkle proofs — they share proofs, never document content. Document text stays on the originating client; only the cryptographic certificate travels. A practitioner can run both simultaneously, partitioned by domain or per-document opt-in (e.g., a private chain over patient notes alongside a public chain over open medical guidelines). The eight-dimensional cache_key partitions all of it cleanly.
 
 
-11. The Truth-Seeking Ratchet
+12. The Truth-Seeking Ratchet
 ------------------------------
 
 Emergence is preserved, not suppressed. UNGROUNDED records & POINTER-LINKED records stay live in the providence cache. Training-derived knowledge is often correct, just unverifiable against the current corpus. The substrate labels honestly so a downstream consumer can route: top-rung records carry compliance-grade provenance, UNGROUNDED records carry "the model believes this, no certificate attached." A model that genuinely refuses ("I don't know based on the provided sources") classifies UNGROUNDED with ``verifier_method='none'`` & ``n_quotes=0`` — the most honest answer the system can produce.
@@ -347,10 +456,10 @@ The ratchet only goes one way. A record can climb the ladder when new evidence a
 Truth-seeking is therefore a property of the *substrate*, not of the model. The model emits its best guess. The substrate measures the gap between the guess & the available evidence, names the gap honestly, persists both, & rewards corpus growth that closes the gap. Over time, & across many practitioners, the substrate accumulates a body of verified answers whose ladder placements reflect what humanity has so far been able to prove. Emergence today is the corpus-growth roadmap of tomorrow.
 
 
-12. Decisions and Constraints
+13. Decisions and Constraints
 ------------------------------
 
-Eleven rules anchor the substrate. Each is a deliberate choice with a rationale; reverting any one without addressing the rationale weakens the system in a specific named way.
+Twelve rules anchor the substrate. Each is a deliberate choice with a rationale; reverting any one without addressing the rationale weakens the system in a specific named way.
 
 1. **The verifier stays binary.** Each evidence unit either verifies or does not. No per-unit confidence scores, no fuzzy-match indicators, no soft labels. Soft signals proliferate elsewhere — sidecars, retrieval rankers, token-coverage probes — but never enter the proof path. *Rationale:* classification is a hard bit, not a soft score, & enters ``governance_policy_hash`` cleanly. Once a soft signal contaminates the chain, every prior cryptographic claim becomes negotiable.
 
@@ -364,7 +473,7 @@ Eleven rules anchor the substrate. Each is a deliberate choice with a rationale;
 
 6. **Local-first; federation opt-in.** The mesh layer is off by default. A fresh installation makes no network calls until the practitioner explicitly enables them. *Rationale:* the practitioner's data is the practitioner's data. Sharing requires consent, & consent requires the practitioner know what is being shared.
 
-7. **Emergence is preserved, not suppressed.** UNGROUNDED & POINTER-LINKED records stay live. Reclassify promotes them up the ladder when new evidence arrives. *Rationale:* see §11. The truth-seeking ratchet is the architecture's reason for existing.
+7. **Emergence is preserved, not suppressed.** UNGROUNDED & POINTER-LINKED records stay live. Reclassify promotes them up the ladder when new evidence arrives. *Rationale:* see §12. The truth-seeking ratchet is the architecture's reason for existing.
 
 8. **Soft hash never enters the proof path.** Embeddings, TF-IDF scores, lexical similarity counts shape ranking & retrieval; they never feed cache_keys, document_roots, or audit_event_hashes. *Rationale:* a ranker that drifts as new training data arrives must not invalidate prior cryptographic claims. The hard channel & the soft channel evolve on independent timelines.
 
@@ -374,8 +483,10 @@ Eleven rules anchor the substrate. Each is a deliberate choice with a rationale;
 
 11. **Labels name properties, not vibes.** POINTER-LINKED, ANCHOR-WARRANTED, EVIDENCE-WARRANTED, UNGROUNDED each name a property the verifier could lexically confirm or could not. There are no "high confidence", "moderate confidence", or "low confidence" labels. *Rationale:* a confidence label is a soft signal in disguise. Naming the property — pointer linked, anchor warranted, evidence warranted, ungrounded — lets an auditor read the same label & immediately know what was checked.
 
+12. **Every policy field that alters generation is bound twice.** Once into ``governance_policy_hash`` for cache identity (so two runs under different policies cleanly partition); once into ``run_dag_root`` via the preflight stage for audit replay (so a reader of any cache row can reconstruct *which* policy state governed it). The two commitments serve different reader populations — the cache is read forward by lookup, the DAG is read backward by audit — & the substrate asks for both. *Rationale:* §10's pre-generation epistemic control layer adds a class of policy decision (cap applied? reminder injected? reject-broad path taken?) whose effect on the model's output is causally upstream of retrieval & prompt construction. Without DAG binding, two runs differing only in preflight policy would Merkle-collide; cache identity would carry the policy distinction but cryptographic provenance would not. The preflight contract closes this gap by making the policy decision a hash-bound stage in the run-DAG, alongside ``governance_policy_hash`` reference & ``model_profile_hash`` reference inside the same Merkle leaf.
 
-13. What This Proves and What It Does Not
+
+14. What This Proves and What It Does Not
 ------------------------------------------
 
 The pointer-mode verifier proves *evidence-linked, role-OK, coverage-met, source-title-relevant,* &, when the active anchor class fires, *anchor-named-in-cited-chunk* for every active class. It does **not** prove that the cited evidence semantically entails the claim. A model citing ``[E1]`` for "Brachiosaurus exhibits social herding behavior in the film" passes the eight hard checks if E1's source is the *Jurassic Park (film)* article (Rule 8), the word *Brachiosaurus* appears in E1 (Rule 5), & the relation/date/list/count/why anchor classes do not fire on a *behavior* claim — even if E1's text says nothing about social herding.
@@ -387,7 +498,7 @@ That ceiling gap is by design. NLI-grade entailment requires either a textual-en
 The architecture's promise to its readers is calibration. It does not claim to verify everything. It claims to name exactly what it can verify, & to leave a structural gap visible where it cannot. A practitioner reading a top-rung label knows what the substrate could prove. A practitioner reading any lower rung knows what the substrate could not. Honesty about the ceiling is a feature, not a limitation.
 
 
-14. Related Work
+15. Related Work
 -----------------
 
 **Reverse RAG** [1]_. Documented the client-side inversion of standard RAG: the browser already holds the document, full-page injection replaces chunk fragmentation, small models with perfect context outperform large models with similarity-retrieved fragments. This paper extends Reverse RAG with verifiable caching, eliminating the repetition tax that prior RAG systems do not address.
