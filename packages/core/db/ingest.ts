@@ -296,6 +296,138 @@ function safeParseArray(s: string): string[] {
   catch { return []; }
 }
 
+/**
+ * Merge `loserId` into `winnerId`:
+ *   - usage_minutes summed on overlapping minutes, otherwise re-pointed
+ *   - sessions, todos, agent_deployments, project_aliases re-pointed
+ *   - project_visibility for loser dropped (winner's settings win)
+ *   - alerts.project_name and agent_actions.project_name rewritten to winner's name
+ *   - loser's encoded name registered as an alias of winner
+ *   - loser row deleted
+ *
+ * Idempotent; safe to call repeatedly. No-op if loserId === winnerId.
+ */
+export function mergeProjects(
+  db: ReturnType<typeof getDb>,
+  loserId: number,
+  winnerId: number
+): boolean {
+  if (loserId === winnerId) return false;
+
+  const loser = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(loserId) as
+    { id: number; name: string } | undefined;
+  const winner = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(winnerId) as
+    { id: number; name: string } | undefined;
+  if (!loser || !winner) return false;
+
+  const loserPrefix = harnessPrefixOf(loser.name);
+
+  const tx = db.transaction(() => {
+    // 1. Sessions: re-point
+    db.prepare('UPDATE sessions SET project_id = ? WHERE project_id = ?').run(winnerId, loserId);
+
+    // 2. Todos: re-point
+    db.prepare('UPDATE todos SET project_id = ? WHERE project_id = ?').run(winnerId, loserId);
+
+    // 3. Agent deployments: re-point
+    db.prepare('UPDATE agent_deployments SET project_id = ? WHERE project_id = ?')
+      .run(winnerId, loserId);
+
+    // 4. usage_minutes: sum on overlapping minutes, re-point the rest.
+    //    The (minute, project_id) pair is logically unique per the ON CONFLICT in writes.
+    db.prepare(`
+      UPDATE usage_minutes AS w
+      SET input_tokens          = w.input_tokens          + l.input_tokens,
+          output_tokens         = w.output_tokens         + l.output_tokens,
+          cache_read_tokens     = w.cache_read_tokens     + l.cache_read_tokens,
+          cache_creation_tokens = w.cache_creation_tokens + l.cache_creation_tokens,
+          message_count         = w.message_count         + l.message_count
+      FROM (SELECT * FROM usage_minutes WHERE project_id = ?) AS l
+      WHERE w.project_id = ? AND w.minute = l.minute
+    `).run(loserId, winnerId);
+
+    db.prepare(`
+      UPDATE usage_minutes SET project_id = ?
+       WHERE project_id = ?
+         AND minute NOT IN (SELECT minute FROM usage_minutes WHERE project_id = ?)
+    `).run(winnerId, loserId, winnerId);
+
+    db.prepare('DELETE FROM usage_minutes WHERE project_id = ?').run(loserId);
+
+    // 5. project_visibility — winner's settings take precedence; drop loser's row
+    db.prepare('DELETE FROM project_visibility WHERE project_id = ?').run(loserId);
+
+    // 6. project_aliases — re-point everything the loser owned to the winner
+    db.prepare('UPDATE project_aliases SET project_id = ? WHERE project_id = ?')
+      .run(winnerId, loserId);
+
+    // 7. Loser's own encoded name becomes an alias of the winner (so future ingest of
+    //    the same encoded dir routes to the winner, not a recreated loser).
+    db.prepare(`
+      INSERT OR IGNORE INTO project_aliases (project_id, encoded_name, harness_prefix)
+      VALUES (?, ?, ?)
+    `).run(winnerId, loser.name, loserPrefix);
+
+    // 8. String-named tables that key on projects.name
+    db.prepare('UPDATE alerts SET project_name = ? WHERE project_name = ?')
+      .run(winner.name, loser.name);
+    db.prepare('UPDATE agent_actions SET project_name = ? WHERE project_name = ?')
+      .run(winner.name, loser.name);
+
+    // 9. Drop the loser row
+    db.prepare('DELETE FROM projects WHERE id = ?').run(loserId);
+  });
+  tx();
+  return true;
+}
+
+/**
+ * Find groups of project rows that share git identity within one harness slot,
+ * and merge each group into its most-recently-active member.
+ *
+ * Identity match = (root_commit_hash, origin_url) within the same `prefix:` namespace.
+ * Origin-URL match = exact equality; null vs null counts as match (both local-only repos
+ * with the same root hash are by construction the same repo).
+ *
+ * Returns the number of merges performed.
+ */
+export function autoMergeIdenticalProjects(db: ReturnType<typeof getDb>): number {
+  type Group = { prefix: string; root: string; origin: string; ids: string };
+  const groups = db.prepare(`
+    SELECT
+      CASE WHEN instr(name, ':') = 0 THEN '' ELSE substr(name, 1, instr(name, ':') - 1) END AS prefix,
+      root_commit_hash AS root,
+      COALESCE(origin_url, '') AS origin,
+      GROUP_CONCAT(id) AS ids
+    FROM projects
+    WHERE root_commit_hash IS NOT NULL
+    GROUP BY prefix, root_commit_hash, COALESCE(origin_url, '')
+    HAVING COUNT(*) > 1
+  `).all() as Group[];
+
+  let mergedCount = 0;
+  for (const g of groups) {
+    const ids = g.ids.split(',').map(Number);
+    // Winner = project with most recent session activity
+    const ranked = db.prepare(`
+      SELECT p.id AS id,
+             COALESCE(MAX(s.updated_at), p.first_seen, '1970-01-01') AS last_act
+      FROM projects p
+      LEFT JOIN sessions s ON s.project_id = p.id
+      WHERE p.id IN (${ids.map(() => '?').join(',')})
+      GROUP BY p.id
+      ORDER BY last_act DESC, p.id DESC
+    `).all(...ids) as Array<{ id: number; last_act: string }>;
+
+    if (ranked.length < 2) continue;
+    const winnerId = ranked[0].id;
+    for (const loser of ranked.slice(1)) {
+      if (mergeProjects(db, loser.id, winnerId)) mergedCount++;
+    }
+  }
+  return mergedCount;
+}
+
 function getOrCreateSession(
   db: ReturnType<typeof getDb>,
   sessionUuid: string,
@@ -1810,6 +1942,12 @@ export async function ingestAll(): Promise<IngestResult> {
   if (uneofProjects.size > 0) {
     cullUneofDeployments(db, uneofProjects);
   }
+
+  // Auto-merge project rows that share git identity within one harness slot.
+  // The winner is the most-recently-active row; loser's stats are summed in,
+  // sessions/todos re-pointed, loser row dropped. See docs/architecture/project-identity.md.
+  const merged = autoMergeIdenticalProjects(db);
+  if (merged > 0) console.log(`[ingest] auto-merged ${merged} duplicate project row(s)`);
 
   return result;
 }

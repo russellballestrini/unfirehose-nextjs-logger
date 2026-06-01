@@ -1,13 +1,20 @@
 # 4003: Project rename reconciliation
 
-**Status:** prevention done, retrospective merge open
+**Status:** done (auto-merge + manual API both ship); UI nice-to-have remains
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 120m
 **Todo IDs:** (none — proposed by fox)
 
 ## Update
 
-Prevention path shipped — new renames are absorbed silently via `root_commit_hash` + `origin_url` matching in `getOrCreateProject`. See `docs/architecture/project-identity.md`. **This ticket now only covers retrospective merge of pre-existing dupes** (e.g. legacy `aborist` vs current `arborist`), which needs a UI + audit table.
+- Prevention: shipped (root-hash + origin lookup in `getOrCreateProject`).
+- Auto-merge: shipped — runs at end of every `ingestAll()`, collapses identity-matched dupes within a harness slot into the most-recently-active row.
+- Manual merge: shipped — `POST /api/projects/merge {sourceId, targetId}` for orphans with no identity.
+- Aborist case: merged on 2026-06-01 (3 rows folded into arborist's 3 corresponding rows).
+
+Remaining nice-to-have: a `/projects/reconcile` page that lists groups visually with side-by-side stats. Low priority — the API covers every case.
+
+See `docs/architecture/project-identity.md` for full design.
 
 ## Context
 

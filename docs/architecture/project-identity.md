@@ -113,17 +113,53 @@ A fork with its own distinct `origin` correctly creates a separate project row.
 - **For renamed-away dirs** where the old cwd no longer exists on disk: identity stays null. The orphan row persists but will not silently merge with anything. Reconciling old orphans is a separate one-shot, not the prevention path.
 - **For non-git directories**: identity stays null and we fall back to the historical path-based identity. Renaming a non-git dir still creates a dupe; we accept that.
 
+## Auto-merge
+
+At the end of every `ingestAll()` pass, `autoMergeIdenticalProjects()` finds every group of project rows that share `(root_commit_hash, origin_url)` within the same harness slot and merges each group into its most-recently-active member.
+
+`mergeProjects(loserId, winnerId)` in `packages/core/db/ingest.ts` does the work in a single transaction:
+
+| step | what happens |
+|---|---|
+| 1 | `UPDATE sessions SET project_id = winner WHERE project_id = loser` |
+| 2 | `UPDATE todos SET project_id = winner WHERE project_id = loser` |
+| 3 | `UPDATE agent_deployments SET project_id = winner WHERE project_id = loser` |
+| 4 | `usage_minutes`: sum loser's tokens into winner's row for overlapping minutes; re-point non-overlapping minutes; delete loser's rows |
+| 5 | `DELETE FROM project_visibility WHERE project_id = loser` (winner's settings keep) |
+| 6 | `UPDATE project_aliases SET project_id = winner WHERE project_id = loser` |
+| 7 | Insert loser's encoded name as an alias of winner (so future ingest of that dir lands on winner) |
+| 8 | `UPDATE alerts/agent_actions SET project_name = winner_name WHERE project_name = loser_name` |
+| 9 | `DELETE FROM projects WHERE id = loser` |
+
+## Manual merge
+
+Orphans whose old path is gone (e.g. legacy `aborist` after the on-disk rename was lost) can't auto-match because `gitIdentity('')` returns null. The HTTP API takes care of these:
+
+```bash
+# List groups auto-merge would handle next pass
+GET  /api/projects/merge
+
+# Drop sourceId, fold its stats into targetId
+POST /api/projects/merge {"sourceId": 97, "targetId": 106}
+
+# Re-run autoMergeIdenticalProjects on demand
+POST /api/projects/merge {"autoIdentity": true}
+```
+
+Merges are destructive (loser row deleted) but data-preserving (sessions/todos re-pointed, stats summed). No undo is provided.
+
 ## What this fixes — and what it does not
 
-| case | before | after |
-|---|---|---|
-| `~/git/foo` → `~/git/bar` rename, future sessions | new project row, history split | sessions attach to existing row via root-hash match |
-| clone of the same repo on a second machine | separate project rows per machine | one project row, sessions from all machines |
-| `git clone` of one's own fork | new project row | new project row (different origin) — correct |
-| repo with no git history | new project row on every move | new project row on every move (unchanged) |
-| existing dupes already in the DB (e.g. `aborist` vs `arborist`) | two rows | still two rows — retrospective merge is a separate ticket (4003) |
+| case | result |
+|---|---|
+| `~/git/foo` → `~/git/bar` rename, future sessions | sessions attach to existing row via root-hash match — no new row |
+| clone of the same repo on a second machine | one project row, sessions from all machines |
+| `git clone` of one's own fork | new row (different origin) — correct |
+| repo with no git history | new row on every move (unchanged) |
+| pre-existing dupes with identity captured on both sides | merged automatically at end of next `ingestAll()` |
+| pre-existing dupes where one side's path is dead | manual merge via API |
 
 ## Future work
 
-- A `/projects/reconcile` UI to merge already-existing dupes (manual confirmation per group). Ticket: `docs/tickets/4003-project-rename-reconciliation.md`.
-- A way to capture identity for native-harness JSONL whose slug doesn't resolve via `resolveProjectPath` — peek the first `cwd` field from any message instead.
+- A `/projects/reconcile` UI for browsing identity groups + triggering manual merges interactively. Ticket: `docs/tickets/4003-project-rename-reconciliation.md`.
+- Capture identity for native-harness JSONL whose slug doesn't resolve via `resolveProjectPath` — peek the first `cwd` field from any message instead.

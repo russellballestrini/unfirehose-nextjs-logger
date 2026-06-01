@@ -66,7 +66,24 @@ unfirehose derives project identity from the **git root commit hash + origin URL
 
 Resolution lives in `getOrCreateProject` (`packages/core/db/ingest.ts`). Full design: `docs/architecture/project-identity.md`.
 
-Retrospective merge of existing dupes (e.g. legacy `aborist` vs current `arborist`) is a separate manual step — ticket `docs/tickets/4003-project-rename-reconciliation.md`.
+**Auto-merge runs at the end of every `ingestAll()`.** Any group of project rows that share `(root_commit_hash, origin_url)` within the same harness slot collapses into its most-recently-active member. Loser's stats (usage_minutes summed on overlapping minutes), sessions, todos, agent_deployments, alerts, and agent_actions all re-point to the winner; loser's encoded name becomes an alias; loser row is dropped.
+
+For orphans where the old path is dead and identity is null (e.g. legacy `aborist` after the on-disk rename was lost), use manual merge:
+
+```bash
+# List groups that auto-merge would handle
+curl -s localhost:3000/api/projects/merge | python3 -m json.tool
+
+# Manually merge sourceId → targetId (source is dropped, target absorbs stats)
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"sourceId": 97, "targetId": 106}' \
+  localhost:3000/api/projects/merge
+
+# Sweep all identity groups (same as what ingestAll does)
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"autoIdentity": true}' \
+  localhost:3000/api/projects/merge
+```
 
 ### Publishing
 
