@@ -350,6 +350,11 @@ function migrate(db: Database.Database) {
   addColumn('sessions', 'last_message_at', 'TEXT');
   addColumn('sessions', 'delegated_from', 'TEXT');  // parent session UUID for cross-harness dedup
   addColumn('sessions', 'harness', 'TEXT');          // originating harness (claude-code, fetch, uncloseai, hermes, agnt)
+  // Project identity — survives renames. See docs/architecture/project-identity.md
+  addColumn('projects', 'root_commit_hash', 'TEXT');   // git rev-list --max-parents=0 HEAD — stable across renames/clones
+  addColumn('projects', 'origin_url', 'TEXT');         // git remote get-url origin — fork tiebreaker
+  addColumn('projects', 'remotes_json', 'TEXT');       // JSON array of all remote URLs (for mirror matching)
+  addColumn('projects', 'last_cwd_seen', 'TEXT');      // most recent cwd observed during ingest
   addColumn('todos', 'estimated_minutes', 'INTEGER');
   addColumn('todos', 'uuid', 'TEXT');
   addColumn('agent_deployments', 'tmux_window', 'TEXT');
@@ -370,6 +375,23 @@ function migrate(db: Database.Database) {
       service_name TEXT NOT NULL DEFAULT '',
       updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
+  `);
+
+  // Project aliases — many encoded JSONL dir names can refer to one project.
+  // Renaming ~/git/foo → ~/git/bar produces a new encoded name, which we map to the existing
+  // project_id via root_commit_hash + origin_url match. See docs/architecture/project-identity.md.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_aliases (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id      INTEGER NOT NULL REFERENCES projects(id),
+      encoded_name    TEXT NOT NULL UNIQUE,    -- e.g. -home-fox-git-aborist
+      cwd             TEXT,                     -- filesystem path at first sight
+      harness_prefix  TEXT NOT NULL DEFAULT '', -- '' for base claude, else 'arborist', 'uncloseai', 'fetch', etc.
+      first_seen      TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_aliases_project ON project_aliases(project_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_root_hash ON projects(root_commit_hash) WHERE root_commit_hash IS NOT NULL;
   `);
 
   // Providence cache — Merkle-keyed answer cache for Reverse RAG & codebase queries.

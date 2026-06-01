@@ -1,12 +1,12 @@
 import { readdir, readFile, stat, mkdir, appendFile } from 'fs/promises';
-import { createReadStream } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import { createInterface } from 'readline';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import path from 'path';
 import { homedir } from 'os';
 import { getDb } from './schema';
-import { claudePaths, decodeProjectName } from '../claude-paths';
+import { claudePaths, decodeProjectName, resolveProjectPath } from '../claude-paths';
 // uncloseai: auto-discovered via ~/.uncloseai/unfirehose/ (native unfirehose/1.0)
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
 // agnt-paths no longer needed — auto-discovered via ~/.agnt/unfirehose/
@@ -126,28 +126,174 @@ function toCanonical(entry: any, harness: string): any | null {
   return canonical;
 }
 
+// Project identity — see docs/architecture/project-identity.md.
+// A project's stable identity is (root_commit_hash, origin_url), not its filesystem path.
+// This survives renames (~/git/foo → ~/git/bar) and migrations across machines.
+
+type GitIdentity = {
+  rootHash: string;       // git rev-list --max-parents=0 HEAD, sorted+joined if multi-root
+  originUrl: string | null;
+  remotes: string[];      // all remote URLs, sorted
+};
+
+const _gitIdentityCache = new Map<string, GitIdentity | null>();
+
+function gitIdentity(cwd: string | undefined): GitIdentity | null {
+  if (!cwd) return null;
+  if (_gitIdentityCache.has(cwd)) return _gitIdentityCache.get(cwd)!;
+
+  const miss = (): null => { _gitIdentityCache.set(cwd, null); return null; };
+
+  // Skip if path doesn't exist or isn't a git working tree
+  if (!existsSync(cwd) || !existsSync(path.join(cwd, '.git'))) return miss();
+
+  let rootHash: string;
+  try {
+    const out = execFileSync('git', ['-C', cwd, 'rev-list', '--max-parents=0', 'HEAD'],
+      { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const hashes = out.trim().split('\n').filter(Boolean).sort();
+    if (hashes.length === 0) return miss();
+    rootHash = hashes.join(',');  // multi-root repos get a stable composite
+  } catch {
+    return miss();
+  }
+
+  let remotes: string[] = [];
+  let originUrl: string | null = null;
+  try {
+    const out = execFileSync('git', ['-C', cwd, 'config', '--get-regexp', 'remote\\..*\\.url'],
+      { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+    for (const line of out.trim().split('\n')) {
+      const m = line.match(/^remote\.([^.]+)\.url\s+(.+)$/);
+      if (!m) continue;
+      const [, name, url] = m;
+      remotes.push(url);
+      if (name === 'origin') originUrl = url;
+    }
+    remotes.sort();
+  } catch {
+    // No remotes — local-only repo. rootHash alone identifies it.
+  }
+
+  const identity: GitIdentity = { rootHash, originUrl, remotes };
+  _gitIdentityCache.set(cwd, identity);
+  return identity;
+}
+
+function clearGitIdentityCache(): void {
+  _gitIdentityCache.clear();
+}
+
+function harnessPrefixOf(name: string): string {
+  const colon = name.indexOf(':');
+  return colon >= 0 ? name.slice(0, colon) : '';
+}
+
 function getOrCreateProject(
   db: ReturnType<typeof getDb>,
   name: string,
   displayName: string,
   projectPath?: string
 ): number {
-  const existing = db
-    .prepare('SELECT id, path FROM projects WHERE name = ?')
-    .get(name) as { id: number; path: string } | undefined;
-  if (existing) {
-    if (projectPath && (!existing.path || existing.path === '')) {
-      db.prepare('UPDATE projects SET path = ? WHERE id = ?').run(projectPath, existing.id);
+  const prefix = harnessPrefixOf(name);
+  const identity = gitIdentity(projectPath);
+
+  // 1. Direct name match (most common path)
+  const direct = db
+    .prepare('SELECT id, path, root_commit_hash, origin_url FROM projects WHERE name = ?')
+    .get(name) as { id: number; path: string; root_commit_hash: string | null; origin_url: string | null } | undefined;
+  if (direct) {
+    // Opportunistic backfill: populate identity fields when missing or update last_cwd_seen.
+    if (identity) {
+      db.prepare(`
+        UPDATE projects SET
+          root_commit_hash = COALESCE(root_commit_hash, ?),
+          origin_url       = COALESCE(origin_url, ?),
+          remotes_json     = COALESCE(remotes_json, ?),
+          last_cwd_seen    = ?,
+          path             = CASE WHEN path IS NULL OR path = '' THEN ? ELSE path END
+        WHERE id = ?
+      `).run(identity.rootHash, identity.originUrl, JSON.stringify(identity.remotes), projectPath ?? null, projectPath ?? '', direct.id);
+    } else if (projectPath && (!direct.path || direct.path === '')) {
+      db.prepare('UPDATE projects SET path = ?, last_cwd_seen = ? WHERE id = ?')
+        .run(projectPath, projectPath, direct.id);
     }
-    return existing.id;
+    return direct.id;
   }
 
-  const result = db
-    .prepare(
-      'INSERT INTO projects (name, display_name, path) VALUES (?, ?, ?)'
-    )
-    .run(name, displayName, projectPath ?? '');
-  return result.lastInsertRowid as number;
+  // 2. Alias match — this encoded name has been merged into an existing project before
+  const alias = db
+    .prepare('SELECT project_id FROM project_aliases WHERE encoded_name = ?')
+    .get(name) as { project_id: number } | undefined;
+  if (alias) {
+    db.prepare("UPDATE project_aliases SET last_seen = datetime('now') WHERE encoded_name = ?").run(name);
+    return alias.project_id;
+  }
+
+  // 3. Identity match — same git repo seen under a different encoded name (the rename case).
+  //    Match within the same harness prefix so 'arborist:foo' and 'uncloseai:foo' stay separate.
+  if (identity) {
+    const candidates = db.prepare(`
+      SELECT id, name, remotes_json, origin_url FROM projects
+      WHERE root_commit_hash = ?
+        AND (CASE
+          WHEN ? = '' THEN instr(name, ':') = 0
+          ELSE name LIKE ? || ':%'
+        END)
+    `).all(identity.rootHash, prefix, prefix) as Array<{
+      id: number; name: string; remotes_json: string | null; origin_url: string | null;
+    }>;
+
+    let matched: { id: number; name: string } | undefined;
+    for (const c of candidates) {
+      // Origin URL match: equal, or any remote in either side overlaps.
+      const cRemotes: string[] = c.remotes_json ? safeParseArray(c.remotes_json) : [];
+      const overlap = identity.remotes.some((r) => cRemotes.includes(r));
+      const originMatch =
+        (identity.originUrl && c.origin_url && identity.originUrl === c.origin_url) ||
+        overlap ||
+        (identity.remotes.length === 0 && cRemotes.length === 0);  // both local-only
+      if (originMatch) { matched = c; break; }
+    }
+
+    if (matched) {
+      // Register the new encoded name as an alias of the matched project.
+      db.prepare(`
+        INSERT OR IGNORE INTO project_aliases (project_id, encoded_name, cwd, harness_prefix)
+        VALUES (?, ?, ?, ?)
+      `).run(matched.id, name, projectPath ?? null, prefix);
+      db.prepare(`UPDATE projects SET last_cwd_seen = ? WHERE id = ?`)
+        .run(projectPath ?? null, matched.id);
+      return matched.id;
+    }
+  }
+
+  // 4. No match — create a new project row + self-alias.
+  const result = db.prepare(`
+    INSERT INTO projects (name, display_name, path, root_commit_hash, origin_url, remotes_json, last_cwd_seen)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    name,
+    displayName,
+    projectPath ?? '',
+    identity?.rootHash ?? null,
+    identity?.originUrl ?? null,
+    identity ? JSON.stringify(identity.remotes) : null,
+    projectPath ?? null
+  );
+  const newId = result.lastInsertRowid as number;
+
+  db.prepare(`
+    INSERT OR IGNORE INTO project_aliases (project_id, encoded_name, cwd, harness_prefix)
+    VALUES (?, ?, ?, ?)
+  `).run(newId, name, projectPath ?? null, prefix);
+
+  return newId;
+}
+
+function safeParseArray(s: string): string[] {
+  try { const v = JSON.parse(s); return Array.isArray(v) ? v.map(String) : []; }
+  catch { return []; }
 }
 
 function getOrCreateSession(
@@ -916,7 +1062,8 @@ async function ingestFetch(
     }
     if (files.length === 0) continue;
 
-    const projectId = getOrCreateProject(db, projectName, displayName);
+    const slugCwd = await resolveProjectPath(slug).catch(() => null);
+    const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
 
     const prevCount = db
       .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
@@ -1107,7 +1254,8 @@ async function ingestNativeHarness(
     }
     if (files.length === 0) continue;
 
-    const projectId = getOrCreateProject(db, projectName, displayName);
+    const slugCwd = await resolveProjectPath(slug).catch(() => null);
+    const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
 
     const prevCount = db
       .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
@@ -1272,6 +1420,9 @@ export async function ingestAll(): Promise<IngestResult> {
   // Re-discover native harness directories (picks up newly created ones)
   refreshNativeHarnesses();
 
+  // Re-probe git identity each pass — repos move, remotes change, paths come and go.
+  clearGitIdentityCache();
+
   const db = getDb();
   const result: IngestResult = {
     projectsAdded: 0,
@@ -1335,11 +1486,18 @@ export async function ingestAll(): Promise<IngestResult> {
 
     if (sessionMeta.length === 0) continue;
 
+    // Fallback when sessions-index has no originalPath: probe the filesystem
+    // by walking the encoded dir name (handles ambiguous dashes). Needed so
+    // gitIdentity() can resolve root_commit_hash + origin_url for renames.
+    if (!projectPath) {
+      projectPath = (await resolveProjectPath(dir).catch(() => null)) ?? '';
+    }
+
     const projectId = getOrCreateProject(
       db,
       dir,
       decodeProjectName(dir),
-      projectPath
+      projectPath || undefined
     );
 
     // Check if project was new

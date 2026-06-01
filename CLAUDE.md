@@ -52,6 +52,22 @@ Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from 
 
 Private workspaces: `apps/web` (Next.js 15 App Router), `apps/worker` (background ingestion), `packages/config` (shared tsconfig).
 
+### Project identity (rename-resilient)
+
+Claude Code and every other harness identify a project by encoded filesystem path (`-home-fox-git-foo`). Rename the repo on disk and they start writing to a new dir — a defect we treat as upstream and outlast.
+
+unfirehose derives project identity from the **git root commit hash + origin URL**, captured at ingest time from the JSONL's `cwd`. Renames are absorbed silently: the new encoded path becomes an alias of the existing project row.
+
+- `projects.root_commit_hash` — `git rev-list --max-parents=0 HEAD` — stable across renames, clones, mirrors
+- `projects.origin_url` — fork tiebreaker
+- `projects.remotes_json` — JSON array of all remotes (handles mirror-with-different-origin)
+- `project_aliases` — many encoded names → one project_id
+- Identity matching is scoped per harness slot (`arborist:` subagent stays separate from base claude)
+
+Resolution lives in `getOrCreateProject` (`packages/core/db/ingest.ts`). Full design: `docs/architecture/project-identity.md`.
+
+Retrospective merge of existing dupes (e.g. legacy `aborist` vs current `arborist`) is a separate manual step — ticket `docs/tickets/4003-project-rename-reconciliation.md`.
+
 ### Publishing
 
 npm token stored at `~/.npmrc` (600 perms, outside repo). Publish from each package dir:
