@@ -343,7 +343,7 @@ function computeMeshScore(
 export default function PermacomputerPage() {
   const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, {
     refreshInterval: 30000,
-    focusThrottleInterval: 30000,
+    revalidateOnFocus: false,
   });
 
   // Persist mesh snapshots whenever fresh probe data lands. Without this, the
@@ -1419,8 +1419,8 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   // points land roughly every minute but the cadence keeps the tail "live".
   const { data } = useSWR(`/api/mesh/history?hours=${hours}&hostname=all`, fetcher, {
     refreshInterval: 30000,
-    focusThrottleInterval: 30000,
     keepPreviousData: true,
+    revalidateOnFocus: false,
   });
 
   const { chartData, hosts, hostsWithGpu } = useMemo(() => {

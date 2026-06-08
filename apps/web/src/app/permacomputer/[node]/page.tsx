@@ -224,21 +224,17 @@ export default function NodeDetailPage() {
     return mins === 0 ? 720 : Math.max(1, Math.ceil(mins / 60));
   })();
 
-  // Focus revalidation IS on so tabbing back gets fresh data — browsers
-  // throttle setInterval in hidden tabs so polling alone goes stale.
-  // focusThrottleInterval matches refreshInterval so rapid window-focus
-  // events don't cause churn beyond the normal polling cadence.
   const { data: mesh } = useSWR('/api/mesh', fetcher, {
     refreshInterval: 30000,
-    focusThrottleInterval: 30000,
+    revalidateOnFocus: false,
   });
   const { data: meshHistory } = useSWR(
     `/api/mesh/history?hours=${chartHours}`,
     fetcher,
     {
       refreshInterval: 30000,
-      focusThrottleInterval: 30000,
       keepPreviousData: true,
+      revalidateOnFocus: false,
     },
   );
 
@@ -262,7 +258,7 @@ export default function NodeDetailPage() {
   const { data: probe, isLoading: probeLoading } = useSWR(
     `/api/mesh/node?host=${encodeURIComponent(host)}`,
     fetcher,
-    { refreshInterval: 30000, focusThrottleInterval: 30000 },
+    { refreshInterval: 30000, revalidateOnFocus: false },
   );
   const { data: settings } = useSWR('/api/settings', fetcher, { revalidateOnFocus: false });
   const { data: sshConfig, mutate: mutateSsh } = useSWR('/api/ssh-config', fetcher, { revalidateOnFocus: false });
