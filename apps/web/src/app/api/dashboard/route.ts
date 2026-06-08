@@ -37,18 +37,29 @@ export async function GET(request: NextRequest) {
       WHERE m.timestamp >= ?
     `).get(windowStart) as any;
 
-    // Model breakdown with costs
+    // Model breakdown with costs. last_seen lets us auto-hide sunset
+    // models — anything whose newest message is older than the recent
+    // half of the window gets filtered out below.
     const dbModels = db.prepare(`
       SELECT model,
              SUM(input_tokens) as input_tokens,
              SUM(output_tokens) as output_tokens,
              SUM(cache_read_tokens) as cache_read_tokens,
-             SUM(cache_creation_tokens) as cache_creation_tokens
+             SUM(cache_creation_tokens) as cache_creation_tokens,
+             MAX(timestamp) as last_seen
       FROM messages
       WHERE model IS NOT NULL AND model != '<synthetic>'
         AND timestamp >= ?
       GROUP BY model
     `).all(windowStart) as any[];
+
+    // Recency cutoff: model must have activity in the most-recent half of the
+    // window. For 'all' (minutes=0), use a 30-day floor so we don't auto-show
+    // every model that ever ran.
+    const halfWindowMs = minutes > 0
+      ? (minutes * 60 * 1000) / 2
+      : 30 * 24 * 60 * 60 * 1000;
+    const recencyCutoff = new Date(Date.now() - halfWindowMs).toISOString();
 
     // Self-hosted attribution: integrate gpu_power_watts from mesh_snapshots
     // over the window for each known host, then split by tokens-per-host so
@@ -57,10 +68,16 @@ export async function GET(request: NextRequest) {
     const meshSince = minutes > 0
       ? new Date(Date.now() - minutes * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
       : '1970-01-01 00:00:00';
+    // Only count active-inference samples — gpu_util > 30% — so idle box
+    // hours don't smear the per-model attribution. The 4090 sits at 7W most
+    // of the time between Qwen requests; including those samples makes
+    // active inference look 10× cheaper than it actually is.
     const meshRows = db.prepare(`
       SELECT hostname, timestamp, gpu_power_watts
       FROM mesh_snapshots
-      WHERE timestamp > ? AND gpu_power_watts IS NOT NULL AND gpu_power_watts > 0
+      WHERE timestamp > ?
+        AND gpu_power_watts IS NOT NULL AND gpu_power_watts > 0
+        AND gpu_util IS NOT NULL AND gpu_util > 30
       ORDER BY hostname ASC, timestamp ASC
     `).all(meshSince) as Array<{ hostname: string; timestamp: string; gpu_power_watts: number }>;
 
@@ -87,16 +104,21 @@ export async function GET(request: NextRequest) {
       tokensByHost[host] = (tokensByHost[host] ?? 0) + tot;
     }
 
+    // Static estimate (tokens × peak_watts / tok_per_second × kWh-rate) is
+    // the authoritative cost — it correctly accounts for inference time.
+    // Mesh integration runs as a sanity check (meshObservedUSD) — when
+    // nvidia-smi polling becomes continuous it can take over as primary,
+    // but today's sparse user-driven polling captures only a fraction of
+    // active windows so we cannot trust it for billing.
     const kwhRate = getKwhRate();
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
-      let costUSD = calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
+      const costUSD = calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
       const host = hostForModel(m.model);
-      let costSource: 'api' | 'mesh' | 'estimate' = host ? 'estimate' : 'api';
+      let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
         const hostCost = kwhByHost[host] * kwhRate;
-        costUSD = hostCost * (totalTokens / tokensByHost[host]);
-        costSource = 'mesh';
+        meshObservedUSD = hostCost * (totalTokens / tokensByHost[host]);
       }
       return {
         model: m.model,
@@ -106,10 +128,20 @@ export async function GET(request: NextRequest) {
         cacheCreationTokens: m.cache_creation_tokens,
         totalTokens,
         costUSD,
-        costSource,
+        costSource: host ? ('estimate' as const) : ('api' as const),
         host,
+        meshObservedUSD,
       };
-    }).sort((a, b) => b.totalTokens - a.totalTokens);
+    })
+      .filter((m) => m.totalTokens > 0)
+      .filter((m) => {
+        // Hide sunset models: last activity must land in the recent half of
+        // the window. We need to look up last_seen from dbModels because
+        // modelBreakdown doesn't carry it.
+        const row = dbModels.find((r) => r.model === m.model);
+        return !row?.last_seen || row.last_seen >= recencyCutoff;
+      })
+      .sort((a, b) => b.totalTokens - a.totalTokens);
 
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
 

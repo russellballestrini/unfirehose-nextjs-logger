@@ -31,9 +31,11 @@ export interface SelfHostHardware {
   label: string;
 }
 
+// Watts = observed spike during active inference (close to TDP). Cost per
+// hour at our $0.33/kWh: 4090 = $0.16/h, 3090 = $0.08/h.
 export const SELF_HOST_HARDWARE: Record<string, SelfHostHardware> = {
-  '4090': { watts: 400, tokensPerSecond: 70,  label: 'RTX 4090' },
-  '3090': { watts: 300, tokensPerSecond: 100, label: 'RTX 3090' },
+  '4090': { watts: 480, tokensPerSecond: 70,  label: 'RTX 4090' },
+  '3090': { watts: 250, tokensPerSecond: 100, label: 'RTX 3090' },
 };
 
 // Model-name pattern → hardware key. First match wins.
