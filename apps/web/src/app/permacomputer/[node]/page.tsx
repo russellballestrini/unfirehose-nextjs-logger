@@ -224,15 +224,24 @@ export default function NodeDetailPage() {
     return mins === 0 ? 720 : Math.max(1, Math.ceil(mins / 60));
   })();
 
-  const { data: mesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 10000 });
-  const { data: meshHistory, mutate: mutateMeshHistory } = useSWR(
+  const { data: mesh } = useSWR('/api/mesh', fetcher, {
+    refreshInterval: 30000,
+    revalidateOnFocus: false,
+  });
+  const { data: meshHistory } = useSWR(
     `/api/mesh/history?hours=${chartHours}`,
     fetcher,
-    { refreshInterval: 30000 },
+    {
+      refreshInterval: 30000,
+      keepPreviousData: true,
+      revalidateOnFocus: false,
+    },
   );
 
   // Persist mesh snapshots so this page's own charts populate without needing
-  // /usage or /permacomputer open in another tab. Mirrors the loop in /usage.
+  // /usage or /permacomputer open in another tab. We don't call mutate() after
+  // POSTing — history SWR already polls every 30s, and the extra refetch was
+  // causing visible re-render churn / scroll-up.
   const lastSnapshotRef = useRef<string>('');
   useEffect(() => {
     const nodes = mesh?.nodes;
@@ -244,12 +253,12 @@ export default function NodeDetailPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nodes }),
-    }).then(() => mutateMeshHistory()).catch(() => {});
-  }, [mesh, mutateMeshHistory]);
+    }).catch(() => {});
+  }, [mesh]);
   const { data: probe, isLoading: probeLoading } = useSWR(
     `/api/mesh/node?host=${encodeURIComponent(host)}`,
     fetcher,
-    { refreshInterval: 30000 },
+    { refreshInterval: 30000, revalidateOnFocus: false },
   );
   const { data: settings } = useSWR('/api/settings', fetcher, { revalidateOnFocus: false });
   const { data: sshConfig, mutate: mutateSsh } = useSWR('/api/ssh-config', fetcher, { revalidateOnFocus: false });

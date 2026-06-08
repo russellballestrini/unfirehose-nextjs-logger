@@ -341,11 +341,17 @@ function computeMeshScore(
 // ============================================================
 
 export default function PermacomputerPage() {
-  const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
+  const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, {
+    refreshInterval: 30000,
+    revalidateOnFocus: false,
+  });
 
   // Persist mesh snapshots whenever fresh probe data lands. Without this, the
   // history table only fills while /usage is open, so /permacomputer charts
-  // would never populate from this page alone. Mirrors the loop in /usage.
+  // would never populate from this page alone. We don't call mutate() afterward
+  // — SWR's own refreshInterval already polls /api/mesh/history every 30s, and
+  // calling mutate() here would trigger an extra refetch on top of that, which
+  // showed up as constant DOM churn / scroll-jump.
   const lastSnapshotRef = useRef<string>('');
   useEffect(() => {
     const nodes = mesh?.nodes;
@@ -1411,7 +1417,11 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   const [hours, setHours] = useState(24);
   // 30s refresh — matches snapshot sample rate; per-minute aggregation means new
   // points land roughly every minute but the cadence keeps the tail "live".
-  const { data } = useSWR(`/api/mesh/history?hours=${hours}&hostname=all`, fetcher, { refreshInterval: 30000 });
+  const { data } = useSWR(`/api/mesh/history?hours=${hours}&hostname=all`, fetcher, {
+    refreshInterval: 30000,
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  });
 
   const { chartData, hosts, hostsWithGpu } = useMemo(() => {
     const timeline: any[] = data?.timeline ?? [];
