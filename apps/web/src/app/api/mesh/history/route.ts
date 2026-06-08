@@ -39,74 +39,63 @@ export async function GET(req: NextRequest) {
     `).all(since, hostname);
   }
 
-  // Group by timestamp for aggregate charts
-  const byTime = new Map<string, any>();
+  // Group by minute, deduping per hostname (last snapshot wins). The dashboard
+  // POSTs snapshots every ~30s from multiple pages, so a node can appear several
+  // times per minute — summing every row would multiply the fleet totals. We keep
+  // only the latest row per (minute, hostname), then derive aggregates from that.
+  const byTime = new Map<string, Map<string, any>>();
   for (const r of rows) {
-    // Round to nearest minute for aggregation
     const minute = r.timestamp.slice(0, 16);
-    if (!byTime.has(minute)) {
-      byTime.set(minute, {
-        timestamp: minute,
-        totalWatts: 0,
-        totalGpuWatts: 0,
-        totalLoad: 0,
-        totalCores: 0,
-        totalMemUsed: 0,
-        totalMemTotal: 0,
-        totalClaudes: 0,
-        totalGpuUtil: 0,
-        totalGpuMemUsed: 0,
-        totalGpuMemTotal: 0,
-        gpuNodeCount: 0,
-        nodeCount: 0,
-        nodes: {} as Record<string, any>,
-      });
-    }
-    const entry = byTime.get(minute)!;
-    entry.totalWatts += r.power_watts ?? 0;
-    entry.totalGpuWatts += r.gpu_power_watts ?? 0;
-    entry.totalLoad += r.load_avg_1 ?? 0;
-    entry.totalCores += r.cpu_cores ?? 0;
-    entry.totalMemUsed += r.mem_used_gb ?? 0;
-    entry.totalMemTotal += r.mem_total_gb ?? 0;
-    entry.totalClaudes += r.claude_processes ?? 0;
-    if (r.gpu_util != null || r.gpu_mem_total_mb > 0) {
-      entry.totalGpuUtil += r.gpu_util ?? 0;
-      entry.totalGpuMemUsed += r.gpu_mem_used_mb ?? 0;
-      entry.totalGpuMemTotal += r.gpu_mem_total_mb ?? 0;
-      entry.gpuNodeCount += 1;
-    }
-    entry.nodeCount += 1;
-    entry.nodes[r.hostname] = {
+    let nodes = byTime.get(minute);
+    if (!nodes) { nodes = new Map(); byTime.set(minute, nodes); }
+    // rows are ordered ASC, so this leaves the most recent per hostname
+    nodes.set(r.hostname, {
+      cpuWatts: r.power_watts ?? 0,
+      gpuWatts: r.gpu_power_watts ?? 0,
       watts: (r.power_watts ?? 0) + (r.gpu_power_watts ?? 0),
       load: r.load_avg_1 ?? 0,
       cores: r.cpu_cores ?? 0,
       memUsed: r.mem_used_gb ?? 0,
+      memTotal: r.mem_total_gb ?? 0,
       claudes: r.claude_processes ?? 0,
       gpuUtil: r.gpu_util ?? undefined,
-      gpuWatts: r.gpu_power_watts ?? 0,
       gpuMemUsedMB: r.gpu_mem_used_mb ?? 0,
       gpuMemTotalMB: r.gpu_mem_total_mb ?? 0,
-    };
+    });
   }
 
-  const timeline = [...byTime.values()].map(e => ({
-    timestamp: e.timestamp,
-    totalWatts: Math.round((e.totalWatts + e.totalGpuWatts) * 10) / 10,
-    cpuWatts: Math.round(e.totalWatts * 10) / 10,
-    gpuWatts: Math.round(e.totalGpuWatts * 10) / 10,
-    avgLoad: e.nodeCount > 0 ? Math.round((e.totalLoad / e.totalCores) * 100) / 100 : 0,
-    totalLoad: Math.round(e.totalLoad * 10) / 10,
-    totalCores: e.totalCores,
-    memUsedGB: Math.round(e.totalMemUsed * 10) / 10,
-    memTotalGB: Math.round(e.totalMemTotal * 10) / 10,
-    gpuUtil: e.gpuNodeCount > 0 ? Math.round(e.totalGpuUtil / e.gpuNodeCount * 10) / 10 : 0,
-    gpuMemUsedGB: Math.round(e.totalGpuMemUsed / 1024 * 10) / 10,
-    gpuMemTotalGB: Math.round(e.totalGpuMemTotal / 1024 * 10) / 10,
-    claudes: e.totalClaudes,
-    nodeCount: e.nodeCount,
-    nodes: e.nodes,
-  }));
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const timeline = [...byTime.entries()].map(([minute, nodes]) => {
+    const list = [...nodes.values()];
+    const cpuWatts = list.reduce((s, n) => s + n.cpuWatts, 0);
+    const gpuWatts = list.reduce((s, n) => s + n.gpuWatts, 0);
+    const totalLoad = list.reduce((s, n) => s + n.load, 0);
+    const totalCores = list.reduce((s, n) => s + n.cores, 0);
+    const memUsed = list.reduce((s, n) => s + n.memUsed, 0);
+    const memTotal = list.reduce((s, n) => s + n.memTotal, 0);
+    const claudes = list.reduce((s, n) => s + n.claudes, 0);
+    const gpuNodes = list.filter(n => n.gpuUtil != null || n.gpuMemTotalMB > 0);
+    const gpuUtilSum = gpuNodes.reduce((s, n) => s + (n.gpuUtil ?? 0), 0);
+    const gpuMemUsed = gpuNodes.reduce((s, n) => s + n.gpuMemUsedMB, 0);
+    const gpuMemTotal = gpuNodes.reduce((s, n) => s + n.gpuMemTotalMB, 0);
+    return {
+      timestamp: minute,
+      totalWatts: round1(cpuWatts + gpuWatts),
+      cpuWatts: round1(cpuWatts),
+      gpuWatts: round1(gpuWatts),
+      avgLoad: totalCores > 0 ? Math.round((totalLoad / totalCores) * 100) / 100 : 0,
+      totalLoad: round1(totalLoad),
+      totalCores,
+      memUsedGB: round1(memUsed),
+      memTotalGB: round1(memTotal),
+      gpuUtil: gpuNodes.length > 0 ? round1(gpuUtilSum / gpuNodes.length) : 0,
+      gpuMemUsedGB: round1(gpuMemUsed / 1024),
+      gpuMemTotalGB: round1(gpuMemTotal / 1024),
+      claudes,
+      nodeCount: list.length,
+      nodes: Object.fromEntries(nodes),
+    };
+  });
 
   // Distinct hostnames — deduplicate short names that have FQDN variants
   const rawHostnames = [...new Set(rows.map(r => r.hostname))];

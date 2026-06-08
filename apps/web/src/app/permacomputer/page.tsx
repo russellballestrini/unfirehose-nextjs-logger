@@ -5,6 +5,17 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import {
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -185,6 +196,19 @@ function getEffectiveIspCost(hostname: string, ispCost: number, egressGroups: Ma
   return ispCost;
 }
 
+const HOURS_PER_MONTH = 24 * 30;
+
+// Total draw for a node = CPU/system watts + GPU watts (nvidia-smi power.draw).
+function nodeTotalWatts(meshNode?: any): number {
+  return (meshNode?.powerWatts ?? 0) + (meshNode?.gpuPowerWatts ?? 0);
+}
+
+// Monthly electricity cost for a node, folding in GPU draw.
+function nodeElecMonthly(econ: NodeEcon, meshNode?: any): number {
+  const kwhMonth = (nodeTotalWatts(meshNode) * HOURS_PER_MONTH) / 1000;
+  return kwhMonth * econ.electricityCostKwh;
+}
+
 function computeMeshScore(
   nodes: { hostname: string; sshHostname?: string; econ: NodeEcon; meshNode?: any }[],
   geoipNodes?: any[],
@@ -192,6 +216,11 @@ function computeMeshScore(
 ): {
   totalScore: number;
   totalMonthlyCost: number;
+  totalIspCost: number;
+  totalElecCost: number;
+  totalWatts: number;
+  totalGpuWatts: number;
+  blendedKwhRate: number;
   avgDistance: number;
   geoDiversityBonus: number;
   ispDiversityBonus: number;
@@ -202,13 +231,21 @@ function computeMeshScore(
 } {
   const configured = nodes.filter(n => n.econ.lat !== 0 || n.econ.lon !== 0);
   const egressGroups = computeEgressGroups(nodes, geoipNodes ?? [], firstMeshHostname);
-  const emptyResult = { totalScore: 0, totalMonthlyCost: 0, avgDistance: 0, geoDiversityBonus: 0, ispDiversityBonus: 0, pipeDiversityBonus: 0, sameLocationPenalty: 0, egressGroups, nodeScores: [] };
+  const emptyResult = { totalScore: 0, totalMonthlyCost: 0, totalIspCost: 0, totalElecCost: 0, totalWatts: 0, totalGpuWatts: 0, blendedKwhRate: 0, avgDistance: 0, geoDiversityBonus: 0, ispDiversityBonus: 0, pipeDiversityBonus: 0, sameLocationPenalty: 0, egressGroups, nodeScores: [] };
   if (configured.length === 0) return emptyResult;
 
-  // Total monthly cost — shared pipes split ISP cost
-  const totalMonthlyCost = nodes.reduce((s, n) => {
-    return s + getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, egressGroups);
-  }, 0);
+  // Monthly cost — ISP (shared pipes split) plus electricity (CPU + GPU watts).
+  const totalIspCost = nodes.reduce((s, n) =>
+    s + getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, egressGroups), 0);
+  const totalElecCost = nodes.reduce((s, n) => s + nodeElecMonthly(n.econ, n.meshNode), 0);
+  const totalMonthlyCost = totalIspCost + totalElecCost;
+
+  // Fleet power draw — CPU/system + GPU. Blended $/kWh is derived from real
+  // per-node rates so any cost chart stays consistent with this headline.
+  const totalWatts = nodes.reduce((s, n) => s + nodeTotalWatts(n.meshNode), 0);
+  const totalGpuWatts = nodes.reduce((s, n) => s + (n.meshNode?.gpuPowerWatts ?? 0), 0);
+  const energyKwhMonth = (totalWatts * HOURS_PER_MONTH) / 1000;
+  const blendedKwhRate = energyKwhMonth > 0 ? totalElecCost / energyKwhMonth : 0;
 
   // Pairwise distances
   let totalDist = 0;
@@ -272,7 +309,7 @@ function computeMeshScore(
     }
     distScore = configured.length > 1 ? distScore / (configured.length - 1) : 0;
 
-    const watts = n.meshNode?.powerWatts ?? 0;
+    const watts = nodeTotalWatts(n.meshNode);
     const cores = n.meshNode?.cpuCores ?? 1;
     const wattsPerCore = watts > 0 ? watts / cores : 20;
     const efficiencyScore = Math.round(100 / wattsPerCore);
@@ -283,7 +320,7 @@ function computeMeshScore(
 
   const totalScore = nodeScores.reduce((s, n) => s + n.score, 0) + geoDiversityBonus + ispDiversityBonus + pipeDiversityBonus - sameLocationPenalty;
 
-  return { totalScore, totalMonthlyCost, avgDistance, geoDiversityBonus, ispDiversityBonus, pipeDiversityBonus, sameLocationPenalty, egressGroups, nodeScores };
+  return { totalScore, totalMonthlyCost, totalIspCost, totalElecCost, totalWatts, totalGpuWatts, blendedKwhRate, avgDistance, geoDiversityBonus, ispDiversityBonus, pipeDiversityBonus, sameLocationPenalty, egressGroups, nodeScores };
 }
 
 // ============================================================
@@ -575,11 +612,17 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
               const totalCost = elecCost + effIsp;
               const isSplit = effIsp < econ.ispCostMonthly;
               const sourceTag = node.powerSource === 'rapl' ? 'rapl' : node.powerSource === 'tdp' ? 'tdp' : 'n/a';
+              const perWatt = totalW > 0 ? totalCost / totalW : 0;
               return (
                 <>
-                  <span>{Math.round(totalW)}W <span className="opacity-60">[{sourceTag}]</span></span>
+                  <span>
+                    {Math.round(totalW)}W
+                    {gpuW > 0 && <span className="opacity-60"> ({Math.round(gpuW)}W gpu)</span>}
+                    {' '}<span className="opacity-60">[{sourceTag}]</span>
+                  </span>
                   <span>${Math.round(elecCost)}/mo elec</span>
                   {isSplit && <span className="text-green-400">${Math.round(effIsp)}/mo isp <span className="opacity-60">(split)</span></span>}
+                  {totalW > 0 && <span className="opacity-60">${perWatt.toFixed(2)}/W·mo</span>}
                   <span className="ml-auto font-bold text-[var(--color-foreground)]">${Math.round(totalCost)}/mo</span>
                 </>
               );
@@ -1328,6 +1371,209 @@ function SessionsTab({ detail }: { detail: any }) {
 // Mesh Economics Panel
 // ============================================================
 
+// Fleet-wide live metrics. Power & cost share the blended $/kWh derived in
+// computeMeshScore so charts stay consistent with the headline numbers.
+// Every chart overlays per-host lines on top of a bold fleet aggregate.
+const HOST_COLORS = ['#f97316', '#a78bfa', '#60a5fa', '#22c55e', '#f43f5e', '#facc15', '#38bdf8', '#ec4899', '#84cc16', '#fb923c'];
+
+function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
+  const [hours, setHours] = useState(24);
+  // 30s refresh — matches snapshot sample rate; per-minute aggregation means new
+  // points land roughly every minute but the cadence keeps the tail "live".
+  const { data } = useSWR(`/api/mesh/history?hours=${hours}&hostname=all`, fetcher, { refreshInterval: 30000 });
+
+  const { chartData, hosts, hostsWithGpu } = useMemo(() => {
+    const timeline: any[] = data?.timeline ?? [];
+    const hostSet = new Set<string>();
+    const gpuHostSet = new Set<string>();
+    const rows = timeline.map((t) => {
+      const row: any = {
+        timestamp: t.timestamp,
+        watts: t.totalWatts ?? 0,
+        cpuWatts: t.cpuWatts ?? 0,
+        gpuWatts: t.gpuWatts ?? 0,
+        cpuPct: Math.round((t.avgLoad ?? 0) * 100 * 10) / 10,
+        memUsedGB: t.memUsedGB ?? 0,
+        memTotalGB: t.memTotalGB ?? 0,
+        memPct: t.memTotalGB > 0 ? Math.round((t.memUsedGB / t.memTotalGB) * 100 * 10) / 10 : 0,
+        gpuUtil: t.gpuUtil ?? 0,
+        gpuVramUsedGB: t.gpuMemUsedGB ?? 0,
+        gpuVramTotalGB: t.gpuMemTotalGB ?? 0,
+        gpuVramPct: t.gpuMemTotalGB > 0 ? Math.round((t.gpuMemUsedGB / t.gpuMemTotalGB) * 100 * 10) / 10 : 0,
+        elecCostPerHour: Math.round(((t.totalWatts ?? 0) / 1000) * blendedKwhRate * 100) / 100,
+      };
+      for (const [host, n] of Object.entries<any>(t.nodes ?? {})) {
+        hostSet.add(host);
+        const cores = n.cores || 1;
+        row[`cpu:${host}`] = Math.round((n.load / cores) * 100 * 10) / 10;
+        row[`mem:${host}`] = n.memTotal > 0 ? Math.round((n.memUsed / n.memTotal) * 100 * 10) / 10 : 0;
+        row[`watts:${host}`] = Math.round((n.watts ?? 0) * 10) / 10;
+        if (n.gpuMemTotalMB > 0 || (n.gpuUtil != null && n.gpuUtil > 0)) {
+          gpuHostSet.add(host);
+          row[`gpuUtil:${host}`] = n.gpuUtil ?? 0;
+          row[`gpuVram:${host}`] = n.gpuMemTotalMB > 0
+            ? Math.round(((n.gpuMemUsedMB ?? 0) / n.gpuMemTotalMB) * 100 * 10) / 10
+            : 0;
+        }
+      }
+      return row;
+    });
+    return {
+      chartData: rows,
+      hosts: [...hostSet].sort(),
+      hostsWithGpu: [...gpuHostSet].sort(),
+    };
+  }, [data, blendedKwhRate]);
+
+  if (chartData.length === 0) return null;
+  const last = chartData[chartData.length - 1];
+  const hasGpu = hostsWithGpu.length > 0;
+  const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
+  const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: (t: string) => t.slice(11, 16) };
+  const ranges: { label: string; h: number }[] = [
+    { label: '6h', h: 6 }, { label: '24h', h: 24 }, { label: '7d', h: 168 },
+  ];
+  const hostColor = (host: string, list: string[]) => HOST_COLORS[list.indexOf(host) % HOST_COLORS.length];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-bold text-[var(--color-muted)]">
+          Fleet Metrics <span className="font-normal text-[10px] opacity-60">{hosts.length} nodes &middot; 30s refresh</span>
+        </h4>
+        <div className="flex gap-1">
+          {ranges.map((r) => (
+            <button
+              key={r.h}
+              onClick={() => setHours(r.h)}
+              className={`text-xs px-2 py-0.5 rounded ${hours === r.h ? 'bg-[var(--color-accent)] text-black' : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Power — fleet total + per-host */}
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+            Power <span className="font-normal ml-1">{Math.round(last.watts)}W now</span>
+          </h5>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={chartData}>
+              <XAxis {...xAxisProps} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
+              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="watts" name="Fleet" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
+              {hosts.map(h => (
+                <Line key={h} type="monotone" dataKey={`watts:${h}`} name={h} stroke={hostColor(h, hosts)} strokeWidth={1} dot={false} opacity={0.85} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Electricity cost — derived from blended fleet rate */}
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+            Electricity Cost <span className="font-normal ml-1">${last.elecCostPerHour}/hr now</span>
+          </h5>
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={chartData}>
+              <XAxis {...xAxisProps} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+              <Tooltip labelFormatter={(t) => String(t)} formatter={(v) => [`$${v}/hr`, 'Cost']} contentStyle={tooltipStyle} />
+              <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* CPU % — load-as-percent per host + fleet avg */}
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+            CPU % <span className="font-normal ml-1">{last.cpuPct}% fleet avg</span>
+          </h5>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={chartData}>
+              <XAxis {...xAxisProps} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" />
+              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="cpuPct" name="Fleet avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
+              {hosts.map(h => (
+                <Line key={h} type="monotone" dataKey={`cpu:${h}`} name={h} stroke={hostColor(h, hosts)} strokeWidth={1} dot={false} opacity={0.85} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Memory % — used/total per host + fleet aggregate */}
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+            Memory % <span className="font-normal ml-1">{last.memPct}% &middot; {last.memUsedGB}/{last.memTotalGB} GB</span>
+          </h5>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={chartData}>
+              <XAxis {...xAxisProps} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
+              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="memPct" name="Fleet" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
+              {hosts.map(h => (
+                <Line key={h} type="monotone" dataKey={`mem:${h}`} name={h} stroke={hostColor(h, hosts)} strokeWidth={1} dot={false} opacity={0.85} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* GPU Util — per-host + cross-GPU-node avg */}
+        {hasGpu && (
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+            GPU Utilization <span className="font-normal ml-1">{last.gpuUtil}% avg &middot; {hostsWithGpu.length} gpu</span>
+          </h5>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={chartData}>
+              <XAxis {...xAxisProps} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
+              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="gpuUtil" name="GPU avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
+              {hostsWithGpu.map(h => (
+                <Line key={h} type="monotone" dataKey={`gpuUtil:${h}`} name={h} stroke={hostColor(h, hostsWithGpu)} strokeWidth={1} dot={false} opacity={0.85} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        )}
+
+        {/* GPU VRAM — per-host VRAM% + cross-node avg */}
+        {hasGpu && (
+        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+            GPU VRAM <span className="font-normal ml-1">{last.gpuVramPct}% &middot; {last.gpuVramUsedGB}/{last.gpuVramTotalGB} GB</span>
+          </h5>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={chartData}>
+              <XAxis {...xAxisProps} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
+              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="gpuVramPct" name="VRAM avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
+              {hostsWithGpu.map(h => (
+                <Line key={h} type="monotone" dataKey={`gpuVram:${h}`} name={h} stroke={hostColor(h, hostsWithGpu)} strokeWidth={1} dot={false} opacity={0.85} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
   allNodes: { meshNode: any; sshHost?: SshHost; key: string }[];
   meshNodes: any[];
@@ -1354,7 +1600,8 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
     for (const n of econNodes) {
       const p = n.econ.provider;
       const cur = map.get(p) ?? { count: 0, cost: 0 };
-      map.set(p, { count: cur.count + 1, cost: cur.cost + getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, score.egressGroups) });
+      const nodeCost = getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, score.egressGroups) + nodeElecMonthly(n.econ, n.meshNode);
+      map.set(p, { count: cur.count + 1, cost: cur.cost + nodeCost });
     }
     return [...map.entries()].sort((a, b) => b[1].cost - a[1].cost);
   }, [econNodes, score.egressGroups]);
@@ -1383,15 +1630,31 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-4">
         <div>
           <div className="text-xs text-[var(--color-muted)]">Monthly Cost</div>
-          <div className="text-base font-bold font-mono">${score.totalMonthlyCost}/mo</div>
+          <div className="text-base font-bold font-mono">${Math.round(score.totalMonthlyCost)}/mo</div>
+          <div className="text-[10px] text-[var(--color-muted)] font-mono">
+            ${Math.round(score.totalElecCost)} elec + ${Math.round(score.totalIspCost)} isp
+          </div>
         </div>
         <div>
           <div className="text-xs text-[var(--color-muted)]">Cost/Node</div>
           <div className="text-base font-bold font-mono">
             ${allNodes.length > 0 ? Math.round(score.totalMonthlyCost / allNodes.length) : 0}/mo
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">Power</div>
+          <div className="text-base font-bold font-mono">{Math.round(score.totalWatts)}W</div>
+          {score.totalGpuWatts > 0 && (
+            <div className="text-[10px] text-[var(--color-muted)] font-mono">{Math.round(score.totalGpuWatts)}W gpu</div>
+          )}
+        </div>
+        <div>
+          <div className="text-xs text-[var(--color-muted)]">$/W·mo</div>
+          <div className="text-base font-bold font-mono">
+            {score.totalWatts > 0 ? `$${(score.totalMonthlyCost / score.totalWatts).toFixed(2)}` : 'n/a'}
           </div>
         </div>
         <div>
@@ -1430,6 +1693,9 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
         </div>
       </div>
 
+      {/* Fleet metrics — power, cost, CPU%, memory, GPU util, GPU VRAM */}
+      <FleetMetricsChart blendedKwhRate={score.blendedKwhRate} />
+
       {/* Provider + Location breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* By provider */}
@@ -1445,7 +1711,7 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
                   <div className="flex-1 h-1.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
                     <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${pct}%` }} />
                   </div>
-                  <span className="text-xs font-mono w-16 text-right">${cost}/mo</span>
+                  <span className="text-xs font-mono w-16 text-right">${Math.round(cost)}/mo</span>
                   <span className="text-xs text-[var(--color-muted)] w-6">{count}x</span>
                 </div>
               );
