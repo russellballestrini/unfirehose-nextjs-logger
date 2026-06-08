@@ -74,6 +74,8 @@ export default function DashboardPage() {
     fullName: m.model,
     tokens: m.totalTokens,
     cost: m.costUSD ?? 0,
+    costSource: m.costSource ?? 'api',
+    host: m.host ?? null,
   }));
 
   // Find sleep center and rotate hour data for bell curve
@@ -277,7 +279,23 @@ export default function DashboardPage() {
                         className="inline-block w-2 h-2 rounded-full"
                         style={{ background: getModelColor(m.fullName) }}
                       />
-                      {m.name}
+                      <span>{m.name}</span>
+                      {m.costSource === 'mesh' && (
+                        <span
+                          className="text-xs text-[var(--color-muted)] opacity-70"
+                          title={`measured kWh from mesh_snapshots on ${m.host}`}
+                        >
+                          ⚡{m.host}
+                        </span>
+                      )}
+                      {m.costSource === 'estimate' && (
+                        <span
+                          className="text-xs text-[var(--color-muted)] opacity-70"
+                          title="static per-token electricity estimate (no mesh data for window)"
+                        >
+                          ≈{m.host}
+                        </span>
+                      )}
                     </td>
                     <td className="py-1.5 text-right">
                       {formatTokens(m.tokens)}

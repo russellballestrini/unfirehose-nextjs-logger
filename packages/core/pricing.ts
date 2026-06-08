@@ -42,6 +42,20 @@ export const SELF_HOST_MAP: Array<{ pattern: RegExp; hardware: string }> = [
   { pattern: /hermes/i, hardware: '3090' },
 ];
 
+// Hardware key → mesh_snapshots.hostname. Lets us join model usage to real
+// nvidia-smi watt readings. Eyeball-edit when fox moves a model between nodes.
+export const SELF_HOST_NODE: Record<string, string> = {
+  '4090': 'ai.foxhop.net',
+  '3090': '3090-ai.foxhop.net',
+};
+
+export function hostForModel(model: string): string | null {
+  for (const m of SELF_HOST_MAP) {
+    if (m.pattern.test(model)) return SELF_HOST_NODE[m.hardware] ?? null;
+  }
+  return null;
+}
+
 // $/kWh — override via UNFIREHOSE_KWH_RATE_USD env var. Default = CT residential.
 export function getKwhRate(): number {
   const raw = process.env.UNFIREHOSE_KWH_RATE_USD;

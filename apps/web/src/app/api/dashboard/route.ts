@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCost } from '@unturf/unfirehose/pricing';
+import { calcCost, hostForModel, getKwhRate } from '@unturf/unfirehose/pricing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,15 +50,66 @@ export async function GET(request: NextRequest) {
       GROUP BY model
     `).all(windowStart) as any[];
 
-    const modelBreakdown = dbModels.map((m) => ({
-      model: m.model,
-      inputTokens: m.input_tokens,
-      outputTokens: m.output_tokens,
-      cacheReadTokens: m.cache_read_tokens,
-      cacheCreationTokens: m.cache_creation_tokens,
-      totalTokens: m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens,
-      costUSD: calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens),
-    })).sort((a, b) => b.totalTokens - a.totalTokens);
+    // Self-hosted attribution: integrate gpu_power_watts from mesh_snapshots
+    // over the window for each known host, then split by tokens-per-host so
+    // multiple models on the same node share the measured energy.
+    // SQLite datetime('now') stores 'YYYY-MM-DD HH:MM:SS' (no T, no Z).
+    const meshSince = minutes > 0
+      ? new Date(Date.now() - minutes * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
+      : '1970-01-01 00:00:00';
+    const meshRows = db.prepare(`
+      SELECT hostname, timestamp, gpu_power_watts
+      FROM mesh_snapshots
+      WHERE timestamp > ? AND gpu_power_watts IS NOT NULL AND gpu_power_watts > 0
+      ORDER BY hostname ASC, timestamp ASC
+    `).all(meshSince) as Array<{ hostname: string; timestamp: string; gpu_power_watts: number }>;
+
+    const kwhByHost: Record<string, number> = {};
+    const lastByHost: Record<string, { ts: number; w: number }> = {};
+    for (const r of meshRows) {
+      const tsMs = Date.parse(r.timestamp.replace(' ', 'T') + 'Z');
+      const prev = lastByHost[r.hostname];
+      if (prev) {
+        const dtH = (tsMs - prev.ts) / 3_600_000;
+        if (dtH > 0 && dtH < 5 / 60) {   // ignore gaps > 5 min (node offline)
+          kwhByHost[r.hostname] = (kwhByHost[r.hostname] ?? 0) + (prev.w / 1000) * dtH;
+        }
+      }
+      lastByHost[r.hostname] = { ts: tsMs, w: r.gpu_power_watts };
+    }
+
+    // First pass: sum tokens per host so we can split kWh proportionally.
+    const tokensByHost: Record<string, number> = {};
+    for (const m of dbModels) {
+      const host = hostForModel(m.model);
+      if (!host) continue;
+      const tot = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
+      tokensByHost[host] = (tokensByHost[host] ?? 0) + tot;
+    }
+
+    const kwhRate = getKwhRate();
+    const modelBreakdown = dbModels.map((m) => {
+      const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
+      let costUSD = calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
+      const host = hostForModel(m.model);
+      let costSource: 'api' | 'mesh' | 'estimate' = host ? 'estimate' : 'api';
+      if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
+        const hostCost = kwhByHost[host] * kwhRate;
+        costUSD = hostCost * (totalTokens / tokensByHost[host]);
+        costSource = 'mesh';
+      }
+      return {
+        model: m.model,
+        inputTokens: m.input_tokens,
+        outputTokens: m.output_tokens,
+        cacheReadTokens: m.cache_read_tokens,
+        cacheCreationTokens: m.cache_creation_tokens,
+        totalTokens,
+        costUSD,
+        costSource,
+        host,
+      };
+    }).sort((a, b) => b.totalTokens - a.totalTokens);
 
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
 
