@@ -212,11 +212,27 @@ export default function NodeDetailPage() {
   })();
 
   const { data: mesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 10000 });
-  const { data: meshHistory } = useSWR(
+  const { data: meshHistory, mutate: mutateMeshHistory } = useSWR(
     `/api/mesh/history?hours=${chartHours}`,
     fetcher,
-    { refreshInterval: 60000 },
+    { refreshInterval: 30000 },
   );
+
+  // Persist mesh snapshots so this page's own charts populate without needing
+  // /usage or /permacomputer open in another tab. Mirrors the loop in /usage.
+  const lastSnapshotRef = useRef<string>('');
+  useEffect(() => {
+    const nodes = mesh?.nodes;
+    if (!nodes?.length) return;
+    const key = nodes.map((n: any) => `${n.hostname}:${n.loadAvg?.[0]}`).join(',');
+    if (key === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = key;
+    fetch('/api/mesh/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes }),
+    }).then(() => mutateMeshHistory()).catch(() => {});
+  }, [mesh, mutateMeshHistory]);
   const { data: probe, isLoading: probeLoading } = useSWR(
     `/api/mesh/node?host=${encodeURIComponent(host)}`,
     fetcher,
