@@ -205,10 +205,10 @@ function utcToLocalIso(utcStr: string): Date {
   return new Date(iso);
 }
 function fmtLocalHHMM(utcStr: string): string {
-  return utcToLocalIso(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return utcToLocalIso(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 function fmtLocalDateTime(utcStr: string): string {
-  return utcToLocalIso(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return utcToLocalIso(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 // Total draw for a node = CPU/system watts + GPU watts (nvidia-smi power.draw).

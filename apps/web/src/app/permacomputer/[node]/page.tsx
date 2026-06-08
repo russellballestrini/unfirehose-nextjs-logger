@@ -28,10 +28,10 @@ function utcToLocalDate(utcStr: string): Date {
   return new Date(iso);
 }
 function fmtLocalHHMM(utcStr: string): string {
-  return utcToLocalDate(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return utcToLocalDate(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 function fmtLocalDateTime(utcStr: string): string {
-  return utcToLocalDate(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return utcToLocalDate(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
