@@ -329,6 +329,24 @@ function computeMeshScore(
 
 export default function PermacomputerPage() {
   const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, { refreshInterval: 30000 });
+
+  // Persist mesh snapshots whenever fresh probe data lands. Without this, the
+  // history table only fills while /usage is open, so /permacomputer charts
+  // would never populate from this page alone. Mirrors the loop in /usage.
+  const lastSnapshotRef = useRef<string>('');
+  useEffect(() => {
+    const nodes = mesh?.nodes;
+    if (!nodes?.length) return;
+    const key = nodes.map((n: any) => `${n.hostname}:${n.loadAvg?.[0]}`).join(',');
+    if (key === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = key;
+    fetch('/api/mesh/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes }),
+    }).catch(() => {});
+  }, [mesh]);
+
   const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[] }>('/api/ssh-config', fetcher);
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
   const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 60000 });
@@ -1425,9 +1443,11 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
     };
   }, [data, blendedKwhRate]);
 
-  if (chartData.length === 0) return null;
-  const last = chartData[chartData.length - 1];
-  const hasGpu = hostsWithGpu.length > 0;
+  const hasData = chartData.length > 0;
+  const last = hasData ? chartData[chartData.length - 1] : null;
+  // While history is empty we don't know which hosts have GPUs — keep panels
+  // visible so the user sees what's coming. Once data lands, hide if truly no GPU.
+  const hasGpu = !hasData || hostsWithGpu.length > 0;
   const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
   const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: (t: string) => t.slice(11, 16) };
   const ranges: { label: string; h: number }[] = [
@@ -1453,12 +1473,17 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
           ))}
         </div>
       </div>
+      {!hasData && (
+        <div className="bg-[var(--color-background)] border border-dashed border-[var(--color-border)] rounded p-4 text-xs text-[var(--color-muted)]">
+          No mesh snapshots in the selected window. Keep this page open — fresh probes are recorded every 30s and charts populate as data arrives.
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Power — fleet total + per-host */}
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            Power <span className="font-normal ml-1">{Math.round(last.watts)}W now</span>
+            Power <span className="font-normal ml-1">{hasData ? `${Math.round(last!.watts)}W now` : '— no data'}</span>
           </h5>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData}>
@@ -1477,7 +1502,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
         {/* Electricity cost — derived from blended fleet rate */}
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            Electricity Cost <span className="font-normal ml-1">${last.elecCostPerHour}/hr now</span>
+            Electricity Cost <span className="font-normal ml-1">{hasData ? `$${last!.elecCostPerHour}/hr now` : '— no data'}</span>
           </h5>
           <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={chartData}>
@@ -1492,7 +1517,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
         {/* CPU % — load-as-percent per host + fleet avg */}
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            CPU % <span className="font-normal ml-1">{last.cpuPct}% fleet avg</span>
+            CPU % <span className="font-normal ml-1">{hasData ? `${last!.cpuPct}% fleet avg` : '— no data'}</span>
           </h5>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData}>
@@ -1511,7 +1536,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
         {/* Memory % — used/total per host + fleet aggregate */}
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            Memory % <span className="font-normal ml-1">{last.memPct}% &middot; {last.memUsedGB}/{last.memTotalGB} GB</span>
+            Memory % <span className="font-normal ml-1">{hasData ? `${last!.memPct}% · ${last!.memUsedGB}/${last!.memTotalGB} GB` : '— no data'}</span>
           </h5>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData}>
@@ -1531,7 +1556,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
         {hasGpu && (
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            GPU Utilization <span className="font-normal ml-1">{last.gpuUtil}% avg &middot; {hostsWithGpu.length} gpu</span>
+            GPU Utilization <span className="font-normal ml-1">{hasData ? `${last!.gpuUtil}% avg · ${hostsWithGpu.length} gpu` : '— no data'}</span>
           </h5>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData}>
@@ -1552,7 +1577,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
         {hasGpu && (
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            GPU VRAM <span className="font-normal ml-1">{last.gpuVramPct}% &middot; {last.gpuVramUsedGB}/{last.gpuVramTotalGB} GB</span>
+            GPU VRAM <span className="font-normal ml-1">{hasData ? `${last!.gpuVramPct}% · ${last!.gpuVramUsedGB}/${last!.gpuVramTotalGB} GB` : '— no data'}</span>
           </h5>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={chartData}>
