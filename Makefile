@@ -1,17 +1,18 @@
 .PHONY: dev fix-watches persist-watches
 
-# Raise inotify watch ceiling for this boot. Needs root — invoking via sudo
-# so make dev does not silently no-op when the user lacks privilege (the prior
-# `sysctl ... = 524288` line failed silently and dev kept exhausting watches).
+# Raise inotify watch ceiling for the current boot.
+# Fails with "permission denied" if not root — re-run with `sudo make fix-watches`.
+# Not a dependency of `dev` so the hot path stays sudo-free.
 fix-watches:
-	sudo sysctl fs.inotify.max_user_watches=524288
+	sysctl fs.inotify.max_user_watches=524288
 
-# Persist across reboots — write a sysctl drop-in. One-time setup.
+# Persist the watch ceiling across reboots — one-time setup.
+# Fails on permission error if not root — re-run with `sudo make persist-watches`.
 persist-watches:
-	echo 'fs.inotify.max_user_watches=524288' | sudo tee /etc/sysctl.d/90-inotify.conf
-	sudo sysctl --system
+	echo 'fs.inotify.max_user_watches=524288' > /etc/sysctl.d/90-inotify.conf
+	sysctl --system
 
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
-dev: fix-watches
+dev:
 	NODE_OPTIONS=--max-old-space-size=4096 npm run dev
