@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@unturf/unfirehose-ui/layout/Sidebar";
 import { ThemeProvider } from "@unturf/unfirehose-ui/ThemeProvider";
 import { VaultShell } from "./VaultShell";
+import { DevReloadProbe } from "./DevReloadProbe";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -30,6 +31,7 @@ export default function RootLayout({
             {children}
           </main>
         </VaultShell>
+        {process.env.NODE_ENV !== "production" && <DevReloadProbe />}
       </body>
     </html>
   );
