@@ -365,6 +365,29 @@ function migrate(db: Database.Database) {
   addColumn('training_runs', 'deleted_at', 'TEXT');
   addColumn('training_runs', 'source_path', 'TEXT');
   addColumn('training_runs', 'source_host', 'TEXT');
+  // Self-host attribution: endpoint + provider replace model-name regex matching.
+  // endpoint = full URL of the inference API the message hit (when harness logs it).
+  // provider = "anthropic" | "openai" | "google" | "local" | "openrouter" | "hf-inference" | ...
+  addColumn('messages', 'endpoint', 'TEXT');
+  addColumn('messages', 'provider', 'TEXT');
+  // One-time backfill: harness tells us provider with high confidence even when
+  // the message row pre-dates endpoint/provider ingestion. claude-code → anthropic,
+  // uncloseai → local, fetch routes through whatever the user pointed it at.
+  db.exec(`
+    UPDATE messages
+       SET provider = 'anthropic'
+     WHERE provider IS NULL
+       AND session_id IN (SELECT id FROM sessions WHERE harness IN ('claude-code', 'arborist'));
+    UPDATE messages
+       SET provider = 'local'
+     WHERE provider IS NULL
+       AND session_id IN (SELECT id FROM sessions WHERE harness = 'uncloseai');
+  `);
+  // Index for /api/dashboard's per-endpoint cost grouping.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_messages_endpoint ON messages(endpoint) WHERE endpoint IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_messages_provider ON messages(provider) WHERE provider IS NOT NULL;
+  `);
 
   // Session nicknames — user-defined labels for tmux/unsandbox sessions
   db.exec(`

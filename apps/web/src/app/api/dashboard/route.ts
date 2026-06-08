@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCost, hostForModel, getKwhRate } from '@unturf/unfirehose/pricing';
+import { calcCost, hostForMessage, getKwhRate, CLOUD_PROVIDERS, PRICING } from '@unturf/unfirehose/pricing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -53,6 +53,28 @@ export async function GET(request: NextRequest) {
       GROUP BY model
     `).all(windowStart) as any[];
 
+    // Per-model winning (endpoint, provider) — the pair that served the most
+    // tokens in this window. Used to attribute self-hosted vs cloud without
+    // splitting the model into multiple rows.
+    const dbAttribution = db.prepare(`
+      SELECT model, endpoint, provider,
+             SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS total_tokens
+      FROM messages
+      WHERE model IS NOT NULL
+        AND timestamp >= ?
+      GROUP BY model, endpoint, provider
+    `).all(windowStart) as Array<{ model: string; endpoint: string | null; provider: string | null; total_tokens: number }>;
+    const dominantAttr: Record<string, { endpoint: string | null; provider: string | null }> = {};
+    for (const r of dbAttribution) {
+      const prev = dominantAttr[r.model];
+      if (!prev || r.total_tokens > (prev as unknown as { _tot: number })._tot) {
+        dominantAttr[r.model] = Object.assign(
+          { endpoint: r.endpoint, provider: r.provider },
+          { _tot: r.total_tokens } as unknown as object,
+        );
+      }
+    }
+
     // Recency cutoff: model must have activity in the most-recent half of the
     // window. For 'all' (minutes=0), use a 30-day floor so we don't auto-show
     // every model that ever ran.
@@ -95,10 +117,25 @@ export async function GET(request: NextRequest) {
       lastByHost[r.hostname] = { ts: tsMs, w: r.gpu_power_watts };
     }
 
+    const attrFor = (model: string) => {
+      const a = dominantAttr[model];
+      let provider = a?.provider ?? null;
+      const endpoint = a?.endpoint ?? null;
+      // Backstop: legacy rows missing provider, but the model is in our
+      // Anthropic price table — must be a cloud call.
+      if (!provider && PRICING[model]) provider = 'anthropic';
+      // Cloud-provider claims override any model-name regex match — a
+      // Qwen-named call that hit OpenRouter is not running on ai.foxhop.net.
+      if (provider && CLOUD_PROVIDERS.has(provider)) {
+        return { host: null, endpoint, provider };
+      }
+      return { host: hostForMessage(model, endpoint, provider), endpoint, provider };
+    };
+
     // First pass: sum tokens per host so we can split kWh proportionally.
     const tokensByHost: Record<string, number> = {};
     for (const m of dbModels) {
-      const host = hostForModel(m.model);
+      const { host } = attrFor(m.model);
       if (!host) continue;
       const tot = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
       tokensByHost[host] = (tokensByHost[host] ?? 0) + tot;
@@ -114,7 +151,7 @@ export async function GET(request: NextRequest) {
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
       const costUSD = calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
-      const host = hostForModel(m.model);
+      const { host, provider, endpoint } = attrFor(m.model);
       let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
         const hostCost = kwhByHost[host] * kwhRate;
@@ -128,8 +165,10 @@ export async function GET(request: NextRequest) {
         cacheCreationTokens: m.cache_creation_tokens,
         totalTokens,
         costUSD,
-        costSource: host ? ('estimate' as const) : ('api' as const),
+        costSource: PRICING[m.model] ? ('api' as const) : ('estimate' as const),
         host,
+        provider,
+        endpoint,
         meshObservedUSD,
       };
     })

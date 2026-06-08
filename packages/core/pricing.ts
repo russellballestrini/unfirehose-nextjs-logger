@@ -31,32 +31,61 @@ export interface SelfHostHardware {
   label: string;
 }
 
-// Watts = observed spike during active inference (close to TDP). Cost per
-// hour at our $0.33/kWh: 4090 = $0.16/h, 3090 = $0.08/h.
+// Watts = observed spike during active inference. Cost per hour at $0.33/kWh:
+// 4090 = $0.142/h, 3090 = $0.0825/h.
 export const SELF_HOST_HARDWARE: Record<string, SelfHostHardware> = {
-  '4090': { watts: 480, tokensPerSecond: 70,  label: 'RTX 4090' },
+  '4090': { watts: 430, tokensPerSecond: 70,  label: 'RTX 4090' },
   '3090': { watts: 250, tokensPerSecond: 100, label: 'RTX 3090' },
 };
 
-// Model-name pattern → hardware key. First match wins.
-export const SELF_HOST_MAP: Array<{ pattern: RegExp; hardware: string }> = [
+// Model-name → hardware key, used for cost ESTIMATION only (watts × throughput).
+// Attribution to a specific node comes from endpoint/provider — see hostForMessage.
+export const MODEL_HARDWARE_HINT: Array<{ pattern: RegExp; hardware: string }> = [
   { pattern: /qwen/i,   hardware: '4090' },
   { pattern: /hermes/i, hardware: '3090' },
 ];
 
-// Hardware key → mesh_snapshots.hostname. Lets us join model usage to real
-// nvidia-smi watt readings. Eyeball-edit when fox moves a model between nodes.
-export const SELF_HOST_NODE: Record<string, string> = {
-  '4090': 'ai.foxhop.net',
-  '3090': '3090-ai.foxhop.net',
+// Endpoint hostname → mesh node hostname. Source of truth for self-host attribution.
+// Edit when fox stands up a new inference box.
+export const ENDPOINT_TO_NODE: Record<string, string> = {
+  'ai.foxhop.net':       'ai.foxhop.net',
+  '3090-ai.foxhop.net':  '3090-ai.foxhop.net',
 };
 
-export function hostForModel(model: string): string | null {
-  for (const m of SELF_HOST_MAP) {
-    if (m.pattern.test(model)) return SELF_HOST_NODE[m.hardware] ?? null;
+function hardwareForModel(model: string): string | null {
+  for (const m of MODEL_HARDWARE_HINT) {
+    if (m.pattern.test(model)) return m.hardware;
   }
   return null;
 }
+
+/**
+ * Resolve the mesh node that served a message — strict endpoint-based.
+ * Returns null when the endpoint URL isn't known or doesn't map to a node we
+ * track. The UI drops the ⚡{host} badge in that case; provider="local" with
+ * no endpoint becomes a generic "self-hosted, node unknown" state for the
+ * dashboard to render however it wants.
+ */
+export function hostForMessage(
+  _model: string | null | undefined,
+  endpoint: string | null | undefined,
+  _provider: string | null | undefined,
+): string | null {
+  if (!endpoint) return null;
+  try {
+    const url = new URL(endpoint);
+    return ENDPOINT_TO_NODE[url.hostname] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cloud providers that are explicitly NOT self-hosted. Used to suppress
+ * the ⚡badge when the model name happens to contain "qwen" or "hermes"
+ * but the call hit a remote inference API.
+ */
+export const CLOUD_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'openrouter', 'hf-inference']);
 
 // $/kWh — override via UNFIREHOSE_KWH_RATE_USD env var. Default = CT residential.
 export function getKwhRate(): number {
@@ -67,16 +96,13 @@ export function getKwhRate(): number {
 
 export function selfHostCost(model: string, totalTokens: number): number {
   if (!totalTokens) return 0;
-  for (const m of SELF_HOST_MAP) {
-    if (m.pattern.test(model)) {
-      const hw = SELF_HOST_HARDWARE[m.hardware];
-      if (!hw) return 0;
-      const seconds = totalTokens / hw.tokensPerSecond;
-      const kwh = (hw.watts * seconds) / 3600 / 1000;
-      return kwh * getKwhRate();
-    }
-  }
-  return 0;
+  const hwKey = hardwareForModel(model);
+  if (!hwKey) return 0;
+  const hw = SELF_HOST_HARDWARE[hwKey];
+  if (!hw) return 0;
+  const seconds = totalTokens / hw.tokensPerSecond;
+  const kwh = (hw.watts * seconds) / 3600 / 1000;
+  return kwh * getKwhRate();
 }
 
 export function calcCost(

@@ -76,6 +76,7 @@ export default function DashboardPage() {
     cost: m.costUSD ?? 0,
     costSource: m.costSource ?? 'api',
     host: m.host ?? null,
+    provider: m.provider ?? null,
     meshObservedUSD: m.meshObservedUSD,
   }));
 
@@ -281,16 +282,18 @@ export default function DashboardPage() {
                         style={{ background: getModelColor(m.fullName) }}
                       />
                       <span>{m.name}</span>
-                      {m.host && (
+                      {(m.host || m.provider === 'local') && (
                         <span
                           className="text-xs text-[var(--color-muted)] opacity-70"
                           title={
-                            m.meshObservedUSD != null
+                            m.host && m.meshObservedUSD != null
                               ? `self-hosted on ${m.host}. cost = peak-watt × tokens/throughput × $/kWh. mesh-observed during window: $${m.meshObservedUSD.toFixed(4)} (sparse polling under-counts)`
-                              : `self-hosted on ${m.host}. cost from peak-watt static estimate.`
+                              : m.host
+                                ? `self-hosted on ${m.host}. cost from peak-watt static estimate.`
+                                : `self-hosted, node unknown — harness logged provider="local" but no endpoint URL. Cost from peak-watt static estimate.`
                           }
                         >
-                          ⚡{m.host}
+                          ⚡{m.host ?? 'local'}
                         </span>
                       )}
                     </td>

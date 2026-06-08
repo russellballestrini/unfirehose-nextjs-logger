@@ -501,8 +501,8 @@ function insertMessage(
       `INSERT OR IGNORE INTO messages (
         session_id, message_uuid, parent_uuid, type, subtype, timestamp,
         model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-        duration_ms, is_sidechain
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        duration_ms, is_sidechain, endpoint, provider
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       sessionId,
@@ -517,7 +517,9 @@ function insertMessage(
       usage?.inputTokenDetails?.cacheReadTokens ?? 0,
       usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
       entry.durationMs ?? null,
-      entry.sidechain ? 1 : 0
+      entry.sidechain ? 1 : 0,
+      entry.endpoint ?? null,
+      entry.provider ?? null
     );
 
   // changes === 0 means the row was ignored (duplicate uuid)
