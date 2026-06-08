@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
       cacheCreationTokens: m.cache_creation_tokens,
       totalTokens: m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens,
       costUSD: calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens),
-    }));
+    })).sort((a, b) => b.totalTokens - a.totalTokens);
 
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
 
