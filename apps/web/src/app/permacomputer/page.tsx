@@ -198,6 +198,19 @@ function getEffectiveIspCost(hostname: string, ispCost: number, egressGroups: Ma
 
 const HOURS_PER_MONTH = 24 * 30;
 
+// SQLite emits timestamps as "YYYY-MM-DD HH:MM" or "...:SS" in UTC with no tz marker.
+// Parse as UTC and let the browser format in the user's local timezone.
+function utcToLocalIso(utcStr: string): Date {
+  const iso = utcStr.replace(' ', 'T') + (utcStr.length <= 16 ? ':00Z' : 'Z');
+  return new Date(iso);
+}
+function fmtLocalHHMM(utcStr: string): string {
+  return utcToLocalIso(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function fmtLocalDateTime(utcStr: string): string {
+  return utcToLocalIso(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 // Total draw for a node = CPU/system watts + GPU watts (nvidia-smi power.draw).
 function nodeTotalWatts(meshNode?: any): number {
   return (meshNode?.powerWatts ?? 0) + (meshNode?.gpuPowerWatts ?? 0);
@@ -1449,7 +1462,9 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   // visible so the user sees what's coming. Once data lands, hide if truly no GPU.
   const hasGpu = !hasData || hostsWithGpu.length > 0;
   const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-  const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: (t: string) => t.slice(11, 16) };
+  const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: fmtLocalHHMM };
+  const tipLabel = fmtLocalDateTime;
+  const tz = typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
   const ranges: { label: string; h: number }[] = [
     { label: '6h', h: 6 }, { label: '24h', h: 24 }, { label: '7d', h: 168 },
   ];
@@ -1459,7 +1474,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-bold text-[var(--color-muted)]">
-          Fleet Metrics <span className="font-normal text-[10px] opacity-60">{hosts.length} nodes &middot; 30s refresh</span>
+          Fleet Metrics <span className="font-normal text-[10px] opacity-60">{hosts.length} nodes &middot; 30s refresh &middot; {tz}</span>
         </h4>
         <div className="flex gap-1">
           {ranges.map((r) => (
@@ -1489,7 +1504,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
             <LineChart data={chartData}>
               <XAxis {...xAxisProps} />
               <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="watts" name="Fleet" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
               {hosts.map(h => (
@@ -1508,7 +1523,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
             <AreaChart data={chartData}>
               <XAxis {...xAxisProps} />
               <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-              <Tooltip labelFormatter={(t) => String(t)} formatter={(v) => [`$${v}/hr`, 'Cost']} contentStyle={tooltipStyle} />
+              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v) => [`$${v}/hr`, 'Cost']} contentStyle={tooltipStyle} />
               <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
@@ -1523,7 +1538,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
             <LineChart data={chartData}>
               <XAxis {...xAxisProps} />
               <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" />
-              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="cpuPct" name="Fleet avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
               {hosts.map(h => (
@@ -1542,7 +1557,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
             <LineChart data={chartData}>
               <XAxis {...xAxisProps} />
               <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="memPct" name="Fleet" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
               {hosts.map(h => (
@@ -1562,7 +1577,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
             <LineChart data={chartData}>
               <XAxis {...xAxisProps} />
               <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="gpuUtil" name="GPU avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
               {hostsWithGpu.map(h => (
@@ -1583,7 +1598,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
             <LineChart data={chartData}>
               <XAxis {...xAxisProps} />
               <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-              <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="gpuVramPct" name="VRAM avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
               {hostsWithGpu.map(h => (
