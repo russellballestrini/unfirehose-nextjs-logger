@@ -482,6 +482,95 @@ function getOrCreateSession(
 }
 
 /**
+ * Walk the subagents/ directory for a Claude Code session and ingest every
+ * agent-*.jsonl as its own sidechain session. Idempotent via ingest_offsets;
+ * cheap when there are no new bytes.
+ */
+async function ingestSubagentsForSession(
+  db: ReturnType<typeof getDb>,
+  projectDirName: string,
+  meta: { sessionId: string; gitBranch?: string },
+  projectId: number,
+  result: { filesScanned: number; sessionsAdded: number; messagesAdded: number; blocksAdded: number },
+): Promise<void> {
+  const subagentDir = claudePaths.subagentsDir(projectDirName, meta.sessionId);
+  const subagentFiles = await readdir(subagentDir).catch(() => []);
+  for (const subFile of subagentFiles) {
+    if (!subFile.startsWith('agent-') || !subFile.endsWith('.jsonl')) continue;
+    const agentId = subFile.slice('agent-'.length, -'.jsonl'.length);
+    const subFilePath = path.join(subagentDir, subFile);
+    const subStat = await stat(subFilePath).catch(() => null);
+    if (!subStat) continue;
+
+    const subOffsetRow = db
+      .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
+      .get(subFilePath) as { byte_offset: number } | undefined;
+    const subStartByte = subOffsetRow?.byte_offset ?? 0;
+    if (subStat.size <= subStartByte) continue;
+
+    result.filesScanned++;
+
+    // Composite session_uuid keeps the parent → subagent link explicit and
+    // guarantees uniqueness even if agentId ever collides across parents.
+    const subSessionUuid = `${meta.sessionId}/${agentId}`;
+    const subSessionId = getOrCreateSession(db, subSessionUuid, projectId, {
+      gitBranch: meta.gitBranch,
+      isSidechain: true,
+      delegatedFrom: meta.sessionId,
+      harness: 'claude-code',
+    });
+    if (!subOffsetRow) result.sessionsAdded++;
+
+    const subStream = createReadStream(subFilePath, {
+      start: subStartByte,
+      encoding: 'utf-8',
+    });
+    const subRl = createInterface({ input: subStream, crlfDelay: Infinity });
+
+    const subBatchInsert = db.transaction((lines: string[]) => {
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const entry = JSON.parse(line);
+          const normalized = normalizeClaudeCodeEntry(entry);
+          if (!normalized) continue;
+          normalized.sidechain = true;
+          const messageId = insertMessage(db, subSessionId, normalized);
+          if (messageId === null) continue;
+          result.messagesAdded++;
+          if (Array.isArray(normalized.content)) {
+            result.blocksAdded += insertContentBlocks(db, messageId, normalized.content);
+          }
+          // Usage rollup skipped — parent already counted these tokens.
+          extractTodosFromEntry(db, projectId, subSessionId, entry, subSessionUuid);
+        } catch {
+          // skip malformed lines
+        }
+      }
+    });
+
+    const subBatch: string[] = [];
+    for await (const line of subRl) {
+      subBatch.push(line);
+      if (subBatch.length >= 500) subBatchInsert(subBatch.splice(0));
+    }
+    if (subBatch.length > 0) subBatchInsert(subBatch);
+
+    db.prepare(
+      `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(file_path) DO UPDATE SET
+         byte_offset = excluded.byte_offset,
+         last_ingested = excluded.last_ingested`
+    ).run(subFilePath, subStat.size);
+
+    db.prepare(
+      'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
+    ).run(new Date().toISOString(), subSessionUuid);
+  }
+}
+
+/**
  * Insert a message from unfirehose/1.0 format.
  * Expects: { type: "message", role, id, parentId, timestamp, subtype, durationMs, sidechain, model, usage }
  */
@@ -1651,7 +1740,15 @@ export async function ingestAll(): Promise<IngestResult> {
         .get(filePath) as { byte_offset: number } | undefined;
       const startByte = offset?.byte_offset ?? 0;
 
-      if (fstat.size <= startByte) continue; // nothing new
+      const parentHasNewBytes = fstat.size > startByte;
+
+      // Always probe the subagents/ dir even if the parent file has no new
+      // bytes — Claude Code can keep spawning subagents after the parent's
+      // last user turn, and we still need to backfill the historical fleet.
+      if (!parentHasNewBytes) {
+        await ingestSubagentsForSession(db, dir, meta, projectId, result);
+        continue;
+      }
 
       result.filesScanned++;
 
@@ -1786,91 +1883,8 @@ export async function ingestAll(): Promise<IngestResult> {
       // Extract Q&A providence records from this session
       result.providenceAdded += extractProvidenceFromSession(db, sessionId, projectPath || decodeProjectName(dir), 'claude-code');
 
-      // ── Subagent JSONLs ────────────────────────────────────────────────
-      // Claude Code writes Task-spawned subagent sessions to
-      // ~/.claude/projects/<dir>/<sessionId>/subagents/agent-<agentId>.jsonl.
-      // The top-level scan skips them; ingest each one as a sidechain session
-      // linked back to this parent via delegated_from.
-      const subagentDir = claudePaths.subagentsDir(dir, meta.sessionId);
-      const subagentFiles = await readdir(subagentDir).catch(() => []);
-      for (const subFile of subagentFiles) {
-        if (!subFile.startsWith('agent-') || !subFile.endsWith('.jsonl')) continue;
-        const agentId = subFile.slice('agent-'.length, -'.jsonl'.length);
-        const subFilePath = path.join(subagentDir, subFile);
-        const subStat = await stat(subFilePath).catch(() => null);
-        if (!subStat) continue;
-
-        const subOffsetRow = db
-          .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
-          .get(subFilePath) as { byte_offset: number } | undefined;
-        const subStartByte = subOffsetRow?.byte_offset ?? 0;
-        if (subStat.size <= subStartByte) continue;
-
-        result.filesScanned++;
-
-        // Composite session_uuid keeps the parent → subagent link explicit and
-        // guarantees uniqueness even if agentId ever collides across parents.
-        const subSessionUuid = `${meta.sessionId}/${agentId}`;
-        const subSessionId = getOrCreateSession(db, subSessionUuid, projectId, {
-          gitBranch: meta.gitBranch,
-          firstPrompt: undefined,
-          createdAt: undefined,
-          isSidechain: true,
-          delegatedFrom: meta.sessionId,
-          harness: 'claude-code',
-        });
-        if (!subOffsetRow) result.sessionsAdded++;
-
-        const subStream = createReadStream(subFilePath, {
-          start: subStartByte,
-          encoding: 'utf-8',
-        });
-        const subRl = createInterface({ input: subStream, crlfDelay: Infinity });
-
-        const subBatchInsert = db.transaction((lines: string[]) => {
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const entry = JSON.parse(line);
-              const normalized = normalizeClaudeCodeEntry(entry);
-              if (!normalized) continue;
-              // Subagent messages are always sidechain even if the line doesn't say so.
-              normalized.sidechain = true;
-              const messageId = insertMessage(db, subSessionId, normalized);
-              if (messageId === null) continue;
-              result.messagesAdded++;
-              if (Array.isArray(normalized.content)) {
-                result.blocksAdded += insertContentBlocks(db, messageId, normalized.content);
-              }
-              // Todo extraction stays — subagents create their own todos.
-              // Usage rollup skipped — parent session already counted these in
-              // its own pricing window.
-              extractTodosFromEntry(db, projectId, subSessionId, entry, subSessionUuid);
-            } catch {
-              // skip malformed lines
-            }
-          }
-        });
-
-        const subBatch: string[] = [];
-        for await (const line of subRl) {
-          subBatch.push(line);
-          if (subBatch.length >= 500) subBatchInsert(subBatch.splice(0));
-        }
-        if (subBatch.length > 0) subBatchInsert(subBatch);
-
-        db.prepare(
-          `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
-           VALUES (?, ?, datetime('now'))
-           ON CONFLICT(file_path) DO UPDATE SET
-             byte_offset = excluded.byte_offset,
-             last_ingested = excluded.last_ingested`
-        ).run(subFilePath, subStat.size);
-
-        db.prepare(
-          'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
-        ).run(new Date().toISOString(), subSessionUuid);
-      }
+      // Subagent JSONLs live in <dir>/<sessionId>/subagents/agent-*.jsonl.
+      await ingestSubagentsForSession(db, dir, meta, projectId, result);
     }
   }
 
