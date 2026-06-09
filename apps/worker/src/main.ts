@@ -2,7 +2,7 @@ import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
 import { ingestAll, getDbStats } from '@unturf/unfirehose/db/ingest';
 
 const POLL_INTERVAL_MS = 60_000;
-const MESH_POLL_INTERVAL_MS = 30_000;
+const MESH_POLL_INTERVAL_MS = 15_000;
 const NEXT_BASE_URL = process.env.UNFIREHOSE_NEXT_URL ?? 'http://localhost:3000';
 
 async function pollMeshOnce(): Promise<void> {

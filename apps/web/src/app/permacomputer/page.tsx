@@ -341,9 +341,11 @@ function computeMeshScore(
 // ============================================================
 
 export default function PermacomputerPage() {
+  // Live-chart cadence — 6s while the page is open. Worker keeps a 15s
+  // headless baseline; this page accelerates so on-screen charts are smooth.
   const { data: mesh, mutate: mutateMesh } = useSWR('/api/mesh', fetcher, {
-    refreshInterval: 30000,
-    focusThrottleInterval: 30000,
+    refreshInterval: 6000,
+    focusThrottleInterval: 6000,
   });
 
   // Persist mesh snapshots whenever fresh probe data lands. Without this, the
@@ -1418,8 +1420,8 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   // 30s refresh — matches snapshot sample rate; per-minute aggregation means new
   // points land roughly every minute but the cadence keeps the tail "live".
   const { data } = useSWR(`/api/mesh/history?hours=${hours}&hostname=all`, fetcher, {
-    refreshInterval: 30000,
-    focusThrottleInterval: 30000,
+    refreshInterval: 6000,
+    focusThrottleInterval: 6000,
     keepPreviousData: true,
   });
 

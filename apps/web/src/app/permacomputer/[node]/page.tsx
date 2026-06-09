@@ -224,28 +224,30 @@ export default function NodeDetailPage() {
     return mins === 0 ? 720 : Math.max(1, Math.ceil(mins / 60));
   })();
 
-  // Focus revalidation IS on so tabbing back gets fresh data — browsers
-  // throttle setInterval in hidden tabs so polling alone goes stale.
-  // focusThrottleInterval matches refreshInterval so rapid window-focus
-  // events don't cause churn beyond the normal polling cadence.
+  // Live-chart cadence — when a chart is on screen we want smooth lines.
+  // Worker keeps a 15s headless baseline; this page bumps to 6s while the tab
+  // is active so the user-visible chart gets near-real-time samples.
+  // focusThrottleInterval matches refreshInterval so refocus events don't
+  // double-fire above the normal polling cadence.
+  const LIVE_MS = 6000;
   const { data: mesh } = useSWR('/api/mesh', fetcher, {
-    refreshInterval: 30000,
-    focusThrottleInterval: 30000,
+    refreshInterval: LIVE_MS,
+    focusThrottleInterval: LIVE_MS,
   });
   const { data: meshHistory } = useSWR(
     `/api/mesh/history?hours=${chartHours}`,
     fetcher,
     {
-      refreshInterval: 30000,
-      focusThrottleInterval: 30000,
+      refreshInterval: LIVE_MS,
+      focusThrottleInterval: LIVE_MS,
       keepPreviousData: true,
     },
   );
 
   // Persist mesh snapshots so this page's own charts populate without needing
   // /usage or /permacomputer open in another tab. We don't call mutate() after
-  // POSTing — history SWR already polls every 30s, and the extra refetch was
-  // causing visible re-render churn / scroll-up.
+  // POSTing — history SWR already polls on the LIVE_MS cadence, and the extra
+  // refetch was causing visible re-render churn / scroll-up.
   const lastSnapshotRef = useRef<string>('');
   useEffect(() => {
     const nodes = mesh?.nodes;
@@ -262,7 +264,7 @@ export default function NodeDetailPage() {
   const { data: probe, isLoading: probeLoading } = useSWR(
     `/api/mesh/node?host=${encodeURIComponent(host)}`,
     fetcher,
-    { refreshInterval: 30000, focusThrottleInterval: 30000 },
+    { refreshInterval: LIVE_MS, focusThrottleInterval: LIVE_MS },
   );
   const { data: settings } = useSWR('/api/settings', fetcher, { revalidateOnFocus: false });
   const { data: sshConfig, mutate: mutateSsh } = useSWR('/api/ssh-config', fetcher, { revalidateOnFocus: false });
