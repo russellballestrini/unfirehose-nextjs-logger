@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { execSync, execFile } from 'child_process';
 import { readFileSync, readdirSync } from 'fs';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
@@ -747,7 +747,30 @@ async function probeMesh() {
   };
 }
 
-export async function GET() {
+async function probeSingleHost(host: string) {
+  // Reuses the same per-host helpers as probeMesh so the snapshot shape
+  // matches what /api/mesh/history POST expects (flat MeshNode fields).
+  // Bypasses the cache because callers want point-in-time samples.
+  const node = host === 'localhost'
+    ? getLocalStats()
+    : await getRemoteStatsAsync(host);
+  let localHostname: string | undefined;
+  try { localHostname = execSync('hostname', { encoding: 'utf-8' }).trim(); } catch {}
+  return { nodes: [node], localHostname, summary: undefined };
+}
+
+export async function GET(req: NextRequest) {
+  // Single-host filter lets the headless worker stagger per-node probes
+  // without changing the response shape clients consume (still { nodes: [...] }).
+  const host = req.nextUrl.searchParams.get('host');
+  if (host) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(host)) {
+      return NextResponse.json({ error: 'Invalid host' }, { status: 400 });
+    }
+    const data = await probeSingleHost(host);
+    return NextResponse.json(data);
+  }
+
   const now = Date.now();
 
   // Fresh cache — serve immediately

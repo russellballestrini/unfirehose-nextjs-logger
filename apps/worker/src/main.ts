@@ -16,22 +16,25 @@ function phaseOffsetMs(host: string, intervalMs: number): number {
 }
 
 async function probeAndPersistNode(host: string): Promise<void> {
-  // Per-node probe + persist. Hits the single-node endpoint so each iteration
-  // only touches one SSH target, spread across the polling interval.
+  // Per-node probe + persist. Hits /api/mesh?host=X (not /api/mesh/node!) so
+  // we reuse the same flat MeshNode shape /api/mesh/history POST expects —
+  // /api/mesh/node returns a different nested shape meant for the UI detail
+  // view. Single host = only that SSH target touched.
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 20_000);
   try {
     const res = await fetch(
-      `${NEXT_BASE_URL}/api/mesh/node?host=${encodeURIComponent(host)}`,
+      `${NEXT_BASE_URL}/api/mesh?host=${encodeURIComponent(host)}`,
       { signal: ctrl.signal },
     );
     if (!res.ok) return;
-    const node = await res.json() as { reachable?: boolean };
-    if (!node?.reachable) return;
+    const data = await res.json() as { nodes?: Array<{ reachable?: boolean }> };
+    const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+    if (nodes.length === 0 || !nodes[0]?.reachable) return;
     await fetch(`${NEXT_BASE_URL}/api/mesh/history`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes: [node] }),
+      body: JSON.stringify({ nodes }),
       signal: ctrl.signal,
     });
   } catch {
