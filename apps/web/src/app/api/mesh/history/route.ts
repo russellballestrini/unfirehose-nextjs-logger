@@ -39,13 +39,30 @@ export async function GET(req: NextRequest) {
     `).all(since, hostname);
   }
 
-  // Group by minute, deduping per hostname (last snapshot wins). The dashboard
-  // POSTs snapshots every ~30s from multiple pages, so a node can appear several
-  // times per minute — summing every row would multiply the fleet totals. We keep
-  // only the latest row per (minute, hostname), then derive aggregates from that.
+  // Adaptive bucket size: short ranges need finer granularity so the live chart
+  // doesn't sit on a stale current-minute bucket. Snapshots land every ~6-15s,
+  // so 15s buckets are the smallest useful resolution; below that we'd plot
+  // duplicate points.
+  //   ≤  1h  → 15s buckets (240 points/h)
+  //   ≤  6h  → 1m buckets  (60 points/h)
+  //   ≤ 48h  → 5m buckets  (12 points/h)
+  //   else   → 15m buckets
+  const bucketSec = hours <= 1 ? 15 : hours <= 6 ? 60 : hours <= 48 ? 300 : 900;
+  const truncateToBucket = (ts: string): string => {
+    // ts is 'YYYY-MM-DD HH:MM:SS' — parse, round down to bucketSec, re-format.
+    const isoMs = Date.parse(ts.replace(' ', 'T') + 'Z');
+    if (!isoMs) return ts.slice(0, 16);
+    const bucketMs = Math.floor(isoMs / (bucketSec * 1000)) * bucketSec * 1000;
+    return new Date(bucketMs).toISOString().replace('T', ' ').slice(0, 19);
+  };
+
+  // Group by bucket, deduping per hostname (last snapshot wins). The dashboard
+  // POSTs snapshots every ~6-15s from multiple pages, so a node can appear several
+  // times per bucket — summing every row would multiply the fleet totals. We keep
+  // only the latest row per (bucket, hostname), then derive aggregates from that.
   const byTime = new Map<string, Map<string, any>>();
   for (const r of rows) {
-    const minute = r.timestamp.slice(0, 16);
+    const minute = truncateToBucket(r.timestamp);
     let nodes = byTime.get(minute);
     if (!nodes) { nodes = new Map(); byTime.set(minute, nodes); }
     // rows are ordered ASC, so this leaves the most recent per hostname
