@@ -7,6 +7,14 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDb();
     const minutes = Math.max(1, parseInt(request.nextUrl.searchParams.get('minutes') ?? '10'));
+    // sidechain: 'all' (default — top-level + subagents), 'true' (subagents only),
+    // 'false' (top-level only). Subagents = Task-tool spawned sessions where the
+    // sessions row carries is_sidechain=1.
+    const sidechainParam = (request.nextUrl.searchParams.get('sidechain') ?? 'all').toLowerCase();
+    const sidechainFilter =
+      sidechainParam === 'true' || sidechainParam === '1' ? 'AND s.is_sidechain = 1'
+      : sidechainParam === 'false' || sidechainParam === '0' ? 'AND (s.is_sidechain IS NULL OR s.is_sidechain = 0)'
+      : '';
     // Generate cutoff as ISO string to match DB timestamp format
     const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -17,6 +25,9 @@ export async function GET(request: NextRequest) {
         s.display_name,
         s.first_prompt,
         s.git_branch,
+        s.is_sidechain,
+        s.delegated_from,
+        s.harness,
         (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) as updated_at,
         s.created_at,
         p.name as project_name,
@@ -29,6 +40,7 @@ export async function GET(request: NextRequest) {
       JOIN projects p ON s.project_id = p.id
       WHERE (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) >= ?
         AND (s.status IS NULL OR s.status = 'active')
+        ${sidechainFilter}
       ORDER BY updated_at DESC
     `).all(cutoff, cutoff) as any[];
 
@@ -38,6 +50,9 @@ export async function GET(request: NextRequest) {
         sessionUuid: s.session_uuid,
         displayName: s.display_name ?? s.first_prompt ?? s.session_uuid?.slice(0, 8),
         gitBranch: s.git_branch,
+        isSidechain: !!s.is_sidechain,
+        delegatedFrom: s.delegated_from ?? null,
+        harness: s.harness ?? null,
         updatedAt: s.updated_at,
         createdAt: s.created_at,
         projectName: s.project_name,

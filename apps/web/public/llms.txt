@@ -13,8 +13,9 @@ Search all conversation logs across harnesses (Claude Code, Fetch, uncloseai).
 - `?types=assistant,user,thinking` — filter message types
 - `?from=2026-03-01&to=2026-03-07` — date range
 - `?session=abc123` — single session
+- `?sidechain=true|false|all` — subagent filter; `true` = only subagent (Task-spawned) messages, `false` = only top-level, `all` (default) = both
 - `?limit=50&offset=0` — pagination
-→ `{ entries: [{ id, sessionId, project, type, timestamp, content, model }], total, limit, offset }`
+→ `{ entries: [{ id, sessionId, project, type, timestamp, content, model, isSidechain }], total, limit, offset }`
 
 ### GET /api/thinking
 Search thinking/reasoning blocks from all sessions.
@@ -141,7 +142,8 @@ Cached statistics.
 ### GET /api/active-sessions
 Currently active sessions.
 - `?minutes=15` — activity window
-→ `{ sessions: [...], count }`
+- `?sidechain=true|false|all` — subagent filter; `true` = only running subagents (Task-spawned), `false` = only top-level, `all` (default) = both
+→ `{ sessions: [{ id, sessionUuid, displayName, gitBranch, isSidechain, delegatedFrom, harness, updatedAt, createdAt, projectName, projectDisplay, projectPath, messageCount, recentTokens, lastModel }], count }`
 
 ### GET /api/live
 Server-sent events stream of live session activity.

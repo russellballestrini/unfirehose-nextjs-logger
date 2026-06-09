@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
   const dateFrom = url.searchParams.get('from');
   const dateTo = url.searchParams.get('to');
   const session = url.searchParams.get('session');
+  // sidechain: 'all' (default), 'true' (subagent messages only), 'false' (top-level only)
+  const sidechainParam = (url.searchParams.get('sidechain') ?? 'all').toLowerCase();
 
   try {
     const db = getDb();
@@ -39,6 +41,11 @@ export async function GET(request: NextRequest) {
       where += ' AND m.timestamp <= ?';
       params.push(dateTo + 'T23:59:59');
     }
+    if (sidechainParam === 'true' || sidechainParam === '1') {
+      where += ' AND (m.is_sidechain = 1 OR s.is_sidechain = 1)';
+    } else if (sidechainParam === 'false' || sidechainParam === '0') {
+      where += ' AND (m.is_sidechain IS NULL OR m.is_sidechain = 0) AND (s.is_sidechain IS NULL OR s.is_sidechain = 0)';
+    }
 
     // When searching, join content_blocks to filter by text
     const searchJoin = search
@@ -52,8 +59,8 @@ export async function GET(request: NextRequest) {
     const needsDistinct = !!search;
     const query = `
       SELECT ${needsDistinct ? 'DISTINCT' : ''} m.id, m.type, m.subtype, m.timestamp, m.model,
-             m.input_tokens, m.output_tokens,
-             s.session_uuid, s.display_name as session_display,
+             m.input_tokens, m.output_tokens, m.is_sidechain,
+             s.session_uuid, s.display_name as session_display, s.is_sidechain as session_is_sidechain,
              p.name as project_name, p.display_name as project_display
       FROM messages m
       JOIN sessions s ON m.session_id = s.id
@@ -114,6 +121,7 @@ export async function GET(request: NextRequest) {
         preview: preview.slice(0, 500),
         inputTokens: msg.input_tokens,
         outputTokens: msg.output_tokens,
+        isSidechain: !!(msg.is_sidechain || msg.session_is_sidechain),
       };
     });
 
@@ -128,6 +136,11 @@ export async function GET(request: NextRequest) {
       if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
       if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
       if (search) { countWhere += ' AND cb_search.text_content LIKE ?'; countParams.push(`%${search}%`); }
+      if (sidechainParam === 'true' || sidechainParam === '1') {
+        countWhere += ' AND (m.is_sidechain = 1 OR s.is_sidechain = 1)';
+      } else if (sidechainParam === 'false' || sidechainParam === '0') {
+        countWhere += ' AND (m.is_sidechain IS NULL OR m.is_sidechain = 0) AND (s.is_sidechain IS NULL OR s.is_sidechain = 0)';
+      }
 
       const countQuery = `
         SELECT ${needsDistinct ? 'COUNT(DISTINCT m.id)' : 'COUNT(*)'} as total
