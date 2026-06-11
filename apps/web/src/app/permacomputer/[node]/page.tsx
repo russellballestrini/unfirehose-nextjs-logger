@@ -631,6 +631,7 @@ export default function NodeDetailPage() {
         {/* Time-Series Charts */}
         {meshHistory?.timeline?.length > 0 && (() => {
           const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
+          const tooltipPosition = { x: 60, y: 0 };
           const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: fmtLocalHHMM };
 
           const chartData = meshHistory.timeline
@@ -679,7 +680,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
                   <Legend />
                   <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="load" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
@@ -697,7 +698,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
                   <Legend />
                   {last.memTotalGB > 0 && (
                     <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
@@ -718,7 +719,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
                   <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -736,7 +737,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
                   <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
@@ -755,7 +756,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
                   <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -774,7 +775,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
                   <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -790,7 +791,7 @@ export default function NodeDetailPage() {
                 <LineChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
                   <Legend />
                   <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
@@ -811,7 +812,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
                   <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
