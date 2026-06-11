@@ -300,6 +300,23 @@ export default function NodeDetailPage() {
     { refreshInterval: 5000 },
   );
 
+  // Chart tooltip magnetic repulsion — track cursor x within chart, flip tooltip to opposite side
+  const chartGridRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(0);
+  const [cursorX, setCursorX] = useState<number | null>(null);
+  useEffect(() => {
+    if (!chartGridRef.current) return;
+    const el = chartGridRef.current;
+    const measure = () => {
+      const firstChart = el.querySelector('.recharts-wrapper');
+      if (firstChart) setChartWidth((firstChart as HTMLElement).offsetWidth);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Bootstrap harness state
   const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
   const [bootFilter, setBootFilter] = useState('');
@@ -631,7 +648,20 @@ export default function NodeDetailPage() {
         {/* Time-Series Charts */}
         {meshHistory?.timeline?.length > 0 && (() => {
           const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-          const tooltipPosition = { x: 60, y: 0 };
+          // Magnetic tooltip: when cursor is on the right half, tooltip goes left; vice versa.
+          // Repels from the active point so it never covers the data being measured.
+          const tooltipW = 170;
+          const leftAnchor = 60;
+          const rightAnchor = Math.max(leftAnchor, (chartWidth || 700) - tooltipW - 10);
+          const tooltipPosition = cursorX != null && chartWidth > 0
+            ? { x: cursorX > chartWidth / 2 ? leftAnchor : rightAnchor, y: 0 }
+            : { x: leftAnchor, y: 0 };
+          const onChartMove = (state: any) => {
+            const x = state?.activeCoordinate?.x ?? state?.chartX;
+            if (typeof x === 'number') setCursorX(x);
+          };
+          const onChartLeave = () => setCursorX(null);
+          const chartEvents = { onMouseMove: onChartMove, onMouseLeave: onChartLeave };
           const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: fmtLocalHHMM };
 
           const chartData = meshHistory.timeline
@@ -668,7 +698,7 @@ export default function NodeDetailPage() {
               <TimeRangeSelect value={range} onChange={setRange} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div ref={chartGridRef} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* CPU Load */}
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -677,7 +707,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
@@ -695,7 +725,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
@@ -716,7 +746,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
@@ -734,7 +764,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
@@ -753,7 +783,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
@@ -772,7 +802,7 @@ export default function NodeDetailPage() {
                 </span>
               </h3>
               <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
@@ -788,7 +818,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.watts}W current</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={chartData} syncId="node-detail">
+                <LineChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
@@ -809,7 +839,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.claudes} current</span>
               </h3>
               <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData} syncId="node-detail">
+                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
                   <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
