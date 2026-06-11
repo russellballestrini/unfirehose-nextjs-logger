@@ -303,8 +303,16 @@ export default function NodeDetailPage() {
   // Chart tooltip magnetic repulsion — flip tooltip to opposite half of chart from cursor.
   // Only re-render when side actually changes (not on every mousemove → no chop).
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('left');
+  const [chartWidth, setChartWidth] = useState(0);
   const tooltipSideRef = useRef<'left' | 'right'>('left');
-  const chartWidthRef = useRef(0);
+  // Callback ref fires when the first chart's wrapper div mounts. ResizeObserver tracks live width.
+  const firstChartRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const update = () => setChartWidth(node.offsetWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+  }, []);
 
   // Bootstrap harness state
   const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
@@ -637,25 +645,23 @@ export default function NodeDetailPage() {
         {/* Time-Series Charts */}
         {meshHistory?.timeline?.length > 0 && (() => {
           const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-          // Magnetic: cursor in right half → tooltip pins left; cursor in left half → pins right.
+          // Magnetic: mouse in right half → tooltip pins left; mouse in left half → pins right.
+          // chartWidth measured via callback ref on first chart card (covers chart + p-4 padding).
+          // Chart card has p-4 (16px) padding; subtract to approximate chart area width.
+          const innerChartW = Math.max(0, chartWidth - 32);
           const tooltipW = 170;
           const leftAnchor = 60;
-          const w = chartWidthRef.current || 700;
-          const rightAnchor = Math.max(leftAnchor, w - tooltipW - 10);
+          const rightAnchor = innerChartW > 0
+            ? Math.max(leftAnchor, innerChartW - tooltipW - 10)
+            : leftAnchor;
           const tooltipPosition = tooltipSide === 'left'
             ? { x: leftAnchor, y: 0 }
             : { x: rightAnchor, y: 0 };
-          const onChartMove = (state: any, e?: any) => {
-            // Cache chart width from the live DOM event (always accurate, no ResizeObserver race).
-            const target = e?.currentTarget as HTMLElement | undefined;
-            if (target) {
-              const w = target.getBoundingClientRect().width;
-              if (w > 0) chartWidthRef.current = w;
-            }
-            const x = state?.activeCoordinate?.x ?? state?.chartX;
-            const cw = chartWidthRef.current;
-            if (typeof x !== 'number' || cw <= 0) return;
-            const newSide: 'left' | 'right' = x > cw / 2 ? 'left' : 'right';
+          const onChartMove = (state: any) => {
+            // state.chartX = real mouse x within chart; activeCoordinate.x snaps to nearest data point.
+            const x = typeof state?.chartX === 'number' ? state.chartX : state?.activeCoordinate?.x;
+            if (typeof x !== 'number' || innerChartW <= 0) return;
+            const newSide: 'left' | 'right' = x > innerChartW / 2 ? 'left' : 'right';
             if (newSide !== tooltipSideRef.current) {
               tooltipSideRef.current = newSide;
               setTooltipSide(newSide);
@@ -701,7 +707,7 @@ export default function NodeDetailPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* CPU Load */}
-            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <div ref={firstChartRef} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
               <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
                 CPU Load
                 <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
