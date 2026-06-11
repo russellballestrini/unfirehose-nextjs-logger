@@ -392,6 +392,8 @@ That gap is by design. NLI-grade entailment requires either a textual-entailment
 
 The architecture's promise is calibration. It does not claim to verify everything; it names exactly what it can verify & leaves a structural gap visible where it cannot. A reader of a top-rung label knows what the substrate could prove; a reader of any lower rung knows what it could not. Honesty about the ceiling is a feature, not a limitation.
 
+The same calibration applies to priority claims themselves. A contribution enters this paper when it is internally coherent, reproducible, falsifiable, & honestly bounded — not when its global priority has been externally certified; the SOTA delta is named on a defined axis (verifiable provenance for ML cache records) & what remains unbenchmarked is named beside it, never omitted. Omitting strong work because public priority is unconfirmed underclaims the substrate; claiming universal first without evidence overclaims it; naming the delta on a defined axis is the honest middle.
+
 
 15. Related Work
 -----------------
