@@ -300,22 +300,11 @@ export default function NodeDetailPage() {
     { refreshInterval: 5000 },
   );
 
-  // Chart tooltip magnetic repulsion — track cursor x within chart, flip tooltip to opposite side
-  const chartGridRef = useRef<HTMLDivElement>(null);
-  const [chartWidth, setChartWidth] = useState(0);
-  const [cursorX, setCursorX] = useState<number | null>(null);
-  useEffect(() => {
-    if (!chartGridRef.current) return;
-    const el = chartGridRef.current;
-    const measure = () => {
-      const firstChart = el.querySelector('.recharts-wrapper');
-      if (firstChart) setChartWidth((firstChart as HTMLElement).offsetWidth);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // Chart tooltip magnetic repulsion — flip tooltip to opposite half of chart from cursor.
+  // Only re-render when side actually changes (not on every mousemove → no chop).
+  const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('left');
+  const tooltipSideRef = useRef<'left' | 'right'>('left');
+  const chartWidthRef = useRef(0);
 
   // Bootstrap harness state
   const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
@@ -648,20 +637,31 @@ export default function NodeDetailPage() {
         {/* Time-Series Charts */}
         {meshHistory?.timeline?.length > 0 && (() => {
           const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-          // Magnetic tooltip: when cursor is on the right half, tooltip goes left; vice versa.
-          // Repels from the active point so it never covers the data being measured.
+          // Magnetic: cursor in right half → tooltip pins left; cursor in left half → pins right.
           const tooltipW = 170;
           const leftAnchor = 60;
-          const rightAnchor = Math.max(leftAnchor, (chartWidth || 700) - tooltipW - 10);
-          const tooltipPosition = cursorX != null && chartWidth > 0
-            ? { x: cursorX > chartWidth / 2 ? leftAnchor : rightAnchor, y: 0 }
-            : { x: leftAnchor, y: 0 };
-          const onChartMove = (state: any) => {
+          const w = chartWidthRef.current || 700;
+          const rightAnchor = Math.max(leftAnchor, w - tooltipW - 10);
+          const tooltipPosition = tooltipSide === 'left'
+            ? { x: leftAnchor, y: 0 }
+            : { x: rightAnchor, y: 0 };
+          const onChartMove = (state: any, e?: any) => {
+            // Cache chart width from the live DOM event (always accurate, no ResizeObserver race).
+            const target = e?.currentTarget as HTMLElement | undefined;
+            if (target) {
+              const w = target.getBoundingClientRect().width;
+              if (w > 0) chartWidthRef.current = w;
+            }
             const x = state?.activeCoordinate?.x ?? state?.chartX;
-            if (typeof x === 'number') setCursorX(x);
+            const cw = chartWidthRef.current;
+            if (typeof x !== 'number' || cw <= 0) return;
+            const newSide: 'left' | 'right' = x > cw / 2 ? 'left' : 'right';
+            if (newSide !== tooltipSideRef.current) {
+              tooltipSideRef.current = newSide;
+              setTooltipSide(newSide);
+            }
           };
-          const onChartLeave = () => setCursorX(null);
-          const chartEvents = { onMouseMove: onChartMove, onMouseLeave: onChartLeave };
+          const chartEvents = { onMouseMove: onChartMove };
           const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: fmtLocalHHMM };
 
           const chartData = meshHistory.timeline
@@ -698,7 +698,7 @@ export default function NodeDetailPage() {
               <TimeRangeSelect value={range} onChange={setRange} />
             </div>
 
-            <div ref={chartGridRef} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* CPU Load */}
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
