@@ -669,24 +669,6 @@ export default function NodeDetailPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-            {/* Electricity Cost */}
-            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-              <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-                Electricity Cost
-                <span className="text-xs font-normal ml-2">
-                  ${last.elecCostPerHour.toFixed(3)}/hr &middot; ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo
-                </span>
-              </h3>
-              <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData} syncId="node-detail">
-                  <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
-                  <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-
             {/* CPU Load */}
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
               <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
@@ -743,24 +725,6 @@ export default function NodeDetailPage() {
             </div>
             )}
 
-            {/* GPU Power */}
-            {chartData.some((t: any) => t.gpuWatts > 0) && (
-            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-              <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-                GPU Power
-                <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
-              </h3>
-              <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail">
-                  <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
-                  <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-            )}
-
             {/* GPU Memory */}
             {chartData.some((t: any) => t.gpuMemTotalGB > 0) && (
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -779,6 +743,42 @@ export default function NodeDetailPage() {
               </ResponsiveContainer>
             </div>
             )}
+
+            {/* GPU Power */}
+            {chartData.some((t: any) => t.gpuWatts > 0) && (
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+              <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+                GPU Power
+                <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
+              </h3>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={chartData} syncId="node-detail">
+                  <XAxis {...xAxisProps} />
+                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
+                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+                  <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            )}
+
+            {/* Electricity Cost */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+              <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+                Electricity Cost
+                <span className="text-xs font-normal ml-2">
+                  ${last.elecCostPerHour.toFixed(3)}/hr &middot; ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo
+                </span>
+              </h3>
+              <ResponsiveContainer width="100%" height={140}>
+                <AreaChart data={chartData} syncId="node-detail">
+                  <XAxis {...xAxisProps} />
+                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
+                  <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
 
             {/* Wattage */}
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
