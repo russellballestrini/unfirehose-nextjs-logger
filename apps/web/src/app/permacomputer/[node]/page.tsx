@@ -780,22 +780,6 @@ export default function NodeDetailPage() {
             </div>
             )}
 
-            {/* Active Claudes */}
-            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-              <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-                Active Claudes
-                <span className="text-xs font-normal ml-2">{last.claudes} current</span>
-              </h3>
-              <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData} syncId="node-detail">
-                  <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
-                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-
             {/* Wattage */}
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
               <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
@@ -814,6 +798,22 @@ export default function NodeDetailPage() {
                     <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} />
                   )}
                 </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Active Claudes */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+              <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+                Active Claudes
+                <span className="text-xs font-normal ml-2">{last.claudes} current</span>
+              </h3>
+              <ResponsiveContainer width="100%" height={140}>
+                <AreaChart data={chartData} syncId="node-detail">
+                  <XAxis {...xAxisProps} />
+                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
+                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
 
