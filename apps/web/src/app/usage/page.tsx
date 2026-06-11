@@ -936,7 +936,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
@@ -961,7 +961,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData}>
+              <LineChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
@@ -990,7 +990,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
@@ -1008,7 +1008,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
@@ -1034,7 +1034,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
@@ -1061,7 +1061,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
@@ -1088,7 +1088,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
@@ -1115,7 +1115,7 @@ export default function UsageMonitorPage() {
               </span>
             </h3>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} syncId="usage-infra">
                 <XAxis {...xAxisProps} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                 <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />

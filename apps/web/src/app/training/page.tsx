@@ -638,7 +638,7 @@ function InfraChart({ data }: { data: InfraSnapshot[] }) {
       <div>
         <div className="mb-1 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>Utilization</div>
         <ResponsiveContainer width="100%" height={200}>
-          <ComposedChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+          <ComposedChart data={chartData} syncId="training-infra" margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" strokeOpacity={0.3} />
             <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} interval="preserveStartEnd" />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--color-muted)' }} tickFormatter={(v: number) => `${v}%`} width={40} />
@@ -659,7 +659,7 @@ function InfraChart({ data }: { data: InfraSnapshot[] }) {
       <div>
         <div className="mb-1 font-mono text-xs" style={{ color: 'var(--color-muted)' }}>Power &amp; Temperature</div>
         <ResponsiveContainer width="100%" height={160}>
-          <ComposedChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+          <ComposedChart data={chartData} syncId="training-infra" margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" strokeOpacity={0.3} />
             <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} interval="preserveStartEnd" />
             <YAxis yAxisId="power" tick={{ fontSize: 10, fill: 'var(--color-muted)' }} tickFormatter={(v: number) => `${v}W`} width={45} />

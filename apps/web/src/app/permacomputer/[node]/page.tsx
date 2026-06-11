@@ -676,7 +676,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.claudes} current</span>
               </h3>
               <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
@@ -692,7 +692,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.watts}W current</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={chartData}>
+                <LineChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
@@ -713,7 +713,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
@@ -731,7 +731,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
@@ -753,7 +753,7 @@ export default function NodeDetailPage() {
                 </span>
               </h3>
               <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
@@ -770,7 +770,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
@@ -788,7 +788,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
@@ -806,7 +806,7 @@ export default function NodeDetailPage() {
                 <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} syncId="node-detail">
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                   <Tooltip labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
