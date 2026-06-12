@@ -57,8 +57,18 @@ echo '===SECTION:PS==='
 ps aux --sort=-%cpu 2>/dev/null | grep -v '===SECTION:' | head -50 || echo 'n/a'
 
 # --- claude processes specifically ---
+# Match on the basename of the binary in cmdline column 11, NOT a
+# case-insensitive substring against the whole ps line. The old grep
+# false-matched any process whose cmdline mentioned "CLAUDE.md"
+# (lumbda factory monitors carry docstring references to the SOP shard),
+# inflating the count by ~3x on busy hosts.
 echo '===SECTION:CLAUDE_PS==='
-ps aux 2>/dev/null | grep -i '[c]laude' | grep -v '===SECTION:' || echo 'none'
+ps aux 2>/dev/null | awk 'NR>1 {
+  cmd=$11
+  if (cmd == "" || substr(cmd,1,1) == "[") next
+  n=split(cmd, parts, "/")
+  if (parts[n] == "claude") print
+}' | grep -v '===SECTION:' || echo 'none'
 
 # --- GPU nvidia ---
 echo '===SECTION:NVIDIA==='
