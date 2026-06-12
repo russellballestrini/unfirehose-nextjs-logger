@@ -367,3 +367,11 @@ input[type="checkbox"] {
 :root.light ::-webkit-scrollbar-thumb:hover {
   background: #a1a1aa;
 }
+
+/* uPlot drag-zoom selection — translucent purple (matches --color-thinking).
+   Overrides uPlot's default near-transparent gray so the in-progress
+   zoom region is unmistakable. */
+.u-select {
+  background: rgba(167, 139, 250, 0.22) !important;
+  border: 1px solid rgba(167, 139, 250, 0.55) !important;
+}
