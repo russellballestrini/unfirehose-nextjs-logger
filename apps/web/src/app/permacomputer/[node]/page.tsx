@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
+import { UPlotTimeChart, type UPlotSeries } from './UPlotTimeChart';
 import {
   AreaChart,
   Area,
@@ -299,6 +300,20 @@ export default function NodeDetailPage() {
     fetcher,
     { refreshInterval: 5000 },
   );
+
+  // Chart engine — uPlot (canvas, default) or recharts (SVG, fallback).
+  // Persisted in localStorage so toggling sticks across reloads.
+  const [chartEngine, setChartEngine] = useState<'uplot' | 'recharts'>(() => {
+    if (typeof window === 'undefined') return 'uplot';
+    return (localStorage.getItem('node_chart_engine') as 'uplot' | 'recharts') || 'uplot';
+  });
+  const toggleEngine = useCallback(() => {
+    setChartEngine(prev => {
+      const next = prev === 'uplot' ? 'recharts' : 'uplot';
+      try { localStorage.setItem('node_chart_engine', next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // Click-and-drag zoom — select x1→x2 on any chart, all charts zoom together.
   // We keep ALL mouse-driven visuals out of React. Native event listeners
@@ -892,6 +907,10 @@ export default function NodeDetailPage() {
                     reset
                   </button>
                 </div>
+                <button onClick={toggleEngine} title="Toggle chart engine"
+                  className="text-xs px-2 py-1 border border-[var(--color-border)] rounded hover:bg-[var(--color-surface)] cursor-pointer font-mono">
+                  engine: <span className="text-[var(--color-accent)]">{chartEngine}</span>
+                </button>
                 <TimeRangeSelect value={range} onChange={setRange} />
               </div>
             </div>
@@ -921,6 +940,104 @@ export default function NodeDetailPage() {
               )}
             </div>
 
+            {chartEngine === 'uplot' && (() => {
+              // uPlot chart engine — canvas, no React reconciliation per data tick.
+              const SYNC = 'mesh-node-detail';
+              const handleZoom = (range: [number, number]) => {
+                const a = Math.min(range[0], range[1]);
+                const b = Math.max(range[0], range[1]);
+                if (b - a > 1000) setZoomDomain([a, b]);
+              };
+              const handleCursor = (idx: number | null) => {
+                if (idx == null) {
+                  if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                  setHoverInfo(null);
+                  return;
+                }
+                if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                hoverTimerRef.current = setTimeout(() => {
+                  const row = chartDataRef.current[idx];
+                  if (row) setHoverInfo(row);
+                }, 200);
+              };
+              const cardCls = 'bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4';
+              const titleCls = 'text-base font-bold mb-3 text-[var(--color-muted)]';
+              const hasGpuUtil = chartData.some((t: any) => t.gpuUtil > 0 || t.gpuWatts > 0);
+              const hasGpuMem = chartData.some((t: any) => t.gpuMemTotalGB > 0);
+              const hasGpuPower = chartData.some((t: any) => t.gpuWatts > 0);
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className={cardCls}>
+                    <h3 className={titleCls}>CPU Load <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span></h3>
+                    <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor}
+                      series={[
+                        { key: 'cores', label: 'Total Cores', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)' },
+                        { key: 'load', label: 'Load Average', stroke: '#f97316', fill: 'rgba(249,115,22,0.25)' },
+                      ]} />
+                  </div>
+
+                  <div className={cardCls}>
+                    <h3 className={titleCls}>Memory Usage <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span></h3>
+                    <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="GB"
+                      series={[
+                        { key: 'memTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)' },
+                        { key: 'memUsedGB', label: 'Used', stroke: '#60a5fa', fill: 'rgba(96,165,250,0.28)' },
+                      ]} />
+                  </div>
+
+                  {hasGpuUtil && (
+                    <div className={cardCls}>
+                      <h3 className={titleCls}>GPU Utilization <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span></h3>
+                      <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="%" yMin={0} yMax={100}
+                        series={[{ key: 'gpuUtil', label: 'GPU Util', stroke: '#22c55e', fill: 'rgba(34,197,94,0.28)' }]} />
+                    </div>
+                  )}
+
+                  {hasGpuMem && (
+                    <div className={cardCls}>
+                      <h3 className={titleCls}>GPU Memory <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span></h3>
+                      <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="GB"
+                        series={[
+                          { key: 'gpuMemTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)' },
+                          { key: 'gpuMemUsedGB', label: 'Used', stroke: '#22c55e', fill: 'rgba(34,197,94,0.28)' },
+                        ]} />
+                    </div>
+                  )}
+
+                  {hasGpuPower && (
+                    <div className={cardCls}>
+                      <h3 className={titleCls}>GPU Power <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span></h3>
+                      <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="W"
+                        series={[{ key: 'gpuWatts', label: 'GPU Power', stroke: '#a78bfa', fill: 'rgba(167,139,250,0.25)' }]} />
+                    </div>
+                  )}
+
+                  <div className={cardCls}>
+                    <h3 className={titleCls}>Electricity Cost <span className="text-xs font-normal ml-2">${last.elecCostPerHour.toFixed(3)}/hr · ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo</span></h3>
+                    <UPlotTimeChart data={chartData} height={140} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor}
+                      series={[{ key: 'elecCostPerHour', label: '$/hr', stroke: '#facc15', fill: 'rgba(250,204,21,0.20)' }]} />
+                  </div>
+
+                  <div className={cardCls}>
+                    <h3 className={titleCls}>Compute Wattage <span className="text-xs font-normal ml-2">{last.watts}W current</span></h3>
+                    <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="W"
+                      series={[
+                        { key: 'watts', label: 'Total', stroke: 'var(--color-accent)', width: 2 },
+                        { key: 'cpuWatts', label: 'CPU', stroke: '#f97316', width: 1.5 },
+                        ...(hasGpuPower ? [{ key: 'gpuWatts', label: 'GPU', stroke: '#a78bfa', width: 1.5 } as UPlotSeries] : []),
+                      ]} />
+                  </div>
+
+                  <div className={cardCls}>
+                    <h3 className={titleCls}>Active Claudes <span className="text-xs font-normal ml-2">{last.claudes} current</span></h3>
+                    <UPlotTimeChart data={chartData} height={140} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor}
+                      series={[{ key: 'claudes', label: 'Claudes', stroke: 'var(--color-accent)', fill: 'rgba(212,0,0,0.20)', step: true }]} />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {chartEngine === 'recharts' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* CPU Load */}
@@ -1095,7 +1212,8 @@ export default function NodeDetailPage() {
               </div>
             </div>
 
-            </div>{/* end grid */}
+            </div>
+            )}
           </div>
           );
         })()}

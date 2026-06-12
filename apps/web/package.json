@@ -26,6 +26,7 @@
     "react-syntax-highlighter": "^16.1.1",
     "recharts": "^3.7.0",
     "swr": "^2.4.1",
+    "uplot": "^1.6.32",
     "ws": "^8.19.0"
   },
   "devDependencies": {
