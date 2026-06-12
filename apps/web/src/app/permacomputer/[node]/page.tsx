@@ -308,20 +308,22 @@ export default function NodeDetailPage() {
   const tooltipSideRef = useRef<'left' | 'right'>('left');
 
   // Click-and-drag zoom — select x1→x2 on any chart, all charts zoom together.
-  // zoomDomain is [tsMs, tsMs]; null = full range. dragStart/dragEnd track the
-  // in-progress selection for ReferenceArea overlay.
+  // zoomDomain is [tsMs, tsMs]; null = full range. Refs hold the live drag
+  // position so onMouseUp sees the latest values (state updates are async/batched).
+  // The corresponding dragStart/dragEnd state drives the ReferenceArea overlay,
+  // rAF-throttled to keep render rate sane during fast scrubs.
   const [zoomDomain, setZoomDomain] = useState<[number, number] | null>(null);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragEnd, setDragEnd] = useState<number | null>(null);
-  // rAF-throttle drag updates so we re-render at most once per frame, not per mousemove.
-  const dragEndPendingRef = useRef<number | null>(null);
+  const dragStartRef = useRef<number | null>(null);
+  const dragEndRef = useRef<number | null>(null);
   const dragRafRef = useRef<number | null>(null);
   const scheduleDragEnd = useCallback((label: number) => {
-    dragEndPendingRef.current = label;
+    dragEndRef.current = label;
     if (dragRafRef.current != null) return;
     dragRafRef.current = requestAnimationFrame(() => {
       dragRafRef.current = null;
-      if (dragEndPendingRef.current != null) setDragEnd(dragEndPendingRef.current);
+      if (dragEndRef.current != null) setDragEnd(dragEndRef.current);
     });
   }, []);
   // Reset zoom when outer history range changes — domain may no longer fit.
@@ -720,28 +722,38 @@ export default function NodeDetailPage() {
               setTooltipSide(newSide);
             }
           };
-          // Drag-to-zoom: mousedown captures start, mousemove tracks end (rendered as
-          // ReferenceArea), mouseup commits if drag spans > 1s (avoids accidental clicks).
+          // Drag-to-zoom: mousedown captures start (ref + state), mousemove tracks
+          // end (ref every move, state rAF-throttled), mouseup reads refs (sync,
+          // never stale) and commits if drag spans > 1s.
+          const finishDrag = () => {
+            const s = dragStartRef.current;
+            const e = dragEndRef.current;
+            if (s != null && e != null && Math.abs(e - s) > 1000) {
+              setZoomDomain([Math.min(s, e), Math.max(s, e)]);
+            }
+            dragStartRef.current = null;
+            dragEndRef.current = null;
+            setDragStart(null);
+            setDragEnd(null);
+          };
           const chartEvents = {
             onMouseDown: (state: any) => {
               const label = state?.activeLabel;
-              if (typeof label === 'number') setDragStart(label);
+              if (typeof label !== 'number') return;
+              dragStartRef.current = label;
+              dragEndRef.current = label;
+              setDragStart(label);
+              setDragEnd(label);
             },
             onMouseMove: (state: any) => {
               onChartMove(state);
               const label = state?.activeLabel;
-              if (dragStart != null && typeof label === 'number') scheduleDragEnd(label);
-            },
-            onMouseUp: () => {
-              if (dragStart != null && dragEnd != null && Math.abs(dragEnd - dragStart) > 1000) {
-                const a = Math.min(dragStart, dragEnd);
-                const b = Math.max(dragStart, dragEnd);
-                setZoomDomain([a, b]);
+              if (dragStartRef.current != null && typeof label === 'number') {
+                scheduleDragEnd(label);
               }
-              setDragStart(null);
-              setDragEnd(null);
             },
-            onMouseLeave: () => { setDragStart(null); setDragEnd(null); },
+            onMouseUp: finishDrag,
+            onMouseLeave: finishDrag,
           };
           const fmtLabel = (v: any) => {
             const n = typeof v === 'number' ? v : Number(v);
@@ -831,7 +843,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Legend />
                   <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
@@ -850,7 +862,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Legend />
                   {last.memTotalGB > 0 && (
@@ -872,7 +884,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
@@ -891,7 +903,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
@@ -911,7 +923,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
                 </AreaChart>
@@ -931,7 +943,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
                 </AreaChart>
@@ -948,7 +960,7 @@ export default function NodeDetailPage() {
                 <LineChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Legend />
                   <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
@@ -970,7 +982,7 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} />} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   {dragOverlay}
                   <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
                 </AreaChart>
