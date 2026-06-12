@@ -620,6 +620,16 @@ export default function NodeDetailPage() {
     () => Math.round(((probe?.memory?.totalKB ?? 0) / 1048576) * 10) / 10,
     [probe?.memory?.totalKB],
   );
+  // Hardware DIMM cap — Linux's /proc/meminfo reports usable RAM (kernel
+  // reserves trimmed off), so 64GB DIMMs show as ~62.5GB. Rounding up to
+  // the next power-of-2 recovers the actual hardware cap which is what
+  // belongs on the Memory chart's watermark line.
+  const memCapGB = useMemo(() => {
+    if (memTotalGB <= 0) return 0;
+    let cap = 1;
+    while (cap < memTotalGB) cap *= 2;
+    return cap <= memTotalGB * 1.5 ? cap : Math.round(memTotalGB);
+  }, [memTotalGB]);
   // useDeferredValue makes the timeline a low-priority input: when SWR polls
   // new mesh data every 6s, React renders the chart subtree with the OLD
   // timeline immediately (so the parent re-render is cheap) and schedules a
@@ -644,6 +654,7 @@ export default function NodeDetailPage() {
           cores: n.cores ?? 0,
           memUsedGB: n.memUsed ?? 0,
           memTotalGB,
+          memCapGB,
           claudes: n.claudes ?? 0,
           gpuUtil: n.gpuUtil ?? 0,
           gpuMemUsedGB: Math.round((n.gpuMemUsedMB ?? 0) / 1024 * 10) / 10,
@@ -651,7 +662,7 @@ export default function NodeDetailPage() {
           elecCostPerHour: Math.round(((n.watts ?? 0) / 1000) * kwhRate * 100) / 100,
         };
       });
-  }, [deferredTimeline, host, memTotalGB, kwhRate]);
+  }, [deferredTimeline, host, memTotalGB, memCapGB, kwhRate]);
 
   return (
     <div className="p-6 w-full">
@@ -1027,10 +1038,11 @@ export default function NodeDetailPage() {
                   </div>
 
                   <div className={cardCls}>
-                    <h3 className={titleCls}>Memory Usage <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span></h3>
+                    <h3 className={titleCls}>Memory Usage <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memCapGB || last.memTotalGB || '?'} GB</span></h3>
                     <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="GB"
+                      yMin={0} yMax={memCapGB > 0 ? Math.round(memCapGB * 1.05) : undefined}
                       series={[
-                        { key: 'memTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
+                        { key: 'memCapGB', label: 'Cap', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
                         { key: 'memUsedGB', label: 'Used', stroke: '#60a5fa', fill: 'rgba(96,165,250,0.28)' },
                       ]} />
                   </div>

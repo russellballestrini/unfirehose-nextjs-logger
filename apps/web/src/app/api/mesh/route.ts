@@ -11,6 +11,7 @@ interface MeshNode {
   reachable: boolean;
   cpuCores?: number;
   memTotalGB?: number;
+  memCapGB?: number;
   memUsedGB?: number;
   memAvailableGB?: number;
   loadAvg?: [number, number, number];
@@ -518,6 +519,7 @@ function getLocalStats(): MeshNode {
       ssdCount,
       cpuCores,
       memTotalGB: round(memTotal),
+      memCapGB: memCapGB(memTotal),
       memUsedGB: round(memTotal - memAvailable),
       memAvailableGB: round(memAvailable),
       loadAvg,
@@ -674,7 +676,7 @@ function getRemoteStatsAsync(host: string): Promise<MeshNode> {
             hostname, reachable: true,
             cpuModel: cpuModel ?? undefined, cpuTdpWatts: cpuTdpWatts ?? undefined,
             spinningDisks, ssdCount, cpuCores,
-            memTotalGB: round(memTotal), memUsedGB: round(memTotal - memAvailable), memAvailableGB: round(memAvailable),
+            memTotalGB: round(memTotal), memCapGB: memCapGB(memTotal), memUsedGB: round(memTotal - memAvailable), memAvailableGB: round(memAvailable),
             loadAvg, uptime, claudeProcesses,
             swapTotalGB: round(swapTotal), swapUsedGB: round(swapTotal - swapFree),
             powerWatts, gpuPowerWatts: gpuPowerWatts ?? undefined,
@@ -701,6 +703,23 @@ function formatUptime(seconds: number): string {
 
 function round(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+/**
+ * Linux's /proc/meminfo reports the kernel's usable RAM, which is the DIMM
+ * total minus reserved regions — typically ~1.5GB short on a server. Real
+ * DIMM sizes are powers-of-2 (4 / 8 / 16 / 32 / 64 / 128 / 256GB), so
+ * rounding up to the next power-of-2 recovers the actual hardware cap.
+ *
+ * For non-power-of-2 configs (e.g. 96GB = 64+32) this overshoots; we cap
+ * the rounding to within 1.5x of the reported total so we don't turn 96GB
+ * into 128GB. Above that ratio we leave the original value alone.
+ */
+function memCapGB(memTotalGB: number): number {
+  if (memTotalGB <= 0) return 0;
+  let cap = 1;
+  while (cap < memTotalGB) cap *= 2;
+  return cap <= memTotalGB * 1.5 ? cap : Math.round(memTotalGB);
 }
 
 // ── Stale-while-revalidate cache ──────────────────────────────
