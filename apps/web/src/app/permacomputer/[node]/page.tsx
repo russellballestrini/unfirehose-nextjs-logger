@@ -1003,7 +1003,7 @@ export default function NodeDetailPage() {
                     <h3 className={titleCls}>CPU Load <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span></h3>
                     <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor}
                       series={[
-                        { key: 'cores', label: 'Total Cores', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)' },
+                        { key: 'cores', label: 'Total Cores', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
                         { key: 'load', label: 'Load Average', stroke: '#f97316', fill: 'rgba(249,115,22,0.25)' },
                       ]} />
                   </div>
@@ -1012,7 +1012,7 @@ export default function NodeDetailPage() {
                     <h3 className={titleCls}>Memory Usage <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span></h3>
                     <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="GB"
                       series={[
-                        { key: 'memTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)' },
+                        { key: 'memTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
                         { key: 'memUsedGB', label: 'Used', stroke: '#60a5fa', fill: 'rgba(96,165,250,0.28)' },
                       ]} />
                   </div>
@@ -1030,7 +1030,7 @@ export default function NodeDetailPage() {
                       <h3 className={titleCls}>GPU Memory <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span></h3>
                       <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="GB"
                         series={[
-                          { key: 'gpuMemTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)' },
+                          { key: 'gpuMemTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
                           { key: 'gpuMemUsedGB', label: 'Used', stroke: '#22c55e', fill: 'rgba(34,197,94,0.28)' },
                         ]} />
                     </div>
@@ -1054,7 +1054,7 @@ export default function NodeDetailPage() {
                     <h3 className={titleCls}>Compute Wattage <span className="text-xs font-normal ml-2">{last.watts}W current</span></h3>
                     <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="W"
                       series={[
-                        { key: 'watts', label: 'Total', stroke: 'var(--color-accent)', width: 2 },
+                        { key: 'watts', label: 'Total', stroke: '#d40000', width: 2 },
                         { key: 'cpuWatts', label: 'CPU', stroke: '#f97316', width: 1.5 },
                         ...(hasGpuPower ? [{ key: 'gpuWatts', label: 'GPU', stroke: '#a78bfa', width: 1.5 } as UPlotSeries] : []),
                       ]} />
@@ -1063,7 +1063,7 @@ export default function NodeDetailPage() {
                   <div className={cardCls}>
                     <h3 className={titleCls}>Active Claudes <span className="text-xs font-normal ml-2">{last.claudes} current</span></h3>
                     <UPlotTimeChart data={chartData} height={140} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor}
-                      series={[{ key: 'claudes', label: 'Claudes', stroke: 'var(--color-accent)', fill: 'rgba(212,0,0,0.20)', step: true }]} />
+                      series={[{ key: 'claudes', label: 'Claudes', stroke: '#d40000', fill: 'rgba(212,0,0,0.20)', step: true }]} />
                   </div>
                 </div>
               );

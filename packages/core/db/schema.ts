@@ -22,6 +22,15 @@ export function getDb(): Database.Database {
   _db.pragma('journal_mode = WAL');
   _db.pragma('synchronous = NORMAL');
   _db.pragma('foreign_keys = ON');
+  // 256MB page cache keeps our covering indices in memory across requests —
+  // /api/tokens does a full scan of messages and was cache-thrashing at 2MB.
+  _db.pragma('cache_size = -262144');
+  // 512MB mmap so SQLite uses zero-copy reads off the OS page cache instead
+  // of read() syscalls. Helps the big sequential scans on `messages`.
+  _db.pragma('mmap_size = 536870912');
+  // SQLite normally spills GROUP BY temp B-trees to disk; pinning them to
+  // memory removes a class of latency spike on /api/tokens.
+  _db.pragma('temp_store = MEMORY');
 
   migrate(_db);
   return _db;

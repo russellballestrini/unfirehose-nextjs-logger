@@ -17,11 +17,14 @@ import { useEffect, useRef } from 'react';
 export interface UPlotSeries {
   key: string;          // field in `data` rows
   label: string;
-  stroke: string;       // line color (any CSS color)
+  stroke: string;       // line color (any CSS color — NOT a CSS var: canvas
+                        //   can't resolve var(--…), use a literal hex/rgba)
   fill?: string;        // area fill color (rgba recommended)
   width?: number;
   step?: boolean;       // step-after (for the claudes chart)
   dash?: number[];      // dashed line
+  watermark?: boolean;  // visual reference only — no active dot, doesn't
+                        //   trigger cursor focus dimming on neighbors
 }
 
 export interface UPlotTimeChartProps {
@@ -76,10 +79,15 @@ export function UPlotTimeChart({
     const el = containerRef.current;
     if (!el) return;
 
+    // Only count data (non-watermark) series toward focus — single-data
+    // charts shouldn't dim anything on hover even if a watermark is present.
+    const dataSeriesCount = series.filter(s => !s.watermark).length;
     const opts: uPlot.Options = {
       width: el.clientWidth || 600,
       height,
-      padding: [8, 12, 0, 0],
+      // [top, right, bottom, left] — generous right + bottom so the last
+      // x-axis date label and the first/last y-axis tick don't get clipped.
+      padding: [10, 20, 4, 6],
       scales: {
         x: { time: true },
         y: { auto: yMin == null && yMax == null, range: yMin != null || yMax != null ? [yMin ?? 0, yMax ?? 100] : undefined },
@@ -89,6 +97,9 @@ export function UPlotTimeChart({
         sync: { key: syncKey, scales: ['x', null] },
         drag: { x: true, y: false, setScale: false },
         points: {
+          // Active dot suppressed on watermark series (sidx is 1-based;
+          // series[0] is the x-axis, so user series index = sidx - 1).
+          show: (_u, sidx) => !series[sidx - 1]?.watermark,
           size: 7,
           width: 1,
           stroke: () => '#ffffff',
@@ -96,9 +107,9 @@ export function UPlotTimeChart({
         },
         x: true,
         y: false,
-        // Series focus only matters when there's more than one line on the
-        // chart — with a single series there's nothing to highlight against.
-        ...(series.length > 1 ? { focus: { prox: 30 } } : {}),
+        // Series focus only matters when there's more than one *data* line.
+        // Watermark series are visual reference (ceilings / max), not data.
+        ...(dataSeriesCount > 1 ? { focus: { prox: 30 } } : {}),
       },
       axes: [
         {
@@ -106,14 +117,16 @@ export function UPlotTimeChart({
           grid: { stroke: 'rgba(63, 63, 70, 0.4)', width: 1 },
           ticks: { stroke: 'rgba(63, 63, 70, 0.6)', size: 4 },
           font: '11px ui-sans-serif, system-ui, sans-serif',
-          size: 30,
+          // X-axis allotment — taller so the date string + tick has room
+          // and the first/last labels aren't clipped against the edge.
+          size: 36,
         },
         {
           stroke: '#a1a1aa',
           grid: { stroke: 'rgba(63, 63, 70, 0.4)', width: 1 },
           ticks: { stroke: 'rgba(63, 63, 70, 0.6)', size: 4 },
           font: '11px ui-sans-serif, system-ui, sans-serif',
-          size: 44,
+          size: 48,
           values: yUnit ? (_u, vals) => vals.map(v => `${v}${yUnit}`) : undefined,
         },
       ],
@@ -126,6 +139,8 @@ export function UPlotTimeChart({
           width: s.width ?? 1.5,
           dash: s.dash,
           paths: s.step ? uPlot.paths.stepped?.({ align: 1 }) : undefined,
+          // Suppress dots drawn at every data sample (we only want the
+          // cursor active dot, which is configured at the cursor level).
           points: { show: false },
         })),
       ],

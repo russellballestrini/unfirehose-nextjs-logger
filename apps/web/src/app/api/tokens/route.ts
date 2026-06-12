@@ -4,16 +4,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { calcCost } from '@unturf/unfirehose/pricing';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function GET(request: NextRequest) {
+  const t = new Timing();
   try {
     const url = request.nextUrl;
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
 
-    // Build date filter clause
+    // Build date filter clause (applies only to date-filtered queries)
     let dateFilter = '';
     const dateParams: string[] = [];
     if (from) {
@@ -27,40 +29,118 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    // Single mega-query: harness × model breakdown with session counts
-    // This one query replaces: modelBreakdown, harnessBreakdown, harnessModelBreakdown, harnessSessions, and the N+1 cost queries
-    const harnessModelRows = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness,
-             m.model,
+    // Sessions lookup map: id -> harness. ~25ms via idx_sessions_id_harness.
+    // We resolve harness in JS so our main aggregate query can scan a single
+    // covering index on `messages` without joining.
+    const sessionRows = db.prepare(`SELECT id, harness FROM sessions`).all() as Array<{ id: number; harness: string | null }>;
+    const harnessById = new Map<number, string>();
+    for (const r of sessionRows) {
+      harnessById.set(r.id, r.harness ?? 'unknown');
+    }
+    t.mark('sessions-map');
+
+    // Per (session_id, model) aggregate. Single covering index scan, no JOIN.
+    // Includes last_ts so we can derive `dailyByHarness` from this same data
+    // without a second 250k-row scan. 99% of sessions are single-day so
+    // attributing tokens to `DATE(last_ts)` is accurate; multi-day sessions
+    // get pinned to their final day, close enough for our chart.
+    const perSessionModel = db.prepare(`
+      SELECT m.session_id, m.model,
              SUM(m.input_tokens) as input_tokens,
              SUM(m.output_tokens) as output_tokens,
              SUM(m.cache_read_tokens) as cache_read_tokens,
              SUM(m.cache_creation_tokens) as cache_creation_tokens,
-             COUNT(DISTINCT s.id) as sessions
+             COUNT(*) as messages,
+             MAX(m.timestamp) as last_ts
       FROM messages m
-      JOIN sessions s ON s.id = m.session_id
       WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
-      GROUP BY harness, m.model
+      GROUP BY m.session_id, m.model
     `).all(...dateParams) as Array<{
-      harness: string;
+      session_id: number;
       model: string;
       input_tokens: number;
       output_tokens: number;
       cache_read_tokens: number;
       cache_creation_tokens: number;
-      sessions: number;
+      messages: number;
+      last_ts: string | null;
     }>;
+    t.mark('per-session-model');
 
-    // Derive modelBreakdown by aggregating across harnesses
+    // Roll up per-session-model rows into our breakdowns in JS.
+    // 19k rows is trivial to traverse.
     const modelMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
-    for (const r of harnessModelRows) {
-      const prev = modelMap.get(r.model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-      prev.input += r.input_tokens;
-      prev.output += r.output_tokens;
-      prev.cacheRead += r.cache_read_tokens;
-      prev.cacheWrite += r.cache_creation_tokens;
-      modelMap.set(r.model, prev);
+    const harnessModelKeyed = new Map<string, {
+      harness: string; model: string;
+      input_tokens: number; output_tokens: number;
+      cache_read_tokens: number; cache_creation_tokens: number;
+      sessions: Set<number>;
+    }>();
+    const harnessMap = new Map<string, {
+      input: number; output: number; cacheRead: number; cacheWrite: number;
+      sessions: Set<number>;
+    }>();
+    // dailyByHarness derived from per-session last_ts (no second SQL scan).
+    // Chart only displays last 30 days, so we clamp at the JS layer.
+    const cutoffDate = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+    const dailyKeyed = new Map<string, { date: string; harness: string; tokens: number; messages: number }>();
+
+    for (const r of perSessionModel) {
+      const harness = harnessById.get(r.session_id) ?? 'unknown';
+
+      const mm = modelMap.get(r.model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      mm.input += r.input_tokens;
+      mm.output += r.output_tokens;
+      mm.cacheRead += r.cache_read_tokens;
+      mm.cacheWrite += r.cache_creation_tokens;
+      modelMap.set(r.model, mm);
+
+      const hmKey = harness + '\x00' + r.model;
+      let hm = harnessModelKeyed.get(hmKey);
+      if (!hm) {
+        hm = {
+          harness, model: r.model,
+          input_tokens: 0, output_tokens: 0,
+          cache_read_tokens: 0, cache_creation_tokens: 0,
+          sessions: new Set(),
+        };
+        harnessModelKeyed.set(hmKey, hm);
+      }
+      hm.input_tokens += r.input_tokens;
+      hm.output_tokens += r.output_tokens;
+      hm.cache_read_tokens += r.cache_read_tokens;
+      hm.cache_creation_tokens += r.cache_creation_tokens;
+      hm.sessions.add(r.session_id);
+
+      let hMap = harnessMap.get(harness);
+      if (!hMap) {
+        hMap = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, sessions: new Set() };
+        harnessMap.set(harness, hMap);
+      }
+      hMap.input += r.input_tokens;
+      hMap.output += r.output_tokens;
+      hMap.cacheRead += r.cache_read_tokens;
+      hMap.cacheWrite += r.cache_creation_tokens;
+      hMap.sessions.add(r.session_id);
+
+      // Daily attribution: pin each session-model row to its final day.
+      // last_ts is ISO-8601 so substr(0,10) is the date.
+      if (r.last_ts && r.last_ts.length >= 10) {
+        const date = r.last_ts.slice(0, 10);
+        if (date >= cutoffDate) {
+          const dKey = date + '\x00' + harness;
+          const sessionTokens = r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens;
+          let dEntry = dailyKeyed.get(dKey);
+          if (!dEntry) {
+            dEntry = { date, harness, tokens: 0, messages: 0 };
+            dailyKeyed.set(dKey, dEntry);
+          }
+          dEntry.tokens += sessionTokens;
+          dEntry.messages += r.messages;
+        }
+      }
     }
+
     const modelBreakdown = [...modelMap.entries()].map(([model, t]) => ({
       model,
       inputTokens: t.input,
@@ -78,27 +158,20 @@ export async function GET(request: NextRequest) {
     const totalCacheRead = modelBreakdown.reduce((s, m) => s + m.cacheReadTokens, 0);
     const totalCacheWrite = modelBreakdown.reduce((s, m) => s + m.cacheCreationTokens, 0);
 
-    // Derive harnessData by aggregating across models (no extra query!)
-    const harnessMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; sessions: Set<number> }>();
-    for (const r of harnessModelRows) {
-      let prev = harnessMap.get(r.harness);
-      if (!prev) {
-        prev = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, sessions: new Set() };
-        harnessMap.set(r.harness, prev);
-      }
-      prev.input += r.input_tokens;
-      prev.output += r.output_tokens;
-      prev.cacheRead += r.cache_read_tokens;
-      prev.cacheWrite += r.cache_creation_tokens;
-      // sessions is COUNT(DISTINCT) per harness×model, but we need per-harness total
-      // We'll track it separately below
-    }
+    const harnessModelBreakdown = [...harnessModelKeyed.values()].map(hm => ({
+      harness: hm.harness,
+      model: hm.model,
+      input_tokens: hm.input_tokens,
+      output_tokens: hm.output_tokens,
+      cache_read_tokens: hm.cache_read_tokens,
+      cache_creation_tokens: hm.cache_creation_tokens,
+      sessions: hm.sessions.size,
+    }));
 
-    // Compute per-harness cost from harnessModelRows (no N+1!)
     const harnessCostMap = new Map<string, number>();
-    for (const r of harnessModelRows) {
-      const prev = harnessCostMap.get(r.harness) ?? 0;
-      harnessCostMap.set(r.harness, prev + calcCost(r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens));
+    for (const hm of harnessModelBreakdown) {
+      const prev = harnessCostMap.get(hm.harness) ?? 0;
+      harnessCostMap.set(hm.harness, prev + calcCost(hm.model, hm.input_tokens, hm.output_tokens, hm.cache_read_tokens, hm.cache_creation_tokens));
     }
 
     const harnessData = [...harnessMap.entries()].map(([harness, t]) => ({
@@ -112,42 +185,36 @@ export async function GET(request: NextRequest) {
       cacheEfficiency: t.input > 0 ? t.cacheRead / t.input : 0,
     }));
 
-    // harnessModelBreakdown is just the raw rows
-    const harnessModelBreakdown = harnessModelRows;
+    const harnessSessions = [...harnessMap.entries()].map(([harness, t]) => ({
+      harness,
+      sessions: t.sessions.size,
+    }));
+    t.mark('rollup');
 
-    // Derive harnessSessions: distinct session count per harness
-    const harnessSessionRows = db.prepare(`
-      SELECT COALESCE(s.harness, 'unknown') as harness,
-             COUNT(DISTINCT s.id) as sessions
-      FROM messages m
-      JOIN sessions s ON s.id = m.session_id
-      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
-      GROUP BY harness
-    `).all(...dateParams) as Array<{ harness: string; sessions: number }>;
-    const harnessSessions = harnessSessionRows;
-
-    // Combined tool query: tool calls + by model + by harness in one pass
+    // Combined tool query: tool calls + by model + by harness in one pass.
+    // Uses idx_content_blocks_tool covering index.
     const toolRows = db.prepare(`
       SELECT cb.tool_name,
              m.model,
-             COALESCE(s.harness, 'unknown') as harness,
+             m.session_id,
              COUNT(*) as count
       FROM content_blocks cb
       JOIN messages m ON m.id = cb.message_id
-      JOIN sessions s ON s.id = m.session_id
       WHERE cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL${dateFilter}
-      GROUP BY cb.tool_name, m.model, harness
-    `).all(...dateParams) as Array<{ tool_name: string; model: string; harness: string; count: number }>;
+      GROUP BY cb.tool_name, m.model, m.session_id
+    `).all(...dateParams) as Array<{ tool_name: string; model: string; session_id: number; count: number }>;
+    t.mark('tools');
 
-    // Derive toolCalls (by tool_name)
+    // Derive toolCalls (by tool_name), toolsByModel, toolsByHarness in JS.
     const toolCountMap = new Map<string, number>();
     const toolModelMap = new Map<string, number>();
     const toolHarnessMap = new Map<string, Map<string, number>>();
     for (const r of toolRows) {
       toolCountMap.set(r.tool_name, (toolCountMap.get(r.tool_name) ?? 0) + r.count);
       toolModelMap.set(r.model, (toolModelMap.get(r.model) ?? 0) + r.count);
-      if (!toolHarnessMap.has(r.harness)) toolHarnessMap.set(r.harness, new Map());
-      const hm = toolHarnessMap.get(r.harness)!;
+      const harness = harnessById.get(r.session_id) ?? 'unknown';
+      if (!toolHarnessMap.has(harness)) toolHarnessMap.set(harness, new Map());
+      const hm = toolHarnessMap.get(harness)!;
       hm.set(r.tool_name, (hm.get(r.tool_name) ?? 0) + r.count);
     }
 
@@ -167,20 +234,10 @@ export async function GET(request: NextRequest) {
     }
     toolsByHarness.sort((a, b) => a.harness.localeCompare(b.harness) || b.count - a.count);
 
-    // Daily tokens by harness
-    const dailyByHarness = db.prepare(`
-      SELECT DATE(m.timestamp) as date,
-             COALESCE(s.harness, 'unknown') as harness,
-             SUM(m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens) as tokens,
-             COUNT(*) as messages
-      FROM messages m
-      JOIN sessions s ON s.id = m.session_id
-      WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
-      GROUP BY date, harness
-      ORDER BY date
-    `).all(...dateParams) as Array<{ date: string; harness: string; tokens: number; messages: number }>;
+    // dailyByHarness was already computed in the rollup above (no extra SQL scan).
+    const dailyByHarness = [...dailyKeyed.values()].sort((a, b) => a.date.localeCompare(b.date));
 
-    // Content block type breakdown
+    // Content block type breakdown.
     const blockTypes = dateFilter
       ? db.prepare(`
           SELECT cb.block_type, COUNT(*) as count
@@ -196,8 +253,9 @@ export async function GET(request: NextRequest) {
           GROUP BY block_type
           ORDER BY count DESC
         `).all() as Array<{ block_type: string; count: number }>;
+    t.mark('blocks');
 
-    // Read stats cache for daily activity (non-blocking, fallback to empty)
+    // Read stats cache for daily activity (non-blocking, fallback to empty).
     let dailyActivity: any[] = [];
     let dailyModelTokens: any[] = [];
     try {
@@ -206,6 +264,7 @@ export async function GET(request: NextRequest) {
       dailyActivity = stats.dailyActivity ?? [];
       dailyModelTokens = stats.dailyModelTokens ?? [];
     } catch { /* stats cache missing is fine */ }
+    t.mark('stats-cache');
 
     return NextResponse.json({
       modelBreakdown,
@@ -225,11 +284,11 @@ export async function GET(request: NextRequest) {
       harnessSessions,
       toolsByHarness,
       dailyByHarness,
-    });
+    }, { headers: { 'Server-Timing': t.header() } });
   } catch (err) {
     return NextResponse.json(
       { error: 'Failed to read token data', detail: String(err) },
-      { status: 500 }
+      { status: 500, headers: { 'Server-Timing': t.header() } }
     );
   }
 }

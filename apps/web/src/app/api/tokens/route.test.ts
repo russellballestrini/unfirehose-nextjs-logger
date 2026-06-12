@@ -23,14 +23,14 @@ const { GET } = await import('./route');
 
 describe('GET /api/tokens', () => {
   it('returns model breakdown with cost calculations', async () => {
-    // Query order: harnessModelRows, harnessSessionRows, toolRows, dailyByHarness, blockTypes
+    // Query order: sessions-map, perSessionModel, toolRows, blockTypes
+    // (dailyByHarness is derived in JS from perSessionModel.last_ts — no SQL.)
     mockAll
+      .mockReturnValueOnce([{ id: 1, harness: 'claude-code' }])
       .mockReturnValueOnce([
-        { harness: 'claude-code', model: 'claude-opus-4-6', input_tokens: 1000000, output_tokens: 500000, cache_read_tokens: 0, cache_creation_tokens: 0, sessions: 1 },
+        { session_id: 1, model: 'claude-opus-4-6', input_tokens: 1000000, output_tokens: 500000, cache_read_tokens: 0, cache_creation_tokens: 0, messages: 5, last_ts: '2026-03-10T12:00:00Z' },
       ])
-      .mockReturnValueOnce([{ harness: 'claude-code', sessions: 1 }])
-      .mockReturnValueOnce([{ tool_name: 'Bash', model: 'claude-opus-4-6', harness: 'claude-code', count: 50 }])
-      .mockReturnValueOnce([{ date: '2026-03-10', harness: 'claude-code', tokens: 1500000, messages: 10 }])
+      .mockReturnValueOnce([{ tool_name: 'Bash', model: 'claude-opus-4-6', session_id: 1, count: 50 }])
       .mockReturnValueOnce([{ block_type: 'text', count: 100 }]);
 
     const req = new Request('http://localhost/api/tokens');
