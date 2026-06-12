@@ -1068,7 +1068,7 @@ export default function NodeDetailPage() {
                   <div className={cardCls}>
                     <h3 className={titleCls}>Memory Usage <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memCapGB || last.memTotalGB || '?'} GB</span></h3>
                     <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor} yUnit="GB"
-                      yMin={0} yMax={memCapGB > 0 ? Math.round(memCapGB * 1.05) : undefined}
+                      yMin={0}
                       series={[
                         { key: 'memCapGB', label: 'Cap', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
                         { key: 'memUsedGB', label: 'Used', stroke: '#60a5fa', fill: 'rgba(96,165,250,0.28)' },

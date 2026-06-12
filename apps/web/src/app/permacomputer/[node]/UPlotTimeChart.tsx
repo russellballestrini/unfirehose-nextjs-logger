@@ -102,7 +102,24 @@ export function UPlotTimeChart({
       padding: [10, 20, 4, 6],
       scales: {
         x: { time: true },
-        y: { auto: yMin == null && yMax == null, range: yMin != null || yMax != null ? [yMin ?? 0, yMax ?? 100] : undefined },
+        // y scale modes:
+        //   neither bound       — full auto, uPlot picks min/max from data
+        //   both bounds         — fixed [yMin, yMax]
+        //   one bound (e.g. yMin=0) — pin that bound, auto-fit the other with
+        //     5% headroom on the unfixed side. Required so e.g. the Memory
+        //     chart can pin yMin to 0 but let yMax grow if usage exceeds the
+        //     cap (swap pop-off) instead of clipping above the cap line.
+        y: (() => {
+          if (yMin == null && yMax == null) return { auto: true };
+          if (yMin != null && yMax != null) return { auto: false, range: [yMin, yMax] as [number, number] };
+          return {
+            auto: true,
+            range: ((_u: uPlot, dMin: number, dMax: number): [number, number] => [
+              yMin ?? Math.min(dMin, 0),
+              yMax ?? Math.max(dMax * 1.05, dMax + 1),
+            ]) as unknown as uPlot.Scale.Range,
+          };
+        })(),
       },
       legend: { show: false },
       cursor: {
