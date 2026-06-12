@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
   AreaChart,
@@ -567,16 +567,21 @@ export default function NodeDetailPage() {
   const loadPerCore = sys?.cpuCores > 0 && probe?.loadAvg ? probe.loadAvg[0] / sys.cpuCores : 0;
   const memPct = mem ? ((mem.totalGB - mem.availableGB) / mem.totalGB) * 100 : 0;
 
-  // Memoize chart data — recomputing this on every mousemove during drag was
-  // the source of choppy rendering. Now it only rebuilds when meshHistory ticks.
   const memTotalGB = useMemo(
     () => Math.round(((probe?.memory?.totalKB ?? 0) / 1048576) * 10) / 10,
     [probe?.memory?.totalKB],
   );
+  // useDeferredValue makes the timeline a low-priority input: when SWR polls
+  // new mesh data every 6s, React renders the chart subtree with the OLD
+  // timeline immediately (so the parent re-render is cheap) and schedules a
+  // re-render with the new timeline at low priority. Mouse moves during that
+  // low-priority work INTERRUPT it — React yields the main thread back to
+  // input, so our native listener keeps firing and the cursor stays smooth.
+  const timeline = meshHistory?.timeline;
+  const deferredTimeline = useDeferredValue(timeline);
   const chartData = useMemo(() => {
-    const timeline = meshHistory?.timeline;
-    if (!Array.isArray(timeline) || timeline.length === 0) return [] as any[];
-    return timeline
+    if (!Array.isArray(deferredTimeline) || deferredTimeline.length === 0) return [] as any[];
+    return deferredTimeline
       .filter((t: any) => t.nodes?.[host])
       .map((t: any) => {
         const n = t.nodes[host];
@@ -597,7 +602,7 @@ export default function NodeDetailPage() {
           elecCostPerHour: Math.round(((n.watts ?? 0) / 1000) * kwhRate * 100) / 100,
         };
       });
-  }, [meshHistory, host, memTotalGB, kwhRate]);
+  }, [deferredTimeline, host, memTotalGB, kwhRate]);
 
   return (
     <div className="p-6 w-full">
