@@ -96,7 +96,6 @@ export function UPlotTimeChart({
         },
         x: true,
         y: false,
-        focus: { prox: 30 },
       },
       axes: [
         {
