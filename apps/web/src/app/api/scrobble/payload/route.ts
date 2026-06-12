@@ -2,12 +2,29 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { calcCost } from '@unturf/unfirehose/pricing';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// In-process cache for the entire scrobble payload. This dashboard is
+// revisited often and the underlying lifetime stats only meaningfully drift
+// every few minutes; a 60s TTL keeps repeat loads under 5ms while letting
+// new ingest become visible inside a minute. (The worker polls every 60s
+// anyway, so a shorter TTL would just thrash with no real freshness gain.)
+let payloadCache: { data: any; ts: number } | null = null;
+const PAYLOAD_TTL_MS = 60_000;
+
 export async function GET() {
+  const t = new Timing();
   try {
     const db = getDb();
+    if (payloadCache && Date.now() - payloadCache.ts < PAYLOAD_TTL_MS) {
+      return NextResponse.json(payloadCache.data, {
+        headers: { 'Server-Timing': t.header() + ', cache;desc="hit"' },
+      });
+    }
+    t.mark('cache_miss');
+
     const handle = getSetting('unfirehose_handle') ?? 'anonymous';
     const displayName = getSetting('unfirehose_display_name') ?? handle;
 
@@ -24,6 +41,7 @@ export async function GET() {
       WHERE model IS NOT NULL AND model != '<synthetic>'
       GROUP BY model ORDER BY messages DESC
     `).all() as any[];
+    t.mark('models');
 
     // Derive lifetime totals from model rows
     let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalCost = 0;
@@ -38,15 +56,18 @@ export async function GET() {
     });
 
     // --- Lifetime counts (sessions, active days, date range) ---
+    // session_id is already on every message row, so we can derive distinct
+    // session count without the JOIN to `sessions` — saves ~1.7s on a
+    // dataset with 800k+ messages.
     const lifetime = db.prepare(`
-      SELECT COUNT(DISTINCT s.id) as total_sessions,
-             COUNT(DISTINCT m.id) as total_messages,
-             COUNT(DISTINCT DATE(m.timestamp)) as active_days,
-             MIN(m.timestamp) as first_activity,
-             MAX(m.timestamp) as last_activity
-      FROM messages m
-      JOIN sessions s ON m.session_id = s.id
+      SELECT COUNT(DISTINCT session_id) as total_sessions,
+             COUNT(*) as total_messages,
+             COUNT(DISTINCT DATE(timestamp)) as active_days,
+             MIN(timestamp) as first_activity,
+             MAX(timestamp) as last_activity
+      FROM messages
     `).get() as any;
+    t.mark('lifetime');
 
     // --- Combined activity: streaks + hour + dow + heatmap ---
     // Streaks need distinct dates
@@ -56,6 +77,7 @@ export async function GET() {
     `).all() as { d: string }[];
 
     const { currentStreak, longestStreak } = calcStreaks(activeDates.map(r => r.d));
+    t.mark('streaks');
 
     // Combined hour×dow heatmap (derive hour-of-day and day-of-week from it)
     const heatmapRows = db.prepare(`
@@ -65,6 +87,7 @@ export async function GET() {
       FROM messages WHERE timestamp IS NOT NULL
       GROUP BY dow, hour
     `).all() as any[];
+    t.mark('heatmap');
 
     // Derive hour-of-day and day-of-week aggregates from heatmap
     const hourMap = new Map<number, number>();
@@ -89,6 +112,7 @@ export async function GET() {
       WHERE timestamp >= ? AND model IS NOT NULL AND model != '<synthetic>'
       GROUP BY date, model ORDER BY date
     `).all(ninetyDaysAgo) as any[];
+    t.mark('daily');
 
     const dailyAgg: Record<string, { cost: number; count: number }> = {};
     for (const r of dailyRows) {
@@ -112,6 +136,7 @@ export async function GET() {
       JOIN messages m ON m.session_id = s.id
       GROUP BY harness ORDER BY sessions DESC
     `).all() as any[];
+    t.mark('harnesses');
 
     const weeklyVelocity = db.prepare(`
       SELECT strftime('%Y-W%W', m.timestamp) as week,
@@ -122,6 +147,7 @@ export async function GET() {
       WHERE m.timestamp >= ?
       GROUP BY week ORDER BY week
     `).all(twelveWeeksAgo) as any[];
+    t.mark('weekly');
 
     const tools = db.prepare(`
       SELECT tool_name, COUNT(*) as count
@@ -129,6 +155,7 @@ export async function GET() {
       WHERE block_type = 'tool_use' AND tool_name IS NOT NULL
       GROUP BY tool_name ORDER BY count DESC LIMIT 30
     `).all() as any[];
+    t.mark('tools');
 
     const projectStats = db.prepare(`
       SELECT p.name, p.display_name,
@@ -148,6 +175,7 @@ export async function GET() {
       GROUP BY p.id
       ORDER BY messages DESC
     `).all() as any[];
+    t.mark('projects');
 
     const avgSessionLen = db.prepare(`
       SELECT AVG(duration_ms) as avg_ms
@@ -159,6 +187,7 @@ export async function GET() {
         HAVING COUNT(m.id) > 1
       )
     `).get() as any;
+    t.mark('avg_session');
 
     // --- Badges ---
     const badges = computeBadges({
@@ -173,7 +202,7 @@ export async function GET() {
       harnessCount: harnesses.length,
     });
 
-    return NextResponse.json({
+    const payload = {
       $schema: 'unfirehose-scrobble/1.0',
       generatedAt: new Date().toISOString(),
       handle,
@@ -213,6 +242,11 @@ export async function GET() {
         lastActivity: p.last_activity,
       })),
       sessionStats: { avgDurationMs: Math.round(avgSessionLen?.avg_ms ?? 0) },
+    };
+    t.mark('serialize');
+    payloadCache = { data: payload, ts: Date.now() };
+    return NextResponse.json(payload, {
+      headers: { 'Server-Timing': t.header() + ', cache;desc="miss"' },
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
