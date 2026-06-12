@@ -1,9 +1,19 @@
 import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
 import { ingestAll, getDbStats } from '@unturf/unfirehose/db/ingest';
+import { getDb } from '@unturf/unfirehose/db/schema';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
+import { rollupDrain } from './mesh-rollup';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
+// Cold-tier rollup tick — one minute is plenty since each 15s sample only
+// ages past the 28-day boundary once. With multiple hosts the per-tick drain
+// (capped at 16) catches up quickly without locking the DB for long.
+const ROLLUP_TICK_MS = 60_000;
+// Daily VACUUM to reclaim pages freed by the snake-eats-tail delete after a
+// run of rollups. Cheap enough on this DB shape but locks briefly — schedule
+// at off-hours by offsetting the first run.
+const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const NEXT_BASE_URL = process.env.UNFIREHOSE_NEXT_URL ?? 'http://localhost:3000';
 
 // Deterministic per-host phase offset within [0, MESH_POLL_INTERVAL_MS) so that
@@ -95,11 +105,44 @@ async function main() {
   let meshTimers: Array<NodeJS.Timeout> = [];
   setTimeout(() => { meshTimers = startStaggeredMeshSampler(); }, 5_000);
 
+  // Cold-tier rollup tick. Each minute, drain up to 16 eligible 15-min
+  // buckets from mesh_snapshots → mesh_snapshots_15m using the gaussian-
+  // smoothed compress + snake-eats-tail delete (rollupDrain). Self-balances
+  // across hosts: the oldest unrolled bucket across the fleet wins each
+  // iteration, so no per-host scheduling logic needed.
+  const rollupInterval = setInterval(() => {
+    try {
+      const n = rollupDrain(getDb());
+      if (n > 0) console.log(`[worker] mesh rollup: folded ${n} bucket(s) into 15m tier`);
+    } catch (err) {
+      console.error('[worker] rollup failed:', err);
+    }
+  }, ROLLUP_TICK_MS);
+
+  // Daily VACUUM to reclaim pages freed by the rollup-delete. Offset the
+  // first run by 1 hour so a fresh worker doesn't VACUUM the moment ingest
+  // is busiest.
+  const vacuumKickoff = setTimeout(() => {
+    const runVacuum = () => {
+      try {
+        const t0 = Date.now();
+        getDb().exec('VACUUM');
+        console.log(`[worker] daily VACUUM complete in ${Date.now() - t0}ms`);
+      } catch (err) {
+        console.error('[worker] VACUUM failed:', err);
+      }
+    };
+    runVacuum();
+    setInterval(runVacuum, VACUUM_INTERVAL_MS);
+  }, 60 * 60 * 1000);
+
   // Graceful shutdown
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       console.log(`[worker] ${signal} received, shutting down`);
       clearInterval(interval);
+      clearInterval(rollupInterval);
+      clearTimeout(vacuumKickoff);
       for (const t of meshTimers) {
         clearTimeout(t);
         clearInterval(t);
@@ -109,7 +152,7 @@ async function main() {
     });
   }
 
-  console.log(`[worker] polling every ${POLL_INTERVAL_MS / 1000}s, mesh every ${MESH_POLL_INTERVAL_MS / 1000}s (per-node staggered), ctrl+c to stop`);
+  console.log(`[worker] polling every ${POLL_INTERVAL_MS / 1000}s, mesh every ${MESH_POLL_INTERVAL_MS / 1000}s (per-node staggered), rollup every ${ROLLUP_TICK_MS / 1000}s, ctrl+c to stop`);
 }
 
 main().catch((err) => {

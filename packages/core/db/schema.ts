@@ -289,6 +289,38 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_ts ON mesh_snapshots(timestamp);
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_host ON mesh_snapshots(hostname, timestamp);
 
+    -- Cold-tier mesh snapshots: 15-min smoothed aggregates of mesh_snapshots
+    -- past the 28-day hot retention boundary. Worker rollup folds 60 × 15s
+    -- samples per bucket into one row here using gaussian-weighted smoothing
+    -- across [previous 15m, current bucket, next 3 future buckets] for visual
+    -- continuity at the rollup boundary. Also stores per-bucket range stats
+    -- so charts can paint min/max bands if desired.
+    CREATE TABLE IF NOT EXISTS mesh_snapshots_15m (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,             -- 15min bucket start (UTC, aligned to :00/:15/:30/:45)
+      hostname TEXT NOT NULL,
+      cpu_cores INTEGER,
+      load_avg_1 REAL,                     -- smoothed mean
+      load_avg_5 REAL,
+      load_avg_15 REAL,
+      mem_total_gb REAL,
+      mem_used_gb REAL,                    -- smoothed mean
+      power_watts REAL,                    -- smoothed mean
+      gpu_power_watts REAL,
+      gpu_util REAL,                       -- smoothed mean
+      gpu_mem_used_mb REAL,
+      gpu_mem_total_mb REAL,
+      power_source TEXT,
+      claude_processes INTEGER DEFAULT 0,  -- peak concurrency (MAX of bucket samples)
+      sample_count INTEGER NOT NULL,       -- # of 15s rows folded (≤60)
+      load_avg_1_max REAL,                 -- per-bucket range stats for optional banding
+      power_watts_max REAL,
+      gpu_util_max REAL,
+      mem_used_gb_max REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_15m_host_ts ON mesh_snapshots_15m(hostname, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_15m_ts ON mesh_snapshots_15m(timestamp);
+
     -- Real-user web-vitals (TTFB, FCP, LCP, INP, CLS) reported by VitalsReporter
     -- client component. Used to triangulate server-time vs perceived slowness.
     CREATE TABLE IF NOT EXISTS web_vitals (

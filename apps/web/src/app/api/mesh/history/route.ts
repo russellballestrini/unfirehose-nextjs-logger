@@ -23,25 +23,45 @@ export async function GET(req: NextRequest) {
   const sinceDate = new Date(Date.now() - hours * 3600_000);
   const since = sinceDate.toISOString().replace('T', ' ').slice(0, 19);
 
+  // Tier dispatch: hot (mesh_snapshots, 15s × 28d) handles recent requests;
+  // requests reaching past the 28-day boundary UNION the cold tier
+  // (mesh_snapshots_15m, smoothed) so the chart stays continuous. Column
+  // shape is the same so downstream aggregation is tier-agnostic.
+  const HOT_RETENTION_DAYS = 28;
+  const hotBoundary = new Date(Date.now() - HOT_RETENTION_DAYS * 86400_000)
+    .toISOString().replace('T', ' ').slice(0, 19);
+  const needsCold = since < hotBoundary;
+  const SELECT_COLS = `timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
+       mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util,
+       gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes`;
+
   let rows: any[];
-  if (hostname === 'all') {
-    rows = db.prepare(`
-      SELECT timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
-             mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes
-      FROM mesh_snapshots
-      WHERE timestamp > ?
+  if (!needsCold) {
+    const sql = `
+      SELECT ${SELECT_COLS} FROM mesh_snapshots
+      WHERE timestamp > ?${hostname === 'all' ? '' : ' AND hostname = ?'}
       ORDER BY timestamp ASC
-    `).all(since);
+    `;
+    rows = hostname === 'all'
+      ? db.prepare(sql).all(since)
+      : db.prepare(sql).all(since, hostname);
   } else {
-    rows = db.prepare(`
-      SELECT timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
-             mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes
-      FROM mesh_snapshots
-      WHERE timestamp > ? AND hostname = ?
+    // Cold tier covers everything from `since` up to the 28-day boundary;
+    // hot tier covers boundary → now. The UNION ALL keeps order via a final
+    // ORDER BY so timeline aggregation sees a single monotonic stream.
+    const sql = `
+      SELECT ${SELECT_COLS} FROM mesh_snapshots_15m
+      WHERE timestamp > ? AND timestamp <= ?${hostname === 'all' ? '' : ' AND hostname = ?'}
+      UNION ALL
+      SELECT ${SELECT_COLS} FROM mesh_snapshots
+      WHERE timestamp > ?${hostname === 'all' ? '' : ' AND hostname = ?'}
       ORDER BY timestamp ASC
-    `).all(since, hostname);
+    `;
+    rows = hostname === 'all'
+      ? db.prepare(sql).all(since, hotBoundary, hotBoundary)
+      : db.prepare(sql).all(since, hotBoundary, hostname, hotBoundary, hostname);
   }
-  t.mark('query');
+  t.mark(needsCold ? 'query_tiered' : 'query');
 
   // Adaptive bucket size: short ranges need finer granularity so the live chart
   // doesn't sit on a stale current-minute bucket. Snapshots land every ~6-15s,
@@ -169,9 +189,9 @@ export async function POST(req: NextRequest) {
   });
   tx();
 
-  // Prune snapshots older than 30 days
-  const cutoff = new Date(Date.now() - 30 * 86400_000).toISOString().replace('T', ' ').slice(0, 19);
-  db.prepare('DELETE FROM mesh_snapshots WHERE timestamp < ?').run(cutoff);
-
+  // No prune here — the worker's rollup tick folds 15s rows past the
+  // 28-day boundary into mesh_snapshots_15m and deletes the source rows
+  // in the same transaction (snake-eats-tail). This route stays pure
+  // append-only.
   return NextResponse.json({ ok: true, recorded: nodes.filter((n: any) => n.reachable).length });
 }
