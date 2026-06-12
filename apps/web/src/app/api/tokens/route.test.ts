@@ -15,7 +15,7 @@ vi.mock('@unturf/unfirehose/claude-paths', () => ({
 const mockAll = vi.fn();
 vi.mock('@unturf/unfirehose/db/schema', () => ({
   getDb: () => ({
-    prepare: () => ({ all: mockAll }),
+    prepare: () => ({ all: mockAll, raw: () => ({ all: mockAll }) }),
   }),
 }));
 
@@ -23,12 +23,14 @@ const { GET } = await import('./route');
 
 describe('GET /api/tokens', () => {
   it('returns model breakdown with cost calculations', async () => {
-    // Query order: sessions-map, perSessionModel, toolRows, blockTypes
+    // Query order: sessions-map, perSessionModel (.raw() — arrays!), toolRows, blockTypes
     // (dailyByHarness is derived in JS from perSessionModel.last_ts — no SQL.)
     mockAll
       .mockReturnValueOnce([{ id: 1, harness: 'claude-code' }])
+      // perSessionModel uses .raw() so rows are arrays:
+      // [session_id, model, input, output, cacheRead, cacheCreation, messages, last_ts]
       .mockReturnValueOnce([
-        { session_id: 1, model: 'claude-opus-4-6', input_tokens: 1000000, output_tokens: 500000, cache_read_tokens: 0, cache_creation_tokens: 0, messages: 5, last_ts: '2026-03-10T12:00:00Z' },
+        [1, 'claude-opus-4-6', 1000000, 500000, 0, 0, 5, '2026-03-10T12:00:00Z'],
       ])
       .mockReturnValueOnce([{ tool_name: 'Bash', model: 'claude-opus-4-6', session_id: 1, count: 50 }])
       .mockReturnValueOnce([{ block_type: 'text', count: 100 }]);

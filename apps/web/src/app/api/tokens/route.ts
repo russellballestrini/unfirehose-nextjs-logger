@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
@@ -7,6 +7,11 @@ import { calcCost } from '@unturf/unfirehose/pricing';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// In-process memo of the stats-cache JSON keyed by mtime. The file is only
+// touched by our background ingester so this hits 100% between ingests and
+// we skip a 5-1800ms readFile+JSON.parse round-trip on every request.
+let statsCacheMemo: { mtimeMs: number; data: StatsCache } | null = null;
 
 export async function GET(request: NextRequest) {
   const t = new Timing();
@@ -44,6 +49,9 @@ export async function GET(request: NextRequest) {
     // without a second 250k-row scan. 99% of sessions are single-day so
     // attributing tokens to `DATE(last_ts)` is accurate; multi-day sessions
     // get pinned to their final day, close enough for our chart.
+    // .raw() returns rows as arrays instead of objects — skips V8 property
+    // construction for ~19k rows, measurable speedup vs .all().
+    // Column order: session_id, model, in, out, cr, cc, msgs, last_ts.
     const perSessionModel = db.prepare(`
       SELECT m.session_id, m.model,
              SUM(m.input_tokens) as input_tokens,
@@ -55,16 +63,7 @@ export async function GET(request: NextRequest) {
       FROM messages m
       WHERE m.model IS NOT NULL AND m.model != '<synthetic>'${dateFilter}
       GROUP BY m.session_id, m.model
-    `).all(...dateParams) as Array<{
-      session_id: number;
-      model: string;
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_tokens: number;
-      cache_creation_tokens: number;
-      messages: number;
-      last_ts: string | null;
-    }>;
+    `).raw().all(...dateParams) as Array<[number, string, number, number, number, number, number, string | null]>;
     t.mark('per-session-model');
 
     // Roll up per-session-model rows into our breakdowns in JS.
@@ -86,57 +85,65 @@ export async function GET(request: NextRequest) {
     const dailyKeyed = new Map<string, { date: string; harness: string; tokens: number; messages: number }>();
 
     for (const r of perSessionModel) {
-      const harness = harnessById.get(r.session_id) ?? 'unknown';
+      const session_id = r[0];
+      const model = r[1];
+      const input_tokens = r[2];
+      const output_tokens = r[3];
+      const cache_read_tokens = r[4];
+      const cache_creation_tokens = r[5];
+      const messages = r[6];
+      const last_ts = r[7];
+      const harness = harnessById.get(session_id) ?? 'unknown';
 
-      const mm = modelMap.get(r.model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-      mm.input += r.input_tokens;
-      mm.output += r.output_tokens;
-      mm.cacheRead += r.cache_read_tokens;
-      mm.cacheWrite += r.cache_creation_tokens;
-      modelMap.set(r.model, mm);
+      const mm = modelMap.get(model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      mm.input += input_tokens;
+      mm.output += output_tokens;
+      mm.cacheRead += cache_read_tokens;
+      mm.cacheWrite += cache_creation_tokens;
+      modelMap.set(model, mm);
 
-      const hmKey = harness + '\x00' + r.model;
+      const hmKey = harness + '\x00' + model;
       let hm = harnessModelKeyed.get(hmKey);
       if (!hm) {
         hm = {
-          harness, model: r.model,
+          harness, model,
           input_tokens: 0, output_tokens: 0,
           cache_read_tokens: 0, cache_creation_tokens: 0,
           sessions: new Set(),
         };
         harnessModelKeyed.set(hmKey, hm);
       }
-      hm.input_tokens += r.input_tokens;
-      hm.output_tokens += r.output_tokens;
-      hm.cache_read_tokens += r.cache_read_tokens;
-      hm.cache_creation_tokens += r.cache_creation_tokens;
-      hm.sessions.add(r.session_id);
+      hm.input_tokens += input_tokens;
+      hm.output_tokens += output_tokens;
+      hm.cache_read_tokens += cache_read_tokens;
+      hm.cache_creation_tokens += cache_creation_tokens;
+      hm.sessions.add(session_id);
 
       let hMap = harnessMap.get(harness);
       if (!hMap) {
         hMap = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, sessions: new Set() };
         harnessMap.set(harness, hMap);
       }
-      hMap.input += r.input_tokens;
-      hMap.output += r.output_tokens;
-      hMap.cacheRead += r.cache_read_tokens;
-      hMap.cacheWrite += r.cache_creation_tokens;
-      hMap.sessions.add(r.session_id);
+      hMap.input += input_tokens;
+      hMap.output += output_tokens;
+      hMap.cacheRead += cache_read_tokens;
+      hMap.cacheWrite += cache_creation_tokens;
+      hMap.sessions.add(session_id);
 
       // Daily attribution: pin each session-model row to its final day.
       // last_ts is ISO-8601 so substr(0,10) is the date.
-      if (r.last_ts && r.last_ts.length >= 10) {
-        const date = r.last_ts.slice(0, 10);
+      if (last_ts && last_ts.length >= 10) {
+        const date = last_ts.slice(0, 10);
         if (date >= cutoffDate) {
           const dKey = date + '\x00' + harness;
-          const sessionTokens = r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens;
+          const sessionTokens = input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens;
           let dEntry = dailyKeyed.get(dKey);
           if (!dEntry) {
             dEntry = { date, harness, tokens: 0, messages: 0 };
             dailyKeyed.set(dKey, dEntry);
           }
           dEntry.tokens += sessionTokens;
-          dEntry.messages += r.messages;
+          dEntry.messages += messages;
         }
       }
     }
@@ -255,14 +262,22 @@ export async function GET(request: NextRequest) {
         `).all() as Array<{ block_type: string; count: number }>;
     t.mark('blocks');
 
-    // Read stats cache for daily activity (non-blocking, fallback to empty).
+    // Read stats cache for daily activity (mtime-keyed memo to skip cold
+    // disk reads under dev-mode FS contention).
     let dailyActivity: any[] = [];
     let dailyModelTokens: any[] = [];
     try {
-      const raw = await readFile(claudePaths.statsCache, 'utf-8');
-      const stats: StatsCache = JSON.parse(raw);
-      dailyActivity = stats.dailyActivity ?? [];
-      dailyModelTokens = stats.dailyModelTokens ?? [];
+      const st = await stat(claudePaths.statsCache);
+      if (statsCacheMemo && statsCacheMemo.mtimeMs === st.mtimeMs) {
+        dailyActivity = statsCacheMemo.data.dailyActivity ?? [];
+        dailyModelTokens = statsCacheMemo.data.dailyModelTokens ?? [];
+      } else {
+        const raw = await readFile(claudePaths.statsCache, 'utf-8');
+        const stats: StatsCache = JSON.parse(raw);
+        statsCacheMemo = { mtimeMs: st.mtimeMs, data: stats };
+        dailyActivity = stats.dailyActivity ?? [];
+        dailyModelTokens = stats.dailyModelTokens ?? [];
+      }
     } catch { /* stats cache missing is fine */ }
     t.mark('stats-cache');
 

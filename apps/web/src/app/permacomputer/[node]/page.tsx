@@ -952,27 +952,9 @@ export default function NodeDetailPage() {
               Drag horizontally across any chart to zoom into that window. Use −/+ to step, reset to restore.
             </p>
 
-            {/* Hover details — updates 200ms after mouse settles so values
-                never thrash. Cursor line on charts follows in real-time. */}
-            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2 text-xs font-mono flex flex-wrap items-center gap-x-5 gap-y-1 min-h-[2rem]">
-              {hoverInfo ? (
-                <>
-                  <span className="text-[var(--color-foreground)] font-bold">
-                    {new Date(hoverInfo.tsMs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-                  </span>
-                  <span><span className="text-[var(--color-muted)]">load</span> {hoverInfo.load?.toFixed(2)} / {hoverInfo.cores}</span>
-                  <span><span className="text-[var(--color-muted)]">mem</span> {hoverInfo.memUsedGB}GB</span>
-                  {hoverInfo.gpuMemTotalGB > 0 && (
-                    <span><span className="text-[var(--color-muted)]">gpu</span> {hoverInfo.gpuUtil}% · {hoverInfo.gpuMemUsedGB}GB · {hoverInfo.gpuWatts}W</span>
-                  )}
-                  <span><span className="text-[var(--color-muted)]">watts</span> {hoverInfo.watts}W</span>
-                  <span><span className="text-[var(--color-muted)]">cost</span> ${hoverInfo.elecCostPerHour?.toFixed(3)}/hr</span>
-                  <span><span className="text-[var(--color-muted)]">claudes</span> {hoverInfo.claudes}</span>
-                </>
-              ) : (
-                <span className="text-[var(--color-muted)]">hover a chart for values</span>
-              )}
-            </div>
+            {/* Per-chart inline horizontal value lines (drawn by uPlot's
+                setCursor hook) replace the shared hover row — updates are
+                DOM-direct so values appear with the cursor, no React work. */}
 
             {chartEngine === 'uplot' && (() => {
               // uPlot chart engine — canvas, no React reconciliation per data tick.

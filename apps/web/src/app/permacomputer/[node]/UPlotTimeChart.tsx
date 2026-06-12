@@ -61,6 +61,9 @@ export function UPlotTimeChart({
 }: UPlotTimeChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const uRef = useRef<uPlot | null>(null);
+  // Inline horizontal value lines + labels, mutated via DOM in setCursor.
+  const valueLayerRef = useRef<HTMLDivElement | null>(null);
+  const valueItemsRef = useRef<HTMLDivElement[]>([]);
   // Latest refs so the option hooks (created once at mount) see current values.
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -97,9 +100,6 @@ export function UPlotTimeChart({
         sync: { key: syncKey, scales: ['x', null] },
         drag: { x: true, y: false, setScale: false },
         points: {
-          // Active dot suppressed on watermark series (sidx is 1-based;
-          // series[0] is the x-axis, so user series index = sidx - 1).
-          show: (_u, sidx) => !series[sidx - 1]?.watermark,
           size: 7,
           width: 1,
           stroke: () => '#ffffff',
@@ -157,18 +157,90 @@ export function UPlotTimeChart({
         }],
         setCursor: [(u) => {
           const idx = u.cursor.idx;
+          const layer = valueLayerRef.current;
+          const items = valueItemsRef.current;
           if (idx == null) {
             onCursorRef.current?.(null, null);
+            if (layer) layer.style.opacity = '0';
             return;
           }
           const xSec = u.data[0]?.[idx];
           onCursorRef.current?.(idx, typeof xSec === 'number' ? xSec * 1000 : null);
+          // Inline horizontal value lines per data series. Position +
+          // label updated via direct DOM — instant, no React re-render.
+          if (!layer) return;
+          layer.style.opacity = '1';
+          const plotH = u.over.clientHeight || 0;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (!item) continue;
+            const sIdx = i + 1;
+            const val = u.data[sIdx]?.[idx];
+            if (val == null || typeof val !== 'number') {
+              item.style.opacity = '0';
+              continue;
+            }
+            const yPx = u.valToPos(val, 'y');
+            item.style.opacity = '1';
+            item.style.transform = `translate3d(0,${yPx}px,0)`;
+            const label = item.firstChild?.nextSibling as HTMLElement | null;
+            if (label) {
+              const fmtVal = Math.abs(val) >= 100 ? val.toFixed(0)
+                : Math.abs(val) >= 10 ? val.toFixed(1)
+                : val.toFixed(2);
+              label.textContent = `${fmtVal}${yUnit ?? ''}`;
+              // Edge-flip: at top edge → label below the line.
+              // At bottom edge → label above the line. Otherwise above.
+              if (yPx < 18) {
+                label.style.top = '6px';
+                label.style.bottom = 'auto';
+              } else if (yPx > plotH - 18) {
+                label.style.top = 'auto';
+                label.style.bottom = '6px';
+              } else {
+                label.style.top = 'auto';
+                label.style.bottom = '6px';
+              }
+            }
+          }
         }],
       },
     };
 
     const u = new uPlot(opts, buildData(data, series), el);
     uRef.current = u;
+
+    // ────────────────────────────────────────────────────────────
+    // Inline horizontal value lines per data series. Each non-
+    // watermark series gets a dotted white line at its current
+    // value + a color-matched label. Lives inside u.over (sized to
+    // the plot area, so u.valToPos coords align). All updates are
+    // direct DOM mutations in the setCursor hook — never React.
+    // ────────────────────────────────────────────────────────────
+    const valueLayer = document.createElement('div');
+    valueLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;';
+    const valueItems: HTMLDivElement[] = [];
+    for (let i = 0; i < series.length; i++) {
+      const s = series[i];
+      if (s.watermark) { valueItems.push(null as unknown as HTMLDivElement); continue; }
+      const item = document.createElement('div');
+      // 1-based uPlot series index (series[0] is x-axis)
+      item.dataset.sidx = String(i + 1);
+      item.style.cssText = 'position:absolute;left:0;right:0;height:0;opacity:0;will-change:transform,opacity;';
+      const line = document.createElement('div');
+      line.style.cssText = 'position:absolute;left:0;right:0;top:-1px;height:0;border-top:1px dotted rgba(255,255,255,0.9);';
+      item.appendChild(line);
+      const label = document.createElement('span');
+      label.dataset.role = 'lbl';
+      label.style.cssText = `position:absolute;left:6px;padding:1px 5px;background:rgba(0,0,0,0.7);color:${s.stroke};font-size:11px;font-family:ui-monospace,monospace;border-radius:2px;white-space:nowrap;line-height:1.2;`;
+      label.textContent = '—';
+      item.appendChild(label);
+      valueLayer.appendChild(item);
+      valueItems.push(item);
+    }
+    u.over.appendChild(valueLayer);
+    valueLayerRef.current = valueLayer;
+    valueItemsRef.current = valueItems;
 
     const ro = new ResizeObserver(entries => {
       const w = entries[0]?.contentRect.width;
