@@ -96,6 +96,9 @@ export function UPlotTimeChart({
         },
         x: true,
         y: false,
+        // Series focus only matters when there's more than one line on the
+        // chart — with a single series there's nothing to highlight against.
+        ...(series.length > 1 ? { focus: { prox: 30 } } : {}),
       },
       axes: [
         {
