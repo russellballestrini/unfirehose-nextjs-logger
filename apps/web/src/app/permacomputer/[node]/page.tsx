@@ -929,37 +929,60 @@ export default function NodeDetailPage() {
           const zoomIn = () => zoomBy(0.5);
           const zoomOut = () => zoomBy(2);
           const resetZoom = () => setZoomDomain(null);
-          // Pan: shift the visible window by ½ its current span, clamped
-          // to data bounds. When at full view (no zoom), pan creates an
-          // initial half-zoom on the side we moved toward — that way the
-          // user always has somewhere to navigate even from the wide view.
+          // Pan: shift visible window by ½ span. Uses functional setState
+          // so rapid clicks chain correctly (React batching otherwise gives
+          // every click the same starting zoom).
+          //
+          // Crucially: when pan-left would push the view past dataMin, we
+          // BUMP the range dropdown up to the next option whose ms covers
+          // [newMin, dataMax]. SWR refetches with the wider window, the
+          // chart fills in. So pressing < repeatedly cascades through the
+          // ranges (1h → 3h → 6h → 12h → 24h → 7d → 14d → 28d → lifetime)
+          // until reaching the absolute oldest data.
           const panBy = (fraction: number) => {
-            if (!zoomDomain) {
-              const half = (dataMax - dataMin) / 2;
-              if (fraction < 0) setZoomDomain([dataMin, dataMin + half]);
-              else setZoomDomain([dataMax - half, dataMax]);
-              return;
-            }
-            const [curMin, curMax] = zoomDomain;
-            const span = curMax - curMin;
-            if (span <= 0) return;
-            const delta = span * fraction;
-            let a = curMin + delta, b = curMax + delta;
-            if (a < dataMin) { b += dataMin - a; a = dataMin; }
-            if (b > dataMax) { a -= b - dataMax; b = dataMax; }
-            if (a < dataMin) a = dataMin;
-            if (b - a < 1000) return;
-            // Snapping back to full data range clears the zoom (auto-fit).
-            if (a === dataMin && b === dataMax) setZoomDomain(null);
-            else setZoomDomain([a, b]);
+            setZoomDomain(prev => {
+              if (!prev) {
+                const half = (dataMax - dataMin) / 2;
+                if (fraction < 0) return [dataMin, dataMin + half];
+                return [dataMax - half, dataMax];
+              }
+              const [curMin, curMax] = prev;
+              const span = curMax - curMin;
+              if (span <= 0) return prev;
+              const delta = span * fraction;
+              let a = curMin + delta, b = curMax + delta;
+              // Right clamp — never pan into future data that doesn't exist.
+              if (b > dataMax) { a -= b - dataMax; b = dataMax; }
+              // Left underflow: bump range to fetch older history.
+              if (a < dataMin) {
+                if (rangeRef.current !== 'all') {
+                  const next = closestRangeForZoom(dataMax - a);
+                  if (next !== rangeRef.current) {
+                    zoomDrivenRangeRef.current = true;
+                    setRange(next);
+                  }
+                  // Keep the requested bounds; uPlot fills in when SWR returns.
+                  return [a, b];
+                }
+                // At lifetime — clamp at the oldest data we have.
+                b += dataMin - a;
+                a = dataMin;
+              }
+              if (a < dataMin) a = dataMin;
+              if (b - a < 1000) return prev;
+              if (a === dataMin && b === dataMax) return null;
+              return [a, b];
+            });
           };
           const panLeft = () => panBy(-0.5);
           const panRight = () => panBy(0.5);
-          // Left: always available if there's data — even at full view, a
-          // pan-left creates a half-zoom into the older window. Right:
-          // disabled when the forecast zone is already visible (no zoom
-          // OR the zoom already ends at dataMax).
-          const canPanLeft = chartData.length > 0;
+          // Left disabled only when we've already exhausted history: range
+          // is lifetime AND the zoom (if any) already sits at dataMin. Any
+          // other case can still navigate.
+          const atOldestEdge = range === 'all' && zoomDomain != null && zoomDomain[0] <= dataMin + 1000;
+          const canPanLeft = chartData.length > 0 && !atOldestEdge;
+          // Right disabled when forecast is already visible (no zoom, OR
+          // zoom's right edge already at dataMax).
           const canPanRight = zoomDomain != null && zoomDomain[1] < dataMax;
 
           const tz = typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
