@@ -38,6 +38,10 @@ export interface UPlotTimeChartProps {
   yUnit?: string;
   yMin?: number;
   yMax?: number;
+  // Fraction of the visible time span to leave as empty future space on
+  // the right edge. Defaults to 5% — visual breathing room AND a slot for
+  // forecasting overlays. Ignored when a zoom domain is explicitly set.
+  futurePadFraction?: number;
 }
 
 function buildData(rows: UPlotTimeChartProps['data'], series: UPlotSeries[]): uPlot.AlignedData {
@@ -58,6 +62,7 @@ function buildData(rows: UPlotTimeChartProps['data'], series: UPlotSeries[]): uP
 
 export function UPlotTimeChart({
   data, series, height, syncKey, domain, onZoom, onCursor, yUnit, yMin, yMax,
+  futurePadFraction = 0.05,
 }: UPlotTimeChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const uRef = useRef<uPlot | null>(null);
@@ -269,28 +274,32 @@ export function UPlotTimeChart({
   }, [height, syncKey, yUnit, yMin, yMax, series.length]);
 
   // Update data when rows change — uPlot.setData is canvas-only, no React.
-  // Pass `false` to preserve scales when a zoom is active so polling new data
-  // doesn't snap the view back to the full range and flicker.
+  // Pass `false` so uPlot never auto-fits the scale; the effect below owns
+  // scale (and adds the future-pad on the right when no zoom is active).
   useEffect(() => {
     if (uRef.current) {
-      uRef.current.setData(buildData(data, series), !domainRef.current);
+      uRef.current.setData(buildData(data, series), false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // Apply / clear zoom domain.
+  // Apply zoom domain, OR auto-fit data range PLUS a future-pad on the right
+  // for forecasting room. Re-runs on data so the rightmost edge always keeps
+  // the same proportional empty buffer as new samples roll in.
   useEffect(() => {
     const u = uRef.current;
     if (!u) return;
     if (domain) {
       u.setScale('x', { min: domain[0] / 1000, max: domain[1] / 1000 });
-    } else {
-      const xs = u.data[0];
-      if (xs && xs.length > 0) {
-        u.setScale('x', { min: xs[0] as number, max: xs[xs.length - 1] as number });
-      }
+      return;
     }
-  }, [domain]);
+    const xs = u.data[0];
+    if (!xs || xs.length === 0) return;
+    const dataMin = xs[0] as number;
+    const dataMax = xs[xs.length - 1] as number;
+    const pad = (dataMax - dataMin) * (futurePadFraction ?? 0);
+    u.setScale('x', { min: dataMin, max: dataMax + pad });
+  }, [domain, data, futurePadFraction]);
 
   return <div ref={containerRef} style={{ width: '100%', height }} />;
 }
