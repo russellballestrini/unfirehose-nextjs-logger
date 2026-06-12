@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -19,8 +20,10 @@ import { getDb } from '@unturf/unfirehose/db/schema';
  *   oldestPending   — the single oldest pending todo (likely forgotten)
  */
 export async function GET() {
+  const t = new Timing();
   try {
     const db = getDb();
+    t.mark('db_open');
 
     const counts = db.prepare(`
       SELECT
@@ -30,6 +33,7 @@ export async function GET() {
         COUNT(*) as total
       FROM todos
     `).get() as any;
+    t.mark('counts');
 
     const activeStats = db.prepare(`
       SELECT
@@ -40,6 +44,7 @@ export async function GET() {
       FROM todos
       WHERE status IN ('pending', 'in_progress')
     `).get() as any;
+    t.mark('active_stats');
 
     const byProject = db.prepare(`
       SELECT
@@ -55,6 +60,7 @@ export async function GET() {
       HAVING pending + in_progress > 0
       ORDER BY pending + in_progress DESC
     `).all() as any[];
+    t.mark('by_project');
 
     const bySource = db.prepare(`
       SELECT
@@ -66,6 +72,7 @@ export async function GET() {
       GROUP BY source
       ORDER BY pending + in_progress DESC
     `).all() as any[];
+    t.mark('by_source');
 
     const oldestPending = db.prepare(`
       SELECT t.id, t.content, t.source, t.created_at, t.updated_at,
@@ -76,6 +83,7 @@ export async function GET() {
       ORDER BY t.updated_at ASC
       LIMIT 1
     `).get() as any;
+    t.mark('oldest_pending');
 
     return NextResponse.json({
       counts: {
@@ -100,7 +108,7 @@ export async function GET() {
         updatedAt: oldestPending.updated_at,
         staleDays: Math.floor((Date.now() - new Date(oldestPending.updated_at).getTime()) / 86400000),
       } : null,
-    });
+    }, { headers: { 'Server-Timing': t.header() } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

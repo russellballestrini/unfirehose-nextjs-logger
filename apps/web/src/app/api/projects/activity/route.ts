@@ -4,6 +4,7 @@ import { readFile } from 'fs/promises';
 import { getProjectActivity, getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -131,18 +132,21 @@ function matchPromptsToCommits(
 }
 
 export async function GET(request: NextRequest) {
+  const t = new Timing();
   try {
     const days = Number(request.nextUrl.searchParams.get('days') ?? '30');
     const project = request.nextUrl.searchParams.get('project');
 
     const cached = activityCache.get(days);
-    const activity: any[] = (cached && Date.now() - cached.ts < ACTIVITY_TTL)
-      ? cached.data
+    const fromCache = cached && Date.now() - cached.ts < ACTIVITY_TTL;
+    const activity: any[] = fromCache
+      ? cached!.data
       : (() => {
           const fresh = getProjectActivity(days) as any[];
           activityCache.set(days, { data: fresh, ts: Date.now() });
           return fresh;
         })();
+    t.mark(fromCache ? 'activity_cache' : 'activity_query');
 
     // Compute per-project cost estimates using blended rate
     const enriched = activity.map((p: any) => {
@@ -157,6 +161,7 @@ export async function GET(request: NextRequest) {
         cost_estimate: Math.round(costEstimate * 100) / 100,
       };
     });
+    t.mark('enrich');
 
     // If a specific project is requested, include recent prompts + git context
     if (project) {
@@ -164,8 +169,10 @@ export async function GET(request: NextRequest) {
         Promise.resolve(getProjectRecentPrompts(project, 10)),
         getGitContext(project),
       ]);
+      t.mark('prompts_git');
       const proj = enriched.find((p: any) => p.name === project);
       const matched = matchPromptsToCommits(prompts, gitCtx);
+      t.mark('match_commits');
       return NextResponse.json({
         project: proj ?? null,
         recentPrompts: matched,
@@ -174,10 +181,10 @@ export async function GET(request: NextRequest) {
           unpushedCount: gitCtx.unpushedCount,
           remoteUrl: gitCtx.remoteUrl,
         } : null,
-      });
+      }, { headers: { 'Server-Timing': t.header() } });
     }
 
-    return NextResponse.json(enriched);
+    return NextResponse.json(enriched, { headers: { 'Server-Timing': t.header() } });
   } catch (err) {
     return NextResponse.json(
       { error: 'Failed to get activity', detail: String(err) },

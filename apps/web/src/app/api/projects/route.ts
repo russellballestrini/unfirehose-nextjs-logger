@@ -3,6 +3,7 @@ import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { decodeProjectName, resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { NextResponse } from 'next/server';
 import type { ProjectInfo, SessionsIndex } from '@unturf/unfirehose/types';
+import { Timing } from '@/lib/timing';
 
 // In-memory cache — 30s TTL
 let cache: { data: ProjectInfo[]; ts: number } | null = null;
@@ -55,20 +56,25 @@ async function loadOneProject(dir: string): Promise<ProjectInfo | null> {
 }
 
 export async function GET() {
+  const t = new Timing();
   if (cache && Date.now() - cache.ts < CACHE_TTL) {
-    return NextResponse.json(cache.data);
+    t.mark('cache');
+    return NextResponse.json(cache.data, { headers: { 'Server-Timing': t.header() } });
   }
 
   try {
     const projectDirs = await readdir(claudePaths.projects);
+    t.mark('readdir');
 
     // Load all projects in parallel
     const results = await Promise.all(projectDirs.map(loadOneProject));
+    t.mark('load_each');
     const projects = results.filter(Boolean) as ProjectInfo[];
     projects.sort((a, b) => b.latestActivity.localeCompare(a.latestActivity));
+    t.mark('sort');
 
     cache = { data: projects, ts: Date.now() };
-    return NextResponse.json(projects);
+    return NextResponse.json(projects, { headers: { 'Server-Timing': t.header() } });
   } catch (err) {
     return NextResponse.json(
       { error: 'Failed to list projects', detail: String(err) },

@@ -273,6 +273,19 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_ts ON mesh_snapshots(timestamp);
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_host ON mesh_snapshots(hostname, timestamp);
 
+    -- Real-user web-vitals (TTFB, FCP, LCP, INP, CLS) reported by VitalsReporter
+    -- client component. Used to triangulate server-time vs perceived slowness.
+    CREATE TABLE IF NOT EXISTS web_vitals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,                  -- Date.now() at insert
+      pathname TEXT NOT NULL,               -- window.location.pathname
+      metric TEXT NOT NULL,                 -- TTFB | FCP | LCP | INP | CLS
+      value REAL NOT NULL,                  -- ms for time-based, unitless for CLS
+      rating TEXT NOT NULL,                 -- good | needs-improvement | poor
+      session_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_web_vitals_path_metric_ts ON web_vitals(pathname, metric, ts);
+
     -- Training runs: one row per training run
     CREATE TABLE IF NOT EXISTS training_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

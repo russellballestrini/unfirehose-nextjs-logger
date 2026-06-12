@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { execSync, execFile } from 'child_process';
 import { readFileSync, readdirSync } from 'fs';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -707,8 +708,9 @@ let meshCache: { data: any; ts: number } | null = null;
 let refreshing = false;
 const MESH_CACHE_TTL = 15_000; // 15 seconds
 
-async function probeMesh() {
+async function probeMesh(timing?: Timing) {
   const nodeHosts = discoverNodes();
+  timing?.mark('discover');
 
   // Probe all nodes in parallel — local is sync, remote is async
   const rawResults = await Promise.all(
@@ -718,6 +720,7 @@ async function probeMesh() {
         : getRemoteStatsAsync(host)
     )
   );
+  timing?.mark('probe_all');
 
   const results = deduplicateNodes(rawResults);
 
@@ -732,6 +735,7 @@ async function probeMesh() {
   // Detect local hostname for clients to map mesh node → localhost
   let localHostname: string | undefined;
   try { localHostname = execSync('hostname', { encoding: 'utf-8' }).trim(); } catch {}
+  timing?.mark('summarize');
 
   return {
     nodes: results,
@@ -761,6 +765,7 @@ async function probeSingleHost(host: string) {
 }
 
 export async function GET(req: NextRequest) {
+  const t = new Timing();
   // Single-host filter lets the headless worker stagger per-node probes
   // without changing the response shape clients consume (still { nodes: [...] }).
   const host = req.nextUrl.searchParams.get('host');
@@ -769,14 +774,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid host' }, { status: 400 });
     }
     const data = await probeSingleHost(host);
-    return NextResponse.json(data);
+    t.mark('probe_single');
+    return NextResponse.json(data, { headers: { 'Server-Timing': t.header() } });
   }
 
   const now = Date.now();
 
   // Fresh cache — serve immediately
   if (meshCache && (now - meshCache.ts) < MESH_CACHE_TTL) {
-    return NextResponse.json(meshCache.data);
+    t.mark('cache_fresh');
+    return NextResponse.json(meshCache.data, { headers: { 'Server-Timing': t.header() } });
   }
 
   // Stale cache — serve stale, trigger background refresh
@@ -788,12 +795,13 @@ export async function GET(req: NextRequest) {
     }).catch(() => {
       refreshing = false;
     });
-    return NextResponse.json(meshCache.data);
+    t.mark('cache_stale_swr');
+    return NextResponse.json(meshCache.data, { headers: { 'Server-Timing': t.header() } });
   }
 
   // Cold start (or stale + already refreshing) — probe synchronously
-  const data = await probeMesh();
+  const data = await probeMesh(t);
   meshCache = { data, ts: Date.now() };
   refreshing = false;
-  return NextResponse.json(data);
+  return NextResponse.json(data, { headers: { 'Server-Timing': t.header() } });
 }

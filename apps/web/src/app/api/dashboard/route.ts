@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { calcCost, hostForMessage, getKwhRate, CLOUD_PROVIDERS, PRICING } from '@unturf/unfirehose/pricing';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,11 +18,13 @@ const TIME_RANGES: Record<string, number> = {
 };
 
 export async function GET(request: NextRequest) {
+  const t = new Timing();
   const range = request.nextUrl.searchParams.get('range') ?? '7d';
   const minutes = TIME_RANGES[range] ?? 10080;
 
   try {
     const db = getDb();
+    t.mark('db_open');
     const windowStart = minutes > 0
       ? new Date(Date.now() - minutes * 60 * 1000).toISOString()
       : '1970-01-01T00:00:00.000Z';
@@ -36,6 +39,7 @@ export async function GET(request: NextRequest) {
       JOIN sessions s ON m.session_id = s.id
       WHERE m.timestamp >= ?
     `).get(windowStart) as any;
+    t.mark('summary');
 
     // Model breakdown with costs. last_seen lets us auto-hide sunset
     // models — anything whose newest message is older than the recent
@@ -52,6 +56,7 @@ export async function GET(request: NextRequest) {
         AND timestamp >= ?
       GROUP BY model
     `).all(windowStart) as any[];
+    t.mark('models');
 
     // Per-model winning (endpoint, provider) — the pair that served the most
     // tokens in this window. Used to attribute self-hosted vs cloud without
@@ -64,6 +69,7 @@ export async function GET(request: NextRequest) {
         AND timestamp >= ?
       GROUP BY model, endpoint, provider
     `).all(windowStart) as Array<{ model: string; endpoint: string | null; provider: string | null; total_tokens: number }>;
+    t.mark('attribution');
     const dominantAttr: Record<string, { endpoint: string | null; provider: string | null }> = {};
     for (const r of dbAttribution) {
       const prev = dominantAttr[r.model];
@@ -102,6 +108,7 @@ export async function GET(request: NextRequest) {
         AND gpu_util IS NOT NULL AND gpu_util > 30
       ORDER BY hostname ASC, timestamp ASC
     `).all(meshSince) as Array<{ hostname: string; timestamp: string; gpu_power_watts: number }>;
+    t.mark('mesh_query');
 
     const kwhByHost: Record<string, number> = {};
     const lastByHost: Record<string, { ts: number; w: number }> = {};
@@ -183,6 +190,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.totalTokens - a.totalTokens);
 
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
+    t.mark('cost_attribute');
 
     // Daily activity (message counts per day)
     const dailyActivity = db.prepare(`
@@ -192,6 +200,7 @@ export async function GET(request: NextRequest) {
       GROUP BY DATE(timestamp)
       ORDER BY date
     `).all(windowStart) as any[];
+    t.mark('daily');
 
     // Hour distribution
     const hourCounts = db.prepare(`
@@ -201,6 +210,7 @@ export async function GET(request: NextRequest) {
       GROUP BY hour
       ORDER BY hour
     `).all(windowStart) as any[];
+    t.mark('hours');
 
     // Day-of-week distribution (0=Sunday, 6=Saturday)
     const dayOfWeekCounts = db.prepare(`
@@ -210,6 +220,7 @@ export async function GET(request: NextRequest) {
       GROUP BY dow
       ORDER BY dow
     `).all(windowStart) as any[];
+    t.mark('dow');
 
     // Day-of-week × hour heatmap (for bell curves per day)
     const dowHourCounts = db.prepare(`
@@ -221,11 +232,13 @@ export async function GET(request: NextRequest) {
       GROUP BY dow, hour
       ORDER BY dow, hour
     `).all(windowStart) as any[];
+    t.mark('dow_hour');
 
     // First session date (all time, for the "Since" card)
     const firstSession = db.prepare(`
       SELECT MIN(timestamp) as first FROM messages WHERE timestamp IS NOT NULL
     `).get() as any;
+    t.mark('first_session');
 
     return NextResponse.json({
       range,
@@ -250,7 +263,7 @@ export async function GET(request: NextRequest) {
         hour: d.hour,
         count: d.count,
       })),
-    });
+    }, { headers: { 'Server-Timing': t.header() } });
   } catch (err) {
     return NextResponse.json(
       { error: 'Failed to load dashboard', detail: String(err) },

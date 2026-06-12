@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -12,9 +13,11 @@ import { getDb } from '@unturf/unfirehose/db/schema';
  */
 
 export async function GET(req: NextRequest) {
+  const t = new Timing();
   const hours = parseInt(req.nextUrl.searchParams.get('hours') ?? '24');
   const hostname = req.nextUrl.searchParams.get('hostname') ?? 'all';
   const db = getDb();
+  t.mark('db_open');
 
   // SQLite datetime('now') uses 'YYYY-MM-DD HH:MM:SS' format (no T, no Z)
   const sinceDate = new Date(Date.now() - hours * 3600_000);
@@ -38,6 +41,7 @@ export async function GET(req: NextRequest) {
       ORDER BY timestamp ASC
     `).all(since, hostname);
   }
+  t.mark('query');
 
   // Adaptive bucket size: short ranges need finer granularity so the live chart
   // doesn't sit on a stale current-minute bucket. Snapshots land every ~6-15s,
@@ -119,8 +123,12 @@ export async function GET(req: NextRequest) {
   const hostnames = rawHostnames.filter(h =>
     !rawHostnames.some(other => other !== h && other.startsWith(h + '.'))
   );
+  t.mark('aggregate');
 
-  return NextResponse.json({ timeline, hostnames, hours, count: rows.length });
+  return NextResponse.json(
+    { timeline, hostnames, hours, count: rows.length },
+    { headers: { 'Server-Timing': t.header() } },
+  );
 }
 
 export async function POST(req: NextRequest) {
