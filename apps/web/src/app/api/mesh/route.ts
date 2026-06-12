@@ -94,9 +94,10 @@ function readRaplWatts(): number | null {
  */
 function readNvidiaPowerWatts(): number | null {
   try {
-    const output = execSync('nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits', {
+    const output = execSync('nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits 2>/dev/null', {
       encoding: 'utf-8',
       timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     // Sum all GPUs
     const total = output.split('\n').reduce((sum, line) => {
