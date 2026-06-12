@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
   AreaChart,
@@ -386,16 +386,24 @@ export default function NodeDetailPage() {
       return el?.closest?.('[data-chart-wrapper="node-detail"]') as HTMLElement | null ?? null;
     };
 
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
     const onMove = (e: MouseEvent) => {
       const wrapper = findWrapper(e.target);
       if (!wrapper) {
-        if (dragStartPxRef.current == null) {
-          updateCursors(null);
-          if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-          setHoverInfo(null);
+        // Mouse is briefly outside every chart wrapper — could be the gap
+        // between two cards, or a re-render flash. Don't hide instantly;
+        // wait 80ms so quick traversals don't flicker the cursor.
+        if (dragStartPxRef.current == null && hideTimer == null) {
+          hideTimer = setTimeout(() => {
+            hideTimer = null;
+            updateCursors(null);
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+            setHoverInfo(null);
+          }, 80);
         }
         return;
       }
+      if (hideTimer != null) { clearTimeout(hideTimer); hideTimer = null; }
       const rect = wrapper.getBoundingClientRect();
       const x = e.clientX - rect.left;
       updateCursors(x);
@@ -916,21 +924,18 @@ export default function NodeDetailPage() {
                 CPU Load
                 <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Legend />
-                  <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                  <Area type="monotone" dataKey="load" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
+                  <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
+                  <Area type="monotone" dataKey="load" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
 
@@ -940,23 +945,20 @@ export default function NodeDetailPage() {
                 Memory Usage
                 <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Legend />
                   {last.memTotalGB > 0 && (
-                    <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
+                    <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                   )}
-                  <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} />
+                  <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
 
@@ -967,19 +969,16 @@ export default function NodeDetailPage() {
                 GPU Utilization
                 <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
+                  <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
             )}
@@ -991,20 +990,17 @@ export default function NodeDetailPage() {
                 GPU Memory
                 <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                  <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
+                  <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
+                  <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
             )}
@@ -1016,19 +1012,16 @@ export default function NodeDetailPage() {
                 GPU Power
                 <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
+                  <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
             )}
@@ -1041,19 +1034,16 @@ export default function NodeDetailPage() {
                   ${last.elecCostPerHour.toFixed(3)}/hr &middot; ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo
                 </span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
+                  <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
 
@@ -1063,24 +1053,21 @@ export default function NodeDetailPage() {
                 Compute Wattage
                 <span className="text-xs font-normal ml-2">{last.watts}W current</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Legend />
-                  <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
+                  <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
+                  <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                   {chartData.some((t: any) => t.gpuWatts > 0) && (
-                    <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} />
+                    <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                   )}
                 </LineChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
 
@@ -1090,19 +1077,16 @@ export default function NodeDetailPage() {
                 Active Claudes
                 <span className="text-xs font-normal ml-2">{last.claudes} current</span>
               </h3>
-              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
+                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
-                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
-              </div>
+              <ChartOverlay />
               </div>
             </div>
 
@@ -1456,6 +1440,46 @@ export default function NodeDetailPage() {
     </div>
   );
 }
+
+// Static style refs for the chart overlay — module-level so React sees the same
+// reference on every render and (with React.memo on ChartOverlay) skips
+// reconciling these divs entirely. That keeps the DOM mutations from the
+// native mouse listener intact even when meshHistory polls new data.
+const CHART_CURSOR_STYLE: React.CSSProperties = {
+  position: 'absolute', top: 0, bottom: 0, left: 0, width: 1,
+  background: 'rgba(255,255,255,0.85)',
+  boxShadow: '0 0 3px rgba(255,255,255,0.5)',
+  opacity: 0,
+  transform: 'translate3d(-1px,0,0)',
+  willChange: 'transform, opacity',
+  pointerEvents: 'none',
+};
+const CHART_DRAG_STYLE: React.CSSProperties = {
+  position: 'absolute', top: 0, bottom: 0, left: 0, width: 0,
+  background: 'rgba(212,0,0,0.18)',
+  borderLeft: '1px solid rgba(212,0,0,0.55)',
+  borderRight: '1px solid rgba(212,0,0,0.55)',
+  opacity: 0,
+  transform: 'translate3d(0,0,0)',
+  willChange: 'transform, width, opacity',
+  pointerEvents: 'none',
+};
+const CHART_OVERLAY_WRAP_STYLE: React.CSSProperties = {
+  position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden',
+};
+// Per-chart Tooltip is hidden (shared hover row replaces it) but kept mounted
+// so recharts still updates its activeIndex on hover, which drives activeDot.
+const NULL_TOOLTIP = () => null;
+const HIDDEN_WRAPPER_STYLE: React.CSSProperties = { display: 'none' };
+const ChartOverlay = React.memo(function ChartOverlay() {
+  return (
+    <div style={CHART_OVERLAY_WRAP_STYLE}>
+      <div data-chart-cursor="node-detail" style={CHART_CURSOR_STYLE} />
+      <div data-chart-drag="node-detail" style={CHART_DRAG_STYLE} />
+    </div>
+  );
+});
+ChartOverlay.displayName = 'ChartOverlay';
 
 // Tooltip content that debounces re-renders — cursor line tracks ASAP (recharts
 // native), but the numeric details only update once the mouse has settled for
