@@ -146,20 +146,27 @@ function migrate(db: Database.Database) {
     );
 
     -- Blog posts (jsonblog.org schema)
+    -- Columns description/source/content/created_at added later via addColumn migration
+    -- to match the jsonblog feed (apps/web/src/app/api/blog/blah.json) and the /blog UI.
     CREATE TABLE IF NOT EXISTS posts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       post_uuid TEXT UNIQUE NOT NULL,
       post_type TEXT NOT NULL DEFAULT 'status',
       title TEXT,
-      content_text TEXT NOT NULL,
+      content_text TEXT,
+      description TEXT,
+      source TEXT,
+      content TEXT,
       tags TEXT,
       url TEXT,
       in_reply_to TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       published_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at);
     CREATE INDEX IF NOT EXISTS idx_posts_type ON posts(post_type);
 
     -- PII replacement audit log (stores hashes, never raw PII)
@@ -348,9 +355,19 @@ function migrate(db: Database.Database) {
     -- Covering index for /api/tokens: token aggregation by session+model
     CREATE INDEX IF NOT EXISTS idx_messages_session_model_tokens ON messages(session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)
       WHERE model IS NOT NULL;
+    -- Covering index for /api/tokens dailyByHarness: adds timestamp + excludes synthetic.
+    -- Partial-WHERE matches our filter exactly so SQLite can use this for per-session aggregations
+    -- without touching the messages heap (and without the synthetic rows polluting the scan).
+    CREATE INDEX IF NOT EXISTS idx_messages_session_model_ts ON messages(session_id, model, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens)
+      WHERE model IS NOT NULL AND model != '<synthetic>';
 
     -- Speed up content_blocks preview fetch (message_id + block_type filter + position sort)
     CREATE INDEX IF NOT EXISTS idx_content_blocks_msg_type_pos ON content_blocks(message_id, block_type, position);
+
+    -- Covering index for /api/thinking preceding-prompt lookup: per-session user-message walk
+    -- ordered by timestamp. Without this SQLite picks idx_content_blocks_type_message and scans
+    -- every text block in the DB per session — ~400ms per session × N sessions per page.
+    CREATE INDEX IF NOT EXISTS idx_messages_session_type_ts ON messages(session_id, type, timestamp);
   `);
 
   // Schema migrations: add columns to existing tables
@@ -370,6 +387,11 @@ function migrate(db: Database.Database) {
   addColumn('projects', 'last_cwd_seen', 'TEXT');      // most recent cwd observed during ingest
   addColumn('todos', 'estimated_minutes', 'INTEGER');
   addColumn('todos', 'uuid', 'TEXT');
+  // posts: jsonblog feed columns (existing DBs may have only content_text)
+  addColumn('posts', 'description', 'TEXT');
+  addColumn('posts', 'source', 'TEXT');
+  addColumn('posts', 'content', 'TEXT');
+  addColumn('posts', 'created_at', "TEXT NOT NULL DEFAULT (datetime('now'))");
   addColumn('agent_deployments', 'tmux_window', 'TEXT');
   addColumn('mesh_snapshots', 'gpu_util', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_used_mb', 'REAL');

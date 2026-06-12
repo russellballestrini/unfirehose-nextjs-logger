@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -11,6 +12,8 @@ export async function GET(request: NextRequest) {
   const search = url.searchParams.get('search')?.trim();
   const dateFrom = url.searchParams.get('from');
   const dateTo = url.searchParams.get('to');
+
+  const t = new Timing();
 
   try {
     const db = getDb();
@@ -51,25 +54,26 @@ export async function GET(request: NextRequest) {
     params.push(limit, offset);
 
     const rows = db.prepare(query).all(...params) as any[];
+    t.mark('main_query');
 
-    // Batch: get the latest user prompt BEFORE each thinking block's message
-    // Group by session to reduce queries — one per unique session
+    // Group thinking blocks by session and find the most recent user prompt before each.
+    // ONE query per unique session, driven by idx_messages_session_type_ts so we
+    // pay ~2ms/session instead of scanning every text block per call.
     const sessionMessages = new Map<number, { msgId: number; ts: string }[]>();
     for (const row of rows) {
       if (!sessionMessages.has(row.session_id)) sessionMessages.set(row.session_id, []);
       sessionMessages.get(row.session_id)!.push({ msgId: row.message_id, ts: row.timestamp });
     }
 
-    // For each session, get all user text blocks ordered by time (single query per session)
-    const promptCache = new Map<number, string>(); // message_id -> preceding prompt
     const userPromptStmt = db.prepare(`
-      SELECT m.id, m.timestamp, SUBSTR(cb.text_content, 1, 300) as prompt
+      SELECT m.timestamp, SUBSTR(cb.text_content, 1, 300) as prompt
       FROM messages m
       JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
       WHERE m.session_id = ? AND m.type = 'user'
       ORDER BY m.timestamp
     `);
 
+    const promptCache = new Map<number, string>(); // message_id -> preceding prompt
     for (const [sessionId, msgs] of sessionMessages) {
       const userPrompts = userPromptStmt.all(sessionId) as any[];
       for (const msg of msgs) {
@@ -94,6 +98,7 @@ export async function GET(request: NextRequest) {
       model: row.model,
       charCount: row.thinking?.length ?? 0,
     }));
+    t.mark('prompts');
 
     // Total count — fast path when no filters
     let total: number;
@@ -118,8 +123,12 @@ export async function GET(request: NextRequest) {
         WHERE ${countWhere}
       `).get(...countParams) as any).total;
     }
+    t.mark('count');
 
-    return NextResponse.json({ entries, total, limit, offset });
+    return NextResponse.json(
+      { entries, total, limit, offset },
+      { headers: { 'Server-Timing': t.header() } },
+    );
   } catch (err: any) {
     return NextResponse.json(
       { error: 'Failed to query thinking', detail: err.message },
