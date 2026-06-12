@@ -387,11 +387,14 @@ function migrate(db: Database.Database) {
   addColumn('projects', 'last_cwd_seen', 'TEXT');      // most recent cwd observed during ingest
   addColumn('todos', 'estimated_minutes', 'INTEGER');
   addColumn('todos', 'uuid', 'TEXT');
-  // posts: jsonblog feed columns (existing DBs may have only content_text)
+  // posts: jsonblog feed columns (existing DBs may have only content_text).
+  // SQLite forbids non-constant defaults on ALTER ADD COLUMN, so created_at is
+  // added without a default and backfilled from published_at below.
   addColumn('posts', 'description', 'TEXT');
   addColumn('posts', 'source', 'TEXT');
   addColumn('posts', 'content', 'TEXT');
-  addColumn('posts', 'created_at', "TEXT NOT NULL DEFAULT (datetime('now'))");
+  addColumn('posts', 'created_at', 'TEXT');
+  db.exec(`UPDATE posts SET created_at = COALESCE(created_at, published_at) WHERE created_at IS NULL;`);
   addColumn('agent_deployments', 'tmux_window', 'TEXT');
   addColumn('mesh_snapshots', 'gpu_util', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_used_mb', 'REAL');

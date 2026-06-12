@@ -2497,15 +2497,20 @@ export function createPost(opts: {
 }): number {
   const db = getDb();
   const uuid = crypto.randomUUID();
+  // content_text is the legacy NOT NULL column on existing DBs; mirror content into it.
+  const contentText = opts.content ?? opts.description ?? '';
+  // created_at lacks a column-level default on existing DBs (SQLite forbids non-constant
+  // defaults on ALTER ADD COLUMN), so set it explicitly here.
   const result = db.prepare(
-    `INSERT INTO posts (post_uuid, title, description, source, content, url)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO posts (post_uuid, title, description, source, content, content_text, url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(
     uuid,
     opts.title,
     opts.description ?? null,
     opts.source ?? null,
     opts.content ?? null,
+    contentText,
     opts.url ?? null,
   );
   return result.lastInsertRowid as number;

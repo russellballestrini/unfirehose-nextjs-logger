@@ -28,8 +28,10 @@ function getAccountTier(request: NextRequest): number {
 }
 
 export async function GET(request: NextRequest) {
+  // Local mode: no control DB, no keys to list. Return empty list with mode flag
+  // so the /keys page can render a sensible message instead of firing SWR error state.
   if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 });
+    return NextResponse.json({ mode: 'local', keys: [] });
   }
 
   const accountId = getAccountId(request);

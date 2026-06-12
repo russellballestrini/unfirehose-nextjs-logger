@@ -21,7 +21,7 @@ interface AccountInfo {
 }
 
 export default function KeysPage() {
-  const { data, error, mutate } = useSWR<{ keys: ApiKey[] }>('/api/keys', fetcher);
+  const { data, error, mutate } = useSWR<{ keys: ApiKey[]; mode?: string }>('/api/keys', fetcher);
   const { data: accountData } = useSWR<AccountInfo>('/api/account', fetcher);
   const [newLabel, setNewLabel] = useState('');
   const [newScopes, setNewScopes] = useState('ingest');
@@ -94,7 +94,7 @@ export default function KeysPage() {
     if (res.ok) mutate();
   }, [mutate]);
 
-  if (error) {
+  if (error || data?.mode === 'local') {
     return (
       <div className="space-y-4">
         <h1 className="text-lg font-bold">API Keys</h1>
