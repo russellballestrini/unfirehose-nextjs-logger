@@ -918,6 +918,24 @@ export default function NodeDetailPage() {
           const zoomIn = () => zoomBy(0.5);
           const zoomOut = () => zoomBy(2);
           const resetZoom = () => setZoomDomain(null);
+          // Pan: shift the visible window by ½ its current span, clamped
+          // to data bounds. Works even when no explicit zoom is active —
+          // it creates a half-data zoom on the side we panned toward.
+          const panBy = (fraction: number) => {
+            const span = viewSpanMs;
+            if (span <= 0) return;
+            const delta = span * fraction;
+            let a = viewMin + delta, b = viewMax + delta;
+            if (a < dataMin) { b += dataMin - a; a = dataMin; }
+            if (b > dataMax) { a -= b - dataMax; b = dataMax; }
+            if (a < dataMin) a = dataMin;
+            if (b - a < 1000) return;
+            setZoomDomain([a, b]);
+          };
+          const panLeft = () => panBy(-0.5);
+          const panRight = () => panBy(0.5);
+          const canPanLeft = viewMin > dataMin;
+          const canPanRight = viewMax < dataMax;
 
           const tz = typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
           return (
@@ -931,10 +949,14 @@ export default function NodeDetailPage() {
               </h2>
               <div className="flex items-center gap-2">
                 <div className="flex items-center border border-[var(--color-border)] rounded overflow-hidden text-xs">
+                  <button onClick={panLeft} disabled={!canPanLeft} title="Pan left ½ screen"
+                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed">‹</button>
                   <button onClick={zoomOut} title="Zoom out 2×"
-                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer font-bold">−</button>
+                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer border-l border-[var(--color-border)] font-bold">−</button>
                   <button onClick={zoomIn} title="Zoom in 2×"
                     className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer border-l border-[var(--color-border)] font-bold">+</button>
+                  <button onClick={panRight} disabled={!canPanRight} title="Pan right ½ screen"
+                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer border-l border-[var(--color-border)] font-bold disabled:opacity-40 disabled:cursor-not-allowed">›</button>
                   <button onClick={resetZoom} disabled={!zoomDomain}
                     title="Reset zoom to full range"
                     className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer border-l border-[var(--color-border)] disabled:opacity-40 disabled:cursor-not-allowed">
