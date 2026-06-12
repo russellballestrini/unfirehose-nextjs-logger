@@ -398,7 +398,15 @@ export default function NodeDetailPage() {
     const hi = Math.max(a, b);
     if (hi - lo < 1000) return;
     setZoomDomain([lo, hi]);
-    const next = closestRangeForZoom(hi - lo);
+    // Range must cover from the zoom's LEFT edge all the way to dataMax,
+    // not just the zoom span. If we snap on span alone, a drag-zoom into
+    // an old window (e.g. yesterday in a 28d view) snaps range to '24h'
+    // = last 24h, SWR refetches recent-only data, and the zoom region is
+    // outside the fetched data → blank chart.
+    const cd = chartDataRef.current;
+    const dataMaxMs = cd && cd.length > 0 ? cd[cd.length - 1].tsMs : hi;
+    const required = Math.max(dataMaxMs - lo, hi - lo);
+    const next = closestRangeForZoom(required);
     if (next !== rangeRef.current) {
       zoomDrivenRangeRef.current = true;
       setRange(next);
@@ -643,6 +651,20 @@ export default function NodeDetailPage() {
   // input, so our native listener keeps firing and the cursor stays smooth.
   const timeline = meshHistory?.timeline;
   const deferredTimeline = useDeferredValue(timeline);
+  // Live (non-deferred) data bounds for pan/zoom decisions. useDeferredValue
+  // intentionally lags so the chart renders smoothly during SWR polls, but
+  // pan logic must see the latest known dataMin so it doesn't falsely think
+  // we ran out of data and trigger a range-bump.
+  const liveDataMinMaxRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
+  useEffect(() => {
+    if (!Array.isArray(timeline) || timeline.length === 0) return;
+    const filtered = timeline.filter((t: any) => t.nodes?.[host]);
+    if (filtered.length === 0) return;
+    liveDataMinMaxRef.current = {
+      min: utcToLocalDate(filtered[0].timestamp).getTime(),
+      max: utcToLocalDate(filtered[filtered.length - 1].timestamp).getTime(),
+    };
+  }, [timeline, host]);
   const chartData = useMemo(() => {
     if (!Array.isArray(deferredTimeline) || deferredTimeline.length === 0) return [] as any[];
     return deferredTimeline
@@ -956,12 +978,17 @@ export default function NodeDetailPage() {
               if (span <= 0) return prev;
               const delta = span * fraction;
               let a = curMin + delta, b = curMax + delta;
+              // Use LIVE data bounds (not deferred chartData's) so we don't
+              // falsely think we ran out of data just because deferred
+              // timeline hasn't caught up to SWR yet.
+              const liveMin = liveDataMinMaxRef.current.min || dataMin;
+              const liveMax = liveDataMinMaxRef.current.max || dataMax;
               // Right clamp — never pan into future data that doesn't exist.
-              if (b > dataMax) { a -= b - dataMax; b = dataMax; }
-              // Left underflow: bump range to fetch older history.
-              if (a < dataMin) {
+              if (b > liveMax) { a -= b - liveMax; b = liveMax; }
+              // Left underflow: bump range only when we're REALLY out of data.
+              if (a < liveMin) {
                 if (rangeRef.current !== 'all') {
-                  const next = closestRangeForZoom(dataMax - a);
+                  const next = closestRangeForZoom(liveMax - a);
                   if (next !== rangeRef.current) {
                     zoomDrivenRangeRef.current = true;
                     setRange(next);
@@ -970,12 +997,12 @@ export default function NodeDetailPage() {
                   return [a, b];
                 }
                 // At lifetime — clamp at the oldest data we have.
-                b += dataMin - a;
-                a = dataMin;
+                b += liveMin - a;
+                a = liveMin;
               }
-              if (a < dataMin) a = dataMin;
+              if (a < liveMin) a = liveMin;
               if (b - a < 1000) return prev;
-              if (a === dataMin && b === dataMax) return null;
+              if (a === liveMin && b === liveMax) return null;
               return [a, b];
             });
           };

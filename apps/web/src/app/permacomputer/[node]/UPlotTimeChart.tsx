@@ -347,10 +347,15 @@ export function UPlotTimeChart({
     const rawPad = (viewMax - viewMin) * (futurePadFraction ?? 0);
     const targetMax = viewMax + rawPad;
     // Nice time increments (seconds). Snap up to the next boundary so a
-    // tick label always lands in the forecast zone.
-    const NICE_TIME_S = [60, 300, 600, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400, 172800, 604800];
+    // tick label always lands in the forecast zone. Added 3d/4d/5d/6d so
+    // long-window views (28d, lifetime) don't snap to 7d and pad the
+    // scale way past actual data.
+    const NICE_TIME_S = [60, 300, 600, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400, 172800, 259200, 345600, 432000, 518400, 604800];
     const viewSpan = targetMax - viewMin;
-    const idealIncr = viewSpan / 10;
+    // Divisor 15 keeps the snap closer to rawPad — at /10 a 28d view
+    // chose snapIncr=7d, padding the scale into the chart's "we ran out
+    // of data" zone visibly. /15 picks 2d for the same view.
+    const idealIncr = viewSpan / 15;
     let snapIncr = NICE_TIME_S[NICE_TIME_S.length - 1];
     for (const i of NICE_TIME_S) { if (i >= idealIncr) { snapIncr = i; break; } }
     const snappedMax = Math.ceil(targetMax / snapIncr) * snapIncr;
