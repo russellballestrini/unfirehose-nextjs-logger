@@ -300,26 +300,44 @@ export default function NodeDetailPage() {
     { refreshInterval: 5000 },
   );
 
-  // Chart tooltip magnetic repulsion — flip tooltip to opposite half of chart from cursor.
-  // Only re-render when side actually changes (not on every mousemove → no chop).
-  const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('left');
-  const [chartWidth, setChartWidth] = useState(0);
-  const tooltipSideRef = useRef<'left' | 'right'>('left');
-
   // Click-and-drag zoom — select x1→x2 on any chart, all charts zoom together.
-  // zoomDomain is [tsMs, tsMs]; null = full range. We keep ALL drag/cursor
-  // visuals out of React state — refs hold the live position and DOM nodes are
-  // mutated directly per mousemove (querySelectorAll on data-attributes).
-  // That means dragging the box never triggers a parent re-render, so all 8
-  // charts stay perfectly smooth even at 1000Hz mouse polling. Only the final
-  // setZoomDomain on mouseup hits React.
+  // We keep ALL mouse-driven visuals out of React. Native event listeners
+  // attached at the document level (in useEffect below) run synchronously with
+  // the browser's input pipeline — no React batching, no recharts internal
+  // syncId churn before our cursor moves. Refs hold all live state.
   const [zoomDomain, setZoomDomain] = useState<[number, number] | null>(null);
+  const zoomDomainRef = useRef<[number, number] | null>(null);
+  zoomDomainRef.current = zoomDomain;
+  const viewMinRef = useRef(0);
+  const viewMaxRef = useRef(0);
   const dragStartTsRef = useRef<number | null>(null);
   const dragEndTsRef = useRef<number | null>(null);
   const dragStartPxRef = useRef<number | null>(null);
-  // Direct-DOM cursor + drag-rect updaters. Selectors find every overlay
-  // element across all 8 charts in one querySelectorAll call (fast, browsers
-  // optimize this). transform/translateX is GPU-composited — no layout reflow.
+  // chartData ref — native handler needs it to look up nearest data point
+  // for the hover-details row. Render syncs this to the latest memoized array.
+  const chartDataRef = useRef<any[]>([]);
+  // Hover details — only state update from mouse activity, debounced 200ms.
+  // null = mouse not over any chart (hide).
+  const [hoverInfo, setHoverInfo] = useState<any | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleHover = useCallback((ts: number) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      const cd = chartDataRef.current;
+      if (cd.length === 0) return;
+      let lo = 0, hi = cd.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (cd[mid].tsMs < ts) lo = mid + 1; else hi = mid;
+      }
+      const cand = cd[lo];
+      const prev = lo > 0 ? cd[lo - 1] : cand;
+      const nearest = Math.abs(cand.tsMs - ts) < Math.abs(prev.tsMs - ts) ? cand : prev;
+      setHoverInfo(nearest);
+    }, 200);
+  }, []);
+  // Direct-DOM updaters. querySelectorAll finds every overlay across all 8
+  // charts in one shot; transform/translateX is GPU-composited (no reflow).
   const updateCursors = useCallback((xPx: number | null) => {
     const els = document.querySelectorAll<HTMLElement>('[data-chart-cursor="node-detail"]');
     if (xPx == null) {
@@ -327,7 +345,7 @@ export default function NodeDetailPage() {
       return;
     }
     els.forEach(el => {
-      el.style.transform = `translateX(${xPx}px)`;
+      el.style.transform = `translate3d(${xPx}px, 0, 0)`;
       el.style.opacity = '1';
     });
   }, []);
@@ -340,21 +358,88 @@ export default function NodeDetailPage() {
     const lo = Math.min(aPx, bPx);
     const w = Math.abs(bPx - aPx);
     els.forEach(el => {
-      el.style.transform = `translateX(${lo}px)`;
+      el.style.transform = `translate3d(${lo}px, 0, 0)`;
       el.style.width = `${w}px`;
       el.style.opacity = '1';
     });
   }, []);
   // Reset zoom when outer history range changes — domain may no longer fit.
   useEffect(() => { setZoomDomain(null); }, [range]);
-  // Callback ref fires when the first chart's wrapper div mounts. ResizeObserver tracks live width.
-  const firstChartRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    const update = () => setChartWidth(node.offsetWidth);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(node);
-  }, []);
+
+  // Native mouse listeners — bypass React's synthetic event system entirely.
+  // Mouse hover on ANY chart updates the cursor on ALL charts via the shared
+  // querySelectorAll. Mouse pixel→time conversion uses an approximate plot
+  // inset (Y-axis takes ~40px, right margin ~10px) to map drag bounds back
+  // to timestamps for the zoom commit.
+  useEffect(() => {
+    const PLOT_LEFT_INSET = 40;
+    const PLOT_RIGHT_INSET = 10;
+    const xToTs = (xInWrapper: number, wrapperW: number): number => {
+      const plotW = wrapperW - PLOT_LEFT_INSET - PLOT_RIGHT_INSET;
+      if (plotW <= 0) return viewMinRef.current;
+      const ratio = Math.max(0, Math.min(1, (xInWrapper - PLOT_LEFT_INSET) / plotW));
+      return viewMinRef.current + ratio * (viewMaxRef.current - viewMinRef.current);
+    };
+
+    const findWrapper = (target: EventTarget | null): HTMLElement | null => {
+      const el = target as HTMLElement | null;
+      return el?.closest?.('[data-chart-wrapper="node-detail"]') as HTMLElement | null ?? null;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      const wrapper = findWrapper(e.target);
+      if (!wrapper) {
+        if (dragStartPxRef.current == null) {
+          updateCursors(null);
+          if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+          setHoverInfo(null);
+        }
+        return;
+      }
+      const rect = wrapper.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      updateCursors(x);
+      const ts = xToTs(x, rect.width);
+      scheduleHover(ts);
+      if (dragStartPxRef.current != null) {
+        updateDragRects(dragStartPxRef.current, x);
+        dragEndTsRef.current = ts;
+      }
+    };
+
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const wrapper = findWrapper(e.target);
+      if (!wrapper) return;
+      const rect = wrapper.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      dragStartPxRef.current = x;
+      dragStartTsRef.current = xToTs(x, rect.width);
+      dragEndTsRef.current = dragStartTsRef.current;
+      updateDragRects(x, x);
+    };
+
+    const onUp = () => {
+      const s = dragStartTsRef.current;
+      const e = dragEndTsRef.current;
+      if (s != null && e != null && Math.abs(e - s) > 1000) {
+        setZoomDomain([Math.min(s, e), Math.max(s, e)]);
+      }
+      dragStartPxRef.current = null;
+      dragStartTsRef.current = null;
+      dragEndTsRef.current = null;
+      updateDragRects(null, null);
+    };
+
+    document.addEventListener('mousemove', onMove, { passive: true });
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [updateCursors, updateDragRects, scheduleHover]);
 
   // Bootstrap harness state
   const [bootStatuses, setBootStatuses] = useState<Record<string, BootStatus>>({});
@@ -719,71 +804,10 @@ export default function NodeDetailPage() {
         {/* Time-Series Charts */}
         {chartData.length > 0 && (() => {
           const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-          // Magnetic: mouse in right half → tooltip pins left; mouse in left half → pins right.
-          // chartWidth measured via callback ref on first chart card (covers chart + p-4 padding).
-          // Chart card has p-4 (16px) padding; subtract to approximate chart area width.
-          const innerChartW = Math.max(0, chartWidth - 32);
-          const tooltipW = 170;
-          const leftAnchor = 60;
-          const rightAnchor = innerChartW > 0
-            ? Math.max(leftAnchor, innerChartW - tooltipW - 10)
-            : leftAnchor;
-          const tooltipPosition = tooltipSide === 'left'
-            ? { x: leftAnchor, y: 0 }
-            : { x: rightAnchor, y: 0 };
-          const onChartMove = (state: any) => {
-            // state.chartX = real mouse x within chart; activeCoordinate.x snaps to nearest data point.
-            const x = typeof state?.chartX === 'number' ? state.chartX : state?.activeCoordinate?.x;
-            if (typeof x !== 'number' || innerChartW <= 0) return;
-            const newSide: 'left' | 'right' = x > innerChartW / 2 ? 'left' : 'right';
-            if (newSide !== tooltipSideRef.current) {
-              tooltipSideRef.current = newSide;
-              setTooltipSide(newSide);
-            }
-          };
-          // Drag-to-zoom + cursor pointer — pure DOM updates per mousemove.
-          // mousedown captures start position (px for visual rect, ts for commit).
-          // mousemove updates the cursor line and drag rect via querySelectorAll
-          // → direct style mutation. NO React state changes during drag.
-          // mouseup is the only event that hits React state (setZoomDomain).
-          const finishDrag = () => {
-            const s = dragStartTsRef.current;
-            const e = dragEndTsRef.current;
-            if (s != null && e != null && Math.abs(e - s) > 1000) {
-              setZoomDomain([Math.min(s, e), Math.max(s, e)]);
-            }
-            dragStartTsRef.current = null;
-            dragEndTsRef.current = null;
-            dragStartPxRef.current = null;
-            updateDragRects(null, null);
-          };
-          const chartEvents = {
-            onMouseDown: (state: any) => {
-              const label = state?.activeLabel;
-              const px = state?.chartX;
-              if (typeof label !== 'number' || typeof px !== 'number') return;
-              dragStartTsRef.current = label;
-              dragEndTsRef.current = label;
-              dragStartPxRef.current = px;
-              updateDragRects(px, px);
-            },
-            onMouseMove: (state: any) => {
-              onChartMove(state);
-              const px = state?.chartX;
-              if (typeof px !== 'number') return;
-              updateCursors(px);
-              if (dragStartPxRef.current != null) {
-                updateDragRects(dragStartPxRef.current, px);
-                const label = state?.activeLabel;
-                if (typeof label === 'number') dragEndTsRef.current = label;
-              }
-            },
-            onMouseUp: finishDrag,
-            onMouseLeave: () => {
-              updateCursors(null);
-              finishDrag();
-            },
-          };
+          // Tooltip pinned at top-left so it never covers the data line.
+          // No magnetic flip: that required a state update mid-mousemove, which
+          // forced a parent re-render of all 8 charts — the source of chop.
+          const tooltipPosition = { x: 60, y: 0 };
           const fmtLabel = (v: any) => {
             const n = typeof v === 'number' ? v : Number(v);
             if (!Number.isFinite(n)) return String(v);
@@ -806,6 +830,12 @@ export default function NodeDetailPage() {
           const dataMin: number = chartData[0].tsMs;
           const dataMax: number = chartData[chartData.length - 1].tsMs;
           const [viewMin, viewMax] = zoomDomain ?? [dataMin, dataMax];
+          // Refs that the native mouse listener (outside this IIFE) reads to
+          // map pixel x → time and look up the nearest data point for the
+          // hover-details row. Mutating refs during render is safe.
+          viewMinRef.current = viewMin;
+          viewMaxRef.current = viewMax;
+          chartDataRef.current = chartData;
           const viewSpanMs = viewMax - viewMin;
           const fmtSpan = (ms: number) => {
             if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -856,17 +886,39 @@ export default function NodeDetailPage() {
               Drag horizontally across any chart to zoom into that window. Use −/+ to step, reset to restore.
             </p>
 
+            {/* Hover details — updates 200ms after mouse settles so values
+                never thrash. Cursor line on charts follows in real-time. */}
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2 text-xs font-mono flex flex-wrap items-center gap-x-5 gap-y-1 min-h-[2rem]">
+              {hoverInfo ? (
+                <>
+                  <span className="text-[var(--color-foreground)] font-bold">
+                    {new Date(hoverInfo.tsMs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                  </span>
+                  <span><span className="text-[var(--color-muted)]">load</span> {hoverInfo.load?.toFixed(2)} / {hoverInfo.cores}</span>
+                  <span><span className="text-[var(--color-muted)]">mem</span> {hoverInfo.memUsedGB}GB</span>
+                  {hoverInfo.gpuMemTotalGB > 0 && (
+                    <span><span className="text-[var(--color-muted)]">gpu</span> {hoverInfo.gpuUtil}% · {hoverInfo.gpuMemUsedGB}GB · {hoverInfo.gpuWatts}W</span>
+                  )}
+                  <span><span className="text-[var(--color-muted)]">watts</span> {hoverInfo.watts}W</span>
+                  <span><span className="text-[var(--color-muted)]">cost</span> ${hoverInfo.elecCostPerHour?.toFixed(3)}/hr</span>
+                  <span><span className="text-[var(--color-muted)]">claudes</span> {hoverInfo.claudes}</span>
+                </>
+              ) : (
+                <span className="text-[var(--color-muted)]">hover a chart for values</span>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* CPU Load */}
-            <div ref={firstChartRef} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
               <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
                 CPU Load
                 <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -888,9 +940,9 @@ export default function NodeDetailPage() {
                 Memory Usage
                 <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -915,9 +967,9 @@ export default function NodeDetailPage() {
                 GPU Utilization
                 <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -939,9 +991,9 @@ export default function NodeDetailPage() {
                 GPU Memory
                 <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -964,9 +1016,9 @@ export default function NodeDetailPage() {
                 GPU Power
                 <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -989,9 +1041,9 @@ export default function NodeDetailPage() {
                   ${last.elecCostPerHour.toFixed(3)}/hr &middot; ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo
                 </span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -1011,9 +1063,9 @@ export default function NodeDetailPage() {
                 Compute Wattage
                 <span className="text-xs font-normal ml-2">{last.watts}W current</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <LineChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
@@ -1038,9 +1090,9 @@ export default function NodeDetailPage() {
                 Active Claudes
                 <span className="text-xs font-normal ml-2">{last.claudes} current</span>
               </h3>
-              <div className="relative">
+              <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none [&_.recharts-wrapper]:pointer-events-none">
               <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
+                <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
