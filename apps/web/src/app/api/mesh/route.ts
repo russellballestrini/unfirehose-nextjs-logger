@@ -450,7 +450,13 @@ function getLocalStats(): MeshNode {
     // Claude processes
     let claudeProcesses = 0;
     try {
-      const ps = execSync("ps aux | grep -i '[c]laude' | wc -l", { encoding: 'utf-8' });
+      // Match the basename of cmdline column 11 against exactly 'claude'
+      // — substring grep false-matches any process whose cmdline mentions
+      // 'CLAUDE.md' (e.g. lumbda factory monitors), inflating the count.
+      const ps = execSync(
+        `ps aux 2>/dev/null | awk 'NR>1 { cmd=$11; if (cmd == "" || substr(cmd,1,1) == "[") next; n=split(cmd, parts, "/"); if (parts[n] == "claude") c++ } END { print c+0 }'`,
+        { encoding: 'utf-8', shell: '/bin/sh' },
+      );
       claudeProcesses = parseInt(ps.trim()) || 0;
     } catch { /* no claudes */ }
 
@@ -550,7 +556,7 @@ function getRemoteStatsAsync(host: string): Promise<MeshNode> {
   // Use ; between sections so RAPL/GPU failures don't break the chain
   const remoteScript = [
     // Stats section (&&-chained — all must succeed)
-    '{ hostname -f 2>/dev/null || hostname; } && nproc && grep -m1 "model name" /proc/cpuinfo && uname -m && { lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null; echo "---LSBLK_END---"; } && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux | grep -i "[c]laude" | wc -l && echo "---STATS_END---"',
+    `{ hostname -f 2>/dev/null || hostname; } && nproc && grep -m1 "model name" /proc/cpuinfo && uname -m && { lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null; echo "---LSBLK_END---"; } && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux 2>/dev/null | awk 'NR>1 { cmd=$11; if (cmd == "" || substr(cmd,1,1) == "[") next; n=split(cmd, parts, "/"); if (parts[n] == "claude") c++ } END { print c+0 }' && echo "---STATS_END---"`,
     // RAPL section (best-effort, semicolon-delimited)
     'R1=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R1B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); sleep 0.1; R2=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R2B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); echo "$R1 $R1B $R2 $R2B"; echo "---RAPL_END---"',
     // GPU section (best-effort)
