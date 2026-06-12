@@ -67,6 +67,10 @@ export function UPlotTimeChart({
   onZoomRef.current = onZoom;
   const onCursorRef = useRef(onCursor);
   onCursorRef.current = onCursor;
+  // Mirror the domain so the data effect can decide whether to reset uPlot's
+  // scale on a polling update (no zoom → fit new data; zoom active → keep it).
+  const domainRef = useRef(domain);
+  domainRef.current = domain;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -166,9 +170,11 @@ export function UPlotTimeChart({
   }, [height, syncKey, yUnit, yMin, yMax, series.length]);
 
   // Update data when rows change — uPlot.setData is canvas-only, no React.
+  // Pass `false` to preserve scales when a zoom is active so polling new data
+  // doesn't snap the view back to the full range and flicker.
   useEffect(() => {
     if (uRef.current) {
-      uRef.current.setData(buildData(data, series));
+      uRef.current.setData(buildData(data, series), !domainRef.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);

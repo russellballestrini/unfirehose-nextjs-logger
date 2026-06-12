@@ -4,8 +4,9 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react';
-import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
+import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes, TIME_RANGE_OPTIONS } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { UPlotTimeChart, type UPlotSeries } from './UPlotTimeChart';
+// uplot CSS is bundled by UPlotTimeChart's import
 import {
   AreaChart,
   Area,
@@ -349,7 +350,7 @@ export default function NodeDetailPage() {
       const prev = lo > 0 ? cd[lo - 1] : cand;
       const nearest = Math.abs(cand.tsMs - ts) < Math.abs(prev.tsMs - ts) ? cand : prev;
       setHoverInfo(nearest);
-    }, 200);
+    }, 80);
   }, []);
   // Direct-DOM updaters. querySelectorAll finds every overlay across all 8
   // charts in one shot; transform/translateX is GPU-composited (no reflow).
@@ -378,8 +379,41 @@ export default function NodeDetailPage() {
       el.style.opacity = '1';
     });
   }, []);
-  // Reset zoom when outer history range changes — domain may no longer fit.
-  useEffect(() => { setZoomDomain(null); }, [range]);
+  // Snap range dropdown to the smallest option that covers the zoom span.
+  // When a drag-zoom (or zoom button) snaps the dropdown, we want the new
+  // SWR window to take effect WITHOUT also clearing the active zoom (which
+  // is what the [range] effect normally does). The ref below marks the
+  // upcoming range change as zoom-driven so the reset is skipped once.
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const zoomDrivenRangeRef = useRef(false);
+  const closestRangeForZoom = (spanMs: number): string => {
+    for (const opt of TIME_RANGE_OPTIONS) {
+      if (opt.ms > 0 && opt.ms >= spanMs) return opt.value;
+    }
+    return TIME_RANGE_OPTIONS[TIME_RANGE_OPTIONS.length - 2].value;
+  };
+  const applyZoom = useCallback((a: number, b: number) => {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (hi - lo < 1000) return;
+    setZoomDomain([lo, hi]);
+    const next = closestRangeForZoom(hi - lo);
+    if (next !== rangeRef.current) {
+      zoomDrivenRangeRef.current = true;
+      setRange(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Reset zoom when outer history range changes — UNLESS this range change
+  // was triggered by a zoom snap (in which case we want the zoom to stick).
+  useEffect(() => {
+    if (zoomDrivenRangeRef.current) {
+      zoomDrivenRangeRef.current = false;
+      return;
+    }
+    setZoomDomain(null);
+  }, [range]);
 
   // Native mouse listeners — bypass React's synthetic event system entirely.
   // Mouse hover on ANY chart updates the cursor on ALL charts via the shared
@@ -446,7 +480,7 @@ export default function NodeDetailPage() {
       const s = dragStartTsRef.current;
       const e = dragEndTsRef.current;
       if (s != null && e != null && Math.abs(e - s) > 1000) {
-        setZoomDomain([Math.min(s, e), Math.max(s, e)]);
+        applyZoom(s, e);
       }
       dragStartPxRef.current = null;
       dragStartTsRef.current = null;
@@ -879,7 +913,7 @@ export default function NodeDetailPage() {
             a = Math.max(dataMin, a);
             b = Math.min(dataMax, b);
             if (b - a < 1000) return;
-            setZoomDomain([a, b]);
+            applyZoom(a, b);
           };
           const zoomIn = () => zoomBy(0.5);
           const zoomOut = () => zoomBy(2);
@@ -944,9 +978,7 @@ export default function NodeDetailPage() {
               // uPlot chart engine — canvas, no React reconciliation per data tick.
               const SYNC = 'mesh-node-detail';
               const handleZoom = (range: [number, number]) => {
-                const a = Math.min(range[0], range[1]);
-                const b = Math.max(range[0], range[1]);
-                if (b - a > 1000) setZoomDomain([a, b]);
+                applyZoom(range[0], range[1]);
               };
               const handleCursor = (idx: number | null) => {
                 if (idx == null) {
@@ -958,7 +990,7 @@ export default function NodeDetailPage() {
                 hoverTimerRef.current = setTimeout(() => {
                   const row = chartDataRef.current[idx];
                   if (row) setHoverInfo(row);
-                }, 200);
+                }, 80);
               };
               const cardCls = 'bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4';
               const titleCls = 'text-base font-bold mb-3 text-[var(--color-muted)]';
