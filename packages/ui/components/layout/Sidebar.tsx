@@ -4,7 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import useSWR from 'swr';
 
-const fetcher = (url: string) => fetch(url).then(r => r.json());
+const fetcher = (url: string) =>
+  fetch(url).then(async (r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  });
 
 type NavLink = { href: string; label: string; icon: string };
 type NavSeparator = { separator: string };
@@ -58,7 +62,9 @@ export function Sidebar() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: activityData } = useSWR<any[]>('/api/projects/activity?days=7', fetcher, { refreshInterval: 30000 });
-  const hotProjects = (activityData ?? []).slice(0, 5);
+  // Defensive: if API errors or returns a non-array shape (e.g. error object),
+  // fall back to empty so the navbar never crashes on every page render.
+  const hotProjects = Array.isArray(activityData) ? activityData.slice(0, 5) : [];
 
   function renderNavLink(item: NavLink) {
     const isActive =
