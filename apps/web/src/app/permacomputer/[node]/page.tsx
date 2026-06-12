@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
   AreaChart,
@@ -14,6 +14,7 @@ import {
   YAxis,
   Tooltip,
   Legend,
+  ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
 
@@ -305,6 +306,26 @@ export default function NodeDetailPage() {
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('left');
   const [chartWidth, setChartWidth] = useState(0);
   const tooltipSideRef = useRef<'left' | 'right'>('left');
+
+  // Click-and-drag zoom — select x1→x2 on any chart, all charts zoom together.
+  // zoomDomain is [tsMs, tsMs]; null = full range. dragStart/dragEnd track the
+  // in-progress selection for ReferenceArea overlay.
+  const [zoomDomain, setZoomDomain] = useState<[number, number] | null>(null);
+  const [dragStart, setDragStart] = useState<number | null>(null);
+  const [dragEnd, setDragEnd] = useState<number | null>(null);
+  // rAF-throttle drag updates so we re-render at most once per frame, not per mousemove.
+  const dragEndPendingRef = useRef<number | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const scheduleDragEnd = useCallback((label: number) => {
+    dragEndPendingRef.current = label;
+    if (dragRafRef.current != null) return;
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = null;
+      if (dragEndPendingRef.current != null) setDragEnd(dragEndPendingRef.current);
+    });
+  }, []);
+  // Reset zoom when outer history range changes — domain may no longer fit.
+  useEffect(() => { setZoomDomain(null); }, [range]);
   // Callback ref fires when the first chart's wrapper div mounts. ResizeObserver tracks live width.
   const firstChartRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
@@ -431,6 +452,38 @@ export default function NodeDetailPage() {
   const mem = probe?.memory;
   const loadPerCore = sys?.cpuCores > 0 && probe?.loadAvg ? probe.loadAvg[0] / sys.cpuCores : 0;
   const memPct = mem ? ((mem.totalGB - mem.availableGB) / mem.totalGB) * 100 : 0;
+
+  // Memoize chart data — recomputing this on every mousemove during drag was
+  // the source of choppy rendering. Now it only rebuilds when meshHistory ticks.
+  const memTotalGB = useMemo(
+    () => Math.round(((probe?.memory?.totalKB ?? 0) / 1048576) * 10) / 10,
+    [probe?.memory?.totalKB],
+  );
+  const chartData = useMemo(() => {
+    const timeline = meshHistory?.timeline;
+    if (!Array.isArray(timeline) || timeline.length === 0) return [] as any[];
+    return timeline
+      .filter((t: any) => t.nodes?.[host])
+      .map((t: any) => {
+        const n = t.nodes[host];
+        return {
+          tsMs: utcToLocalDate(t.timestamp).getTime(),
+          timestamp: t.timestamp,
+          watts: n.watts ?? 0,
+          cpuWatts: (n.watts ?? 0) - (n.gpuWatts ?? 0),
+          gpuWatts: n.gpuWatts ?? 0,
+          load: n.load ?? 0,
+          cores: n.cores ?? 0,
+          memUsedGB: n.memUsed ?? 0,
+          memTotalGB,
+          claudes: n.claudes ?? 0,
+          gpuUtil: n.gpuUtil ?? 0,
+          gpuMemUsedGB: Math.round((n.gpuMemUsedMB ?? 0) / 1024 * 10) / 10,
+          gpuMemTotalGB: Math.round((n.gpuMemTotalMB ?? 0) / 1024 * 10) / 10,
+          elecCostPerHour: Math.round(((n.watts ?? 0) / 1000) * kwhRate * 100) / 100,
+        };
+      });
+  }, [meshHistory, host, memTotalGB, kwhRate]);
 
   return (
     <div className="p-6 w-full">
@@ -643,7 +696,7 @@ export default function NodeDetailPage() {
         </div>
 
         {/* Time-Series Charts */}
-        {meshHistory?.timeline?.length > 0 && (() => {
+        {chartData.length > 0 && (() => {
           const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
           // Magnetic: mouse in right half → tooltip pins left; mouse in left half → pins right.
           // chartWidth measured via callback ref on first chart card (covers chart + p-4 padding).
@@ -667,42 +720,104 @@ export default function NodeDetailPage() {
               setTooltipSide(newSide);
             }
           };
-          const chartEvents = { onMouseMove: onChartMove };
-          const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: fmtLocalHHMM };
+          // Drag-to-zoom: mousedown captures start, mousemove tracks end (rendered as
+          // ReferenceArea), mouseup commits if drag spans > 1s (avoids accidental clicks).
+          const chartEvents = {
+            onMouseDown: (state: any) => {
+              const label = state?.activeLabel;
+              if (typeof label === 'number') setDragStart(label);
+            },
+            onMouseMove: (state: any) => {
+              onChartMove(state);
+              const label = state?.activeLabel;
+              if (dragStart != null && typeof label === 'number') scheduleDragEnd(label);
+            },
+            onMouseUp: () => {
+              if (dragStart != null && dragEnd != null && Math.abs(dragEnd - dragStart) > 1000) {
+                const a = Math.min(dragStart, dragEnd);
+                const b = Math.max(dragStart, dragEnd);
+                setZoomDomain([a, b]);
+              }
+              setDragStart(null);
+              setDragEnd(null);
+            },
+            onMouseLeave: () => { setDragStart(null); setDragEnd(null); },
+          };
+          const fmtLabel = (v: any) => {
+            const n = typeof v === 'number' ? v : Number(v);
+            if (!Number.isFinite(n)) return String(v);
+            return new Date(n).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+          };
+          const xAxisProps = {
+            dataKey: 'tsMs',
+            type: 'number' as const,
+            scale: 'time' as const,
+            domain: (zoomDomain ?? ['dataMin', 'dataMax']) as [number | string, number | string],
+            tick: { fill: '#71717a', fontSize: 12 },
+            tickFormatter: (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            allowDataOverflow: true,
+          };
+          const dragOverlay = dragStart != null && dragEnd != null
+            ? <ReferenceArea x1={Math.min(dragStart, dragEnd)} x2={Math.max(dragStart, dragEnd)} fill="var(--color-accent)" fillOpacity={0.18} strokeOpacity={0} />
+            : null;
+          // White cursor pointer — tracks mouse at native recharts speed (no debounce).
+          // Tooltip content (the data box) IS debounced via DebouncedTooltip (200ms settle).
+          const cursorStyle = { stroke: '#ffffff', strokeWidth: 1, strokeOpacity: 0.55, strokeDasharray: '3 3' };
 
-          const chartData = meshHistory.timeline
-            .filter((t: any) => t.nodes?.[host])
-            .map((t: any) => {
-              const n = t.nodes[host];
-              return {
-                timestamp: t.timestamp,
-                watts: n.watts ?? 0,
-                cpuWatts: (n.watts ?? 0) - (n.gpuWatts ?? 0),
-                gpuWatts: n.gpuWatts ?? 0,
-                load: n.load ?? 0,
-                cores: n.cores ?? 0,
-                memUsedGB: n.memUsed ?? 0,
-                memTotalGB: Math.round(((probe?.memory?.totalKB ?? 0) / 1048576) * 10) / 10,
-                claudes: n.claudes ?? 0,
-                gpuUtil: n.gpuUtil ?? 0,
-                gpuMemUsedGB: Math.round((n.gpuMemUsedMB ?? 0) / 1024 * 10) / 10,
-                gpuMemTotalGB: Math.round((n.gpuMemTotalMB ?? 0) / 1024 * 10) / 10,
-                elecCostPerHour: Math.round(((n.watts ?? 0) / 1000) * kwhRate * 100) / 100,
-              };
-            });
-
-          if (chartData.length === 0) return null;
           const last = chartData[chartData.length - 1];
+
+          const dataMin: number = chartData[0].tsMs;
+          const dataMax: number = chartData[chartData.length - 1].tsMs;
+          const [viewMin, viewMax] = zoomDomain ?? [dataMin, dataMax];
+          const viewSpanMs = viewMax - viewMin;
+          const fmtSpan = (ms: number) => {
+            if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+            if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+            if (ms < 86_400_000) return `${(ms / 3_600_000).toFixed(1)}h`;
+            return `${(ms / 86_400_000).toFixed(1)}d`;
+          };
+          const zoomBy = (factor: number) => {
+            const mid = (viewMin + viewMax) / 2;
+            const half = (viewSpanMs * factor) / 2;
+            let a = mid - half, b = mid + half;
+            if (a <= dataMin && b >= dataMax) { setZoomDomain(null); return; }
+            a = Math.max(dataMin, a);
+            b = Math.min(dataMax, b);
+            if (b - a < 1000) return;
+            setZoomDomain([a, b]);
+          };
+          const zoomIn = () => zoomBy(0.5);
+          const zoomOut = () => zoomBy(2);
+          const resetZoom = () => setZoomDomain(null);
 
           const tz = typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
           return (
           <div className="mt-8 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="text-lg font-bold">
                 History <span className="text-xs font-normal text-[var(--color-muted)] opacity-60 ml-1">{tz}</span>
+                <span className="text-xs font-normal text-[var(--color-muted)] ml-2">
+                  showing {fmtSpan(viewSpanMs)}{zoomDomain && ' (zoomed)'}
+                </span>
               </h2>
-              <TimeRangeSelect value={range} onChange={setRange} />
+              <div className="flex items-center gap-2">
+                <div className="flex items-center border border-[var(--color-border)] rounded overflow-hidden text-xs">
+                  <button onClick={zoomOut} title="Zoom out 2×"
+                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer font-bold">−</button>
+                  <button onClick={zoomIn} title="Zoom in 2×"
+                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer border-l border-[var(--color-border)] font-bold">+</button>
+                  <button onClick={resetZoom} disabled={!zoomDomain}
+                    title="Reset zoom to full range"
+                    className="px-2 py-1 hover:bg-[var(--color-surface)] cursor-pointer border-l border-[var(--color-border)] disabled:opacity-40 disabled:cursor-not-allowed">
+                    reset
+                  </button>
+                </div>
+                <TimeRangeSelect value={range} onChange={setRange} />
+              </div>
             </div>
+            <p className="text-xs text-[var(--color-muted)] -mt-2">
+              Drag horizontally across any chart to zoom into that window. Use −/+ to step, reset to restore.
+            </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
@@ -716,7 +831,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Legend />
                   <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="load" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
@@ -734,7 +850,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Legend />
                   {last.memTotalGB > 0 && (
                     <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
@@ -755,7 +872,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -773,7 +891,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
@@ -792,7 +911,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -811,7 +931,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -827,7 +948,8 @@ export default function NodeDetailPage() {
                 <LineChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Legend />
                   <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
@@ -848,7 +970,8 @@ export default function NodeDetailPage() {
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip position={tooltipPosition} labelFormatter={(t) => fmtLocalDateTime(String(t))} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
+                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} content={<DebouncedTooltip labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} />} />
+                  {dragOverlay}
                   <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -1201,6 +1324,42 @@ export default function NodeDetailPage() {
           </Section>
         </div>
       )}
+    </div>
+  );
+}
+
+// Tooltip content that debounces re-renders — cursor line tracks ASAP (recharts
+// native), but the numeric details only update once the mouse has settled for
+// `delay` ms, so the box doesn't thrash on every pixel of motion. Recharts
+// clones this element with live { active, label, payload } props each render.
+function DebouncedTooltip({ active, label, payload, labelFormatter, formatter, contentStyle, delay = 200 }: any) {
+  const [snap, setSnap] = useState<{ active: boolean; label: any; payload: any[] } | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setSnap({ active: !!active, label, payload: payload ?? [] });
+    }, delay);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [active, label, delay, payload]);
+  if (!snap?.active || !snap.payload?.length) return null;
+  const rows = snap.payload;
+  return (
+    <div style={{ ...(contentStyle ?? {}), padding: '6px 10px', fontSize: 12, lineHeight: '1.5em' }}>
+      <div style={{ color: '#a1a1aa', marginBottom: 2 }}>
+        {labelFormatter ? labelFormatter(snap.label) : String(snap.label)}
+      </div>
+      {rows.map((p: any, i: number) => {
+        const result = formatter ? formatter(p.value, p.name, p, i, rows) : [p.value, p.name];
+        const value = Array.isArray(result) ? result[0] : result;
+        const name = Array.isArray(result) ? result[1] : p.name;
+        return (
+          <div key={i} style={{ color: p.color || p.stroke }}>
+            <span style={{ color: '#a1a1aa' }}>{name}: </span>
+            <span>{value}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
