@@ -919,23 +919,37 @@ export default function NodeDetailPage() {
           const zoomOut = () => zoomBy(2);
           const resetZoom = () => setZoomDomain(null);
           // Pan: shift the visible window by ½ its current span, clamped
-          // to data bounds. Works even when no explicit zoom is active —
-          // it creates a half-data zoom on the side we panned toward.
+          // to data bounds. When at full view (no zoom), pan creates an
+          // initial half-zoom on the side we moved toward — that way the
+          // user always has somewhere to navigate even from the wide view.
           const panBy = (fraction: number) => {
-            const span = viewSpanMs;
+            if (!zoomDomain) {
+              const half = (dataMax - dataMin) / 2;
+              if (fraction < 0) setZoomDomain([dataMin, dataMin + half]);
+              else setZoomDomain([dataMax - half, dataMax]);
+              return;
+            }
+            const [curMin, curMax] = zoomDomain;
+            const span = curMax - curMin;
             if (span <= 0) return;
             const delta = span * fraction;
-            let a = viewMin + delta, b = viewMax + delta;
+            let a = curMin + delta, b = curMax + delta;
             if (a < dataMin) { b += dataMin - a; a = dataMin; }
             if (b > dataMax) { a -= b - dataMax; b = dataMax; }
             if (a < dataMin) a = dataMin;
             if (b - a < 1000) return;
-            setZoomDomain([a, b]);
+            // Snapping back to full data range clears the zoom (auto-fit).
+            if (a === dataMin && b === dataMax) setZoomDomain(null);
+            else setZoomDomain([a, b]);
           };
           const panLeft = () => panBy(-0.5);
           const panRight = () => panBy(0.5);
-          const canPanLeft = viewMin > dataMin;
-          const canPanRight = viewMax < dataMax;
+          // Left: always available if there's data — even at full view, a
+          // pan-left creates a half-zoom into the older window. Right:
+          // disabled when the forecast zone is already visible (no zoom
+          // OR the zoom already ends at dataMax).
+          const canPanLeft = chartData.length > 0;
+          const canPanRight = zoomDomain != null && zoomDomain[1] < dataMax;
 
           const tz = typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
           return (
