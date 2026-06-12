@@ -14,7 +14,6 @@ import {
   YAxis,
   Tooltip,
   Legend,
-  ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
 
@@ -308,22 +307,42 @@ export default function NodeDetailPage() {
   const tooltipSideRef = useRef<'left' | 'right'>('left');
 
   // Click-and-drag zoom — select x1→x2 on any chart, all charts zoom together.
-  // zoomDomain is [tsMs, tsMs]; null = full range. Refs hold the live drag
-  // position so onMouseUp sees the latest values (state updates are async/batched).
-  // The corresponding dragStart/dragEnd state drives the ReferenceArea overlay,
-  // rAF-throttled to keep render rate sane during fast scrubs.
+  // zoomDomain is [tsMs, tsMs]; null = full range. We keep ALL drag/cursor
+  // visuals out of React state — refs hold the live position and DOM nodes are
+  // mutated directly per mousemove (querySelectorAll on data-attributes).
+  // That means dragging the box never triggers a parent re-render, so all 8
+  // charts stay perfectly smooth even at 1000Hz mouse polling. Only the final
+  // setZoomDomain on mouseup hits React.
   const [zoomDomain, setZoomDomain] = useState<[number, number] | null>(null);
-  const [dragStart, setDragStart] = useState<number | null>(null);
-  const [dragEnd, setDragEnd] = useState<number | null>(null);
-  const dragStartRef = useRef<number | null>(null);
-  const dragEndRef = useRef<number | null>(null);
-  const dragRafRef = useRef<number | null>(null);
-  const scheduleDragEnd = useCallback((label: number) => {
-    dragEndRef.current = label;
-    if (dragRafRef.current != null) return;
-    dragRafRef.current = requestAnimationFrame(() => {
-      dragRafRef.current = null;
-      if (dragEndRef.current != null) setDragEnd(dragEndRef.current);
+  const dragStartTsRef = useRef<number | null>(null);
+  const dragEndTsRef = useRef<number | null>(null);
+  const dragStartPxRef = useRef<number | null>(null);
+  // Direct-DOM cursor + drag-rect updaters. Selectors find every overlay
+  // element across all 8 charts in one querySelectorAll call (fast, browsers
+  // optimize this). transform/translateX is GPU-composited — no layout reflow.
+  const updateCursors = useCallback((xPx: number | null) => {
+    const els = document.querySelectorAll<HTMLElement>('[data-chart-cursor="node-detail"]');
+    if (xPx == null) {
+      els.forEach(el => { el.style.opacity = '0'; });
+      return;
+    }
+    els.forEach(el => {
+      el.style.transform = `translateX(${xPx}px)`;
+      el.style.opacity = '1';
+    });
+  }, []);
+  const updateDragRects = useCallback((aPx: number | null, bPx: number | null) => {
+    const els = document.querySelectorAll<HTMLElement>('[data-chart-drag="node-detail"]');
+    if (aPx == null || bPx == null) {
+      els.forEach(el => { el.style.opacity = '0'; });
+      return;
+    }
+    const lo = Math.min(aPx, bPx);
+    const w = Math.abs(bPx - aPx);
+    els.forEach(el => {
+      el.style.transform = `translateX(${lo}px)`;
+      el.style.width = `${w}px`;
+      el.style.opacity = '1';
     });
   }, []);
   // Reset zoom when outer history range changes — domain may no longer fit.
@@ -722,38 +741,48 @@ export default function NodeDetailPage() {
               setTooltipSide(newSide);
             }
           };
-          // Drag-to-zoom: mousedown captures start (ref + state), mousemove tracks
-          // end (ref every move, state rAF-throttled), mouseup reads refs (sync,
-          // never stale) and commits if drag spans > 1s.
+          // Drag-to-zoom + cursor pointer — pure DOM updates per mousemove.
+          // mousedown captures start position (px for visual rect, ts for commit).
+          // mousemove updates the cursor line and drag rect via querySelectorAll
+          // → direct style mutation. NO React state changes during drag.
+          // mouseup is the only event that hits React state (setZoomDomain).
           const finishDrag = () => {
-            const s = dragStartRef.current;
-            const e = dragEndRef.current;
+            const s = dragStartTsRef.current;
+            const e = dragEndTsRef.current;
             if (s != null && e != null && Math.abs(e - s) > 1000) {
               setZoomDomain([Math.min(s, e), Math.max(s, e)]);
             }
-            dragStartRef.current = null;
-            dragEndRef.current = null;
-            setDragStart(null);
-            setDragEnd(null);
+            dragStartTsRef.current = null;
+            dragEndTsRef.current = null;
+            dragStartPxRef.current = null;
+            updateDragRects(null, null);
           };
           const chartEvents = {
             onMouseDown: (state: any) => {
               const label = state?.activeLabel;
-              if (typeof label !== 'number') return;
-              dragStartRef.current = label;
-              dragEndRef.current = label;
-              setDragStart(label);
-              setDragEnd(label);
+              const px = state?.chartX;
+              if (typeof label !== 'number' || typeof px !== 'number') return;
+              dragStartTsRef.current = label;
+              dragEndTsRef.current = label;
+              dragStartPxRef.current = px;
+              updateDragRects(px, px);
             },
             onMouseMove: (state: any) => {
               onChartMove(state);
-              const label = state?.activeLabel;
-              if (dragStartRef.current != null && typeof label === 'number') {
-                scheduleDragEnd(label);
+              const px = state?.chartX;
+              if (typeof px !== 'number') return;
+              updateCursors(px);
+              if (dragStartPxRef.current != null) {
+                updateDragRects(dragStartPxRef.current, px);
+                const label = state?.activeLabel;
+                if (typeof label === 'number') dragEndTsRef.current = label;
               }
             },
             onMouseUp: finishDrag,
-            onMouseLeave: finishDrag,
+            onMouseLeave: () => {
+              updateCursors(null);
+              finishDrag();
+            },
           };
           const fmtLabel = (v: any) => {
             const n = typeof v === 'number' ? v : Number(v);
@@ -769,12 +798,8 @@ export default function NodeDetailPage() {
             tickFormatter: (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
             allowDataOverflow: true,
           };
-          const dragOverlay = dragStart != null && dragEnd != null
-            ? <ReferenceArea x1={Math.min(dragStart, dragEnd)} x2={Math.max(dragStart, dragEnd)} fill="var(--color-accent)" fillOpacity={0.18} strokeOpacity={0} />
-            : null;
-          // White cursor pointer — tracks mouse at native recharts speed (no debounce).
-          // Tooltip content (the data box) IS debounced via DebouncedTooltip (200ms settle).
-          const cursorStyle = { stroke: '#ffffff', strokeWidth: 1, strokeOpacity: 0.55, strokeDasharray: '3 3' };
+          // recharts' built-in cursor and ReferenceArea are disabled — we render
+          // our own DOM overlay so neither requires React re-renders during drag.
 
           const last = chartData[chartData.length - 1];
 
@@ -839,17 +864,22 @@ export default function NodeDetailPage() {
                 CPU Load
                 <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Legend />
                   <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="load" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
 
             {/* Memory */}
@@ -858,12 +888,12 @@ export default function NodeDetailPage() {
                 Memory Usage
                 <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Legend />
                   {last.memTotalGB > 0 && (
                     <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
@@ -871,6 +901,11 @@ export default function NodeDetailPage() {
                   <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
 
             {/* GPU Utilization */}
@@ -880,15 +915,20 @@ export default function NodeDetailPage() {
                 GPU Utilization
                 <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
             )}
 
@@ -899,16 +939,21 @@ export default function NodeDetailPage() {
                 GPU Memory
                 <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
                   <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
             )}
 
@@ -919,15 +964,20 @@ export default function NodeDetailPage() {
                 GPU Power
                 <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
             )}
 
@@ -939,15 +989,20 @@ export default function NodeDetailPage() {
                   ${last.elecCostPerHour.toFixed(3)}/hr &middot; ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo
                 </span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
 
             {/* Wattage */}
@@ -956,12 +1011,12 @@ export default function NodeDetailPage() {
                 Compute Wattage
                 <span className="text-xs font-normal ml-2">{last.watts}W current</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Legend />
                   <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
@@ -970,6 +1025,11 @@ export default function NodeDetailPage() {
                   )}
                 </LineChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
 
             {/* Active Claudes */}
@@ -978,15 +1038,20 @@ export default function NodeDetailPage() {
                 Active Claudes
                 <span className="text-xs font-normal ml-2">{last.claudes} current</span>
               </h3>
+              <div className="relative">
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={chartData} syncId="node-detail" {...chartEvents}>
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip position={tooltipPosition} cursor={cursorStyle} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
-                  {dragOverlay}
+                  <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={<DebouncedTooltip />} />
                   <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div data-chart-cursor="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 3px rgba(255,255,255,0.5)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, opacity', pointerEvents: 'none' }} />
+                <div data-chart-drag="node-detail" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, background: 'rgba(212,0,0,0.18)', borderLeft: '1px solid rgba(212,0,0,0.55)', borderRight: '1px solid rgba(212,0,0,0.55)', opacity: 0, transform: 'translateX(0)', willChange: 'transform, width, opacity', pointerEvents: 'none' }} />
+              </div>
+              </div>
             </div>
 
             </div>{/* end grid */}
