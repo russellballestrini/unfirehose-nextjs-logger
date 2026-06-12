@@ -616,9 +616,14 @@ export default function NodeDetailPage() {
   const loadPerCore = sys?.cpuCores > 0 && probe?.loadAvg ? probe.loadAvg[0] / sys.cpuCores : 0;
   const memPct = mem ? ((mem.totalGB - mem.availableGB) / mem.totalGB) * 100 : 0;
 
+  // probe.memory exposes totalGB directly (the node probe API converts
+  // /proc/meminfo MemTotal to GB before responding). The previous read
+  // for `totalKB` evaluated to 0 since that field doesn't exist on this
+  // endpoint, which is why memCapGB ended up 0 and the watermark line
+  // never drew.
   const memTotalGB = useMemo(
-    () => Math.round(((probe?.memory?.totalKB ?? 0) / 1048576) * 10) / 10,
-    [probe?.memory?.totalKB],
+    () => probe?.memory?.totalGB ?? 0,
+    [probe?.memory?.totalGB],
   );
   // Hardware DIMM cap — Linux's /proc/meminfo reports usable RAM (kernel
   // reserves trimmed off), so 64GB DIMMs show as ~62.5GB. Rounding up to
