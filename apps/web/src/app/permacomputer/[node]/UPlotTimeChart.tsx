@@ -210,6 +210,16 @@ export function UPlotTimeChart({
     const u = new uPlot(opts, buildData(data, series), el);
     uRef.current = u;
 
+    // Inline-style uPlot's drag-zoom selection rectangle to translucent
+    // purple. Inline beats any CSS specificity, so this is the bulletproof
+    // way to win the cascade regardless of how Next.js orders the
+    // uPlot.min.css and globals.css bundles.
+    const selectEl = el.querySelector<HTMLElement>('.u-select');
+    if (selectEl) {
+      selectEl.style.background = 'rgba(167, 139, 250, 0.22)';
+      selectEl.style.border = '1px solid rgba(167, 139, 250, 0.55)';
+    }
+
     // ────────────────────────────────────────────────────────────
     // Inline horizontal value lines per data series. Each non-
     // watermark series gets a dotted white line at its current
