@@ -201,12 +201,23 @@ export function UPlotTimeChart({
           }
           const xSec = u.data[0]?.[idx];
           onCursorRef.current?.(idx, typeof xSec === 'number' ? xSec * 1000 : null);
-          // Cursor timestamp pill: precise time of the data point being
-          // labeled, down to the second (hot-tier samples are at 15s, cold
-          // at 15m — both render correctly).
-          if (stamp && typeof xSec === 'number') {
+          // Build the full date+time string once — used in BOTH the cursor
+          // pill at the top of the chart AND each value label so the user
+          // can read off the exact (value, time) pair without bouncing
+          // their eyes between the two.
+          let fullStamp = '';
+          if (typeof xSec === 'number') {
             const d = new Date(xSec * 1000);
-            stamp.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const dy = String(d.getDate()).padStart(2, '0');
+            const hr = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const se = String(d.getSeconds()).padStart(2, '0');
+            fullStamp = `${yr}-${mo}-${dy} ${hr}:${mi}:${se}`;
+          }
+          if (stamp && typeof xSec === 'number') {
+            stamp.textContent = fullStamp;
             const xPx = u.valToPos(xSec, 'x');
             stamp.style.transform = `translate3d(${xPx}px,0,0) translate(-50%,0)`;
             stamp.style.opacity = '1';
@@ -233,7 +244,11 @@ export function UPlotTimeChart({
               const fmtVal = Math.abs(val) >= 100 ? val.toFixed(0)
                 : Math.abs(val) >= 10 ? val.toFixed(1)
                 : val.toFixed(2);
-              label.textContent = `${fmtVal}${yUnit ?? ''}`;
+              // "10GB | 2026-06-12 19:55:00" — value AND full timestamp
+              // down to seconds, the exact sample being labeled.
+              label.textContent = fullStamp
+                ? `${fmtVal}${yUnit ?? ''}  |  ${fullStamp}`
+                : `${fmtVal}${yUnit ?? ''}`;
               // Edge-flip: at top edge → label below the line.
               // At bottom edge → label above the line. Otherwise above.
               if (yPx < 18) {
