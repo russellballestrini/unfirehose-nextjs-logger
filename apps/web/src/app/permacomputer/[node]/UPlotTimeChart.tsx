@@ -126,6 +126,23 @@ export function UPlotTimeChart({
         sync: { key: syncKey, scales: ['x', null] },
         drag: { x: true, y: false, setScale: false },
         points: {
+          // uPlot expects `show` to be an HTMLElement factory (or null/false
+          // to suppress). My earlier attempt returned a boolean which broke
+          // the dot entirely. The correct pattern: build and return the dot
+          // div ourselves, returning null for series we want to suppress.
+          // Watermark series (cap / total reference lines) get null so the
+          // phantom dot can't land on them.
+          show: ((_u: uPlot, sidx: number) => {
+            if (series[sidx - 1]?.watermark) return null;
+            const pt = document.createElement('div');
+            pt.classList.add('u-cursor-pt');
+            pt.style.background = '#ffffff';
+            pt.style.width = '7px';
+            pt.style.height = '7px';
+            pt.style.marginLeft = '-3.5px';
+            pt.style.marginTop = '-3.5px';
+            return pt;
+          }) as unknown as boolean,
           size: 7,
           width: 1,
           stroke: () => '#ffffff',
