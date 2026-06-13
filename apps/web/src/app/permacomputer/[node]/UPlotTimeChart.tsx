@@ -73,6 +73,9 @@ export function UPlotTimeChart({
   // sliding forecast-window edge at scaleMax.
   const nowLineRef = useRef<HTMLDivElement | null>(null);
   const forecastEdgeRef = useRef<HTMLDivElement | null>(null);
+  // Cursor timestamp pill — sits on the vertical cursor line at the top
+  // of the chart, displaying the exact x-time at the cursor's data point.
+  const cursorStampRef = useRef<HTMLSpanElement | null>(null);
   // Latest refs so the option hooks (created once at mount) see current values.
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -189,13 +192,25 @@ export function UPlotTimeChart({
           const idx = u.cursor.idx;
           const layer = valueLayerRef.current;
           const items = valueItemsRef.current;
+          const stamp = cursorStampRef.current;
           if (idx == null) {
             onCursorRef.current?.(null, null);
             if (layer) layer.style.opacity = '0';
+            if (stamp) stamp.style.opacity = '0';
             return;
           }
           const xSec = u.data[0]?.[idx];
           onCursorRef.current?.(idx, typeof xSec === 'number' ? xSec * 1000 : null);
+          // Cursor timestamp pill: precise time of the data point being
+          // labeled, down to the second (hot-tier samples are at 15s, cold
+          // at 15m — both render correctly).
+          if (stamp && typeof xSec === 'number') {
+            const d = new Date(xSec * 1000);
+            stamp.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+            const xPx = u.valToPos(xSec, 'x');
+            stamp.style.transform = `translate3d(${xPx}px,0,0) translate(-50%,0)`;
+            stamp.style.opacity = '1';
+          }
           // Inline horizontal value lines per data series. Position +
           // label updated via direct DOM — instant, no React re-render.
           if (!layer) return;
@@ -296,6 +311,13 @@ export function UPlotTimeChart({
     forecastEdge.style.cssText = 'position:absolute;top:0;bottom:0;left:0;width:0;border-left:1px dotted rgba(167,139,250,0.4);transform:translate3d(-1px,0,0);will-change:transform;pointer-events:none;';
     u.over.appendChild(forecastEdge);
     forecastEdgeRef.current = forecastEdge;
+
+    // Cursor timestamp pill — same position-by-transform pattern as the
+    // value labels. Translates with the cursor's x; updated in setCursor.
+    const cursorStamp = document.createElement('span');
+    cursorStamp.style.cssText = 'position:absolute;top:4px;left:0;font-size:10px;font-family:ui-monospace,monospace;color:rgba(255,255,255,0.95);background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:2px;pointer-events:none;white-space:nowrap;opacity:0;transform:translate3d(0,0,0) translate(-50%,0);will-change:transform,opacity;';
+    u.over.appendChild(cursorStamp);
+    cursorStampRef.current = cursorStamp;
 
     const ro = new ResizeObserver(entries => {
       const w = entries[0]?.contentRect.width;

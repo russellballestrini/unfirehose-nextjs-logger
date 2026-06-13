@@ -63,15 +63,17 @@ export async function GET(req: NextRequest) {
   }
   t.mark(needsCold ? 'query_tiered' : 'query');
 
-  // Adaptive bucket size: short ranges need finer granularity so the live chart
-  // doesn't sit on a stale current-minute bucket. Snapshots land every ~6-15s,
-  // so 15s buckets are the smallest useful resolution; below that we'd plot
-  // duplicate points.
-  //   ≤  1h  → 15s buckets (240 points/h)
-  //   ≤  6h  → 1m buckets  (60 points/h)
-  //   ≤ 48h  → 5m buckets  (12 points/h)
-  //   else   → 15m buckets
-  const bucketSec = hours <= 1 ? 15 : hours <= 6 ? 60 : hours <= 48 ? 300 : 900;
+  // Target ~2000 points across the requested range — uPlot canvas renders
+  // that in well under 1ms, and it's still 2-3 points per chart pixel at
+  // typical widths so the line stays smooth without massive payloads.
+  // Snaps to nice 15s multiples; storage granularity is 15s in hot tier
+  // and 15m in cold tier, so we naturally land at the finer end.
+  const TARGET_POINTS = 2000;
+  const totalSec = hours * 3600;
+  const idealBucket = Math.max(15, totalSec / TARGET_POINTS);
+  const NICE_BUCKETS = [15, 30, 45, 60, 90, 120, 180, 300, 450, 600, 900];
+  let bucketSec = NICE_BUCKETS[NICE_BUCKETS.length - 1];
+  for (const b of NICE_BUCKETS) { if (b >= idealBucket) { bucketSec = b; break; } }
   const truncateToBucket = (ts: string): string => {
     // ts is 'YYYY-MM-DD HH:MM:SS' — parse, round down to bucketSec, re-format.
     const isoMs = Date.parse(ts.replace(' ', 'T') + 'Z');
