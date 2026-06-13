@@ -63,17 +63,16 @@ export async function GET(req: NextRequest) {
   }
   t.mark(needsCold ? 'query_tiered' : 'query');
 
-  // Target ~2000 points across the requested range — uPlot canvas renders
-  // that in well under 1ms, and it's still 2-3 points per chart pixel at
-  // typical widths so the line stays smooth without massive payloads.
-  // Snaps to nice 15s multiples; storage granularity is 15s in hot tier
-  // and 15m in cold tier, so we naturally land at the finer end.
-  const TARGET_POINTS = 2000;
-  const totalSec = hours * 3600;
-  const idealBucket = Math.max(15, totalSec / TARGET_POINTS);
-  const NICE_BUCKETS = [15, 30, 45, 60, 90, 120, 180, 300, 450, 600, 900];
-  let bucketSec = NICE_BUCKETS[NICE_BUCKETS.length - 1];
-  for (const b of NICE_BUCKETS) { if (b >= idealBucket) { bucketSec = b; break; } }
+  // Match storage granularity exactly — 15s buckets serve two purposes:
+  //   1. Hot-tier rows are already at 15s (the worker probe cadence), so
+  //      this is a no-op compression: every row keeps its own bucket.
+  //   2. Cold-tier rows arrive at 15-minute boundaries and naturally
+  //      land in unique 15s buckets — also passed through unchanged.
+  //   3. Multiple POSTs from concurrent dashboard tabs within the same
+  //      15s window dedupe to the latest snapshot (the original reason
+  //      bucketing exists at all).
+  // No further downsampling — uPlot canvas renders 100k+ points cheaply.
+  const bucketSec = 15;
   const truncateToBucket = (ts: string): string => {
     // ts is 'YYYY-MM-DD HH:MM:SS' — parse, round down to bucketSec, re-format.
     const isoMs = Date.parse(ts.replace(' ', 'T') + 'Z');
