@@ -5,17 +5,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
-import {
-  AreaChart,
-  Area,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1432,6 +1422,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
     const rows = timeline.map((t) => {
       const row: any = {
         timestamp: t.timestamp,
+        tsMs: new Date(String(t.timestamp).replace(' ', 'T') + 'Z').getTime(),
         watts: t.totalWatts ?? 0,
         cpuWatts: t.cpuWatts ?? 0,
         gpuWatts: t.gpuWatts ?? 0,
@@ -1473,8 +1464,30 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   // While history is empty we don't know which hosts have GPUs — keep panels
   // visible so the user sees what's coming. Once data lands, hide if truly no GPU.
   const hasGpu = !hasData || hostsWithGpu.length > 0;
-  const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-  const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: fmtLocalHHMM };
+  // Per-host series builders for each chart. Fleet aggregate is rendered
+  // first (accent red, thick line); per-host lines follow in their fleet
+  // colors with thinner strokes.
+  const SYNC = 'permacomputer-fleet';
+  const wattsSeries: UPlotSeries[] = [
+    { key: 'watts', label: 'Fleet', stroke: '#d40000', width: 2.5 },
+    ...hosts.map(h => ({ key: `watts:${h}`, label: h, stroke: hostColor(h, hosts), width: 1 } as UPlotSeries)),
+  ];
+  const cpuSeries: UPlotSeries[] = [
+    { key: 'cpuPct', label: 'Fleet avg', stroke: '#d40000', width: 2.5 },
+    ...hosts.map(h => ({ key: `cpu:${h}`, label: h, stroke: hostColor(h, hosts), width: 1 } as UPlotSeries)),
+  ];
+  const memSeries: UPlotSeries[] = [
+    { key: 'memPct', label: 'Fleet', stroke: '#d40000', width: 2.5 },
+    ...hosts.map(h => ({ key: `mem:${h}`, label: h, stroke: hostColor(h, hosts), width: 1 } as UPlotSeries)),
+  ];
+  const gpuUtilSeries: UPlotSeries[] = [
+    { key: 'gpuUtil', label: 'GPU avg', stroke: '#d40000', width: 2.5 },
+    ...hostsWithGpu.map(h => ({ key: `gpuUtil:${h}`, label: h, stroke: hostColor(h, hostsWithGpu), width: 1 } as UPlotSeries)),
+  ];
+  const gpuVramSeries: UPlotSeries[] = [
+    { key: 'gpuVramPct', label: 'VRAM avg', stroke: '#d40000', width: 2.5 },
+    ...hostsWithGpu.map(h => ({ key: `gpuVram:${h}`, label: h, stroke: hostColor(h, hostsWithGpu), width: 1 } as UPlotSeries)),
+  ];
   const tipLabel = fmtLocalDateTime;
   const tz = typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
   const ranges: { label: string; h: number }[] = [
@@ -1512,18 +1525,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
             Power <span className="font-normal ml-1">{hasData ? `${Math.round(last!.watts)}W now` : '— no data'}</span>
           </h5>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData}>
-              <XAxis {...xAxisProps} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="watts" name="Fleet" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
-              {hosts.map(h => (
-                <Line key={h} type="monotone" dataKey={`watts:${h}`} name={h} stroke={hostColor(h, hosts)} strokeWidth={1} dot={false} opacity={0.85} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null} yUnit="W" series={wattsSeries} />
         </div>
 
         {/* Electricity cost — derived from blended fleet rate */}
@@ -1531,14 +1533,9 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
             Electricity Cost <span className="font-normal ml-1">{hasData ? `$${last!.elecCostPerHour}/hr now` : '— no data'}</span>
           </h5>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={chartData}>
-              <XAxis {...xAxisProps} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v) => [`$${v}/hr`, 'Cost']} contentStyle={tooltipStyle} />
-              <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null}
+            series={[{ key: 'elecCostPerHour', label: '$/hr', stroke: '#facc15', fill: 'rgba(250,204,21,0.20)' }]}
+          />
         </div>
 
         {/* CPU % — load-as-percent per host + fleet avg */}
@@ -1546,18 +1543,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
             CPU % <span className="font-normal ml-1">{hasData ? `${last!.cpuPct}% fleet avg` : '— no data'}</span>
           </h5>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData}>
-              <XAxis {...xAxisProps} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" />
-              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="cpuPct" name="Fleet avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
-              {hosts.map(h => (
-                <Line key={h} type="monotone" dataKey={`cpu:${h}`} name={h} stroke={hostColor(h, hosts)} strokeWidth={1} dot={false} opacity={0.85} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null} yUnit="%" yMin={0} series={cpuSeries} />
         </div>
 
         {/* Memory % — used/total per host + fleet aggregate */}
@@ -1565,60 +1551,27 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
             Memory % <span className="font-normal ml-1">{hasData ? `${last!.memPct}% · ${last!.memUsedGB}/${last!.memTotalGB} GB` : '— no data'}</span>
           </h5>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData}>
-              <XAxis {...xAxisProps} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="memPct" name="Fleet" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
-              {hosts.map(h => (
-                <Line key={h} type="monotone" dataKey={`mem:${h}`} name={h} stroke={hostColor(h, hosts)} strokeWidth={1} dot={false} opacity={0.85} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null} yUnit="%" yMin={0} yMax={100} series={memSeries} />
         </div>
 
         {/* GPU Util — per-host + cross-GPU-node avg */}
         {hasGpu && (
-        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
-          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            GPU Utilization <span className="font-normal ml-1">{hasData ? `${last!.gpuUtil}% avg · ${hostsWithGpu.length} gpu` : '— no data'}</span>
-          </h5>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData}>
-              <XAxis {...xAxisProps} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="gpuUtil" name="GPU avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
-              {hostsWithGpu.map(h => (
-                <Line key={h} type="monotone" dataKey={`gpuUtil:${h}`} name={h} stroke={hostColor(h, hostsWithGpu)} strokeWidth={1} dot={false} opacity={0.85} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+          <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+            <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+              GPU Utilization <span className="font-normal ml-1">{hasData ? `${last!.gpuUtil}% avg · ${hostsWithGpu.length} gpu` : '— no data'}</span>
+            </h5>
+            <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null} yUnit="%" yMin={0} yMax={100} series={gpuUtilSeries} />
+          </div>
         )}
 
         {/* GPU VRAM — per-host VRAM% + cross-node avg */}
         {hasGpu && (
-        <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
-          <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            GPU VRAM <span className="font-normal ml-1">{hasData ? `${last!.gpuVramPct}% · ${last!.gpuVramUsedGB}/${last!.gpuVramTotalGB} GB` : '— no data'}</span>
-          </h5>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData}>
-              <XAxis {...xAxisProps} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-              <Tooltip labelFormatter={(t) => tipLabel(String(t))} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="gpuVramPct" name="VRAM avg" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} />
-              {hostsWithGpu.map(h => (
-                <Line key={h} type="monotone" dataKey={`gpuVram:${h}`} name={h} stroke={hostColor(h, hostsWithGpu)} strokeWidth={1} dot={false} opacity={0.85} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+          <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
+            <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+              GPU VRAM <span className="font-normal ml-1">{hasData ? `${last!.gpuVramPct}% · ${last!.gpuVramUsedGB}/${last!.gpuVramTotalGB} GB` : '— no data'}</span>
+            </h5>
+            <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null} yUnit="%" yMin={0} yMax={100} series={gpuVramSeries} />
+          </div>
         )}
 
       </div>
