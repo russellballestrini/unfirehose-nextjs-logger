@@ -1466,7 +1466,9 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   const hasGpu = !hasData || hostsWithGpu.length > 0;
   // Per-host series builders for each chart. Fleet aggregate is rendered
   // first (accent red, thick line); per-host lines follow in their fleet
-  // colors with thinner strokes.
+  // colors with thinner strokes. hostColor must be declared BEFORE the
+  // series-builder consts that reference it (lexical TDZ).
+  const hostColor = (host: string, list: string[]) => HOST_COLORS[list.indexOf(host) % HOST_COLORS.length];
   const SYNC = 'permacomputer-fleet';
   const wattsSeries: UPlotSeries[] = [
     { key: 'watts', label: 'Fleet', stroke: '#d40000', width: 2.5 },
@@ -1493,7 +1495,6 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   const ranges: { label: string; h: number }[] = [
     { label: '6h', h: 6 }, { label: '24h', h: 24 }, { label: '7d', h: 168 },
   ];
-  const hostColor = (host: string, list: string[]) => HOST_COLORS[list.indexOf(host) % HOST_COLORS.length];
 
   return (
     <div className="space-y-3">
