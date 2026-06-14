@@ -5,6 +5,7 @@ import { Sidebar } from "@unturf/unfirehose-ui/layout/Sidebar";
 import { ThemeProvider } from "@unturf/unfirehose-ui/ThemeProvider";
 import { VaultShell } from "./VaultShell";
 import { DevReloadProbe } from "./DevReloadProbe";
+import { EarlyReloadProbe } from "./EarlyReloadProbe";
 import { VitalsReporter } from "@/components/VitalsReporter";
 import { ScrollRestorer } from "@/components/ScrollRestorer";
 
@@ -25,6 +26,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <EarlyReloadProbe />
+      </head>
       <body className={`${geistMono.variable} antialiased h-screen flex overflow-hidden`}>
         <VaultShell>
           <ThemeProvider />

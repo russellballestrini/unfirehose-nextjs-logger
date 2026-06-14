@@ -161,6 +161,23 @@ export function DevReloadProbe() {
             recordCause('hmr-ws-error', `url=${url}`);
             console.warn('[DevReloadProbe] HMR socket error', url);
           });
+          // Turbopack caches location.reload at boot before our wrap installs,
+          // so explicit reload calls bypass us. But Turbopack triggers reloads
+          // in response to specific socket messages — peek at the payload to
+          // catch reason "fullReload" / "reload" / etc. so we still know the
+          // why next page load.
+          ws.addEventListener('message', (e: MessageEvent) => {
+            try {
+              const raw = typeof e.data === 'string' ? e.data : '';
+              if (!raw) return;
+              // Match common HMR reload signals without parsing every msg.
+              if (/fullReload|"reload"|reload"\s*:\s*true|action.*restart|restartDevServer/.test(raw)) {
+                const preview = raw.length > 200 ? raw.slice(0, 200) + '...' : raw;
+                recordCause('hmr-ws-message-reload', preview);
+                console.warn('[DevReloadProbe] HMR socket signaled reload:', preview);
+              }
+            } catch { /* ignore */ }
+          });
         }
         return ws;
       } as unknown as typeof WebSocket;
