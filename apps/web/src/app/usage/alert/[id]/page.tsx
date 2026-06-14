@@ -5,9 +5,9 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts';
+import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import type { ProjectMetadata } from '@unturf/unfirehose/types';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { formatTokens, formatCost, formatRelativeTime, formatTimestamp, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
@@ -365,23 +365,21 @@ export default function AlertDetailPage() {
           <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
             Token Burn &mdash; Minute by Minute
           </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={timeline}>
-              <XAxis
-                dataKey="minute"
-                tick={{ fill: '#71717a', fontSize: 16 }}
-                tickFormatter={(m: string) => m.slice(11, 16)}
-              />
-              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
-              <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 16 }}
-                formatter={(v) => formatTokens(Number(v ?? 0))}
-              />
-              <Area type="monotone" dataKey="input_tokens" name="Input" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.15} stackId="1" />
-              <Area type="monotone" dataKey="output_tokens" name="Output" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.15} stackId="1" />
-              <Area type="monotone" dataKey="cache_read_tokens" name="Cache Read" stroke="#10b981" fill="#10b981" fillOpacity={0.08} stackId="1" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <UPlotTimeChart
+            data={timeline.map((t: any) => ({
+              ...t,
+              tsMs: new Date(String(t.minute).length <= 10 ? t.minute + 'T00:00Z' : t.minute + 'Z').getTime(),
+            }))}
+            height={200}
+            syncKey="alert-burn"
+            domain={null}
+            yMin={0}
+            series={[
+              { key: 'input_tokens', label: 'Input', stroke: '#60a5fa', fill: 'rgba(96,165,250,0.15)' },
+              { key: 'output_tokens', label: 'Output', stroke: '#a78bfa', fill: 'rgba(167,139,250,0.15)' },
+              { key: 'cache_read_tokens', label: 'Cache Read', stroke: '#10b981', fill: 'rgba(16,185,129,0.10)' },
+            ]}
+          />
         </div>
       )}
 
