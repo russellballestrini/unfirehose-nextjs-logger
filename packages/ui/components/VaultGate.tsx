@@ -42,7 +42,7 @@ function BootScreen() {
   }, []);
 
   return (
-    <div className="h-screen flex items-center justify-center bg-[var(--color-background)] relative overflow-hidden" style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-background)] overflow-hidden" style={{ fontFamily: 'var(--font-mono, monospace)' }}>
       {/* Scanlines */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 4px)' }} />
       {/* CRT vignette */}
