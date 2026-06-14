@@ -6,6 +6,7 @@ import { ThemeProvider } from "@unturf/unfirehose-ui/ThemeProvider";
 import { VaultShell } from "./VaultShell";
 import { DevReloadProbe } from "./DevReloadProbe";
 import { VitalsReporter } from "@/components/VitalsReporter";
+import { ScrollRestorer } from "@/components/ScrollRestorer";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -33,6 +34,7 @@ export default function RootLayout({
           </main>
         </VaultShell>
         <VitalsReporter />
+        <ScrollRestorer />
         {process.env.NODE_ENV !== "production" && <DevReloadProbe />}
       </body>
     </html>
