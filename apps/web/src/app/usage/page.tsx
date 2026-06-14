@@ -226,14 +226,26 @@ export default function UsageMonitorPage() {
   }, [runIngest]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  const [ackState, setAckState] = useState<{ kind: 'idle' } | { kind: 'pending'; n: number } | { kind: 'done'; n: number } | { kind: 'error'; msg: string }>({ kind: 'idle' });
   const acknowledgeAll = async () => {
-    if (!alerts?.length) return;
-    await fetch('/api/alerts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'acknowledge_all' }),
-    });
-    await mutateAlerts();
+    if (!alerts?.length || ackState.kind === 'pending') return;
+    const n = alerts.length;
+    setAckState({ kind: 'pending', n });
+    try {
+      const res = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'acknowledge_all' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await mutateAlerts();
+      setAckState({ kind: 'done', n });
+      // Auto-reset the confirmation pill after 3s so the button returns to its
+      // normal "Acknowledge all" label for any newly-fired alerts.
+      setTimeout(() => setAckState(s => s.kind === 'done' ? { kind: 'idle' } : s), 3000);
+    } catch (err: any) {
+      setAckState({ kind: 'error', msg: err?.message ?? 'failed' });
+    }
   };
 
   // Current rate calculation
@@ -301,9 +313,19 @@ export default function UsageMonitorPage() {
               </h3>
               <button
                 onClick={acknowledgeAll}
-                className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer px-2 py-1 rounded border border-transparent hover:border-[var(--color-border)]"
+                disabled={ackState.kind === 'pending' || !alerts?.length}
+                className={`text-xs cursor-pointer px-2 py-1 rounded border transition-colors ${
+                  ackState.kind === 'pending' ? 'text-[var(--color-foreground)] border-[var(--color-border)] bg-[var(--color-surface)] cursor-wait'
+                  : ackState.kind === 'done'   ? 'text-green-300 border-green-700 bg-green-950/40'
+                  : ackState.kind === 'error'  ? 'text-red-300 border-red-700 bg-red-950/40'
+                  : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] border-transparent hover:border-[var(--color-border)]'
+                }`}
+                title={ackState.kind === 'error' ? ackState.msg : undefined}
               >
-                Acknowledge all
+                {ackState.kind === 'pending' ? `Acknowledging ${ackState.n}...`
+                : ackState.kind === 'done'   ? `Acknowledged ${ackState.n}`
+                : ackState.kind === 'error'  ? `Failed: ${ackState.msg}`
+                : 'Acknowledge all'}
               </button>
             </div>
             <div className="space-y-2">
