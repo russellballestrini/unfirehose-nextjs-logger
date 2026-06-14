@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTokens, formatRelativeTime } from '@unturf/unfirehose/format';
