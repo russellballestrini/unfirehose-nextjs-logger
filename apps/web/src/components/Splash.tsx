@@ -1,7 +1,12 @@
-// Global loading fallback — centered in the body content area (sibling of route content under <main>).
+// Global loading fallback — anchored to <main> via position:absolute so it
+// always lands in the body content area regardless of how Next 16's
+// streaming hands the layout off mid-navigation. Requires the parent
+// (<main> in apps/web/src/app/layout.tsx) to be position:relative so the
+// absolute resolves against main rather than escaping to <body> and
+// overlapping the sidebar.
 export function Splash({ label = 'loading' }: { label?: string }) {
   return (
-    <div className="w-full min-h-[70vh] flex items-center justify-center select-none">
+    <div className="absolute inset-0 flex items-center justify-center select-none">
       <div className="flex flex-col items-center gap-5">
         {/* Spinning ring — uses theme accent */}
         <div className="relative w-12 h-12 animate-spin" style={{ animationDuration: '1.1s' }}>
