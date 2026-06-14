@@ -902,8 +902,22 @@ export default function UsageMonitorPage() {
         const isPerNode = chartHostname === 'per-node' && hostnames.length > 1;
         const isSingleNode = chartHostname !== 'all' && chartHostname !== 'per-node';
 
+        // Downsample raw timeline before per-point enrichment. At Lifetime
+        // /api/mesh/history returns ~25k points (15s sampling × 30 days)
+        // and 6 recharts charts × 25k points crashes the renderer. Stride
+        // through evenly to ≤2000 points, taking the last sample per
+        // window (latest snapshot wins, matching the existing aggregation
+        // semantics inside /api/mesh/history). Real fix: port to uPlot.
+        const MESH_CHART_CAP = 2000;
+        const rawTimeline: any[] = meshHistory.timeline;
+        const stride = Math.max(1, Math.ceil(rawTimeline.length / MESH_CHART_CAP));
+        const downsampled: any[] = [];
+        for (let i = 0; i < rawTimeline.length; i += stride) {
+          downsampled.push(rawTimeline[Math.min(i + stride - 1, rawTimeline.length - 1)]);
+        }
+
         // Enrich timeline with per-node flattened keys and electricity cost
-        const chartData = meshHistory.timeline.map((t: any) => {
+        const chartData = downsampled.map((t: any) => {
           const point: any = { ...t };
           // Electricity cost: watts → $/hour
           point.elecCostPerHour = Math.round((t.totalWatts / 1000) * DEFAULT_KWH_RATE * 100) / 100;
