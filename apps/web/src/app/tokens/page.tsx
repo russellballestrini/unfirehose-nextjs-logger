@@ -20,6 +20,7 @@ import {
   Line,
   ReferenceLine,
 } from 'recharts';
+import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -915,34 +916,20 @@ export default function TokensPage() {
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Daily Messages & Tool Calls (last 30 days)
         </h3>
-        <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={(dailyActivity ?? []).slice(-30)}>
-            <XAxis
-              dataKey="date"
-              tick={{ fill: '#71717a', fontSize: 16 }}
-              tickFormatter={(d: string) => d.slice(5)}
-            />
-            <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
-            <Tooltip />
-            <Legend />
-            <Line
-              type="monotone"
-              dataKey="messageCount"
-              name="Messages"
-              stroke="#10b981"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="toolCallCount"
-              name="Tool Calls"
-              stroke="#fbbf24"
-              strokeWidth={2}
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        <UPlotTimeChart
+          data={(dailyActivity ?? []).slice(-30).map((d: any) => ({
+            ...d,
+            tsMs: new Date(d.date + 'T00:00Z').getTime(),
+          }))}
+          height={250}
+          syncKey="tokens-daily"
+          domain={null}
+          yMin={0}
+          series={[
+            { key: 'messageCount', label: 'Messages', stroke: '#10b981', width: 2 },
+            { key: 'toolCallCount', label: 'Tool Calls', stroke: '#fbbf24', width: 2 },
+          ]}
+        />
       </div>
 
       </>)}

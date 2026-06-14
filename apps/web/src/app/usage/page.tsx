@@ -244,36 +244,15 @@ export default function UsageMonitorPage() {
     messages: recentMinutes.reduce((s: number, m: any) => s + (m.message_count ?? 0), 0),
   };
 
-  // Chart-friendly timeline. Recharts (still in use on this page) hangs and
-  // ultimately crashes the renderer above ~5k points. The API returns
-  // minute-bucketed rows — for lifetime that's ~52k. Downsample to ≤2000
-  // points by summing within evenly-spaced windows. Real fix is porting
-  // these charts to uPlot like the permacomputer page, but until then
-  // this prevents the lifetime crash without hiding any data direction.
-  const TIMELINE_CHART_CAP = 2000;
+  // Timeline for the uPlot Token Usage chart. Add tsMs from the minute
+  // field; uPlot eats the full ~52k Lifetime sample volume without
+  // breaking stride, so no downsampling needed.
   const chartTimeline = useMemo(() => {
     if (!Array.isArray(timeline) || timeline.length === 0) return [];
-    if (timeline.length <= TIMELINE_CHART_CAP) return timeline;
-    const stride = Math.ceil(timeline.length / TIMELINE_CHART_CAP);
-    const out: any[] = [];
-    for (let i = 0; i < timeline.length; i += stride) {
-      const slice = timeline.slice(i, i + stride);
-      const agg = {
-        minute: slice[0].minute,
-        input_tokens: 0, output_tokens: 0,
-        cache_read_tokens: 0, cache_creation_tokens: 0,
-        message_count: 0,
-      };
-      for (const m of slice) {
-        agg.input_tokens += m.input_tokens ?? 0;
-        agg.output_tokens += m.output_tokens ?? 0;
-        agg.cache_read_tokens += m.cache_read_tokens ?? 0;
-        agg.cache_creation_tokens += m.cache_creation_tokens ?? 0;
-        agg.message_count += m.message_count ?? 0;
-      }
-      out.push(agg);
-    }
-    return out;
+    return timeline.map((t: any) => ({
+      ...t,
+      tsMs: new Date(String(t.minute).length <= 10 ? t.minute + 'T00:00Z' : t.minute + 'Z').getTime(),
+    }));
   }, [timeline]);
 
   // Project bar chart scaling
@@ -501,50 +480,13 @@ export default function UsageMonitorPage() {
           Token Usage Timeline
         </h3>
         {chartTimeline.length > 0 ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={chartTimeline}>
-              <XAxis
-                dataKey="minute"
-                tick={{ fill: '#71717a', fontSize: 16 }}
-                tickFormatter={(m: string) => {
-                  if (m.length <= 10) return m.slice(5); // day: MM-DD
-                  if (m.length <= 13) return m.slice(5, 13).replace('T', ' ') + 'h'; // hour: MM-DD HHh
-                  return m.slice(11, 16); // minute: HH:MM
-                }}
-              />
-              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} tickFormatter={(v: number) => formatTokens(v)} />
-              <Tooltip
-                formatter={(v) => formatTokens(Number(v ?? 0))}
-              />
-              <Area
-                type="monotone"
-                dataKey="input_tokens"
-                name="Input"
-                stroke="#22c55e"
-                fill="#22c55e"
-                fillOpacity={0.2}
-                stackId="1"
-              />
-              <Area
-                type="monotone"
-                dataKey="output_tokens"
-                name="Output"
-                stroke="#a78bfa"
-                fill="#a78bfa"
-                fillOpacity={0.2}
-                stackId="1"
-              />
-              <Area
-                type="monotone"
-                dataKey="cache_read_tokens"
-                name="Cache Read"
-                stroke="#10b981"
-                fill="#10b981"
-                fillOpacity={0.1}
-                stackId="1"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <UPlotTimeChart data={chartTimeline} height={220} syncKey="usage-tokens" domain={null} yMin={0}
+            series={[
+              { key: 'input_tokens', label: 'Input', stroke: '#22c55e', fill: 'rgba(34,197,94,0.20)' },
+              { key: 'output_tokens', label: 'Output', stroke: '#a78bfa', fill: 'rgba(167,139,250,0.20)' },
+              { key: 'cache_read_tokens', label: 'Cache Read', stroke: '#10b981', fill: 'rgba(16,185,129,0.15)' },
+            ]}
+          />
         ) : (
           <div className="text-[var(--color-muted)] text-base py-8 text-center">
             No usage data in window. Hit &quot;Ingest Now&quot; to populate.
