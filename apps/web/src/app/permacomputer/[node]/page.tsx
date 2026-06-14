@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes, TIME_RANGE_OPTIONS } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { UPlotTimeChart, type UPlotSeries } from './UPlotTimeChart';
+import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
   AreaChart,

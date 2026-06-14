@@ -10,14 +10,13 @@ import { useCurrency } from '@unturf/unfirehose-ui/useCurrency';
 import {
   AreaChart,
   Area,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   Tooltip,
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -902,23 +901,12 @@ export default function UsageMonitorPage() {
         const isPerNode = chartHostname === 'per-node' && hostnames.length > 1;
         const isSingleNode = chartHostname !== 'all' && chartHostname !== 'per-node';
 
-        // Downsample raw timeline before per-point enrichment. At Lifetime
-        // /api/mesh/history returns ~25k points (15s sampling × 30 days)
-        // and 6 recharts charts × 25k points crashes the renderer. Stride
-        // through evenly to ≤2000 points, taking the last sample per
-        // window (latest snapshot wins, matching the existing aggregation
-        // semantics inside /api/mesh/history). Real fix: port to uPlot.
-        const MESH_CHART_CAP = 2000;
-        const rawTimeline: any[] = meshHistory.timeline;
-        const stride = Math.max(1, Math.ceil(rawTimeline.length / MESH_CHART_CAP));
-        const downsampled: any[] = [];
-        for (let i = 0; i < rawTimeline.length; i += stride) {
-          downsampled.push(rawTimeline[Math.min(i + stride - 1, rawTimeline.length - 1)]);
-        }
-
-        // Enrich timeline with per-node flattened keys and electricity cost
-        const chartData = downsampled.map((t: any) => {
+        // uPlot eats the full 25k+ Lifetime sample volume — no downsampling.
+        // Enrich each row with tsMs (uPlot wants seconds-since-epoch on its
+        // x axis) and the per-node flattened keys + electricity cost.
+        const chartData = meshHistory.timeline.map((t: any) => {
           const point: any = { ...t };
+          point.tsMs = new Date(String(t.timestamp).replace(' ', 'T') + 'Z').getTime();
           // Electricity cost: watts → $/hour
           point.elecCostPerHour = Math.round((t.totalWatts / 1000) * DEFAULT_KWH_RATE * 100) / 100;
           // Single-node filter
@@ -950,8 +938,17 @@ export default function UsageMonitorPage() {
           return point;
         });
         const last = chartData[chartData.length - 1];
-        const tooltipStyle = { background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4 };
-        const xAxisProps = { dataKey: 'timestamp', tick: { fill: '#71717a', fontSize: 12 }, tickFormatter: (t: string) => t.slice(11, 16) };
+        const SYNC = 'usage-infra';
+        const cardCls = 'bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4';
+        const titleCls = 'text-base font-bold mb-3 text-[var(--color-muted)]';
+        // Build per-node series arrays once — avoids repeating in each chart.
+        const nodeSeries = (prefix: string): UPlotSeries[] =>
+          hostnames.map((h, i) => ({
+            key: `${prefix}_${h}`,
+            label: h,
+            stroke: NODE_COLORS[i % NODE_COLORS.length],
+            fill: NODE_COLORS[i % NODE_COLORS.length] + '33',
+          }));
 
         return (
         <div className="space-y-4">
@@ -974,203 +971,116 @@ export default function UsageMonitorPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
           {/* Claude Processes */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Active Claudes
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.claudes ?? 0} current
-              </span>
+          <div className={cardCls}>
+            <h3 className={titleCls}>
+              Active Claudes <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.claudes ?? 0} current</span>
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [v, name]} contentStyle={tooltipStyle} />
-                {isPerNode ? (<>
-                  <Legend />
-                  {hostnames.map((h, i) => (
-                    <Area key={h} type="stepAfter" dataKey={`claudes_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="claudes" dot={false} />
-                  ))}
-                </>) : (
-                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
+            <UPlotTimeChart data={chartData} height={160} syncKey={SYNC} domain={null}
+              series={isPerNode
+                ? nodeSeries('claudes').map(s => ({ ...s, step: true }))
+                : [{ key: 'claudes', label: 'Claudes', stroke: '#d40000', fill: 'rgba(212,0,0,0.20)', step: true }]}
+            />
           </div>
 
           {/* Power Wattage */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Compute Wattage
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.totalWatts ?? 0}W current
-              </span>
+          <div className={cardCls}>
+            <h3 className={titleCls}>
+              Compute Wattage <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.totalWatts ?? 0}W current</span>
             </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
-                <Legend />
-                {isPerNode ? (
-                  hostnames.map((h, i) => (
-                    <Line key={h} type="monotone" dataKey={`watts_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} strokeWidth={1.5} dot={false} />
-                  ))
-                ) : (<>
-                  <Line type="monotone" dataKey="totalWatts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} />
-                  {chartData.some((t: any) => t.gpuWatts > 0) && (
-                    <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} />
-                  )}
-                </>)}
-              </LineChart>
-            </ResponsiveContainer>
+            <UPlotTimeChart data={chartData} height={200} syncKey={SYNC} domain={null} yUnit="W"
+              series={isPerNode
+                ? hostnames.map((h, i) => ({ key: `watts_${h}`, label: h, stroke: NODE_COLORS[i % NODE_COLORS.length], width: 1.5 }))
+                : [
+                    { key: 'totalWatts', label: 'Total', stroke: '#d40000', width: 2 },
+                    { key: 'cpuWatts', label: 'CPU', stroke: '#f97316', width: 1.5 },
+                    ...(chartData.some((t: any) => t.gpuWatts > 0)
+                      ? [{ key: 'gpuWatts', label: 'GPU', stroke: '#a78bfa', width: 1.5 } as UPlotSeries]
+                      : []),
+                  ]}
+            />
           </div>
 
           {/* Electricity Cost */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Electricity Cost
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {currency.format(last?.elecCostPerHour ?? 0)}/hr &middot; ~{currency.format((last?.elecCostPerHour ?? 0) * 24 * 30)}/mo
-              </span>
+          <div className={cardCls}>
+            <h3 className={titleCls}>
+              Electricity Cost <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{currency.format(last?.elecCostPerHour ?? 0)}/hr · ~{currency.format((last?.elecCostPerHour ?? 0) * 24 * 30)}/mo</span>
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v) => [`$${Number(v).toFixed(3)}/hr`]} contentStyle={tooltipStyle} />
-                <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <UPlotTimeChart data={chartData} height={160} syncKey={SYNC} domain={null}
+              series={[{ key: 'elecCostPerHour', label: '$/hr', stroke: '#facc15', fill: 'rgba(250,204,21,0.20)' }]}
+            />
           </div>
 
           {/* CPU Load */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              CPU Load
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.totalLoad ?? 0} / {last?.totalCores ?? 0} cores
-              </span>
+          <div className={cardCls}>
+            <h3 className={titleCls}>
+              CPU Load <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.totalLoad ?? 0} / {last?.totalCores ?? 0} cores</span>
             </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} />
-                <Legend />
-                {isPerNode ? (
-                  hostnames.map((h, i) => (
-                    <Area key={h} type="monotone" dataKey={`load_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="load" dot={false} />
-                  ))
-                ) : (<>
-                  <Area type="monotone" dataKey="totalCores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                  <Area type="monotone" dataKey="totalLoad" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} />
-                </>)}
-              </AreaChart>
-            </ResponsiveContainer>
+            <UPlotTimeChart data={chartData} height={200} syncKey={SYNC} domain={null}
+              series={isPerNode
+                ? nodeSeries('load')
+                : [
+                    { key: 'totalCores', label: 'Total Cores', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
+                    { key: 'totalLoad', label: 'Load Average', stroke: '#f97316', fill: 'rgba(249,115,22,0.25)' },
+                  ]}
+            />
           </div>
 
           {/* Memory Usage */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Memory Usage
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.memUsedGB ?? 0} / {last?.memTotalGB ?? 0} GB
-              </span>
+          <div className={cardCls}>
+            <h3 className={titleCls}>
+              Memory Usage <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.memUsedGB ?? 0} / {last?.memTotalGB ?? 0} GB</span>
             </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
-                <Legend />
-                {isPerNode ? (
-                  hostnames.map((h, i) => (
-                    <Area key={h} type="monotone" dataKey={`mem_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="mem" dot={false} />
-                  ))
-                ) : (<>
-                  <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                  <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} />
-                </>)}
-              </AreaChart>
-            </ResponsiveContainer>
+            <UPlotTimeChart data={chartData} height={200} syncKey={SYNC} domain={null} yUnit="GB" yMin={0}
+              series={isPerNode
+                ? nodeSeries('mem')
+                : [
+                    { key: 'memTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
+                    { key: 'memUsedGB', label: 'Used', stroke: '#60a5fa', fill: 'rgba(96,165,250,0.28)' },
+                  ]}
+            />
           </div>
 
           {/* GPU Utilization */}
           {chartData.some((t: any) => t.gpuUtil > 0 || t.gpuWatts > 0) && (
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              GPU Utilization
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.gpuUtil ?? 0}%
-              </span>
-            </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}%`, name]} contentStyle={tooltipStyle} />
-                <Legend />
-                {isPerNode ? (
-                  hostnames.map((h, i) => (
-                    <Area key={h} type="monotone" dataKey={`gpuUtil_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="gpuUtil" dot={false} />
-                  ))
-                ) : (
-                  <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+            <div className={cardCls}>
+              <h3 className={titleCls}>
+                GPU Utilization <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.gpuUtil ?? 0}%</span>
+              </h3>
+              <UPlotTimeChart data={chartData} height={200} syncKey={SYNC} domain={null} yUnit="%" yMin={0} yMax={100}
+                series={isPerNode
+                  ? nodeSeries('gpuUtil')
+                  : [{ key: 'gpuUtil', label: 'GPU Util', stroke: '#22c55e', fill: 'rgba(34,197,94,0.28)' }]}
+              />
+            </div>
           )}
 
           {/* GPU Power */}
           {chartData.some((t: any) => t.gpuWatts > 0) && (
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              GPU Power
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.gpuWatts ?? 0}W
-              </span>
-            </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}W`, name]} contentStyle={tooltipStyle} />
-                <Legend />
-                {isPerNode ? (
-                  hostnames.map((h, i) => (
-                    <Area key={h} type="monotone" dataKey={`gpuWatts_${h}`} name={h} stroke={NODE_COLORS[i % NODE_COLORS.length]} fill={NODE_COLORS[i % NODE_COLORS.length]} fillOpacity={0.15} stackId="gpuW" dot={false} />
-                  ))
-                ) : (
-                  <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+            <div className={cardCls}>
+              <h3 className={titleCls}>
+                GPU Power <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.gpuWatts ?? 0}W</span>
+              </h3>
+              <UPlotTimeChart data={chartData} height={200} syncKey={SYNC} domain={null} yUnit="W"
+                series={isPerNode
+                  ? nodeSeries('gpuWatts')
+                  : [{ key: 'gpuWatts', label: 'GPU Power', stroke: '#a78bfa', fill: 'rgba(167,139,250,0.25)' }]}
+              />
+            </div>
           )}
 
           {/* GPU Memory */}
           {chartData.some((t: any) => t.gpuMemTotalGB > 0) && (
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              GPU Memory
-              <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">
-                {last?.gpuMemUsedGB ?? 0} / {last?.gpuMemTotalGB ?? 0} GB
-              </span>
-            </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} syncId="usage-infra">
-                <XAxis {...xAxisProps} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
-                <Tooltip labelFormatter={(t) => String(t)} formatter={(v, name) => [`${v}GB`, name]} contentStyle={tooltipStyle} />
-                <Legend />
-                <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} />
-                <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+            <div className={cardCls}>
+              <h3 className={titleCls}>
+                GPU Memory <span className="text-xs font-normal ml-2 text-[var(--color-muted)]">{last?.gpuMemUsedGB ?? 0} / {last?.gpuMemTotalGB ?? 0} GB</span>
+              </h3>
+              <UPlotTimeChart data={chartData} height={200} syncKey={SYNC} domain={null} yUnit="GB" yMin={0}
+                series={[
+                  { key: 'gpuMemTotalGB', label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
+                  { key: 'gpuMemUsedGB', label: 'Used', stroke: '#22c55e', fill: 'rgba(34,197,94,0.28)' },
+                ]}
+              />
+            </div>
           )}
 
           </div>{/* end grid */}
