@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
+import { resolveSessionFile } from '@unturf/unfirehose/session-paths';
 import { appendFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 
@@ -42,7 +42,7 @@ export async function POST(
     }
 
     // Construct JSONL file path
-    const filePath = claudePaths.sessionFile(session.project_name, sessionId);
+    const filePath = resolveSessionFile(session.project_name, sessionId);
     if (!existsSync(filePath)) {
       return NextResponse.json({ error: 'session file not found on disk' }, { status: 404 });
     }

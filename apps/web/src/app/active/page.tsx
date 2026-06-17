@@ -19,6 +19,21 @@ interface ActiveSession {
   messageCount: number;
   recentTokens: number;
   lastModel: string | null;
+  harness: string | null;
+  isSidechain: boolean;
+  delegatedFrom: string | null;
+}
+
+const HARNESS_COLORS: Record<string, string> = {
+  'claude-code': '#a78bfa',
+  'agnt': '#34d399',
+  'uncloseai': '#60a5fa',
+  'fetch': '#fbbf24',
+};
+
+function harnessColor(h: string | null): string {
+  if (!h) return '#6b7280';
+  return HARNESS_COLORS[h] ?? '#9ca3af';
 }
 
 const SESSION_COLORS = [
@@ -89,6 +104,27 @@ export default function ActivePage() {
                   style={{ backgroundColor: SESSION_COLORS[idx % SESSION_COLORS.length] }}
                 />
                 <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span
+                      className="px-1.5 py-0.5 rounded text-xs font-mono shrink-0"
+                      style={{
+                        backgroundColor: `${harnessColor(session.harness)}22`,
+                        color: harnessColor(session.harness),
+                        border: `1px solid ${harnessColor(session.harness)}55`,
+                      }}
+                      title={session.harness ? `Harness: ${session.harness}` : 'Unknown harness'}
+                    >
+                      {session.harness ?? 'unknown'}
+                    </span>
+                    {session.isSidechain && (
+                      <span
+                        className="text-xs text-[var(--color-muted)]"
+                        title={session.delegatedFrom ? `Delegated from ${session.delegatedFrom}` : 'Sidechain / subagent'}
+                      >
+                        ↳ sub
+                      </span>
+                    )}
+                  </div>
                   <h3 className="font-medium text-base truncate" title={session.displayName}>
                     {session.displayName}
                   </h3>

@@ -43,7 +43,7 @@ export default function SessionViewerPage({
     async function stream() {
       try {
         const response = await fetch(
-          `/api/sessions/${sessionId}?project=${encodeURIComponent(project)}&stream=true&types=user,assistant,system`,
+          `/api/sessions/${sessionId}?project=${encodeURIComponent(project)}&stream=true&types=user,assistant,system,tool`,
           { signal: controller.signal }
         );
         if (!response.ok || !response.body) {
@@ -96,9 +96,9 @@ export default function SessionViewerPage({
     }
   }, [entries, autoScroll]);
 
-  const filteredEntries = entries.filter((e) => {
-    if (e.type === 'user' || e.type === 'system') return true;
-    return e.type === 'assistant';
+  const filteredEntries = entries.filter((e: any) => {
+    const role = e.role ?? e.type;
+    return role === 'user' || role === 'assistant' || role === 'system' || role === 'tool';
   });
 
   const scrollToBottom = useCallback(() => {

@@ -1,11 +1,15 @@
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
+import { harnessFor } from '@unturf/unfirehose/session-paths';
 import { streamJsonl } from '@unturf/unfirehose/jsonl-reader';
 import { NextRequest, NextResponse } from 'next/server';
-import type { ThinkingExcerpt, ContentBlock } from '@unturf/unfirehose/types';
+import type { ThinkingExcerpt } from '@unturf/unfirehose/types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyEntry = any;
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * Pull reasoning excerpts out of a session.
+ * Reads raw JSONL through the harness adapter so each line is normalized
+ * to canonical unfirehose/1.0 (role-based, content blocks include `reasoning`).
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -15,41 +19,37 @@ export async function GET(
   const project = url.searchParams.get('project');
 
   if (!project) {
-    return NextResponse.json(
-      { error: 'project query param required' },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'project query param required' }, { status: 400 });
   }
 
-  const filePath = claudePaths.sessionFile(project, sessionId);
+  const { adapter, slug } = harnessFor(project);
+  const filePath = adapter.sessionFile(slug, sessionId);
   const results: ThinkingExcerpt[] = [];
   let lastUserText = '';
 
   try {
-    for await (const entry of streamJsonl(filePath, {
-      types: ['user', 'assistant'],
-    })) {
-      const e = entry as AnyEntry;
-      if (e.type === 'user') {
-        const content = e.message.content;
-        if (typeof content === 'string') {
-          lastUserText = content;
-        } else if (Array.isArray(content)) {
+    for await (const raw of streamJsonl<any>(filePath)) {
+      const msg = adapter.normalize(raw);
+      if (!msg) continue;
+
+      if (msg.role === 'user') {
+        const content = msg.content;
+        if (Array.isArray(content)) {
           lastUserText = content
-            .filter((b: ContentBlock) => b.type === 'text')
-            .map((b) => ('text' in b ? b.text : ''))
+            .filter((b: any) => b.type === 'text')
+            .map((b: any) => b.text ?? '')
             .join('\n');
         }
-      } else if (e.type === 'assistant' && Array.isArray(e.message.content)) {
-        for (const block of e.message.content) {
-          if (block.type === 'thinking' && 'thinking' in block) {
+      } else if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+        for (const block of msg.content as any[]) {
+          if (block.type === 'reasoning' && typeof block.text === 'string') {
             results.push({
-              sessionId: e.sessionId,
+              sessionId: msg.sessionId ?? sessionId,
               project,
-              timestamp: e.timestamp ?? '',
-              thinking: block.thinking,
+              timestamp: msg.timestamp ?? '',
+              thinking: block.text,
               precedingPrompt: lastUserText,
-              model: e.message.model,
+              model: msg.model ?? undefined,
             });
           }
         }
