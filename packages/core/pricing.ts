@@ -105,6 +105,36 @@ export function selfHostCost(model: string, totalTokens: number): number {
   return kwh * getKwhRate();
 }
 
+export interface CostBreakdown {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+}
+
+// Split equivalent USD cost per token class. Self-hosted models (no PRICING
+// entry) attribute everything to `total` and leave the per-class fields at 0
+// — energy cost doesn't separate cleanly by input vs output.
+export function calcCostBreakdown(
+  model: string,
+  input: number,
+  output: number,
+  cacheRead: number,
+  cacheWrite: number,
+): CostBreakdown {
+  const p = PRICING[model];
+  if (p) {
+    const i  = (input      / 1_000_000) * p.input;
+    const o  = (output     / 1_000_000) * p.output;
+    const cr = (cacheRead  / 1_000_000) * p.cacheRead;
+    const cw = (cacheWrite / 1_000_000) * p.cacheWrite;
+    return { input: i, output: o, cacheRead: cr, cacheWrite: cw, total: i + o + cr + cw };
+  }
+  const total = selfHostCost(model, input + output + cacheRead + cacheWrite);
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total };
+}
+
 export function calcCost(
   model: string,
   input: number,
@@ -112,14 +142,5 @@ export function calcCost(
   cacheRead: number,
   cacheWrite: number,
 ): number {
-  const p = PRICING[model];
-  if (p) {
-    return (
-      (input      / 1_000_000) * p.input +
-      (output     / 1_000_000) * p.output +
-      (cacheRead  / 1_000_000) * p.cacheRead +
-      (cacheWrite / 1_000_000) * p.cacheWrite
-    );
-  }
-  return selfHostCost(model, input + output + cacheRead + cacheWrite);
+  return calcCostBreakdown(model, input, output, cacheRead, cacheWrite).total;
 }

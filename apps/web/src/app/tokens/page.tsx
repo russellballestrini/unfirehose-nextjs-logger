@@ -124,6 +124,10 @@ export default function TokensPage() {
     modelBreakdown = [],
     totalTokens = 0,
     totalCost = 0,
+    totalInputCost = 0,
+    totalOutputCost = 0,
+    totalCacheReadCost = 0,
+    totalCacheWriteCost = 0,
     totalInput = 0,
     totalOutput = 0,
     totalCacheRead = 0,
@@ -145,6 +149,14 @@ export default function TokensPage() {
     { name: 'Output', value: totalOutput, color: TOKEN_TYPE_COLORS.output },
     { name: 'Cache Read', value: totalCacheRead, color: TOKEN_TYPE_COLORS.cacheRead },
     { name: 'Cache Write', value: totalCacheWrite, color: TOKEN_TYPE_COLORS.cacheWrite },
+  ];
+
+  // Cost by token type — output dominates because $15-$25/M vs $3-$5/M input
+  const costTypePie = [
+    { name: 'Input', value: totalInputCost, color: TOKEN_TYPE_COLORS.input },
+    { name: 'Output', value: totalOutputCost, color: TOKEN_TYPE_COLORS.output },
+    { name: 'Cache Read', value: totalCacheReadCost, color: TOKEN_TYPE_COLORS.cacheRead },
+    { name: 'Cache Write', value: totalCacheWriteCost, color: TOKEN_TYPE_COLORS.cacheWrite },
   ];
 
   // Data for model donut chart (by total tokens)
@@ -205,6 +217,10 @@ export default function TokensPage() {
         metrics={{
           total_tokens: totalTokens,
           equivalent_cost_usd: totalCost.toFixed(2),
+          input_cost_usd: totalInputCost.toFixed(2),
+          output_cost_usd: totalOutputCost.toFixed(2),
+          cache_read_cost_usd: totalCacheReadCost.toFixed(2),
+          cache_write_cost_usd: totalCacheWriteCost.toFixed(2),
           input_tokens: totalInput,
           output_tokens: totalOutput,
           cache_read_tokens: totalCacheRead,
@@ -215,7 +231,7 @@ export default function TokensPage() {
         }}
         details={[
           ...modelBreakdown.filter((m: any) => m.totalTokens > 0).map((m: any) =>
-            `${shortModel(m.model)}: ${formatTokens(m.totalTokens)} tokens, ${formatCost(m.costUSD)} cost, input=${formatTokens(m.inputTokens)} output=${formatTokens(m.outputTokens)} cache_read=${formatTokens(m.cacheReadTokens)} cache_write=${formatTokens(m.cacheCreationTokens)}`
+            `${shortModel(m.model)}: ${formatTokens(m.totalTokens)} tokens, ${formatCost(m.costUSD)} cost (input=${formatCost(m.inputCostUSD ?? 0)} output=${formatCost(m.outputCostUSD ?? 0)} cache_read=${formatCost(m.cacheReadCostUSD ?? 0)} cache_write=${formatCost(m.cacheWriteCostUSD ?? 0)}), input=${formatTokens(m.inputTokens)} output=${formatTokens(m.outputTokens)} cache_read=${formatTokens(m.cacheReadTokens)} cache_write=${formatTokens(m.cacheCreationTokens)}`
           ),
           '',
           'Top tool calls:',
@@ -268,6 +284,34 @@ export default function TokensPage() {
         />
       </div>
 
+      {/* Cost split — output usually dominates */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard
+          label="Input Cost"
+          value={formatCost(totalInputCost)}
+          sub={totalCost > 0 ? `${((totalInputCost / totalCost) * 100).toFixed(0)}% of total` : undefined}
+          color={TOKEN_TYPE_COLORS.input}
+        />
+        <StatCard
+          label="Output Cost"
+          value={formatCost(totalOutputCost)}
+          sub={totalCost > 0 ? `${((totalOutputCost / totalCost) * 100).toFixed(0)}% of total` : undefined}
+          color={TOKEN_TYPE_COLORS.output}
+        />
+        <StatCard
+          label="Cache Read Cost"
+          value={formatCost(totalCacheReadCost)}
+          sub={totalCost > 0 ? `${((totalCacheReadCost / totalCost) * 100).toFixed(0)}% of total` : undefined}
+          color={TOKEN_TYPE_COLORS.cacheRead}
+        />
+        <StatCard
+          label="Cache Write Cost"
+          value={formatCost(totalCacheWriteCost)}
+          sub={totalCost > 0 ? `${((totalCacheWriteCost / totalCost) * 100).toFixed(0)}% of total` : undefined}
+          color={TOKEN_TYPE_COLORS.cacheWrite}
+        />
+      </div>
+
       {/* Card charges strip — shown if synced */}
       {extraSpent !== null && (
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3 flex items-center gap-6">
@@ -295,12 +339,12 @@ export default function TokensPage() {
         </div>
       )}
 
-      {/* Row: Token type pie + Model donut + Cost donut */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Row: Token type pie + Cost type pie + Model donut + Cost donut */}
+      <div className="grid grid-cols-4 gap-4">
         {/* Token type breakdown */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
-            Token Types
+            Tokens by Type
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
@@ -326,6 +370,33 @@ export default function TokensPage() {
                 iconSize={8}
                 wrapperStyle={{ fontSize: 16 }}
               />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Cost type breakdown */}
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
+            Cost by Type
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie
+                data={costTypePie}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                innerRadius={35}
+                outerRadius={75}
+                strokeWidth={0}
+              >
+                {costTypePie.map((d, i) => (
+                  <Cell key={i} fill={d.color} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v) => formatCost(Number(v ?? 0))} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -406,12 +477,21 @@ export default function TokensPage() {
           <thead>
             <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
               <th className="pb-2">Model</th>
+              <th className="pb-2 text-right" colSpan={5}>Tokens</th>
+              <th className="pb-2 text-right" colSpan={5}>Equivalent Cost</th>
+            </tr>
+            <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
+              <th className="pb-2"></th>
               <th className="pb-2 text-right">Input</th>
               <th className="pb-2 text-right">Output</th>
               <th className="pb-2 text-right">Cache Read</th>
               <th className="pb-2 text-right">Cache Write</th>
               <th className="pb-2 text-right">Total</th>
-              <th className="pb-2 text-right">Cost (equiv)</th>
+              <th className="pb-2 text-right">Input</th>
+              <th className="pb-2 text-right">Output</th>
+              <th className="pb-2 text-right">Cache Read</th>
+              <th className="pb-2 text-right">Cache Write</th>
+              <th className="pb-2 text-right">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -445,7 +525,19 @@ export default function TokensPage() {
                   <td className="py-2 text-right font-bold">
                     {formatTokens(m.totalTokens)}
                   </td>
-                  <td className="py-2 text-right text-[var(--color-accent)]">
+                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
+                    {formatCost(m.inputCostUSD ?? 0)}
+                  </td>
+                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
+                    {formatCost(m.outputCostUSD ?? 0)}
+                  </td>
+                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                    {formatCost(m.cacheReadCostUSD ?? 0)}
+                  </td>
+                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
+                    {formatCost(m.cacheWriteCostUSD ?? 0)}
+                  </td>
+                  <td className="py-2 text-right text-[var(--color-accent)] font-bold">
                     {formatCost(m.costUSD)}
                   </td>
                 </tr>
@@ -458,6 +550,10 @@ export default function TokensPage() {
               <td className="py-2 text-right">{formatTokens(totalCacheRead)}</td>
               <td className="py-2 text-right">{formatTokens(totalCacheWrite)}</td>
               <td className="py-2 text-right">{formatTokens(totalTokens)}</td>
+              <td className="py-2 text-right">{formatCost(totalInputCost)}</td>
+              <td className="py-2 text-right">{formatCost(totalOutputCost)}</td>
+              <td className="py-2 text-right">{formatCost(totalCacheReadCost)}</td>
+              <td className="py-2 text-right">{formatCost(totalCacheWriteCost)}</td>
               <td className="py-2 text-right text-[var(--color-accent)]">{formatCost(totalCost)}</td>
             </tr>
           </tbody>
@@ -672,13 +768,24 @@ export default function TokensPage() {
               <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
                 <th className="pb-2">Harness</th>
                 <th className="pb-2 text-right">Sessions</th>
+                <th className="pb-2 text-right" colSpan={5}>Tokens</th>
+                <th className="pb-2 text-right">Cache Eff</th>
+                <th className="pb-2 text-right" colSpan={5}>Equivalent Cost</th>
+              </tr>
+              <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
+                <th className="pb-2"></th>
+                <th className="pb-2"></th>
                 <th className="pb-2 text-right">Input</th>
                 <th className="pb-2 text-right">Output</th>
                 <th className="pb-2 text-right">Cache Read</th>
                 <th className="pb-2 text-right">Cache Write</th>
                 <th className="pb-2 text-right">Total</th>
-                <th className="pb-2 text-right">Cache Eff</th>
-                <th className="pb-2 text-right">Cost (equiv)</th>
+                <th className="pb-2"></th>
+                <th className="pb-2 text-right">Input</th>
+                <th className="pb-2 text-right">Output</th>
+                <th className="pb-2 text-right">Cache Read</th>
+                <th className="pb-2 text-right">Cache Write</th>
+                <th className="pb-2 text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -715,7 +822,19 @@ export default function TokensPage() {
                       <td className="py-2 text-right">
                         {h.cacheEfficiency.toFixed(0)}x
                       </td>
-                      <td className="py-2 text-right text-[var(--color-accent)]">
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
+                        {formatCost(h.inputCostUSD ?? 0)}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
+                        {formatCost(h.outputCostUSD ?? 0)}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                        {formatCost(h.cacheReadCostUSD ?? 0)}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
+                        {formatCost(h.cacheWriteCostUSD ?? 0)}
+                      </td>
+                      <td className="py-2 text-right text-[var(--color-accent)] font-bold">
                         {formatCost(h.costUSD)}
                       </td>
                     </tr>

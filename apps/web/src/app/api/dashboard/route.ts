@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCost, hostForMessage, getKwhRate, CLOUD_PROVIDERS, PRICING } from '@unturf/unfirehose/pricing';
+import { calcCostBreakdown, hostForMessage, getKwhRate, CLOUD_PROVIDERS, PRICING } from '@unturf/unfirehose/pricing';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
     const kwhRate = getKwhRate();
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
-      const costUSD = calcCost(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
+      const c = calcCostBreakdown(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
       const { host, provider, endpoint } = attrFor(m.model);
       let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
@@ -191,7 +191,11 @@ export async function GET(request: NextRequest) {
         cacheReadTokens: m.cache_read_tokens,
         cacheCreationTokens: m.cache_creation_tokens,
         totalTokens,
-        costUSD,
+        inputCostUSD: c.input,
+        outputCostUSD: c.output,
+        cacheReadCostUSD: c.cacheRead,
+        cacheWriteCostUSD: c.cacheWrite,
+        costUSD: c.total,
         costSource: PRICING[m.model] ? ('api' as const) : ('estimate' as const),
         host,
         provider,

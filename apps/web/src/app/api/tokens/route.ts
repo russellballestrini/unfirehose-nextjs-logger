@@ -3,7 +3,7 @@ import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCost } from '@unturf/unfirehose/pricing';
+import { calcCostBreakdown } from '@unturf/unfirehose/pricing';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -148,18 +148,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const modelBreakdown = [...modelMap.entries()].map(([model, t]) => ({
-      model,
-      inputTokens: t.input,
-      outputTokens: t.output,
-      cacheReadTokens: t.cacheRead,
-      cacheCreationTokens: t.cacheWrite,
-      totalTokens: t.input + t.output + t.cacheRead + t.cacheWrite,
-      costUSD: calcCost(model, t.input, t.output, t.cacheRead, t.cacheWrite),
-    }));
+    const modelBreakdown = [...modelMap.entries()].map(([model, t]) => {
+      const c = calcCostBreakdown(model, t.input, t.output, t.cacheRead, t.cacheWrite);
+      return {
+        model,
+        inputTokens: t.input,
+        outputTokens: t.output,
+        cacheReadTokens: t.cacheRead,
+        cacheCreationTokens: t.cacheWrite,
+        totalTokens: t.input + t.output + t.cacheRead + t.cacheWrite,
+        inputCostUSD: c.input,
+        outputCostUSD: c.output,
+        cacheReadCostUSD: c.cacheRead,
+        cacheWriteCostUSD: c.cacheWrite,
+        costUSD: c.total,
+      };
+    });
 
     const totalTokens = modelBreakdown.reduce((s, m) => s + m.totalTokens, 0);
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
+    const totalInputCost = modelBreakdown.reduce((s, m) => s + m.inputCostUSD, 0);
+    const totalOutputCost = modelBreakdown.reduce((s, m) => s + m.outputCostUSD, 0);
+    const totalCacheReadCost = modelBreakdown.reduce((s, m) => s + m.cacheReadCostUSD, 0);
+    const totalCacheWriteCost = modelBreakdown.reduce((s, m) => s + m.cacheWriteCostUSD, 0);
     const totalInput = modelBreakdown.reduce((s, m) => s + m.inputTokens, 0);
     const totalOutput = modelBreakdown.reduce((s, m) => s + m.outputTokens, 0);
     const totalCacheRead = modelBreakdown.reduce((s, m) => s + m.cacheReadTokens, 0);
@@ -175,22 +186,35 @@ export async function GET(request: NextRequest) {
       sessions: hm.sessions.size,
     }));
 
-    const harnessCostMap = new Map<string, number>();
+    const harnessCostMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }>();
     for (const hm of harnessModelBreakdown) {
-      const prev = harnessCostMap.get(hm.harness) ?? 0;
-      harnessCostMap.set(hm.harness, prev + calcCost(hm.model, hm.input_tokens, hm.output_tokens, hm.cache_read_tokens, hm.cache_creation_tokens));
+      const c = calcCostBreakdown(hm.model, hm.input_tokens, hm.output_tokens, hm.cache_read_tokens, hm.cache_creation_tokens);
+      const prev = harnessCostMap.get(hm.harness) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+      prev.input += c.input;
+      prev.output += c.output;
+      prev.cacheRead += c.cacheRead;
+      prev.cacheWrite += c.cacheWrite;
+      prev.total += c.total;
+      harnessCostMap.set(hm.harness, prev);
     }
 
-    const harnessData = [...harnessMap.entries()].map(([harness, t]) => ({
-      harness,
-      inputTokens: t.input,
-      outputTokens: t.output,
-      cacheReadTokens: t.cacheRead,
-      cacheCreationTokens: t.cacheWrite,
-      totalTokens: t.input + t.output + t.cacheRead + t.cacheWrite,
-      costUSD: harnessCostMap.get(harness) ?? 0,
-      cacheEfficiency: t.input > 0 ? t.cacheRead / t.input : 0,
-    }));
+    const harnessData = [...harnessMap.entries()].map(([harness, t]) => {
+      const c = harnessCostMap.get(harness) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+      return {
+        harness,
+        inputTokens: t.input,
+        outputTokens: t.output,
+        cacheReadTokens: t.cacheRead,
+        cacheCreationTokens: t.cacheWrite,
+        totalTokens: t.input + t.output + t.cacheRead + t.cacheWrite,
+        inputCostUSD: c.input,
+        outputCostUSD: c.output,
+        cacheReadCostUSD: c.cacheRead,
+        cacheWriteCostUSD: c.cacheWrite,
+        costUSD: c.total,
+        cacheEfficiency: t.input > 0 ? t.cacheRead / t.input : 0,
+      };
+    });
 
     const harnessSessions = [...harnessMap.entries()].map(([harness, t]) => ({
       harness,
@@ -285,6 +309,10 @@ export async function GET(request: NextRequest) {
       modelBreakdown,
       totalTokens,
       totalCost,
+      totalInputCost,
+      totalOutputCost,
+      totalCacheReadCost,
+      totalCacheWriteCost,
       totalInput,
       totalOutput,
       totalCacheRead,
