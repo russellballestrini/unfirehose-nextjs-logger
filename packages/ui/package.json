@@ -49,6 +49,7 @@
   "dependencies": {
     "@unturf/unfirehose": "*",
     "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "swr": "^2.3.3"
   },
   "devDependencies": {

@@ -10,14 +10,43 @@ import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
+const HARNESS_COLORS: Record<string, string> = {
+  'claude-code': '#a78bfa',
+  'agnt': '#34d399',
+  'uncloseai': '#60a5fa',
+  'uncloseai-cli': '#60a5fa',
+  'fetch': '#fbbf24',
+  'arborist': '#fb7185',
+  'aborist': '#fb7185',
+};
+
+function harnessColor(h: string): string {
+  return HARNESS_COLORS[h] ?? '#9ca3af';
+}
+
+function HarnessBadge({ harness }: { harness: string }) {
+  const c = harnessColor(harness);
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-xs font-mono shrink-0"
+      style={{
+        backgroundColor: `${c}22`,
+        color: c,
+        border: `1px solid ${c}55`,
+      }}
+      title={`Harness: ${harness}`}
+    >
+      {harness}
+    </span>
+  );
+}
+
 export default function SessionViewerPage({
   params,
 }: {
   params: Promise<{ project: string; sessionId: string }>;
 }) {
   const { project, sessionId } = use(params);
-  const [entries, setEntries] = useState<SessionEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showThinking, setShowThinking] = useState(true);
   const [showTools, setShowTools] = useState(true);
   const [autoScroll, setAutoScroll] = useState(false);
@@ -37,58 +66,19 @@ export default function SessionViewerPage({
   const projectSuffix = decodedProject.split('-').pop() || '';
   const matchingTmux = tmuxSessions.find(s => decodedProject.includes(s) || (projectSuffix.length > 3 && s.includes(projectSuffix)));
 
-  useEffect(() => {
-    const controller = new AbortController();
+  // Derive harness from project name. Format: "{harness}:{slug}" for native harnesses,
+  // bare encoded path for claude-code.
+  const colonIdx = decodedProject.indexOf(':');
+  const harness = colonIdx < 0 ? 'claude-code' : decodedProject.slice(0, colonIdx);
 
-    async function stream() {
-      try {
-        const response = await fetch(
-          `/api/sessions/${sessionId}?project=${encodeURIComponent(project)}&stream=true&types=user,assistant,system,tool`,
-          { signal: controller.signal }
-        );
-        if (!response.ok || !response.body) {
-          setLoading(false);
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop()!;
-
-          const newEntries = lines
-            .filter((l) => l.trim())
-            .map((l) => {
-              try {
-                return JSON.parse(l);
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean);
-
-          if (newEntries.length > 0) {
-            setEntries((prev) => [...prev, ...newEntries]);
-          }
-        }
-      } catch (err) {
-        if (!(err instanceof DOMException && err.name === 'AbortError')) {
-          console.error('Stream error:', err);
-        }
-      }
-      setLoading(false);
-    }
-
-    stream();
-    return () => controller.abort();
-  }, [project, sessionId]);
+  // `project` from Next.js params is the raw URL-encoded segment (e.g. "agnt%3Achat") —
+  // it must NOT be encoded again, or special chars (e.g. ":") double-encode and the server
+  // resolves the wrong harness path.
+  const { data: sessionData, isLoading: loading } = useSWR<{ entries: SessionEntry[]; count: number }>(
+    `/api/sessions/${sessionId}?project=${project}&types=user,assistant,system,tool`,
+    fetcher,
+  );
+  const entries: SessionEntry[] = sessionData?.entries ?? [];
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
@@ -111,7 +101,7 @@ export default function SessionViewerPage({
     <div className="flex flex-col h-[calc(100vh-3rem)]">
       <PageContext
         pageType="session-viewer"
-        summary={`Session ${sessionId.slice(0, 8)}. ${filteredEntries.length} entries${loading ? ' (streaming...)' : ''}. Project: ${decodeURIComponent(project)}.`}
+        summary={`Session ${sessionId.slice(0, 8)}. ${filteredEntries.length} entries${loading ? ' (loading...)' : ''}. Project: ${decodeURIComponent(project)}.`}
         metrics={{
           session_id: sessionId,
           project: decodeURIComponent(project),
@@ -129,7 +119,8 @@ export default function SessionViewerPage({
         >
           &larr; Sessions
         </Link>
-        <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-center gap-3 mt-1 flex-wrap">
+          <HarnessBadge harness={harness} />
           <h2 className="text-base font-bold break-all">
             Session: {sessionId}
           </h2>
@@ -152,7 +143,7 @@ export default function SessionViewerPage({
         <div className="flex items-center gap-4 mt-2">
           <span className="text-base text-[var(--color-muted)]">
             {filteredEntries.length} entries
-            {loading && ' (streaming...)'}
+            {loading && ' (loading…)'}
           </span>
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
@@ -205,7 +196,7 @@ export default function SessionViewerPage({
         ))}
         {loading && (
           <div className="text-center py-4 text-[var(--color-muted)] text-base">
-            Streaming session data...
+            Loading session data…
           </div>
         )}
       </div>

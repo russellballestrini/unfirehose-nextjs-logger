@@ -5,6 +5,9 @@ import { stat } from 'fs/promises';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /**
  * Stream or collect a session's messages as canonical unfirehose/1.0 entries.
  * The harness adapter resolves the on-disk JSONL path and normalizes the source

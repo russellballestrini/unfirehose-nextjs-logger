@@ -1,5 +1,7 @@
 import { readFile, readdir } from 'fs/promises';
+import path from 'path';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
+import { harnessFor } from '@unturf/unfirehose/session-paths';
 import { resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
@@ -10,10 +12,14 @@ export async function GET(
   { params }: { params: Promise<{ project: string }> }
 ) {
   const { project } = await params;
+  const { adapter, slug } = harnessFor(project);
+  const isClaude = adapter.name === 'claude-code';
 
   try {
     let index: SessionsIndex;
     try {
+      // Only claude-code maintains a sessions-index.json file; skip for native harnesses.
+      if (!isClaude) throw new Error('no index for native harnesses');
       const raw = await readFile(claudePaths.sessionsIndex(project), 'utf-8');
       index = JSON.parse(raw);
       // Backfill originalPath if missing from index
@@ -22,7 +28,11 @@ export async function GET(
       }
     } catch {
       // No index — build from JSONL filenames + enrich from DB
-      const files = await readdir(claudePaths.projectDir(project));
+      // For non-claude harnesses, derive the project dir from the adapter.
+      const projectDir = isClaude
+        ? claudePaths.projectDir(project)
+        : path.dirname(adapter.sessionFile(slug, 'dummy'));
+      const files = await readdir(projectDir).catch(() => [] as string[]);
       const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
       const sessionIds = jsonlFiles.map((f) => f.replace('.jsonl', ''));
 

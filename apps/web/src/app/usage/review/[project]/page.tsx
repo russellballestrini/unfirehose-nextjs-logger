@@ -16,7 +16,7 @@ export default function ReviewPage() {
   const _router = useRouter();
   const project = params.project as string;
   const { data, error, mutate } = useSWR(
-    `/api/projects/${encodeURIComponent(project)}/git`,
+    `/api/projects/${project}/git`,
     fetcher
   );
   const [commitMsg, setCommitMsg] = useState('');
@@ -37,7 +37,7 @@ export default function ReviewPage() {
       const headers: Record<string, string> = {};
       if (vaultApiKey) headers['x-vault-api-key'] = vaultApiKey;
 
-      const res = await fetch(`/api/projects/${encodeURIComponent(project)}/git/suggest`, {
+      const res = await fetch(`/api/projects/${project}/git/suggest`, {
         method: 'POST',
         headers,
       });
@@ -58,7 +58,7 @@ export default function ReviewPage() {
     setCommitting(true);
     setCommitResult(null);
     try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(project)}/git`, {
+      const res = await fetch(`/api/projects/${project}/git`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: commitMsg.trim(), addAll }),
@@ -230,7 +230,7 @@ export default function ReviewPage() {
                         <button
                           onClick={async () => {
                             try {
-                              const res = await fetch(`/api/projects/${encodeURIComponent(project)}/git`, {
+                              const res = await fetch(`/api/projects/${project}/git`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ action: 'push' }),

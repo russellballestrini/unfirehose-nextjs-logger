@@ -9,6 +9,7 @@ import {
   AreaChart, Area,
 } from 'recharts';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 
 // --- Mock data ---
 
@@ -217,6 +218,56 @@ function ThemeChooser() {
   );
 }
 
+function ViewerSandbox() {
+  const [showThinking, setShowThinking] = useState(true);
+  const [showTools, setShowTools] = useState(true);
+  const fixtures = [
+    { label: 'user · text', entry: VIEWER_FIXTURE_USER },
+    { label: 'assistant · reasoning + text + tool-call', entry: VIEWER_FIXTURE_ASSISTANT_TEXT },
+    { label: 'tool · tool-result (ok)', entry: VIEWER_FIXTURE_TOOL_OK },
+    { label: 'tool · tool-result (error)', entry: VIEWER_FIXTURE_TOOL_ERR },
+    { label: 'assistant · markdown + table + code fence', entry: VIEWER_FIXTURE_ASSISTANT_TABLE },
+    { label: 'system · turn_duration', entry: VIEWER_FIXTURE_SYSTEM },
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-4 text-base text-[var(--color-muted)]">
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showThinking}
+            onChange={(e) => setShowThinking(e.target.checked)}
+            className="accent-[var(--color-thinking)]"
+          />
+          Thinking
+        </label>
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showTools}
+            onChange={(e) => setShowTools(e.target.checked)}
+            className="accent-[var(--color-tool)]"
+          />
+          Tools
+        </label>
+        <span className="text-[var(--color-muted)] ml-auto">
+          live preview of MessageBlock — edit fixtures or component, see here.
+        </span>
+      </div>
+      <div className="space-y-2 border border-[var(--color-border)] rounded bg-[var(--color-background)] p-3">
+        {fixtures.map((f, i) => (
+          <Fragment key={i}>
+            <div className="text-xs uppercase tracking-wider text-[var(--color-muted)] mt-2 first:mt-0">
+              {f.label}
+            </div>
+            <MessageBlock entry={f.entry} showThinking={showThinking} showTools={showTools} />
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
@@ -245,6 +296,96 @@ const BAR_CHART_VALUES = Array.from({ length: 24 }, (_, h) => {
   const value = Math.sin((h - 14) * 0.3) * 0.5 + 0.5 + Math.random() * 0.2;
   return { h, value };
 });
+
+// --- Session Viewer fixtures ---
+// Canonical unfirehose/1.0 messages used to exercise every MessageBlock branch.
+// Keep these as authoritative examples — if the schema or renderer changes,
+// update here too. Edit-in-place: this is the design surface for the viewer.
+
+const VIEWER_FIXTURE_USER = {
+  type: 'message',
+  role: 'user',
+  timestamp: '2026-06-17T19:00:00Z',
+  content: [{
+    type: 'text',
+    text: 'Find every TODO in `apps/web/src` and group them by file. Skip vendored code.',
+  }],
+};
+
+const VIEWER_FIXTURE_ASSISTANT_TEXT = {
+  type: 'message',
+  role: 'assistant',
+  timestamp: '2026-06-17T19:00:04Z',
+  model: 'claude-opus-4-7-20260101',
+  usage: { inputTokens: 12483, outputTokens: 312, inputTokenDetails: { cacheReadTokens: 8200, cacheWriteTokens: 0 } },
+  content: [
+    { type: 'reasoning', text: 'The user wants a grouped TODO list. Strategy:\n1. ripgrep for `TODO|FIXME` across apps/web/src\n2. exclude .next, node_modules\n3. group by file path\n4. render as markdown table' },
+    { type: 'text', text: 'I will grep the source tree and group results.\n\n**Plan:**\n\n- Use `rg` with `--type ts` to scope\n- Exclude `.next/` and `node_modules/`\n- Sort by file, then line number' },
+    { type: 'tool-call', toolCallId: 'tc_1', toolName: 'Bash', input: { command: "rg -n 'TODO|FIXME' apps/web/src --type ts -g '!**/node_modules/**' -g '!**/.next/**'", description: 'Search for TODOs in TS sources' } },
+  ],
+};
+
+const VIEWER_FIXTURE_TOOL_OK = {
+  type: 'message',
+  role: 'tool',
+  timestamp: '2026-06-17T19:00:05Z',
+  content: [{
+    type: 'tool-result',
+    toolCallId: 'tc_1',
+    toolName: 'Bash',
+    output: 'apps/web/src/app/api/sessions/[sessionId]/route.ts:14: // TODO: streaming flush flag\napps/web/src/app/active/page.tsx:42: // TODO: harness color presets',
+    isError: false,
+  }],
+};
+
+const VIEWER_FIXTURE_TOOL_ERR = {
+  type: 'message',
+  role: 'tool',
+  timestamp: '2026-06-17T19:00:06Z',
+  content: [{
+    type: 'tool-result',
+    toolCallId: 'tc_2',
+    toolName: 'file_system_operation',
+    output: '{"error":"File does not exist: /app/secrets/manifest.txt","stack":"Error: File does not exist: /app/secrets/manifest.txt\\n    at FileSystemOperation.execute (file:///app/backend/src/tools/library/utilities/file-system-operation.js:135:19)"}',
+    isError: true,
+  }],
+};
+
+const VIEWER_FIXTURE_ASSISTANT_TABLE = {
+  type: 'message',
+  role: 'assistant',
+  timestamp: '2026-06-17T19:00:07Z',
+  model: 'Qwen3.6-27B-UD-Q4_K_XL.gguf',
+  usage: { inputTokens: 14300, outputTokens: 412 },
+  content: [{
+    type: 'text',
+    text: `Here are the TODOs grouped by file:
+
+| File | Line | Note |
+| --- | --- | --- |
+| \`app/api/sessions/[sessionId]/route.ts\` | 14 | streaming flush flag |
+| \`app/active/page.tsx\` | 42 | harness color presets |
+
+\`\`\`ts
+// Example fix sketch
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  // ...
+}
+\`\`\`
+
+**Done.** Two TODOs across two files.`,
+  }],
+};
+
+const VIEWER_FIXTURE_SYSTEM = {
+  type: 'message',
+  role: 'system',
+  timestamp: '2026-06-17T19:00:08Z',
+  subtype: 'turn_duration',
+  durationMs: 4820,
+  content: [],
+};
 
 export default function StyleguidePage() {
   const [inputVal, setInputVal] = useState('');
@@ -802,6 +943,31 @@ export default function StyleguidePage() {
               Container is <code className="text-[var(--color-accent)]">overflow-x-auto</code> with <code className="text-[var(--color-accent)]">whitespace-nowrap</code> on each pill — never wraps, never floods.
             </p>
           </div>
+        </div>
+      </Section>
+
+      {/* Session Viewer */}
+      <Section title="Session Viewer">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
+          <div className="space-y-1">
+            <p className="text-base text-[var(--color-muted)]">
+              Renders canonical <code className="text-[var(--color-accent)]">unfirehose/1.0</code> messages
+              for <code className="text-[var(--color-accent)]">/projects/[project]/[sessionId]</code>.
+              One block per message; dispatches on <code className="text-[var(--color-accent)]">role</code>
+              (user · assistant · tool · system). Source:
+              {' '}<code className="text-[var(--color-accent)]">packages/ui/components/viewer/MessageBlock.tsx</code>.
+            </p>
+            <p className="text-base text-[var(--color-muted)]">
+              Color roles: <span style={{ color: 'var(--color-user)' }}>user</span> · {' '}
+              <span style={{ color: 'var(--color-assistant)' }}>assistant</span> · {' '}
+              <span style={{ color: 'var(--color-tool)' }}>tool</span> · {' '}
+              <span style={{ color: 'var(--color-thinking)' }}>reasoning</span> · {' '}
+              <span style={{ color: 'var(--color-error)' }}>tool error</span>.
+              Each block is a left border-rule + role label + content. Density before decoration —
+              full width, no max-w, tight vertical rhythm.
+            </p>
+          </div>
+          <ViewerSandbox />
         </div>
       </Section>
 

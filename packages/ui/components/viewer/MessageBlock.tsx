@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { formatTimestamp, formatDuration } from '@unturf/unfirehose/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -28,6 +29,39 @@ function joinText(content: any[]): string {
     .join('\n');
 }
 
+const MD_PLUGINS = [remarkGfm];
+
+/**
+ * Common keys carrying source code or scripts inside a tool call's `input`
+ * object. When present, render that field as a fenced code block instead of
+ * burying it in a JSON dump (where `\n` becomes literal).
+ */
+const CODE_KEYS = ['code', 'command', 'source', 'script', 'sql', 'query', 'content', 'body'];
+
+function pickCodeField(input: Record<string, any>): { key: string; value: string; lang?: string } | null {
+  if (!input || typeof input !== 'object') return null;
+  for (const key of CODE_KEYS) {
+    const v = input[key];
+    if (typeof v === 'string' && v.includes('\n')) {
+      // Loose lang guess from key name (only used as a hint to renderers).
+      const lang =
+        key === 'sql' || key === 'query' ? 'sql'
+        : key === 'command' ? 'bash'
+        : undefined;
+      return { key, value: v, lang };
+    }
+  }
+  return null;
+}
+
+function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <div className="md-content">
+      <Markdown remarkPlugins={MD_PLUGINS}>{text}</Markdown>
+    </div>
+  );
+}
+
 function UserMessage({ entry }: { entry: any }) {
   const text = joinText(entry.content);
 
@@ -41,8 +75,8 @@ function UserMessage({ entry }: { entry: any }) {
           </span>
         )}
       </div>
-      <div className="text-base break-words md-content">
-        <Markdown>{text}</Markdown>
+      <div className="text-base break-words">
+        <MarkdownBlock text={text} />
       </div>
     </div>
   );
@@ -59,9 +93,11 @@ function ReasoningBlockView({ text, show }: { text: string; show: boolean }) {
       >
         {expanded ? 'collapse thinking' : 'expand thinking'} ({text.length.toLocaleString()} chars)
       </button>
-      <div className={`text-base text-[var(--color-muted)] whitespace-pre-wrap mt-1 font-mono ${expanded ? 'max-h-96 overflow-auto' : ''}`}>
-        {text}
-      </div>
+      {expanded && (
+        <div className="md-content text-[var(--color-muted)] mt-1 max-h-96 overflow-auto">
+          <Markdown remarkPlugins={MD_PLUGINS}>{text}</Markdown>
+        </div>
+      )}
     </div>
   );
 }
@@ -76,14 +112,59 @@ function ToolCallView({
   show: boolean;
 }) {
   if (!show) return null;
+
+  // If the input carries a multi-line code-like field, surface it as a fenced
+  // code block (markdown renders newlines + monospace). Stash the remaining
+  // input keys for context.
+  const code = pickCodeField(input as Record<string, any>);
+  const rest = code
+    ? Object.fromEntries(Object.entries(input).filter(([k]) => k !== code.key))
+    : input;
+  const hasRest = Object.keys(rest).length > 0;
+
   return (
     <div className="border-l-2 border-[var(--color-tool)] pl-3 py-1 my-1">
       <span className="text-base font-bold text-[var(--color-tool)]">{name}</span>
-      <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded">
-        {JSON.stringify(input, null, 2)}
-      </pre>
+      {code ? (
+        <>
+          <div className="text-xs text-[var(--color-muted)] mt-1 font-mono">{code.key}:</div>
+          <MarkdownBlock text={'```' + (code.lang ?? '') + '\n' + code.value + '\n```'} />
+          {hasRest && (
+            <pre className="text-xs text-[var(--color-muted)] mt-1 overflow-auto max-h-40 bg-[var(--color-background)] p-2 rounded">
+              {JSON.stringify(rest, null, 2)}
+            </pre>
+          )}
+        </>
+      ) : (
+        <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded">
+          {JSON.stringify(input, null, 2)}
+        </pre>
+      )}
     </div>
   );
+}
+
+/**
+ * Attempt to extract readable text from a tool-result output. Many harnesses
+ * stringify JSON ({ "error": "..."} ) — flatten that to the inner text when
+ * sensible. Fall back to JSON pretty-print or the raw string.
+ */
+function renderToolOutput(output: any): { text: string; isMarkdown: boolean } {
+  if (typeof output === 'string') {
+    // Try to parse as JSON — many tools wrap their result in a JSON envelope.
+    const trimmed = output.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return { text: '```json\n' + JSON.stringify(parsed, null, 2) + '\n```', isMarkdown: true };
+      } catch {
+        // not JSON — fall through
+      }
+    }
+    return { text: output, isMarkdown: true };
+  }
+  if (output == null) return { text: '(no output)', isMarkdown: false };
+  return { text: '```json\n' + JSON.stringify(output, null, 2) + '\n```', isMarkdown: true };
 }
 
 function ToolResultView({
@@ -99,8 +180,10 @@ function ToolResultView({
 }) {
   const [expanded, setExpanded] = useState(false);
   if (!show) return null;
-  const rendered = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+
+  const { text, isMarkdown } = renderToolOutput(output);
   const accent = isError ? 'var(--color-user)' : 'var(--color-tool)';
+
   return (
     <div className="border-l-2 pl-3 py-1 my-1" style={{ borderColor: accent }}>
       <button
@@ -108,13 +191,19 @@ function ToolResultView({
         className="text-base hover:underline cursor-pointer"
         style={{ color: accent }}
       >
-        {toolName ?? 'tool'} → {isError ? 'error' : 'result'} ({rendered.length.toLocaleString()} chars)
+        {toolName ?? 'tool'} → {isError ? 'error' : 'result'} ({text.length.toLocaleString()} chars)
         {expanded ? ' (collapse)' : ' (expand)'}
       </button>
       {expanded && (
-        <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-64 bg-[var(--color-background)] p-2 rounded whitespace-pre-wrap">
-          {rendered}
-        </pre>
+        isMarkdown ? (
+          <div className="mt-1 max-h-96 overflow-auto">
+            <MarkdownBlock text={text} />
+          </div>
+        ) : (
+          <pre className="text-base text-[var(--color-muted)] mt-1 overflow-auto max-h-96 bg-[var(--color-background)] p-2 rounded whitespace-pre-wrap">
+            {text}
+          </pre>
+        )
       )}
     </div>
   );
@@ -133,7 +222,7 @@ function AssistantMessage({
   const model = entry.model;
   const usage = entry.usage;
 
-  // unfirehose/1.0 usage shape: { inputTokens, outputTokens, inputTokenDetails: { cacheReadTokens, cacheWriteTokens } }
+  // unfirehose/1.0 usage: { inputTokens, outputTokens, inputTokenDetails: { cacheReadTokens, cacheWriteTokens } }
   const inputTokens = usage?.inputTokens ?? usage?.input_tokens;
   const outputTokens = usage?.outputTokens ?? usage?.output_tokens;
   const cacheReadTokens = usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cache_read_input_tokens;
@@ -166,8 +255,8 @@ function AssistantMessage({
           }
           if (block.type === 'text' && block.text) {
             return (
-              <div key={i} className="text-base break-words my-1 md-content">
-                <Markdown>{block.text}</Markdown>
+              <div key={i} className="text-base break-words my-1">
+                <MarkdownBlock text={block.text} />
               </div>
             );
           }
