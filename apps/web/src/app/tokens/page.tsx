@@ -87,11 +87,23 @@ function planLabel(rateLimitTier: string): string {
 
 export default function TokensPage() {
   const [range, setRange] = useTimeRange('tokens_range', '7d');
+  // ?project=<name> from the URL pre-filters every chart + table to that
+  // project. Read on mount; chip dismiss clears the URL param.
+  const [projectFilter, setProjectFilter] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const v = new URLSearchParams(window.location.search).get('project');
+    return v ? decodeURIComponent(v) : null;
+  });
   // Memoize `from` so the SWR key stays stable across re-renders.
   // getTimeRangeFrom calls Date.now() — without memoization, each render
   // produces a new timestamp, giving SWR a new key, causing infinite re-fetches.
   const from = useMemo(() => getTimeRangeFrom(range), [range]);
-  const qs = from ? `?from=${encodeURIComponent(from)}` : '';
+  const qs = useMemo(() => {
+    const sp = new URLSearchParams();
+    if (from) sp.set('from', from);
+    if (projectFilter) sp.set('project', projectFilter);
+    return sp.toString() ? `?${sp}` : '';
+  }, [from, projectFilter]);
 
   const [activeTab, setActiveTabRaw] = useState<TokensTab>(() => {
     if (typeof globalThis !== 'undefined' && globalThis.location) {
@@ -240,8 +252,26 @@ export default function TokensPage() {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Tokens</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="text-lg font-bold">Tokens</h2>
+          {projectFilter && (
+            <button
+              onClick={() => {
+                setProjectFilter(null);
+                if (typeof window !== 'undefined') {
+                  const u = new URL(window.location.href);
+                  u.searchParams.delete('project');
+                  window.history.replaceState(null, '', u.toString());
+                }
+              }}
+              className="px-2 py-0.5 rounded border border-[var(--color-accent)] text-sm text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 flex items-center gap-1"
+              title="Remove project filter"
+            >
+              project: {projectFilter} <span className="opacity-60">×</span>
+            </button>
+          )}
+        </div>
         <TimeRangeSelect value={range} onChange={setRange} />
       </div>
 

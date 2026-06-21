@@ -34,7 +34,6 @@ const TABS = [
   { key: 'commits', label: 'Commits' },
   { key: 'todos', label: 'Todos' },
   { key: 'activity', label: 'Activity' },
-  { key: 'tokens', label: 'Tokens' },
   { key: 'code', label: 'Code' },
 ] as const;
 
@@ -396,9 +395,6 @@ export default function ProjectPage({
       {tab === 'activity' && (
         <ActivityTab activityData={activityData} project={project} decodedProject={decodedProject} />
       )}
-      {tab === 'tokens' && (
-        <TokensTab full={full} thisActivity={thisActivity} globalTotals={globalTotals} />
-      )}
       {tab === 'code' && (
         <CodeTab gitData={gitData} mutateGit={mutateGit} project={project} treeData={treeData} treePath={treePath} setTreePath={setTreePath} />
       )}
@@ -413,13 +409,23 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
     <div className="space-y-6">
       {/* Stats bar */}
       {full?.stats && (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          <StatCard label="Sessions" value={full.stats.sessionCount} />
-          <StatCard label="Messages" value={full.stats.messageCount.toLocaleString()} />
-          <StatCard label="Input" value={formatTokens(full.stats.totalInput)} />
-          <StatCard label="Output" value={formatTokens(full.stats.totalOutput)} />
-          <StatCard label="Active Days" value={full.stats.activeDays} sub={full.stats.firstActivity ? `since ${formatRelativeTime(full.stats.firstActivity)}` : undefined} />
-          <StatCard label="Equiv Cost" value={`$${full.stats.totalCost.toFixed(2)}`} />
+        <div className="space-y-2">
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <StatCard label="Sessions" value={full.stats.sessionCount} />
+            <StatCard label="Messages" value={full.stats.messageCount.toLocaleString()} />
+            <StatCard label="Input" value={formatTokens(full.stats.totalInput)} />
+            <StatCard label="Output" value={formatTokens(full.stats.totalOutput)} />
+            <StatCard label="Active Days" value={full.stats.activeDays} sub={full.stats.firstActivity ? `since ${formatRelativeTime(full.stats.firstActivity)}` : undefined} />
+            <StatCard label="Equiv Cost" value={`$${full.stats.totalCost.toFixed(2)}`} />
+          </div>
+          <div className="text-right">
+            <Link
+              href={`/tokens?project=${encodeURIComponent(project)}`}
+              className="text-xs text-[var(--color-accent)] hover:underline"
+            >
+              Token detail · cost split · per-harness →
+            </Link>
+          </div>
         </div>
       )}
 
@@ -971,94 +977,6 @@ function ActivityTab({ activityData, project, decodedProject: _decodedProject }:
         </div>
       ) : (
         <p className="text-center text-[var(--color-muted)] py-8">No recent activity</p>
-      )}
-    </div>
-  );
-}
-
-/* ─── TOKENS TAB ─── */
-function TokensTab({ full, thisActivity, globalTotals }: any) {
-  const stats = full?.stats;
-  const models = full?.models ?? [];
-
-  return (
-    <div className="space-y-6">
-      {/* Token summary */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Input Tokens" value={formatTokens(stats.totalInput)} />
-          <StatCard label="Output Tokens" value={formatTokens(stats.totalOutput)} />
-          <StatCard label="Cache Read" value={formatTokens(stats.totalCacheRead)} />
-          <StatCard label="Cache Write" value={formatTokens(stats.totalCacheWrite)} />
-        </div>
-      )}
-
-      {/* Usage share */}
-      {thisActivity && globalTotals.cost > 0 && (
-        <div className="border border-[var(--color-border)] rounded p-4 space-y-3">
-          <h3 className="text-sm font-bold text-[var(--color-muted)]">30-Day Global Share</h3>
-          <ProgressBar label="Input" value={thisActivity.total_input} max={globalTotals.input}
-            detail={`${formatTokens(thisActivity.total_input)} / ${formatTokens(globalTotals.input)}`} />
-          <ProgressBar label="Output" value={thisActivity.total_output} max={globalTotals.output}
-            detail={`${formatTokens(thisActivity.total_output)} / ${formatTokens(globalTotals.output)}`} />
-          <ProgressBar label="Cost" value={thisActivity.cost_estimate} max={globalTotals.cost}
-            detail={`$${thisActivity.cost_estimate.toFixed(2)} / $${globalTotals.cost.toFixed(2)}`} />
-        </div>
-      )}
-
-      {/* Model breakdown table */}
-      {models.length > 0 && (
-        <div className="border border-[var(--color-border)] rounded">
-          <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-            <h3 className="text-sm font-bold text-[var(--color-muted)]">Model Breakdown</h3>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-border)]">
-                <th className="px-4 py-2">Model</th>
-                <th className="px-4 py-2 text-right">Messages</th>
-                <th className="px-4 py-2 text-right">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {models.map((m: any) => (
-                <tr key={m.model} className="border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]">
-                  <td className="px-4 py-2 font-mono text-xs">{m.model}</td>
-                  <td className="px-4 py-2 text-right text-[var(--color-muted)]">{m.messages.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right">${m.cost.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="font-bold">
-                <td className="px-4 py-2">Total</td>
-                <td className="px-4 py-2 text-right">{models.reduce((s: number, m: any) => s + m.messages, 0).toLocaleString()}</td>
-                <td className="px-4 py-2 text-right">${stats?.totalCost?.toFixed(2) ?? '0.00'}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-
-      {/* Tool usage */}
-      {full?.toolUsage?.length > 0 && (
-        <div className="border border-[var(--color-border)] rounded p-4">
-          <h3 className="text-sm font-bold mb-3 text-[var(--color-muted)]">Tool Usage</h3>
-          <div className="space-y-2">
-            {full.toolUsage.map((t: any) => {
-              const maxCount = full.toolUsage[0]?.count ?? 1;
-              return (
-                <div key={t.tool_name} className="flex items-center gap-3 text-sm">
-                  <span className="font-mono w-32 shrink-0 truncate">{t.tool_name}</span>
-                  <div className="flex-1 h-2 bg-[var(--color-surface-hover)] rounded overflow-hidden">
-                    <div className="h-full bg-[var(--color-accent)] rounded" style={{ width: `${(t.count / maxCount) * 100}%` }} />
-                  </div>
-                  <span className="text-[var(--color-muted)] w-14 text-right shrink-0">{t.count}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       )}
     </div>
   );

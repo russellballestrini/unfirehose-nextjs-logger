@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     const url = request.nextUrl;
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
+    const projectFilter = url.searchParams.get('project');
 
     // Build date filter clause (applies only to date-filtered queries)
     let dateFilter = '';
@@ -34,13 +35,22 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    // Sessions lookup map: id -> harness. ~25ms via idx_sessions_id_harness.
-    // We resolve harness in JS so our main aggregate query can scan a single
-    // covering index on `messages` without joining.
-    const sessionRows = db.prepare(`SELECT id, harness FROM sessions`).all() as Array<{ id: number; harness: string | null }>;
+    // Sessions lookup: id -> { harness, project }. One pass joins sessions
+    // to projects so the JS rollups can also filter by project name.
+    const sessionRows = db.prepare(`
+      SELECT s.id, s.harness, p.name as project_name
+      FROM sessions s
+      LEFT JOIN projects p ON s.project_id = p.id
+    `).all() as Array<{ id: number; harness: string | null; project_name: string | null }>;
     const harnessById = new Map<number, string>();
+    const projectById = new Map<number, string>();
+    const projectSessionIds = projectFilter ? new Set<number>() : null;
     for (const r of sessionRows) {
       harnessById.set(r.id, r.harness ?? 'unknown');
+      if (r.project_name) projectById.set(r.id, r.project_name);
+      if (projectSessionIds && r.project_name === projectFilter) {
+        projectSessionIds.add(r.id);
+      }
     }
     t.mark('sessions-map');
 
@@ -86,6 +96,9 @@ export async function GET(request: NextRequest) {
 
     for (const r of perSessionModel) {
       const session_id = r[0];
+      // Project filter applied JS-side via the pre-computed set so the SQL
+      // aggregate keeps its single-index scan unaffected by the JOIN.
+      if (projectSessionIds && !projectSessionIds.has(session_id)) continue;
       const model = r[1];
       const input_tokens = r[2];
       const output_tokens = r[3];
@@ -241,6 +254,7 @@ export async function GET(request: NextRequest) {
     const toolModelMap = new Map<string, number>();
     const toolHarnessMap = new Map<string, Map<string, number>>();
     for (const r of toolRows) {
+      if (projectSessionIds && !projectSessionIds.has(r.session_id)) continue;
       toolCountMap.set(r.tool_name, (toolCountMap.get(r.tool_name) ?? 0) + r.count);
       toolModelMap.set(r.model, (toolModelMap.get(r.model) ?? 0) + r.count);
       const harness = harnessById.get(r.session_id) ?? 'unknown';
