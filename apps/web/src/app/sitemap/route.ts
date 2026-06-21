@@ -7,7 +7,6 @@ const PAGES = [
   { path: '/tmux', label: 'Terminals', section: 'Monitor' },
   { path: '/projects', label: 'Projects', section: 'Navigate' },
   { path: '/todos', label: 'Todos', section: 'Navigate' },
-  { path: '/training', label: 'Training', section: 'Analyze' },
   { path: '/thinking', label: 'Thinking', section: 'Analyze' },
   { path: '/tokens', label: 'Tokens', section: 'Analyze' },
   { path: '/usage', label: 'Usage', section: 'Analyze' },

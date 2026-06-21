@@ -449,7 +449,7 @@ export default function StyleguidePage() {
             {[
               { title: 'monitor', items: [['●', 'Live'], ['▸', 'Active'], ['▹', 'Terminals']] },
               { title: 'navigate', items: [['◇', 'Dashboard'], ['■', 'Projects'], ['☰', 'Todos']] },
-              { title: 'analyze', items: [['◆', 'Training'], ['◎', 'Thinking'], ['¤', 'Tokens'], ['△', 'Usage'], ['≡', 'All Logs']] },
+              { title: 'analyze', items: [['◎', 'Thinking'], ['¤', 'Tokens'], ['△', 'Usage'], ['≡', 'All Logs']] },
               { title: 'configure', items: [['♪', 'Scrobble'], ['▣', 'Permacomputer'], ['{', 'Schema'], ['◐', 'Styleguide'], ['⚙', 'Settings']] },
             ].map(group => (
               <div key={group.title}>
@@ -469,7 +469,7 @@ export default function StyleguidePage() {
       </Section>
 
       {/* Sitemap */}
-      <Section title="Sitemap — All Pages (30)">
+      <Section title="Sitemap — All Pages (29)">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
           <p className="text-base text-[var(--color-muted)]">
             Complete route inventory. Every page in the app, grouped by nav section. Dynamic routes shown with <code className="text-[var(--color-accent)]">[param]</code> segments.
@@ -491,7 +491,6 @@ export default function StyleguidePage() {
               ['/todos/graph', 'Todos Graph', 'Visual dependency graph of todos'],
             ]},
             { section: 'analyze', routes: [
-              ['/training', 'Training', 'Loss curves, checkpoints, samples, evals — favorite/lock/delete runs'],
               ['/thinking', 'Thinking', 'Extended thinking blocks extracted from sessions'],
               ['/tokens', 'Tokens', 'Token usage breakdown by model, project, time range'],
               ['/usage', 'Usage', 'Mesh-wide usage metrics, boot stats, node health'],

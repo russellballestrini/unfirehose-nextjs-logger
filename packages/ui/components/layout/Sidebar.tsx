@@ -32,7 +32,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/todos', label: 'Todos', icon: '☰' },
   // Analyze — deep dives
   { separator: 'analyze' },
-  { href: '/training', label: 'Training', icon: '◆' },
   { href: '/thinking', label: 'Thinking', icon: '◎' },
   { href: '/tokens', label: 'Tokens', icon: '¤' },
   { href: '/usage', label: 'Usage', icon: '△' },
