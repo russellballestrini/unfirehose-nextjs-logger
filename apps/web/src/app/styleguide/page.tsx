@@ -488,8 +488,8 @@ export default function StyleguidePage() {
                                     ['/projects/[project]', 'Project Detail', 'Overview / Sessions / Commits / Todos / Activity / Tokens / Code'],
                                     ['/projects/[project]/[sessionId]', 'Session Detail', 'Full conversation transcript + reasoning filter'],
                                   ] },
-              '/todos':         { desc: 'Cross-project todo kanban — supports ?project= URL filter',
-                                  children: [['/todos/graph', 'Todos Graph', 'Visual dependency graph (currently labeled Todos)']] },
+              '/todos':         { desc: 'Cross-project todo kanban — supports ?project= URL filter' },
+              '/graphs':        { desc: 'Sessions / Tool Flow / Projects / Timeline graph views (was /todos/graph)' },
               '/tokens':        { desc: 'Token + cost breakdown by model, harness, cost-type; Plan tab' },
               '/usage':         { desc: 'Plan utilization + alerts + card-charges sync',
                                   children: [

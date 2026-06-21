@@ -33,6 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
   { separator: 'analyze' },
   { href: '/tokens', label: 'Tokens', icon: '¤' },
   { href: '/usage', label: 'Usage', icon: '△' },
+  { href: '/graphs', label: 'Graphs', icon: '◈' },
   { href: '/logs', label: 'All Logs', icon: '≡' },
   // Configure
   { separator: 'configure' },
