@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
+import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 
 interface ActiveSession {
   id: number;
@@ -164,28 +165,11 @@ export default function ActivePage() {
                         ↳ sub
                       </span>
                     )}
-                    {session.reasoningCount > 0 && (() => {
-                      const sealed = session.reasoningCount - (session.readableReasoningCount ?? 0);
-                      const allSealed = sealed > 0 && (session.readableReasoningCount ?? 0) === 0;
-                      const title = allSealed
-                        ? `${session.reasoningCount} reasoning blocks — all sealed by Anthropic (opus-4-7 doesn't ship reasoning text to local logs, only signed proofs)`
-                        : sealed > 0
-                          ? `${session.readableReasoningCount} readable · ${sealed} sealed`
-                          : `${session.reasoningCount} reasoning ${session.reasoningCount === 1 ? 'block' : 'blocks'} in window`;
-                      return (
-                        <span
-                          className="text-xs px-1.5 py-0.5 rounded ml-auto"
-                          style={{
-                            background: 'var(--color-thinking)22',
-                            color: 'var(--color-thinking)',
-                            border: '1px solid var(--color-thinking)55',
-                          }}
-                          title={title}
-                        >
-                          ◎ {session.reasoningCount}{allSealed && <span className="opacity-60 ml-0.5">·sealed</span>}
-                        </span>
-                      );
-                    })()}
+                    <ReasoningBadge
+                      count={session.reasoningCount}
+                      sealed={session.reasoningCount - (session.readableReasoningCount ?? 0)}
+                      className="ml-auto"
+                    />
                   </div>
                   <h3 className="font-medium text-base truncate" title={session.displayName}>
                     {session.displayName}

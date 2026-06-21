@@ -7,6 +7,7 @@ import type { SessionEntry } from '@unturf/unfirehose/types';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
+import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -87,16 +88,34 @@ export default function SessionViewerPage({
     }
   }, [entries, autoScroll]);
 
-  const hasReasoning = (e: any) =>
-    Array.isArray(e?.content) && e.content.some((b: any) => b?.type === 'reasoning' && (b?.text ?? '').length > 0);
+  // Detect reasoning on either canonical 'reasoning' blocks or legacy 'thinking'
+  // blocks. opus-4-7 ships sealed reasoning (empty text + signature only); we
+  // surface the count and split readable vs sealed so the badge stays honest.
+  const reasoningInfo = (e: any) => {
+    if (!Array.isArray(e?.content)) return null;
+    const blocks = e.content.filter((b: any) => b?.type === 'reasoning' || b?.type === 'thinking');
+    if (blocks.length === 0) return null;
+    const text = blocks.map((b: any) => (b.text ?? b.thinking ?? '')).join('');
+    return { sealed: text.length === 0 };
+  };
 
-  const reasoningCount = entries.reduce((n, e) => n + (hasReasoning(e) ? 1 : 0), 0);
+  const reasoningStats = entries.reduce(
+    (acc, e) => {
+      const r = reasoningInfo(e);
+      if (!r) return acc;
+      acc.total += 1;
+      if (r.sealed) acc.sealed += 1;
+      return acc;
+    },
+    { total: 0, sealed: 0 },
+  );
+  const reasoningCount = reasoningStats.total;
 
   const filteredEntries = entries.filter((e: any) => {
     const role = e.role ?? e.type;
     const rolePass = role === 'user' || role === 'assistant' || role === 'system' || role === 'tool';
     if (!rolePass) return false;
-    if (reasoningOnly) return hasReasoning(e);
+    if (reasoningOnly) return !!reasoningInfo(e);
     return true;
   });
 
@@ -156,11 +175,7 @@ export default function SessionViewerPage({
             {filteredEntries.length} entries
             {loading && ' (loading…)'}
           </span>
-          {reasoningCount > 0 && (
-            <span className="text-base" style={{ color: 'var(--color-thinking)' }}>
-              {reasoningCount} reasoning {reasoningCount === 1 ? 'block' : 'blocks'}
-            </span>
-          )}
+          <ReasoningBadge count={reasoningCount} sealed={reasoningStats.sealed} />
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"

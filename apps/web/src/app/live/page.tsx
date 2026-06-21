@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -68,11 +69,21 @@ function effectiveType(entry: any): 'user' | 'assistant' | 'system' | 'unknown' 
   return 'unknown';
 }
 
-function extractThinking(entry: any): string | null {
-  if (entry?.type !== 'assistant' || !Array.isArray(entry?.message?.content)) return null;
-  const blocks = entry.message.content.filter((b: any) => b.type === 'thinking');
+// Reasoning blocks come from two shapes:
+//   - Claude Code raw:   { type: 'thinking', thinking: '...', signature: '...' }
+//   - unfirehose/1.0:    { type: 'reasoning', text: '...', signature: '...' }
+// Either shape may carry an empty text body (opus-4-7 ships sealed reasoning —
+// signature only). We surface "had reasoning blocks" via signal even if the
+// text is sealed; callers use `extractReasoningText` for the readable part.
+function extractReasoningInfo(entry: any): { text: string; sealed: boolean } | null {
+  const role = entry?.type === 'message' ? entry.role : entry?.type;
+  if (role !== 'assistant') return null;
+  const content = entry?.message?.content ?? entry?.content;
+  if (!Array.isArray(content)) return null;
+  const blocks = content.filter((b: any) => b?.type === 'thinking' || b?.type === 'reasoning');
   if (blocks.length === 0) return null;
-  return blocks.map((b: any) => b.thinking ?? '').join('\n').trim();
+  const text = blocks.map((b: any) => (b.thinking ?? b.text ?? '')).join('\n').trim();
+  return { text, sealed: text.length === 0 };
 }
 
 function extractTools(entry: any): { name: string; id?: string; detail?: string; input?: any }[] {
@@ -316,10 +327,18 @@ export default function LivePage() {
 
   // Count entries in the buffer that carry reasoning — used for the header
   // badge and to disable the filter when there's nothing to filter to.
-  const reasoningCount = useMemo(
-    () => entries.reduce((n, item) => n + (extractThinking(item.entry) ? 1 : 0), 0),
-    [entries],
-  );
+  const reasoningStats = useMemo(() => {
+    let total = 0, sealed = 0;
+    for (const item of entries) {
+      const r = extractReasoningInfo(item.entry);
+      if (!r) continue;
+      total++;
+      if (r.sealed) sealed++;
+    }
+    return { total, sealed, readable: total - sealed };
+  }, [entries]);
+  const reasoningCount = reasoningStats.total;
+  const allSealed = reasoningCount > 0 && reasoningStats.readable === 0;
 
 
   // Find the most recent output entry (assistant or tool result)
@@ -374,11 +393,17 @@ export default function LivePage() {
               onChange={(e) => setShowThinking(e.target.checked)}
               className="accent-[var(--color-thinking)]"
             />
-            Show thinking
+            Show reasoning
           </label>
           <label
             className={`flex items-center gap-1.5 text-base cursor-pointer ${reasoningCount === 0 ? 'opacity-40 cursor-not-allowed' : 'text-[var(--color-muted)]'}`}
-            title={reasoningCount === 0 ? 'No reasoning in the buffer yet' : 'Filter the stream to entries with reasoning'}
+            title={
+              reasoningCount === 0
+                ? 'No reasoning in the buffer yet'
+                : allSealed
+                  ? `Filter the stream to entries with reasoning. All ${reasoningCount} reasoning blocks in this buffer are sealed by Anthropic — claude-opus-4-7 ships signatures only, not readable text.`
+                  : `Filter the stream to entries with reasoning (${reasoningStats.readable} readable · ${reasoningStats.sealed} sealed)`
+            }
           >
             <input
               type="checkbox"
@@ -391,11 +416,7 @@ export default function LivePage() {
               className="accent-[var(--color-thinking)]"
             />
             Reasoning only
-            {reasoningCount > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-thinking)22', color: 'var(--color-thinking)' }}>
-                {reasoningCount}
-              </span>
-            )}
+            <ReasoningBadge count={reasoningCount} sealed={reasoningStats.sealed} />
           </label>
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
@@ -475,13 +496,14 @@ export default function LivePage() {
 
         {entries.map((item, i) => {
           const e = item.entry;
-          // Always extract thinking so reasoningOnly can filter against it,
-          // even when showThinking is off.
-          const entryThinking = extractThinking(e);
-          if (reasoningOnly && !entryThinking) return null;
+          // Always extract reasoning info so reasoningOnly can filter against
+          // it, even when showThinking is off. opus-4-7 sessions have sealed
+          // (signature-only) reasoning — those still count as "reasoning happened".
+          const reasoningInfo = extractReasoningInfo(e);
+          if (reasoningOnly && !reasoningInfo) return null;
           const color = getColorForSession(item.sessionId);
           const text = extractText(e);
-          const thinking = showThinking ? entryThinking : null;
+          const thinking = showThinking && reasoningInfo && !reasoningInfo.sealed ? reasoningInfo.text : null;
           const tools = extractTools(e);
           const toolResults = extractToolResults(e);
           const model = e?.message?.model;

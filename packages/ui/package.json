@@ -26,6 +26,7 @@
   ],
   "exports": {
     "./PageContext": "./components/PageContext.tsx",
+    "./ReasoningBadge": "./components/ReasoningBadge.tsx",
     "./TimeRangeSelect": "./components/TimeRangeSelect.tsx",
     "./SessionPopover": "./components/SessionPopover.tsx",
     "./ThemeProvider": "./components/ThemeProvider.tsx",
