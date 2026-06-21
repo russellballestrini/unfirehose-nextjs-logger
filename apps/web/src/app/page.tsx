@@ -22,11 +22,16 @@ import {
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const MODEL_COLORS: Record<string, string> = {
-  'claude-opus-4-6': '#a78bfa',
-  'claude-opus-4-5-20251101': '#818cf8',
+  // Opus tier — purple shades
+  'claude-opus-4-7':            '#c084fc',
+  'claude-opus-4-6':            '#a78bfa',
+  'claude-opus-4-5-20251101':   '#818cf8',
+  // Sonnet tier — green shades
+  'claude-sonnet-4-6':          '#10b981',
   'claude-sonnet-4-5-20250929': '#34d399',
-  'claude-sonnet-4-6': '#10b981',
-  'claude-haiku-4-5-20251001': '#fbbf24',
+  'claude-sonnet-4-20250514':   '#22c55e',
+  // Haiku tier — amber shades
+  'claude-haiku-4-5-20251001':  '#fbbf24',
 };
 
 function getModelColor(model: string): string {
@@ -88,6 +93,48 @@ export default function DashboardPage() {
 
   // Build day-of-week × hour curves for the heatmap
   const dowHourData = buildDowHourCurves(data.dowHourHeatmap ?? [], sleepCenter);
+
+  // First-time visitor lands here after the vault. Zero sessions = teach the
+  // product, hide the embarrassing zeros.
+  if (data.summary.sessions === 0) {
+    return (
+      <div className="space-y-6">
+        <PageContext
+          pageType="dashboard"
+          summary={`Dashboard (${range}). First-run state — no sessions ingested yet.`}
+          metrics={{ ...data.summary, first_run: 'yes' }}
+        />
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Dashboard</h2>
+          <TimeRangeSelect value={range} onChange={setRange} />
+        </div>
+        <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] space-y-5 max-w-3xl">
+          <div>
+            <h3 className="text-2xl font-bold mb-2">Welcome to unfirehose</h3>
+            <p className="text-base text-[var(--color-muted)]">
+              A local-first observability dashboard for AI coding agents. Watch your sessions,
+              tokens, reasoning, and cost across every harness you run — Claude Code, agnt,
+              uncloseai, fetch, and more — without sending a byte to the cloud.
+            </p>
+          </div>
+          <div>
+            <h4 className="text-base font-bold mb-2">Get started</h4>
+            <ol className="list-decimal list-inside text-base text-[var(--color-muted)] space-y-1.5">
+              <li>Run a Claude Code session in any git repo: <code className="text-[var(--color-accent)]">cd ~/your/repo &amp;&amp; claude</code></li>
+              <li>Or point another harness at <code className="text-[var(--color-accent)]">~/.unfirehose/</code>.</li>
+              <li>Refresh this page — sessions, projects, todos, and reasoning appear automatically.</li>
+            </ol>
+          </div>
+          <div className="flex flex-wrap gap-3 pt-2 border-t border-[var(--color-border)]">
+            <a href="/projects" className="px-3 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10">Projects</a>
+            <a href="/schema" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Schema docs</a>
+            <a href="/settings" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Settings</a>
+            <a href="/live" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Live stream</a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

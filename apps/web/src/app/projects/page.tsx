@@ -120,6 +120,24 @@ export default function ProjectsPage() {
         details={sortedProjects.map((p) => `${p.displayName}: ${p.sessionCount} sessions, ${p.totalMessages} messages${p.hasMemory ? ' [has memory]' : ''}`).join('\n')}
       />
 
+      {/* First-time empty state — distinguish "no projects" from "no dirty repos". */}
+      {projects && sortedProjects.length === 0 && (
+        <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] text-[var(--color-muted)] space-y-4 max-w-3xl">
+          <div>
+            <h2 className="text-xl font-bold text-[var(--color-foreground)] mb-2">No projects detected yet</h2>
+            <p className="text-base">
+              unfirehose lists every directory where a harness (Claude Code, agnt, uncloseai, fetch, …)
+              has written a JSONL session. Once one of those runs, projects show up here automatically.
+            </p>
+          </div>
+          <ul className="list-disc list-inside text-base space-y-1">
+            <li><code className="text-[var(--color-accent)]">cd ~/your/repo &amp;&amp; claude</code> — run a Claude Code session and refresh this page.</li>
+            <li>Or point another harness at <code className="text-[var(--color-accent)]">~/.unfirehose/</code> (see <a className="text-[var(--color-accent)] hover:underline" href="/schema">Schema</a>).</li>
+            <li>Configure scan paths in <a className="text-[var(--color-accent)] hover:underline" href="/settings">Settings</a> if your JSONL lives somewhere unusual.</li>
+          </ul>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4 flex-wrap">
         <h2 className="text-lg font-bold">
@@ -576,12 +594,15 @@ function DirtyReposTab({
   const totalUnpushed = projects.filter((p) => (gitStatuses[p.name]?.unpushed ?? 0) > 0).length;
   const totalReady = projects.filter((p) => getAction(p.name).commitMsg.trim() && getAction(p.name).status !== 'done').length;
 
+  // `projects` here is the already-dirty-filtered list. The page-level
+  // empty state covers "zero projects at all" — here we only fire when
+  // there ARE projects but none are dirty/unpushed.
   if (projects.length === 0) {
     return (
       <div className="text-center py-16 text-[var(--color-muted)]">
         <div className="text-3xl mb-3">✓</div>
         <div className="text-lg font-bold mb-1">All clean</div>
-        <div>No dirty or unpushed repos across {projects.length} projects</div>
+        <div>No dirty or unpushed repos in your projects</div>
       </div>
     );
   }

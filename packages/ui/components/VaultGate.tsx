@@ -157,13 +157,17 @@ export function VaultGate({ children }: { children: ReactNode }) {
       `}</style>
 
       <div className="w-full max-w-lg space-y-8 p-8 relative z-10" style={{ animation: 'slideUp 0.6s ease-out' }}>
-        {/* Logo */}
-        <div className="text-center">
+        {/* Logo + one-line "what is this" so the vault gate doesn't ambush strangers */}
+        <div className="text-center space-y-3">
           <h1 className="font-black leading-none" style={{ fontSize: '4rem', letterSpacing: '-0.06em', WebkitTextStroke: '0.5px currentColor' }}>
             <span className="text-[var(--color-foreground)]">un</span>
             <span className="text-[var(--color-accent)]">firehose</span>
           </h1>
-          <p className="text-sm text-[var(--color-muted)] mt-2 tracking-widest uppercase">Permacomputer Dashboard</p>
+          <p className="text-sm text-[var(--color-muted)] tracking-widest uppercase">Local observability for AI coding agents</p>
+          <p className="text-base text-[var(--color-muted)] max-w-md mx-auto">
+            Watch your Claude Code (and other harness) sessions, tokens, reasoning, and cost — all locally, no telemetry.
+            The vault below only matters if you want the in-app agent helpers to use your own LLM keys; skip it and you can still browse everything.
+          </p>
         </div>
 
         <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-8 space-y-6 shadow-2xl" style={{ boxShadow: '0 0 60px rgba(239, 68, 68, 0.08), 0 25px 50px rgba(0,0,0,0.5)' }}>
@@ -213,13 +217,23 @@ export function VaultGate({ children }: { children: ReactNode }) {
             </p>
           )}
 
-          {/* Skip option */}
-          <button
-            onClick={() => vault.create(crypto.randomUUID())}
-            className="w-full text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer transition-colors py-1"
-          >
-            Skip — use without saving keys
-          </button>
+          {/* Skip option — explicit so a stranger can browse without committing to vault setup */}
+          {isNew && (
+            <button
+              onClick={() => vault.create(crypto.randomUUID())}
+              className="w-full text-sm text-[var(--color-accent)] hover:underline cursor-pointer transition-colors py-1"
+            >
+              Skip → I just want to see my logs
+            </button>
+          )}
+          {!isNew && (
+            <button
+              onClick={() => vault.create(crypto.randomUUID())}
+              className="w-full text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer transition-colors py-1"
+            >
+              Skip — use without saving keys
+            </button>
+          )}
         </div>
       </div>
     </div>
