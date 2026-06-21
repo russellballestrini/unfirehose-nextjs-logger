@@ -355,7 +355,7 @@ export default function ProjectPage({
           href={`/todos?project=${encodeURIComponent(project)}`}
           className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-border)] transition-colors whitespace-nowrap"
         >
-          Kanban
+          Todos board ↗
         </Link>
       </div>
 
@@ -502,7 +502,7 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
             <div className="flex items-center gap-2 mb-3">
               <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
               {full?.todos?.length > 0 && <span className="text-xs text-[var(--color-muted)]">{full.todos.length}</span>}
-              <Link href={`/todos?project=${encodeURIComponent(project)}`} className="text-xs text-[var(--color-accent)] hover:underline ml-auto">Kanban</Link>
+              <Link href={`/todos?project=${encodeURIComponent(project)}`} className="text-xs text-[var(--color-accent)] hover:underline ml-auto">Open board ↗</Link>
             </div>
             {full?.todos?.length > 0 ? (
               <div className="space-y-1">
@@ -825,7 +825,7 @@ function TodosTab({ full, project, decodedProject: _decodedProject }: any) {
           <span className="px-2 py-0.5 rounded bg-green-400/10 text-green-400">{completed.length} done</span>
         </div>
         <Link href={`/todos?project=${encodeURIComponent(project)}`} className="text-sm text-[var(--color-accent)] hover:underline ml-auto">
-          Open Kanban Board
+          Open Todos board ↗
         </Link>
       </div>
 

@@ -196,7 +196,29 @@ export default function GraphPage() {
         </div>
       )}
 
-      {data?.svg && !data.error && (
+      {/* Empty state — render a useful panel instead of a blank SVG. */}
+      {data && !data.error && (data.nodeCount ?? 0) === 0 && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] max-w-2xl space-y-3">
+            <h3 className="text-xl font-bold">No graph data yet</h3>
+            <p className="text-base text-[var(--color-muted)]">
+              The <span className="text-[var(--color-foreground)] font-bold">{currentView?.label ?? view}</span> view
+              needs at least one session to render. {currentView?.desc}
+            </p>
+            <p className="text-base text-[var(--color-muted)]">
+              Run a Claude Code (or other harness) session in a project, then refresh. Other views may already have data —
+              try the buttons above. The full Graphviz <code className="text-[var(--color-accent)]">dot</code> source is
+              available as an external endpoint: <code className="text-[var(--color-accent)]">/api/todos/graph</code>.
+            </p>
+            <div className="flex gap-3 pt-2 border-t border-[var(--color-border)]">
+              <a href="/projects" className="px-3 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10">Projects</a>
+              <a href="/active" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Active sessions</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {data?.svg && !data.error && (data.nodeCount ?? 0) > 0 && (
         <div
           ref={svgContainerRef}
           className="flex-1 min-h-0 border border-[var(--color-border)] rounded bg-[var(--color-background)] overflow-hidden cursor-grab active:cursor-grabbing select-none"

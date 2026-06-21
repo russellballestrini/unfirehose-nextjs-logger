@@ -55,13 +55,60 @@ export default function ScrobblePage() {
   }
 
   if (isLoading) return <p className="text-[var(--color-muted)]">Loading scrobble data...</p>;
-  if (!payload || payload.error) return <p className="text-red-400">Failed to load scrobble data</p>;
+  if (!payload || payload.error) return <p className="text-red-400">Failed to load scrobble data{payload?.error ? `: ${payload.error}` : ''}</p>;
 
-  const lt = payload.lifetime;
-  const streaks = payload.streaks;
+  // Defensive: API contract guarantees these shapes but a partial / cached / older
+  // response shouldn't deref-crash.
+  const lt = payload.lifetime ?? { totalSessions: 0, totalMessages: 0, activeDays: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheRead: 0, totalCacheWrite: 0, totalCostUSD: 0 };
+  const streaks = payload.streaks ?? { current: 0, longest: 0 };
+  const activity = payload.activity ?? { hourOfDay: [], dayOfWeek: [], heatmap: [] };
+  const timeSeries = payload.timeSeries ?? { dailyMessages: [], dailyCost: [], weeklyVelocity: [] };
+  const projects = payload.projects ?? [];
   const badges = payload.badges ?? [];
   const earnedBadges = badges.filter((b: any) => b.earned);
   const nextBadges = badges.filter((b: any) => !b.earned && b.progress > 0.3).slice(0, 4);
+
+  // First-time empty state — show what scrobble IS rather than zero stat cards.
+  if (lt.totalSessions === 0) {
+    return (
+      <div className="space-y-6">
+        <PageContext
+          pageType="scrobble"
+          summary="Scrobble. First-run state — no sessions to scrobble yet."
+          metrics={{ sessions: 0, first_run: 'yes' }}
+        />
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold">Scrobble</h2>
+            <p className="text-base text-[var(--color-muted)]">
+              Public usage profile — sessions, streaks, tokens, badges. No prompts, responses, or training data — ever.
+            </p>
+          </div>
+          <button
+            onClick={toggleScrobble}
+            className={`px-4 py-2 text-base font-bold rounded border transition-colors cursor-pointer ${
+              scrobbleEnabled
+                ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+                : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
+            }`}
+          >
+            {scrobbleEnabled ? '♪ Scrobbling' : '♪ Enable Scrobble'}
+          </button>
+        </div>
+        <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] space-y-3 max-w-3xl">
+          <h3 className="text-xl font-bold">Nothing to scrobble yet</h3>
+          <p className="text-base text-[var(--color-muted)]">
+            Scrobble is a public usage profile — counts, streaks, hours-of-day, tier badges — generated from your local
+            sessions. Toggle it on if you want others to see when you code. Run a harness session to populate the stats,
+            then this page will show your overview, projects, and badges.
+          </p>
+          <p className="text-base text-[var(--color-muted)]">
+            See <a href="/projects" className="text-[var(--color-accent)] hover:underline">Projects</a> for setup steps.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -132,29 +179,29 @@ export default function ScrobblePage() {
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
             <h3 className="text-base font-bold text-[var(--color-muted)]">Activity Heatmap</h3>
             <p className="text-base text-[var(--color-muted)]">When you code. Rows = days, columns = hours. Intensity = message volume.</p>
-            <HeatmapGrid data={payload.activity.heatmap} />
+            <HeatmapGrid data={activity.heatmap} />
           </div>
 
           {/* Hour of day chart */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
             <h3 className="text-base font-bold text-[var(--color-muted)]">Hour of Day</h3>
-            <BarChart data={payload.activity.hourOfDay.map((h: any) => ({ label: `${h.hour}`, value: h.count }))} />
+            <BarChart data={activity.hourOfDay.map((h: any) => ({ label: `${h.hour}`, value: h.count }))} />
           </div>
 
           {/* Daily cost chart */}
-          {payload.timeSeries.dailyCost.length > 0 && (
+          {timeSeries.dailyCost.length > 0 && (
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Daily Cost (90d)</h3>
-              <BarChart data={payload.timeSeries.dailyCost.map((d: any) => ({ label: d.date.slice(5), value: d.costUSD }))} />
+              <BarChart data={timeSeries.dailyCost.map((d: any) => ({ label: d.date.slice(5), value: d.costUSD }))} />
             </div>
           )}
 
           {/* Weekly velocity */}
-          {payload.timeSeries.weeklyVelocity.length > 0 && (
+          {timeSeries.weeklyVelocity.length > 0 && (
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Weekly Velocity (12w)</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                {payload.timeSeries.weeklyVelocity.map((w: any) => (
+                {timeSeries.weeklyVelocity.map((w: any) => (
                   <div key={w.week} className="text-center">
                     <div className="text-base font-mono text-[var(--color-muted)]">{w.week}</div>
                     <div className="text-base font-bold">{w.sessions} sessions</div>
@@ -169,7 +216,7 @@ export default function ScrobblePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Models</h3>
-              {payload.models.map((m: any) => (
+              {(payload.models ?? []).map((m: any) => (
                 <div key={m.model} className="flex justify-between text-base">
                   <span className="font-mono truncate">{m.model.replace('claude-', '').replace(/-20\d{6}$/, '')}</span>
                   <span className="text-[var(--color-muted)] shrink-0 ml-2">{m.messages}</span>
@@ -178,7 +225,7 @@ export default function ScrobblePage() {
             </div>
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Harnesses</h3>
-              {payload.harnesses.map((h: any, i: number) => (
+              {(payload.harnesses ?? []).map((h: any, i: number) => (
                 <div key={`${h.harness}-${i}`} className="flex justify-between text-base">
                   <span className="font-mono">{h.harness}</span>
                   <span className="text-[var(--color-muted)]">{h.sessions} sessions</span>
@@ -187,7 +234,7 @@ export default function ScrobblePage() {
             </div>
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
               <h3 className="text-base font-bold text-[var(--color-muted)]">Top Tools</h3>
-              {payload.tools.slice(0, 10).map((t: any) => (
+              {(payload.tools ?? []).slice(0, 10).map((t: any) => (
                 <div key={t.name} className="flex justify-between text-base">
                   <span className="font-mono truncate">{t.name}</span>
                   <span className="text-[var(--color-muted)] shrink-0 ml-2">{t.count}</span>
