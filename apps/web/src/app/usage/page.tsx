@@ -736,7 +736,7 @@ export default function UsageMonitorPage() {
             {allAlerts.map((a: any) => (
               <Link
                 key={a.id}
-                href={`/alerts/${a.id}`}
+                href={`/usage/alert/${a.id}`}
                 className={`text-base py-1 grid grid-cols-[9rem_5rem_6rem_1fr_auto] gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 cursor-pointer ${
                   a.acknowledged
                     ? 'text-[var(--color-muted)]'
@@ -1283,7 +1283,7 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
       <div className="rounded border border-[var(--color-border)] p-3 opacity-40">
         <div className="flex items-center gap-2 mb-2">
           <span className="w-2 h-2 rounded-full bg-[var(--color-error)]" />
-          <Link href={`/usage/node/${encodeURIComponent(node.hostname)}`} className="font-bold text-sm text-[var(--color-accent)] hover:underline">
+          <Link href={`/permacomputer/${encodeURIComponent(node.hostname)}`} className="font-bold text-sm text-[var(--color-accent)] hover:underline">
             {node.hostname}
           </Link>
           <span className="text-xs text-[var(--color-error)] ml-auto">{node.error || 'Unreachable'}</span>
@@ -1302,7 +1302,7 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
-        <Link href={`/usage/node/${encodeURIComponent(node.hostname)}`} className="font-bold text-sm text-[var(--color-accent)] hover:underline transition-colors">
+        <Link href={`/permacomputer/${encodeURIComponent(node.hostname)}`} className="font-bold text-sm text-[var(--color-accent)] hover:underline transition-colors">
           {node.hostname}
         </Link>
         <span className="text-xs text-[var(--color-muted)] ml-auto">up {node.uptime}</span>

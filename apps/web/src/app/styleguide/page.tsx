@@ -469,7 +469,7 @@ export default function StyleguidePage() {
       </Section>
 
       {/* Sitemap */}
-      <Section title="Sitemap — All Pages (28)">
+      <Section title="Sitemap — All Pages (25)">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
           <p className="text-base text-[var(--color-muted)]">
             Complete route inventory. Every page in the app, grouped by nav section. Dynamic routes shown with <code className="text-[var(--color-accent)]">[param]</code> segments.
@@ -485,7 +485,6 @@ export default function StyleguidePage() {
             { section: 'navigate', routes: [
               ['/projects', 'Projects', 'All projects grid + Dynamic Commits tab (batch git ops)'],
               ['/projects/[project]', 'Project Detail', 'Overview, Sessions, Commits, Todos, Activity, Tokens, Code tabs'],
-              ['/projects/[project]/kanban', 'Kanban Board', 'Drag-and-drop todo board per project'],
               ['/projects/[project]/[sessionId]', 'Session Detail', 'Full conversation transcript with tool calls'],
               ['/todos', 'Todos', 'Cross-project todo aggregation with filters'],
               ['/todos/graph', 'Todos Graph', 'Visual dependency graph of todos'],
@@ -493,10 +492,8 @@ export default function StyleguidePage() {
             { section: 'analyze', routes: [
               ['/tokens', 'Tokens', 'Token usage breakdown by model, project, time range'],
               ['/usage', 'Usage', 'Mesh-wide usage metrics, boot stats, node health'],
-              ['/usage/node/[hostname]', 'Node Detail', 'Per-node usage breakdown and history'],
               ['/usage/review/[project]', 'Usage Review', 'Per-project cost review and approval'],
-              ['/usage/alert/[id]', 'Usage Alert', 'Individual usage alert detail'],
-              ['/alerts/[id]', 'Alert Detail', 'System alert detail page'],
+              ['/usage/alert/[id]', 'Alert Detail', 'Forensic alert drill-down: timeline, project + model breakdown, acknowledge'],
               ['/logs', 'All Logs', 'Raw log viewer with filtering and search'],
             ]},
             { section: 'configure', routes: [
@@ -1141,7 +1138,7 @@ const from = getTimeRangeFrom(range); // ISO string or undefined
           Drag-and-drop todo cards with particle burst effects. Cards have rounded-xl corners, grab cursor,
           and lift + rotate on drag. Drop triggers accent/green particle burst and landing animation.
           In-progress cards glow with user&apos;s accent color and RUNNING indicator. Columns scroll independently.
-          Only valid transitions allowed (pending&rarr;active, active&rarr;done). Project kanban at /projects/[project]/kanban.
+          Only valid transitions allowed (pending&rarr;active, active&rarr;done). Per-project board at /todos?project=&lt;name&gt;.
         </p>
         <div className="grid grid-cols-3 gap-4 mt-3">
           {/* Pending column */}
