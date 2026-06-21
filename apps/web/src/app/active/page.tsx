@@ -24,6 +24,7 @@ interface ActiveSession {
   isSidechain: boolean;
   delegatedFrom: string | null;
   reasoningCount: number;
+  readableReasoningCount: number;
 }
 
 const HARNESS_COLORS: Record<string, string> = {
@@ -66,6 +67,8 @@ export default function ActivePage() {
     ? allSessions.filter((s) => (s.reasoningCount ?? 0) > 0)
     : allSessions;
   const totalReasoning = allSessions.reduce((n, s) => n + (s.reasoningCount ?? 0), 0);
+  const totalReadableReasoning = allSessions.reduce((n, s) => n + (s.readableReasoningCount ?? 0), 0);
+  const totalSealedReasoning = totalReasoning - totalReadableReasoning;
   const sessionsWithReasoning = allSessions.filter((s) => (s.reasoningCount ?? 0) > 0).length;
 
   const { data: tmuxData } = useSWR<{ sessions: string[] }>(
@@ -79,11 +82,13 @@ export default function ActivePage() {
     <div className="p-6 max-w-6xl">
       <PageContext
         pageType="active-sessions"
-        summary={`Active Sessions. ${allSessions.length} active. ${sessionsWithReasoning} reasoning. ${totalReasoning} total reasoning blocks. Filter: ${reasoningOnly ? 'reasoning only' : 'all'}.`}
+        summary={`Active Sessions. ${allSessions.length} active. ${sessionsWithReasoning} reasoning. ${totalReasoning} total reasoning blocks (${totalReadableReasoning} readable, ${totalSealedReasoning} sealed by Anthropic). Filter: ${reasoningOnly ? 'reasoning only' : 'all'}.`}
         metrics={{
           active: allSessions.length,
           reasoning_sessions: sessionsWithReasoning,
           reasoning_blocks: totalReasoning,
+          readable_reasoning_blocks: totalReadableReasoning,
+          sealed_reasoning_blocks: totalSealedReasoning,
           reasoning_only: reasoningOnly ? 'yes' : 'no',
         }}
       />
@@ -159,19 +164,28 @@ export default function ActivePage() {
                         ↳ sub
                       </span>
                     )}
-                    {session.reasoningCount > 0 && (
-                      <span
-                        className="text-xs px-1.5 py-0.5 rounded ml-auto"
-                        style={{
-                          background: 'var(--color-thinking)22',
-                          color: 'var(--color-thinking)',
-                          border: '1px solid var(--color-thinking)55',
-                        }}
-                        title={`${session.reasoningCount} reasoning ${session.reasoningCount === 1 ? 'block' : 'blocks'} in window`}
-                      >
-                        ◎ {session.reasoningCount}
-                      </span>
-                    )}
+                    {session.reasoningCount > 0 && (() => {
+                      const sealed = session.reasoningCount - (session.readableReasoningCount ?? 0);
+                      const allSealed = sealed > 0 && (session.readableReasoningCount ?? 0) === 0;
+                      const title = allSealed
+                        ? `${session.reasoningCount} reasoning blocks — all sealed by Anthropic (opus-4-7 doesn't ship reasoning text to local logs, only signed proofs)`
+                        : sealed > 0
+                          ? `${session.readableReasoningCount} readable · ${sealed} sealed`
+                          : `${session.reasoningCount} reasoning ${session.reasoningCount === 1 ? 'block' : 'blocks'} in window`;
+                      return (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded ml-auto"
+                          style={{
+                            background: 'var(--color-thinking)22',
+                            color: 'var(--color-thinking)',
+                            border: '1px solid var(--color-thinking)55',
+                          }}
+                          title={title}
+                        >
+                          ◎ {session.reasoningCount}{allSealed && <span className="opacity-60 ml-0.5">·sealed</span>}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <h3 className="font-medium text-base truncate" title={session.displayName}>
                     {session.displayName}

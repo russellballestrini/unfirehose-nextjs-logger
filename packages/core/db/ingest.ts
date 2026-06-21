@@ -2167,7 +2167,7 @@ export function getDbStats() {
     .prepare('SELECT COUNT(*) as c FROM content_blocks')
     .get() as { c: number };
   const thinkingBlocks = db
-    .prepare("SELECT COUNT(*) as c FROM content_blocks WHERE block_type = 'thinking'")
+    .prepare("SELECT COUNT(*) as c FROM content_blocks WHERE block_type IN ('thinking', 'reasoning')")
     .get() as { c: number };
   const totalTokens = db
     .prepare(
@@ -2386,7 +2386,7 @@ export function getThinkingBlocksInWindow(windowStart: string, windowEnd: string
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
     JOIN projects p ON s.project_id = p.id
-    WHERE cb.block_type = 'thinking'
+    WHERE cb.block_type IN ('thinking', 'reasoning')
       AND m.timestamp >= ? AND m.timestamp <= ?
     ORDER BY m.timestamp DESC
   `).all(windowStart, windowEnd) as Array<{

@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     // When searching, join content_blocks to filter by text
     const searchJoin = search
-      ? "JOIN content_blocks cb_search ON cb_search.message_id = m.id AND cb_search.block_type IN ('text', 'thinking')"
+      ? "JOIN content_blocks cb_search ON cb_search.message_id = m.id AND cb_search.block_type IN ('text', 'thinking', 'reasoning')"
       : '';
     if (search) {
       where += ' AND cb_search.text_content LIKE ?';
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
     // has_thinking restricts to messages that own at least one non-empty thinking block.
     if (hasThinking) {
-      where += " AND EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id AND cb_t.block_type = 'thinking' AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
+      where += " AND EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id AND cb_t.block_type IN ('thinking', 'reasoning') AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
     }
 
     const needsDistinct = !!search;
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       SELECT message_id, text_content, block_type, tool_name
       FROM content_blocks
       WHERE message_id IN (${msgIds.map(() => '?').join(',')})
-        AND block_type IN ('text', 'thinking', 'tool_use')
+        AND block_type IN ('text', 'thinking', 'reasoning', 'tool_use')
       ORDER BY message_id, position
     `).all(...msgIds) as any[];
 
@@ -108,8 +108,8 @@ export async function GET(request: NextRequest) {
       for (const b of blocks) {
         if (b.block_type === 'text' && b.text_content) {
           preview += (preview ? ' ' : '') + b.text_content;
-        } else if (b.block_type === 'thinking' && b.text_content) {
-          preview += (preview ? ' ' : '') + '[thinking] ' + b.text_content.slice(0, 200);
+        } else if ((b.block_type === 'thinking' || b.block_type === 'reasoning') && b.text_content) {
+          preview += (preview ? ' ' : '') + '[reasoning] ' + b.text_content.slice(0, 200);
         } else if (b.block_type === 'tool_use' && b.tool_name) {
           preview += (preview ? ' ' : '') + `[${b.tool_name}]`;
         }
@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
       if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
       if (search) { countWhere += ' AND cb_search.text_content LIKE ?'; countParams.push(`%${search}%`); }
       if (hasThinking) {
-        countWhere += " AND EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id AND cb_t.block_type = 'thinking' AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
+        countWhere += " AND EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id AND cb_t.block_type IN ('thinking', 'reasoning') AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
       }
       if (sidechainParam === 'true' || sidechainParam === '1') {
         countWhere += ' AND (m.is_sidechain = 1 OR s.is_sidechain = 1)';
