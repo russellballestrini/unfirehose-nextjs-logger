@@ -172,6 +172,12 @@ export default function TodosPage() {
   const [filter, setFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'project'>('kanban');
+  // ?project=<name> pre-filters to a single project. Read on mount; updated by chip dismiss.
+  const [projectFilter, setProjectFilter] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const v = new URLSearchParams(window.location.search).get('project');
+    return v ? decodeURIComponent(v) : null;
+  });
   const [bootResult, setBootResult] = useState<{ key: string; msg: string } | null>(null);
   const [booting, setBooting] = useState<string | null>(null);
   const [megaStatus, setMegaStatus] = useState<any>(null);
@@ -197,8 +203,11 @@ export default function TodosPage() {
 
   const fetchTodos = useCallback((showLoading = true) => {
     if (showLoading) setLoading(true);
-    const statusParam = filter === 'active' ? '?status=pending,in_progress' : '';
-    fetch(`/api/todos${statusParam}`)
+    const qs = new URLSearchParams();
+    if (filter === 'active') qs.set('status', 'pending,in_progress');
+    if (projectFilter) qs.set('project', projectFilter);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    fetch(`/api/todos${suffix}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
@@ -210,7 +219,7 @@ export default function TodosPage() {
         setCounts({ pending: 0, inProgress: 0, completed: 0, total: 0 });
       })
       .finally(() => setLoading(false));
-  }, [filter]);
+  }, [filter, projectFilter]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetching on mount
   useEffect(() => { fetchTodos(true); }, [fetchTodos]);
@@ -428,13 +437,29 @@ export default function TodosPage() {
       {/* Particle burst overlay */}
       {burst && <ParticleBurst x={burst.x} y={burst.y} color={burst.color} targetStatus={burst.targetStatus} />}
 
-      <div className="flex items-center gap-4 mb-4">
+      <div className="flex items-center gap-4 mb-4 flex-wrap">
         <h1 className="text-xl font-bold">Todos</h1>
         <div className="flex gap-2 text-sm">
           <span className="px-2 py-0.5 rounded bg-[var(--color-surface-hover)]">{counts.pending} pending</span>
           <span className="px-2 py-0.5 rounded bg-[var(--color-surface-hover)] text-yellow-400">{counts.inProgress} in progress</span>
           <span className="px-2 py-0.5 rounded bg-[var(--color-surface-hover)] text-green-400">{counts.completed} completed</span>
         </div>
+        {projectFilter && (
+          <button
+            onClick={() => {
+              setProjectFilter(null);
+              if (typeof window !== 'undefined') {
+                const u = new URL(window.location.href);
+                u.searchParams.delete('project');
+                window.history.replaceState(null, '', u.toString());
+              }
+            }}
+            className="px-2 py-0.5 rounded border border-[var(--color-accent)] text-sm text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 flex items-center gap-1"
+            title="Remove project filter"
+          >
+            project: {projectFilter} <span className="opacity-60">×</span>
+          </button>
+        )}
         <div className="ml-auto flex gap-2">
           {[
             { v: 'kanban' as const, l: 'Kanban' },
@@ -654,7 +679,7 @@ export default function TodosPage() {
                     <Link href={`/projects/${encodeURIComponent(group.project)}`} className="font-medium hover:text-[var(--color-accent)] transition-colors">{group.display}</Link>
                     <span className="text-sm text-[var(--color-muted)]">{visibleTodos.length} todos</span>
                     {groupEst > 0 && <span className="text-sm text-[var(--color-muted)]">~{groupEst < 60 ? `${groupEst}m` : `${Math.floor(groupEst / 60)}h ${groupEst % 60}m`}</span>}
-                    <Link href={`/projects/${encodeURIComponent(group.project)}/kanban`} className="text-xs text-[var(--color-accent)] hover:underline">kanban</Link>
+                    <Link href={`/todos?project=${encodeURIComponent(group.project)}`} className="text-xs text-[var(--color-accent)] hover:underline">focus</Link>
                     {group.projectPath && (
                       <ProjectDeployButton
                         group={group}
