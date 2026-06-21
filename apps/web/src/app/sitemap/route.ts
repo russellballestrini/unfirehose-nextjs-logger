@@ -1,25 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { groupNavItems } from '@unturf/unfirehose-ui/layout/nav-items';
 
-const PAGES = [
-  { path: '/', label: 'Dashboard', section: 'Navigate' },
-  { path: '/live', label: 'Live', section: 'Monitor' },
-  { path: '/active', label: 'Active', section: 'Monitor' },
-  { path: '/tmux', label: 'Terminals', section: 'Monitor' },
-  { path: '/projects', label: 'Projects', section: 'Navigate' },
-  { path: '/todos', label: 'Todos', section: 'Navigate' },
-  { path: '/tokens', label: 'Tokens', section: 'Analyze' },
-  { path: '/usage', label: 'Usage', section: 'Analyze' },
-  { path: '/logs', label: 'All Logs', section: 'Analyze' },
-  { path: '/scrobble', label: 'Scrobble', section: 'Configure' },
-  { path: '/permacomputer', label: 'Permacomputer', section: 'Configure' },
-  { path: '/permacomputer/unsandbox', label: 'Unsandbox', section: 'Configure' },
-  { path: '/schema', label: 'Schema', section: 'Configure' },
-  { path: '/styleguide', label: 'Styleguide', section: 'Configure' },
-  { path: '/settings', label: 'Settings', section: 'Configure' },
-  { path: '/blog', label: 'Blog', section: 'Other' },
-  { path: '/keys', label: 'Keys', section: 'Other' },
-  { path: '/login', label: 'Login', section: 'Other' },
-];
+// Single source of truth: derive sections from the sidebar nav config so
+// the sitemap can never drift again. Keep section labels lowercase to
+// match the sidebar headers.
+function pages() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return groupNavItems(isProduction).flatMap(({ section, links }) =>
+    links.map((l) => ({ path: l.href, label: l.label, section })),
+  );
+}
 
 export async function GET(request: NextRequest) {
   const accept = request.headers.get('accept') ?? '';
@@ -34,6 +24,7 @@ export async function GET(request: NextRequest) {
 }
 
 function xmlSitemap(origin: string): NextResponse {
+  const PAGES = pages();
   const urls = PAGES.map(p =>
     `  <url>\n    <loc>${origin}${p.path}</loc>\n  </url>`
   ).join('\n');
@@ -49,6 +40,7 @@ ${urls}
 }
 
 function htmlSitemap(origin: string): NextResponse {
+  const PAGES = pages();
   const sections = new Map<string, typeof PAGES>();
   for (const p of PAGES) {
     if (!sections.has(p.section)) sections.set(p.section, []);
@@ -56,9 +48,9 @@ function htmlSitemap(origin: string): NextResponse {
   }
 
   let body = '';
-  for (const [section, pages] of sections) {
+  for (const [section, items] of sections) {
     body += `<h2>${section}</h2>\n<ul>\n`;
-    for (const p of pages) {
+    for (const p of items) {
       body += `  <li><a href="${p.path}">${p.label}</a> <code>${p.path}</code></li>\n`;
     }
     body += `</ul>\n`;

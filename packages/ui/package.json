@@ -30,6 +30,7 @@
     "./SessionPopover": "./components/SessionPopover.tsx",
     "./ThemeProvider": "./components/ThemeProvider.tsx",
     "./layout/Sidebar": "./components/layout/Sidebar.tsx",
+    "./layout/nav-items": "./components/layout/nav-items.ts",
     "./viewer/MessageBlock": "./components/viewer/MessageBlock.tsx",
     "./useCurrency": "./components/useCurrency.tsx",
     "./vault": "./components/vault.ts",

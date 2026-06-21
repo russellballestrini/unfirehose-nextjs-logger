@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
+import { groupNavItems } from '@unturf/unfirehose-ui/layout/nav-items';
 
 // --- Mock data ---
 
@@ -446,19 +447,15 @@ export default function StyleguidePage() {
             Active item gets accent icon, inactive icons are dimmed border color.
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { title: 'monitor', items: [['●', 'Live'], ['▸', 'Active'], ['▹', 'Terminals']] },
-              { title: 'navigate', items: [['◇', 'Dashboard'], ['■', 'Projects'], ['☰', 'Todos']] },
-              { title: 'analyze', items: [['¤', 'Tokens'], ['△', 'Usage'], ['≡', 'All Logs']] },
-              { title: 'configure', items: [['♪', 'Scrobble'], ['▣', 'Permacomputer'], ['{', 'Schema'], ['◐', 'Styleguide'], ['⚙', 'Settings']] },
-            ].map(group => (
-              <div key={group.title}>
-                <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2">{group.title}</div>
+            {/* Derived from packages/ui/components/layout/nav-items.ts — same SoT as the live sidebar. */}
+            {groupNavItems(false).map(group => (
+              <div key={group.section}>
+                <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2">{group.section}</div>
                 <div className="space-y-1">
-                  {group.items.map(([icon, label], i) => (
-                    <div key={i} className="flex items-center gap-2 text-base text-[var(--color-muted)]">
-                      <span className={`font-bold w-4 text-center ${i === 0 ? 'text-[var(--color-accent)]' : 'text-[var(--color-border)]'}`}>{icon}</span>
-                      <span className={i === 0 ? 'text-[var(--color-foreground)]' : ''}>{label}</span>
+                  {group.links.map((l, i) => (
+                    <div key={l.href} className="flex items-center gap-2 text-base text-[var(--color-muted)]">
+                      <span className={`font-bold w-4 text-center ${i === 0 ? 'text-[var(--color-accent)]' : 'text-[var(--color-border)]'}`}>{l.icon}</span>
+                      <span className={i === 0 ? 'text-[var(--color-foreground)]' : ''}>{l.label}</span>
                     </div>
                   ))}
                 </div>
@@ -468,60 +465,69 @@ export default function StyleguidePage() {
         </div>
       </Section>
 
-      {/* Sitemap */}
-      <Section title="Sitemap — All Pages (25)">
+      {/* Sitemap — derived from nav-items.ts, augmented with dynamic-route children */}
+      <Section title="Sitemap — All Pages">
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
           <p className="text-base text-[var(--color-muted)]">
-            Complete route inventory. Every page in the app, grouped by nav section. Dynamic routes shown with <code className="text-[var(--color-accent)]">[param]</code> segments.
+            Complete route inventory. Static routes mirror the sidebar nav config; dynamic
+            children (<code className="text-[var(--color-accent)]">[param]</code> segments)
+            are listed under their parent. Single source of truth lives in
+            <code className="text-[var(--color-accent)] ml-1">packages/ui/components/layout/nav-items.ts</code>.
           </p>
-          {[
-            { section: 'monitor', routes: [
-              ['/', 'Dashboard', 'Home — aggregate stats, recent activity, cost breakdown'],
-              ['/live', 'Live', 'Real-time streaming of agent messages as they arrive'],
-              ['/active', 'Active', 'Currently running sessions with live token counters'],
-              ['/tmux', 'Terminals', 'Tmux session overview across all mesh nodes'],
-              ['/tmux/[session]', 'Terminal Detail', 'Individual tmux session pane viewer'],
-            ]},
-            { section: 'navigate', routes: [
-              ['/projects', 'Projects', 'All projects grid + Dynamic Commits tab (batch git ops)'],
-              ['/projects/[project]', 'Project Detail', 'Overview, Sessions, Commits, Todos, Activity, Tokens, Code tabs'],
-              ['/projects/[project]/[sessionId]', 'Session Detail', 'Full conversation transcript with tool calls'],
-              ['/todos', 'Todos', 'Cross-project todo aggregation with filters'],
-              ['/todos/graph', 'Todos Graph', 'Visual dependency graph of todos'],
-            ]},
-            { section: 'analyze', routes: [
-              ['/tokens', 'Tokens', 'Token usage breakdown by model, project, time range'],
-              ['/usage', 'Usage', 'Mesh-wide usage metrics, boot stats, node health'],
-              ['/usage/review/[project]', 'Usage Review', 'Per-project cost review and approval'],
-              ['/usage/alert/[id]', 'Alert Detail', 'Forensic alert drill-down: timeline, project + model breakdown, acknowledge'],
-              ['/logs', 'All Logs', 'Raw log viewer with filtering and search'],
-            ]},
-            { section: 'configure', routes: [
-              ['/scrobble', 'Scrobble', 'Music scrobbling integration and history'],
-              ['/permacomputer', 'Permacomputer', 'Mesh node dashboard — CPU, memory, services'],
-              ['/permacomputer/[node]', 'Node Detail', 'Individual mesh node metrics and config'],
-              ['/permacomputer/unsandbox', 'Unsandbox', 'Unsandbox service status and management'],
-              ['/schema', 'Schema', 'Database schema explorer and documentation'],
-              ['/styleguide', 'Styleguide', 'This page — design system reference'],
-              ['/settings', 'Settings', 'App configuration, themes, API keys, vault'],
-              ['/keys', 'Keys', 'API key management'],
-              ['/login', 'Login', 'Authentication gate'],
-              ['/blog', 'Blog', 'Internal blog / notes'],
-            ]},
-          ].map(({ section, routes }) => (
-            <div key={section}>
-              <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2 mt-3">{section}</div>
-              <div className="space-y-1">
-                {routes.map(([path, label, desc]) => (
-                  <div key={path} className="grid grid-cols-[140px_120px_1fr] gap-2 items-baseline text-sm">
-                    <code className="text-[var(--color-accent)] text-xs truncate" title={path}>{path}</code>
-                    <span className="font-bold text-[var(--color-foreground)] text-xs">{label}</span>
-                    <span className="text-xs text-[var(--color-muted)]">{desc}</span>
-                  </div>
-                ))}
+          {(() => {
+            // Map each NAV_ITEMS href to a short description + any dynamic-route children
+            // it owns. Edit this map when a new dynamic route lands.
+            const descs: Record<string, { desc: string; children?: [string, string, string][] }> = {
+              '/':              { desc: 'Home — aggregate stats, recent activity, cost breakdown' },
+              '/live':          { desc: 'Real-time SSE stream of every assistant/user/tool entry' },
+              '/active':        { desc: 'Active sessions grid with reasoning indicator + filter' },
+              '/tmux':          { desc: 'Tmux session overview across mesh nodes',
+                                  children: [['/tmux/[session]', 'Terminal Detail', 'Individual tmux pane viewer']] },
+              '/projects':      { desc: 'All projects grid + batch Dynamic Commits',
+                                  children: [
+                                    ['/projects/[project]', 'Project Detail', 'Overview / Sessions / Commits / Todos / Activity / Tokens / Code'],
+                                    ['/projects/[project]/[sessionId]', 'Session Detail', 'Full conversation transcript + reasoning filter'],
+                                  ] },
+              '/todos':         { desc: 'Cross-project todo kanban — supports ?project= URL filter',
+                                  children: [['/todos/graph', 'Todos Graph', 'Visual dependency graph (currently labeled Todos)']] },
+              '/tokens':        { desc: 'Token + cost breakdown by model, harness, cost-type; Plan tab' },
+              '/usage':         { desc: 'Plan utilization + alerts + card-charges sync',
+                                  children: [
+                                    ['/usage/review/[project]', 'Usage Review', 'Per-project commit-message + cost review'],
+                                    ['/usage/alert/[id]', 'Alert Detail', 'Forensic alert drill-down with project + model breakdown'],
+                                  ] },
+              '/logs':          { desc: 'Raw log viewer with type + Reasoning filter' },
+              '/scrobble':      { desc: 'Public scrobble payload toggle + per-project visibility manager' },
+              '/permacomputer': { desc: 'Mesh node dashboard — CPU, memory, services, economics',
+                                  children: [
+                                    ['/permacomputer/[node]', 'Node Detail', 'Individual mesh node metrics + SSH host editor'],
+                                    ['/permacomputer/unsandbox', 'Unsandbox', 'Unsandbox harness / service / session manager'],
+                                  ] },
+              '/schema':        { desc: 'Markdown viewer for docs/schema/* + harness specs' },
+              '/settings':      { desc: 'Profile / plan / mesh defaults / vault / LLM providers' },
+              '/db':            { desc: 'SQLite meta: tables, indexes, PRAGMA, size breakdown (dev)' },
+              '/styleguide':    { desc: 'This page — design system + nav + sitemap (dev)' },
+            };
+            return groupNavItems(false).map(group => (
+              <div key={group.section}>
+                <div className="text-xs uppercase tracking-widest text-[var(--color-muted)] opacity-60 mb-2 mt-3">{group.section}</div>
+                <div className="space-y-1">
+                  {group.links.flatMap(l => {
+                    const d = descs[l.href];
+                    const rows: [string, string, string][] = [[l.href, l.label, d?.desc ?? '']];
+                    if (d?.children) rows.push(...d.children);
+                    return rows.map(([path, label, desc]) => (
+                      <div key={path} className="grid grid-cols-[180px_140px_1fr] gap-2 items-baseline text-sm">
+                        <code className="text-[var(--color-accent)] text-xs truncate" title={path}>{path}</code>
+                        <span className="font-bold text-[var(--color-foreground)] text-xs">{label}</span>
+                        <span className="text-xs text-[var(--color-muted)]">{desc}</span>
+                      </div>
+                    ));
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ));
+          })()}
         </div>
       </Section>
 

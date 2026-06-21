@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import useSWR from 'swr';
+import { NAV_ITEMS, isLink, visibleNavLinks, type NavLink } from './nav-items';
 
 const fetcher = (url: string) =>
   fetch(url).then(async (r) => {
@@ -10,42 +11,9 @@ const fetcher = (url: string) =>
     return r.json();
   });
 
-type NavLink = { href: string; label: string; icon: string };
-type NavSeparator = { separator: string };
-type NavItem = NavLink | NavSeparator;
-
-function isLink(item: NavItem): item is NavLink {
-  return 'href' in item;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  // Monitor — what's happening now
-  { separator: 'monitor' },
-  { href: '/live', label: 'Live', icon: '●' },
-  { href: '/active', label: 'Active', icon: '▸' },
-  { href: '/tmux', label: 'Terminals', icon: '▹' },
-  // Navigate — browse your data
-  { separator: 'navigate' },
-  { href: '/', label: 'Dashboard', icon: '◇' },
-  { href: '/projects', label: 'Projects', icon: '■' },
-  // Hot projects injected here dynamically
-  { href: '/todos', label: 'Todos', icon: '☰' },
-  // Analyze — deep dives
-  { separator: 'analyze' },
-  { href: '/tokens', label: 'Tokens', icon: '¤' },
-  { href: '/usage', label: 'Usage', icon: '△' },
-  { href: '/logs', label: 'All Logs', icon: '≡' },
-  // Configure
-  { separator: 'configure' },
-  { href: '/scrobble', label: 'Scrobble', icon: '♪' },
-  { href: '/permacomputer', label: 'Permacomputer', icon: '▣' },
-  { href: '/schema', label: 'Schema', icon: '{' },
-  { href: '/db', label: 'Database', icon: '▤' },
-  { href: '/styleguide', label: 'Styleguide', icon: '◐' },
-  { href: '/settings', label: 'Settings', icon: '⚙' },
-];
-
-const NAV_LINKS = NAV_ITEMS.filter(isLink);
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter((i) => isLink(i) ? !(i.dev && IS_PRODUCTION) : true);
+const NAV_LINKS = visibleNavLinks(IS_PRODUCTION);
 
 // Extract short display name from project name or display_name
 function shortName(name: string, displayName?: string): string {
@@ -98,7 +66,7 @@ export function Sidebar() {
         </Link>
       </div>
       <nav className="flex-1 p-2">
-        {NAV_ITEMS.map((item, i) => {
+        {VISIBLE_NAV_ITEMS.map((item, i) => {
           if (!isLink(item)) {
             return (
               <div
