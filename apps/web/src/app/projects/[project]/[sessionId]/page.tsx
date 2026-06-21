@@ -49,6 +49,7 @@ export default function SessionViewerPage({
   const { project, sessionId } = use(params);
   const [showThinking, setShowThinking] = useState(true);
   const [showTools, setShowTools] = useState(true);
+  const [reasoningOnly, setReasoningOnly] = useState(false);
   const [autoScroll, setAutoScroll] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { data: projectData } = useSWR<{ originalPath: string }>(
@@ -86,9 +87,17 @@ export default function SessionViewerPage({
     }
   }, [entries, autoScroll]);
 
+  const hasReasoning = (e: any) =>
+    Array.isArray(e?.content) && e.content.some((b: any) => b?.type === 'reasoning' && (b?.text ?? '').length > 0);
+
+  const reasoningCount = entries.reduce((n, e) => n + (hasReasoning(e) ? 1 : 0), 0);
+
   const filteredEntries = entries.filter((e: any) => {
     const role = e.role ?? e.type;
-    return role === 'user' || role === 'assistant' || role === 'system' || role === 'tool';
+    const rolePass = role === 'user' || role === 'assistant' || role === 'system' || role === 'tool';
+    if (!rolePass) return false;
+    if (reasoningOnly) return hasReasoning(e);
+    return true;
   });
 
   const scrollToBottom = useCallback(() => {
@@ -106,9 +115,11 @@ export default function SessionViewerPage({
           session_id: sessionId,
           project: decodeURIComponent(project),
           entries: filteredEntries.length,
+          reasoning_blocks: reasoningCount,
           loading: loading ? 'yes' : 'no',
           show_thinking: showThinking ? 'yes' : 'no',
           show_tools: showTools ? 'yes' : 'no',
+          reasoning_only: reasoningOnly ? 'yes' : 'no',
         }}
       />
       {/* Header */}
@@ -140,11 +151,16 @@ export default function SessionViewerPage({
             </Link>
           )}
         </div>
-        <div className="flex items-center gap-4 mt-2">
+        <div className="flex items-center gap-4 mt-2 flex-wrap">
           <span className="text-base text-[var(--color-muted)]">
             {filteredEntries.length} entries
             {loading && ' (loading…)'}
           </span>
+          {reasoningCount > 0 && (
+            <span className="text-base" style={{ color: 'var(--color-thinking)' }}>
+              {reasoningCount} reasoning {reasoningCount === 1 ? 'block' : 'blocks'}
+            </span>
+          )}
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
@@ -153,6 +169,22 @@ export default function SessionViewerPage({
               className="accent-[var(--color-thinking)]"
             />
             Thinking
+          </label>
+          <label
+            className={`flex items-center gap-1.5 text-base cursor-pointer ${reasoningCount === 0 ? 'opacity-40 cursor-not-allowed' : 'text-[var(--color-muted)]'}`}
+            title={reasoningCount === 0 ? 'No reasoning blocks in this session' : 'Show only entries that contain reasoning'}
+          >
+            <input
+              type="checkbox"
+              checked={reasoningOnly}
+              disabled={reasoningCount === 0}
+              onChange={(e) => {
+                setReasoningOnly(e.target.checked);
+                if (e.target.checked) setShowThinking(true);
+              }}
+              className="accent-[var(--color-thinking)]"
+            />
+            Reasoning only
           </label>
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input

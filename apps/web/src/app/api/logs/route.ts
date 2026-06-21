@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
   const session = url.searchParams.get('session');
   // sidechain: 'all' (default), 'true' (subagent messages only), 'false' (top-level only)
   const sidechainParam = (url.searchParams.get('sidechain') ?? 'all').toLowerCase();
+  // has_thinking=true filters to messages that contain a reasoning/thinking block.
+  const hasThinking = url.searchParams.get('has_thinking') === 'true';
 
   try {
     const db = getDb();
@@ -54,6 +56,11 @@ export async function GET(request: NextRequest) {
     if (search) {
       where += ' AND cb_search.text_content LIKE ?';
       params.push(`%${search}%`);
+    }
+
+    // has_thinking restricts to messages that own at least one non-empty thinking block.
+    if (hasThinking) {
+      where += " AND EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id AND cb_t.block_type = 'thinking' AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
     }
 
     const needsDistinct = !!search;
@@ -136,6 +143,9 @@ export async function GET(request: NextRequest) {
       if (dateFrom) { countWhere += ' AND m.timestamp >= ?'; countParams.push(dateFrom); }
       if (dateTo) { countWhere += ' AND m.timestamp <= ?'; countParams.push(dateTo + 'T23:59:59'); }
       if (search) { countWhere += ' AND cb_search.text_content LIKE ?'; countParams.push(`%${search}%`); }
+      if (hasThinking) {
+        countWhere += " AND EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id AND cb_t.block_type = 'thinking' AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
+      }
       if (sidechainParam === 'true' || sidechainParam === '1') {
         countWhere += ' AND (m.is_sidechain = 1 OR s.is_sidechain = 1)';
       } else if (sidechainParam === 'false' || sidechainParam === '0') {

@@ -11,9 +11,20 @@ import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfireh
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
+// Virtual filter values are mapped to ?types + ?has_thinking in buildParams below.
+// 'reasoning' is the only filter that turns on has_thinking.
+const TYPE_FILTERS = {
+  'user,assistant,system': { label: 'All types', types: 'user,assistant,system', hasThinking: false },
+  'user':                  { label: 'User',      types: 'user',                  hasThinking: false },
+  'assistant':             { label: 'Assistant', types: 'assistant',             hasThinking: false },
+  'system':                { label: 'System',    types: 'system',                hasThinking: false },
+  'reasoning':             { label: 'Reasoning', types: 'assistant',             hasThinking: true  },
+} as const;
+type TypeFilterKey = keyof typeof TYPE_FILTERS;
+
 export default function AllLogsPage() {
   const [limit, setLimit] = useState(1000);
-  const [typeFilter, setTypeFilter] = useState('user,assistant,system');
+  const [typeFilter, setTypeFilter] = useState<TypeFilterKey>('user,assistant,system');
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [range, setRange] = useTimeRange('logs_range', '24h');
@@ -29,11 +40,13 @@ export default function AllLogsPage() {
 
   const from = useMemo(() => getTimeRangeFrom(range), [range]);
 
+  const filterCfg = TYPE_FILTERS[typeFilter];
   const params = new URLSearchParams({
     limit: String(limit),
-    types: typeFilter,
+    types: filterCfg.types,
     offset: String(page * limit),
   });
+  if (filterCfg.hasThinking) params.set('has_thinking', 'true');
   if (searchDebounced) params.set('search', searchDebounced);
   if (from) params.set('from', from);
 
@@ -46,8 +59,8 @@ export default function AllLogsPage() {
     <div className="flex flex-col h-[calc(100vh-3rem)]">
       <PageContext
         pageType="logs"
-        summary={`All logs. ${total} entries. Filter: ${typeFilter}. Date: ${range}. Search: "${searchDebounced || 'none'}".`}
-        metrics={{ entries: total, type_filter: typeFilter, date: range }}
+        summary={`All logs. ${total} entries. Filter: ${filterCfg.label}. Date: ${range}. Search: "${searchDebounced || 'none'}".`}
+        metrics={{ entries: total, type_filter: filterCfg.label, date: range }}
       />
       <div className="flex items-center justify-between mb-2 shrink-0">
         <h2 className="text-lg font-bold">All Logs</h2>
@@ -68,13 +81,12 @@ export default function AllLogsPage() {
         <TimeRangeSelect value={range} onChange={(v) => { setRange(v); setPage(0); }} />
         <select
           value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(0); }}
+          onChange={(e) => { setTypeFilter(e.target.value as TypeFilterKey); setPage(0); }}
           className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-2 py-1 text-xs"
         >
-          <option value="user,assistant,system">All types</option>
-          <option value="user">User</option>
-          <option value="assistant">Assistant</option>
-          <option value="system">System</option>
+          {(Object.entries(TYPE_FILTERS) as [TypeFilterKey, typeof TYPE_FILTERS[TypeFilterKey]][]).map(([key, cfg]) => (
+            <option key={key} value={key}>{cfg.label}</option>
+          ))}
         </select>
         <select
           value={limit}
