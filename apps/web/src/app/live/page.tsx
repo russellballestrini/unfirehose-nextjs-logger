@@ -218,6 +218,7 @@ export default function LivePage() {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [connected, setConnected] = useState(false);
   const [showThinking, setShowThinking] = useState(true);
+  const [reasoningOnly, setReasoningOnly] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [hoveredEntry, setHoveredEntry] = useState<number | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -313,6 +314,14 @@ export default function LivePage() {
     entries.slice(-100).map((e) => e.sessionId)
   );
 
+  // Count entries in the buffer that carry reasoning — used for the header
+  // badge and to disable the filter when there's nothing to filter to.
+  const reasoningCount = useMemo(
+    () => entries.reduce((n, item) => n + (extractThinking(item.entry) ? 1 : 0), 0),
+    [entries],
+  );
+
+
   // Find the most recent output entry (assistant or tool result)
   const mostRecentOutputIdx = useMemo(() => {
     for (let j = entries.length - 1; j >= 0; j--) {
@@ -357,7 +366,7 @@ export default function LivePage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-4 mt-2">
+        <div className="flex items-center gap-4 mt-2 flex-wrap">
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
@@ -366,6 +375,27 @@ export default function LivePage() {
               className="accent-[var(--color-thinking)]"
             />
             Show thinking
+          </label>
+          <label
+            className={`flex items-center gap-1.5 text-base cursor-pointer ${reasoningCount === 0 ? 'opacity-40 cursor-not-allowed' : 'text-[var(--color-muted)]'}`}
+            title={reasoningCount === 0 ? 'No reasoning in the buffer yet' : 'Filter the stream to entries with reasoning'}
+          >
+            <input
+              type="checkbox"
+              checked={reasoningOnly}
+              disabled={reasoningCount === 0}
+              onChange={(e) => {
+                setReasoningOnly(e.target.checked);
+                if (e.target.checked) setShowThinking(true);
+              }}
+              className="accent-[var(--color-thinking)]"
+            />
+            Reasoning only
+            {reasoningCount > 0 && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-thinking)22', color: 'var(--color-thinking)' }}>
+                {reasoningCount}
+              </span>
+            )}
           </label>
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
@@ -437,11 +467,21 @@ export default function LivePage() {
           </div>
         )}
 
+        {entries.length > 0 && reasoningOnly && reasoningCount === 0 && (
+          <div className="text-[var(--color-muted)] text-base py-8 text-center">
+            No reasoning yet in the live buffer.
+          </div>
+        )}
+
         {entries.map((item, i) => {
           const e = item.entry;
+          // Always extract thinking so reasoningOnly can filter against it,
+          // even when showThinking is off.
+          const entryThinking = extractThinking(e);
+          if (reasoningOnly && !entryThinking) return null;
           const color = getColorForSession(item.sessionId);
           const text = extractText(e);
-          const thinking = showThinking ? extractThinking(e) : null;
+          const thinking = showThinking ? entryThinking : null;
           const tools = extractTools(e);
           const toolResults = extractToolResults(e);
           const model = e?.message?.model;

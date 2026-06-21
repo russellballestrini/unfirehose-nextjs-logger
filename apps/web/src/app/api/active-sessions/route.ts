@@ -35,14 +35,18 @@ export async function GET(request: NextRequest) {
         p.path as project_path,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count,
         (SELECT SUM(m.input_tokens + m.output_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_tokens,
-        (SELECT m.model FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL ORDER BY m.timestamp DESC LIMIT 1) as last_model
+        (SELECT m.model FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL ORDER BY m.timestamp DESC LIMIT 1) as last_model,
+        (SELECT COUNT(*) FROM content_blocks cb JOIN messages m ON cb.message_id = m.id
+         WHERE m.session_id = s.id AND cb.block_type = 'thinking'
+           AND cb.text_content IS NOT NULL AND cb.text_content != ''
+           AND m.timestamp >= ?) as reasoning_count
       FROM sessions s
       JOIN projects p ON s.project_id = p.id
       WHERE (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) >= ?
         AND (s.status IS NULL OR s.status = 'active')
         ${sidechainFilter}
       ORDER BY updated_at DESC
-    `).all(cutoff, cutoff) as any[];
+    `).all(cutoff, cutoff, cutoff) as any[];
 
     return NextResponse.json({
       sessions: sessions.map(s => ({
@@ -61,6 +65,7 @@ export async function GET(request: NextRequest) {
         messageCount: s.message_count ?? 0,
         recentTokens: s.recent_tokens ?? 0,
         lastModel: s.last_model,
+        reasoningCount: s.reasoning_count ?? 0,
       })),
       count: sessions.length,
     });

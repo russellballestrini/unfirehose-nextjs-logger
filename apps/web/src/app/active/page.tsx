@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
@@ -22,6 +23,7 @@ interface ActiveSession {
   harness: string | null;
   isSidechain: boolean;
   delegatedFrom: string | null;
+  reasoningCount: number;
 }
 
 const HARNESS_COLORS: Record<string, string> = {
@@ -51,6 +53,7 @@ function findMatchingTmux(projectName: string, tmuxSessions: string[]): string |
 
 export default function ActivePage() {
   const [timeRange, setTimeRange] = useTimeRange('active_time_range', '1h');
+  const [reasoningOnly, setReasoningOnly] = useState(false);
   const minutes = getTimeRangeMinutes(timeRange) || 60 * 24 * 365 * 10; // 'all' = 10 years
 
   const { data, isLoading: loading } = useSWR<{ sessions: ActiveSession[] }>(
@@ -58,7 +61,12 @@ export default function ActivePage() {
     fetcher,
     { refreshInterval: 5000 },
   );
-  const sessions = data?.sessions ?? [];
+  const allSessions = data?.sessions ?? [];
+  const sessions = reasoningOnly
+    ? allSessions.filter((s) => (s.reasoningCount ?? 0) > 0)
+    : allSessions;
+  const totalReasoning = allSessions.reduce((n, s) => n + (s.reasoningCount ?? 0), 0);
+  const sessionsWithReasoning = allSessions.filter((s) => (s.reasoningCount ?? 0) > 0).length;
 
   const { data: tmuxData } = useSWR<{ sessions: string[] }>(
     '/api/tmux/stream',
@@ -69,13 +77,40 @@ export default function ActivePage() {
 
   return (
     <div className="p-6 max-w-6xl">
-      <PageContext pageType="active-sessions" summary={`Active Sessions. ${sessions.length} active.`} metrics={{ active: sessions.length }} />
-      <div className="flex items-center gap-3 mb-6">
+      <PageContext
+        pageType="active-sessions"
+        summary={`Active Sessions. ${allSessions.length} active. ${sessionsWithReasoning} reasoning. ${totalReasoning} total reasoning blocks. Filter: ${reasoningOnly ? 'reasoning only' : 'all'}.`}
+        metrics={{
+          active: allSessions.length,
+          reasoning_sessions: sessionsWithReasoning,
+          reasoning_blocks: totalReasoning,
+          reasoning_only: reasoningOnly ? 'yes' : 'no',
+        }}
+      />
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         <h1 className="text-xl font-bold">Active Sessions</h1>
         <span className="text-[var(--color-muted)] text-base">
-          {sessions.length} active
+          {sessions.length}{reasoningOnly && ` / ${allSessions.length}`} active
         </span>
         <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+        <label
+          className={`flex items-center gap-1.5 text-base cursor-pointer ${sessionsWithReasoning === 0 ? 'opacity-40 cursor-not-allowed' : 'text-[var(--color-muted)]'}`}
+          title={sessionsWithReasoning === 0 ? 'No active sessions have reasoning yet' : 'Filter to sessions with reasoning blocks'}
+        >
+          <input
+            type="checkbox"
+            checked={reasoningOnly}
+            disabled={sessionsWithReasoning === 0}
+            onChange={(e) => setReasoningOnly(e.target.checked)}
+            className="accent-[var(--color-thinking)]"
+          />
+          Reasoning only
+          {sessionsWithReasoning > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-thinking)22', color: 'var(--color-thinking)' }}>
+              {sessionsWithReasoning}
+            </span>
+          )}
+        </label>
         <div className="ml-auto">
           <TimeRangeSelect value={timeRange} onChange={setTimeRange} />
         </div>
@@ -122,6 +157,19 @@ export default function ActivePage() {
                         title={session.delegatedFrom ? `Delegated from ${session.delegatedFrom}` : 'Sidechain / subagent'}
                       >
                         ↳ sub
+                      </span>
+                    )}
+                    {session.reasoningCount > 0 && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded ml-auto"
+                        style={{
+                          background: 'var(--color-thinking)22',
+                          color: 'var(--color-thinking)',
+                          border: '1px solid var(--color-thinking)55',
+                        }}
+                        title={`${session.reasoningCount} reasoning ${session.reasoningCount === 1 ? 'block' : 'blocks'} in window`}
+                      >
+                        ◎ {session.reasoningCount}
                       </span>
                     )}
                   </div>
