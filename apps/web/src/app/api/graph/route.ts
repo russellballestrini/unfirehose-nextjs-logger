@@ -82,12 +82,13 @@ function buildSessionGraph(db: ReturnType<typeof getDb>, project?: string, layou
   const maxTokens = Math.max(...sessions.map((s: any) => s.total_tokens || 1));
 
   const modelColors: Record<string, string> = {
-    'claude-opus-4-6': '#e879f9',
-    'claude-opus-4-5-20251101': '#a78bfa',
-    'claude-sonnet-4-6': '#60a5fa',
+    'claude-opus-4-7':            '#f0abfc',
+    'claude-opus-4-6':            '#e879f9',
+    'claude-opus-4-5-20251101':   '#a78bfa',
+    'claude-sonnet-4-6':          '#60a5fa',
     'claude-sonnet-4-5-20250514': '#38bdf8',
-    'claude-haiku-4-5-20251001': '#34d399',
-    'hermes-3-8b': '#fb923c',
+    'claude-haiku-4-5-20251001':  '#34d399',
+    'hermes-3-8b':                '#fb923c',
   };
 
   const lines: string[] = [

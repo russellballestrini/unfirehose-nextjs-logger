@@ -64,7 +64,8 @@ export async function GET(
     const projectBreakdown = getUsageByProjectInWindow(minuteStart, minuteEnd);
     const modelBreakdown = getModelBreakdownInWindow(windowStart, windowEnd);
     const activeSessions = getActiveSessionsInWindow(windowStart, windowEnd);
-    const thinkingBlocks = getThinkingBlocksInWindow(windowStart, windowEnd);
+    const reasoningBlocks = getThinkingBlocksInWindow(windowStart, windowEnd);
+    const sealedReasoningBlocks = reasoningBlocks.filter((b: { text_content: string | null }) => !b.text_content || b.text_content.length === 0).length;
     const timeline = getTimelineInWindow(minuteStart, minuteEnd);
     const userPrompts = getUserPromptsInWindow(windowStart, windowEnd);
 
@@ -112,7 +113,7 @@ export async function GET(
       ? totalCacheRead / (totalInput + totalCacheRead) * 100
       : 0;
     const outputShare = totalTokens > 0 ? (totalOutput / totalTokens) * 100 : 0;
-    const thinkingChars = thinkingBlocks.reduce((s, b) => s + b.char_count, 0);
+    const reasoningChars = reasoningBlocks.reduce((s, b) => s + b.char_count, 0);
 
     return NextResponse.json({
       alert,
@@ -124,7 +125,7 @@ export async function GET(
       projectBreakdown: enrichedProjects,
       modelBreakdown: enrichedModels,
       activeSessions,
-      thinkingBlocks,
+      reasoningBlocks,
       timeline,
       userPrompts,
       totals: {
@@ -142,8 +143,12 @@ export async function GET(
         input_output_ratio: Math.round(inputOutputRatio * 100) / 100,
         cache_hit_rate: Math.round(cacheHitRate * 10) / 10,
         output_share_pct: Math.round(outputShare * 10) / 10,
-        thinking_blocks: thinkingBlocks.length,
-        thinking_chars: thinkingChars,
+        reasoning_blocks: reasoningBlocks.length,
+        sealed_reasoning_blocks: sealedReasoningBlocks,
+        reasoning_chars: reasoningChars,
+        // Legacy aliases — drop after one release cycle.
+        thinking_blocks: reasoningBlocks.length,
+        thinking_chars: reasoningChars,
         active_sessions: activeSessions.length,
         unique_models: enrichedModels.length,
         user_prompts: userPrompts.length,

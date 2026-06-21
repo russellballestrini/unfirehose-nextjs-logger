@@ -199,8 +199,10 @@ export default function AlertDetailPage() {
 
   const {
     alert, window: win, projectBreakdown, modelBreakdown,
-    activeSessions, thinkingBlocks, timeline, userPrompts, totals, stats,
+    activeSessions, reasoningBlocks, timeline, userPrompts, totals, stats,
   } = data;
+  const sealedReasoning = stats?.sealed_reasoning_blocks ?? 0;
+  const readableReasoning = (reasoningBlocks?.length ?? 0) - sealedReasoning;
 
   const ratio = stats ? (alert.actual_value / alert.threshold_value).toFixed(2) : '?';
 
@@ -257,8 +259,14 @@ export default function AlertDetailPage() {
     narrativeParts.push(`Cache hit rate was a modest ${stats.cache_hit_rate}%`);
   }
 
-  if (thinkingBlocks.length > 0) {
-    narrativeParts.push(`The model produced ${thinkingBlocks.length} thinking stream${thinkingBlocks.length > 1 ? 's' : ''} totalling ${stats.thinking_chars.toLocaleString()} characters of internal reasoning`);
+  if (reasoningBlocks && reasoningBlocks.length > 0) {
+    if (readableReasoning > 0 && sealedReasoning > 0) {
+      narrativeParts.push(`The model produced ${reasoningBlocks.length} reasoning blocks — ${readableReasoning} readable (${(stats.reasoning_chars ?? 0).toLocaleString()} chars) and ${sealedReasoning} sealed by Anthropic`);
+    } else if (sealedReasoning > 0) {
+      narrativeParts.push(`The model produced ${reasoningBlocks.length} reasoning blocks, all sealed by Anthropic (claude-opus-4-7 ships signed proofs without readable text)`);
+    } else {
+      narrativeParts.push(`The model produced ${reasoningBlocks.length} reasoning stream${reasoningBlocks.length > 1 ? 's' : ''} totalling ${(stats.reasoning_chars ?? 0).toLocaleString()} characters of internal reasoning`);
+    }
   }
 
   const narrative = narrativeParts.join('. ') + '.';
@@ -276,7 +284,8 @@ export default function AlertDetailPage() {
           total_cost: totals.total_cost_usd,
           cost_per_minute: stats.cost_per_minute,
           projects_involved: projectBreakdown.length,
-          thinking_blocks: stats.thinking_blocks,
+          reasoning_blocks: stats.reasoning_blocks ?? stats.thinking_blocks,
+          sealed_reasoning_blocks: sealedReasoning,
         }}
       />
 
@@ -597,14 +606,16 @@ export default function AlertDetailPage() {
         </div>
       )}
 
-      {/* ===== G. THINKING STREAMS ===== */}
-      {thinkingBlocks.length > 0 && (
+      {/* ===== G. REASONING STREAMS ===== */}
+      {reasoningBlocks && reasoningBlocks.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-base text-[var(--color-muted)] uppercase tracking-[0.15em] font-bold">
-              G &mdash; Thinking Streams
+              G &mdash; Reasoning Streams
               <span className="normal-case tracking-normal font-normal ml-2">
-                {thinkingBlocks.length} blocks, {stats.thinking_chars.toLocaleString()} chars
+                {reasoningBlocks.length} blocks
+                {readableReasoning > 0 && `, ${(stats.reasoning_chars ?? 0).toLocaleString()} readable chars`}
+                {sealedReasoning > 0 && `, ${sealedReasoning} sealed by Anthropic`}
               </span>
             </div>
             <button
@@ -615,10 +626,10 @@ export default function AlertDetailPage() {
             </button>
           </div>
           <div className="text-base text-[var(--color-muted)] italic">
-            Latest first. Full reasoning chains &mdash; nothing truncated.
+            Latest first. Sealed blocks (claude-opus-4-7) are signed proofs without readable text.
           </div>
           <div className="space-y-2">
-            {thinkingBlocks.map((b: any, i: number) => (
+            {reasoningBlocks.map((b: any, i: number) => (
               <ThinkingBlock key={i} block={b} forceExpand={expandAll} />
             ))}
           </div>

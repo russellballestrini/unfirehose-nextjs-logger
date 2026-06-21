@@ -41,11 +41,16 @@ function getHarnessColor(harness: string): string {
 }
 
 const MODEL_COLORS: Record<string, string> = {
-  'claude-opus-4-6': '#a78bfa',
-  'claude-opus-4-5-20251101': '#818cf8',
+  // Opus tier — purple shades
+  'claude-opus-4-7':            '#c084fc',
+  'claude-opus-4-6':            '#a78bfa',
+  'claude-opus-4-5-20251101':   '#818cf8',
+  // Sonnet tier — green shades
+  'claude-sonnet-4-6':          '#10b981',
   'claude-sonnet-4-5-20250929': '#34d399',
-  'claude-sonnet-4-6': '#10b981',
-  'claude-haiku-4-5-20251001': '#fbbf24',
+  'claude-sonnet-4-20250514':   '#22c55e',
+  // Haiku tier — amber shades
+  'claude-haiku-4-5-20251001':  '#fbbf24',
 };
 
 const TOKEN_TYPE_COLORS = {
