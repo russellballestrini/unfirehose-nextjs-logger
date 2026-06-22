@@ -1,0 +1,43 @@
+name: ci
+'on': create
+jobs:
+  test:
+    runs-on:
+    - self-hosted
+    - build
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: script
+      run: |-
+        export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+        npm ci
+        npm run lint
+        npm test
+  publish:
+    runs-on:
+    - self-hosted
+    - build
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: script
+      run: |
+        export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+        echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+        npm ci
+        export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+        echo "Publishing version $VERSION"
+        for pkg in packages/core packages/schema packages/router packages/ui; do
+          cd "${{ github.workspace }}/$pkg"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+        done
+
+        cd "${{ github.workspace }}/packages/router" && npm run build
+        for pkg in packages/core packages/schema packages/router packages/ui; do
+          cd "${{ github.workspace }}/$pkg"
+          echo "Publishing $(node -p 'require("./package.json").name')@$VERSION"
+          npm publish --access public || echo "Already published or failed: $pkg"
+        done
+    needs:
+    - test
