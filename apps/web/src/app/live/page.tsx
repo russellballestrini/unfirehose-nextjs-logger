@@ -14,6 +14,7 @@ interface LiveEntry {
   projectName: string;
   sessionId: string;
   entry: any;
+  harness?: string;
 }
 
 interface LiveSession {
@@ -21,6 +22,15 @@ interface LiveSession {
   projectName: string;
   sessionId: string;
   originalPath?: string;
+  harness?: string;
+}
+
+// Deterministic muted color per harness — same hash style as session colors so
+// claude-code, uncloseai, agnt, fetch, etc. each get a stable distinct tone.
+function harnessColor(harness: string): string {
+  let h = 0;
+  for (let i = 0; i < harness.length; i++) h = (h * 31 + harness.charCodeAt(i)) | 0;
+  return SESSION_COLORS[Math.abs(h) % SESSION_COLORS.length];
 }
 
 const SESSION_COLORS = [
@@ -443,7 +453,9 @@ export default function LivePage() {
             </span>
             {Array.from(
               sessions.reduce((map, s) => {
-                const key = s.projectName;
+                // Key on (harness, projectName) so the same slug under different
+                // harnesses (e.g. claude-code vs uncloseai) doesn't collide.
+                const key = `${s.harness ?? ''}\x00${s.projectName}`;
                 if (!map.has(key)) {
                   map.set(key, { first: s, count: 0, hasActive: false });
                 }
@@ -454,21 +466,29 @@ export default function LivePage() {
               }, new Map<string, { first: LiveSession; count: number; hasActive: boolean }>())
             )
               .sort(([, a], [, b]) => (b.hasActive ? 1 : 0) - (a.hasActive ? 1 : 0))
-              .map(([name, { first, count, hasActive }]) => {
+              .map(([key, { first, count, hasActive }]) => {
                 const color = getColorForSession(first.sessionId);
                 return (
                   <Link
-                    key={name}
+                    key={key}
                     href={`/projects/${encodeURIComponent(first.project)}`}
-                    className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-block hover:opacity-80 transition-opacity"
+                    className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 hover:opacity-80 transition-opacity"
                     style={{
                       borderColor: hasActive ? color : 'var(--color-border)',
                       color: hasActive ? color : 'var(--color-muted)',
                     }}
                   >
-                    {name}
+                    {first.harness && (
+                      <span
+                        className="text-xs opacity-70"
+                        style={{ color: harnessColor(first.harness) }}
+                      >
+                        {first.harness}
+                      </span>
+                    )}
+                    <span>{first.projectName}</span>
                     {count > 1 && (
-                      <span className="opacity-50 ml-1">×{count}</span>
+                      <span className="opacity-50">×{count}</span>
                     )}
                   </Link>
                 );
@@ -551,12 +571,24 @@ export default function LivePage() {
             >
               {/* Header row — always visible */}
               <div className="flex gap-2 py-1.5 px-3 select-none">
-                {/* Session dot + project */}
+                {/* Session dot + harness badge + project */}
                 <div className="shrink-0 flex items-center gap-1.5">
                   <span
                     className="inline-block w-2 h-2 rounded-full shrink-0"
                     style={{ background: color }}
                   />
+                  {item.harness && (
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
+                      style={{
+                        color: harnessColor(item.harness),
+                        borderColor: 'color-mix(in srgb, currentColor 40%, transparent)',
+                      }}
+                      title={`harness: ${item.harness}`}
+                    >
+                      {item.harness}
+                    </span>
+                  )}
                   <span className="whitespace-nowrap text-sm" style={{ color }}>
                     {item.projectName}
                   </span>

@@ -172,6 +172,9 @@ async function readNewLines(
     return { lines: [], newSize: fromByte };
   }
 
+  // Hard 3s ceiling — actively-written JSONL files (esp. while the producer
+  // is mid-flush) can leave the read stream without ever emitting 'close',
+  // which would block scanAndEmit forever and starve the SSE heartbeat.
   return new Promise((resolve) => {
     const lines: string[] = [];
     const stream = createReadStream(filePath, {
@@ -180,14 +183,27 @@ async function readNewLines(
     });
     const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
+    let done = false;
+    const finish = (newSize: number) => {
+      if (done) return;
+      done = true;
+      try { rl.close(); } catch { /* ignore */ }
+      try { stream.destroy(); } catch { /* ignore */ }
+      resolve({ lines, newSize });
+    };
+
+    const timer = setTimeout(() => finish(fromByte), 3000);
+
     rl.on('line', (line) => {
       if (line.trim()) lines.push(line);
     });
     rl.on('close', () => {
-      resolve({ lines, newSize: fstat.size });
+      clearTimeout(timer);
+      finish(fstat.size);
     });
     rl.on('error', () => {
-      resolve({ lines, newSize: fromByte });
+      clearTimeout(timer);
+      finish(fromByte);
     });
   });
 }
@@ -214,21 +230,25 @@ export async function GET() {
         }
       }
 
+      // Native-harness project keys look like "<harness>:<slug>"; strip the
+      // prefix before decoding so the rendered name is just the project, not
+      // a duplicate of the harness badge the UI draws separately.
+      function displayName(project: string): string {
+        const i = project.indexOf(':');
+        const slug = i >= 0 ? project.slice(i + 1) : project;
+        return decodeProjectName(slug);
+      }
+
       async function scanAndEmit() {
         if (closed) return;
 
         const hotFiles = await findHotSessions();
 
-        // Send session list update. Native-harness rows (project key
-        // includes "<harness>:") get a friendlier display name via
-        // strip-then-decode so the UI label matches the dashboard.
         send({
           type: 'sessions',
           sessions: hotFiles.map((f) => ({
             project: f.project,
-            projectName: f.harness && f.harness !== 'claude-code'
-              ? `[${f.harness}] ${decodeProjectName(f.project.split(':').slice(1).join(':'))}`
-              : decodeProjectName(f.project),
+            projectName: displayName(f.project),
             sessionId: f.sessionId,
             originalPath: f.originalPath,
             harness: f.harness,
@@ -250,9 +270,7 @@ export async function GET() {
                   send({
                     type: 'entry',
                     project: file.project,
-                    projectName: file.harness && file.harness !== 'claude-code'
-                      ? `[${file.harness}] ${decodeProjectName(file.project.split(':').slice(1).join(':'))}`
-                      : decodeProjectName(file.project),
+                    projectName: displayName(file.project),
                     sessionId: file.sessionId,
                     entry: parsed,
                     harness: file.harness,
@@ -273,9 +291,7 @@ export async function GET() {
                   send({
                     type: 'entry',
                     project: file.project,
-                    projectName: file.harness && file.harness !== 'claude-code'
-                      ? `[${file.harness}] ${decodeProjectName(file.project.split(':').slice(1).join(':'))}`
-                      : decodeProjectName(file.project),
+                    projectName: displayName(file.project),
                     sessionId: file.sessionId,
                     entry: parsed,
                     harness: file.harness,
@@ -305,8 +321,19 @@ export async function GET() {
 
       let fsDebounce: ReturnType<typeof setTimeout>;
 
-      // Initial scan
-      await scanAndEmit();
+      // Flush headers + an initial heartbeat right away so the browser opens
+      // the EventSource immediately. Without this the first paint waits for
+      // scanAndEmit() to complete — and any blocking read in that scan would
+      // leave the SSE silent (no headers, no events, no heartbeat).
+      try {
+        controller.enqueue(encoder.encode(': hello\n\n'));
+      } catch {
+        closed = true;
+      }
+
+      // Kick the scan off without awaiting — start() returns immediately,
+      // intervals start ticking, heartbeat keeps the connection visibly alive.
+      void scanAndEmit();
 
       // Poll every 2 seconds as fallback (fs.watch isn't always reliable)
       const pollInterval = setInterval(() => {
