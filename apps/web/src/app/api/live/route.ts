@@ -66,74 +66,95 @@ async function findHotSessions(): Promise<TrackedFile[]> {
   // Claude Code session dirs.
   const projectDirs = await readdir(claudePaths.projects).catch(() => []);
 
-  for (const dir of projectDirs) {
-    const projDir = claudePaths.projectDir(dir);
-    const dirStat = await stat(projDir).catch(() => null);
-    if (!dirStat?.isDirectory()) continue;
-
-    // Read sessions-index for originalPath metadata
-    let originalPath: string | undefined;
+  // Scan one project dir (claude or native-harness slug) and collect any
+  // .jsonl files modified within cutoff. Returns an array of TrackedFile.
+  async function scanProjectDir(opts: {
+    projDir: string;
+    project: string;
+    format: 'claude' | 'unfirehose';
+    harness: string;
+    originalPath?: string;
+  }): Promise<TrackedFile[]> {
+    const out: TrackedFile[] = [];
+    let files: string[];
     try {
-      const indexRaw = await readFile(claudePaths.sessionsIndex(dir), 'utf-8');
-      const index: SessionsIndex = JSON.parse(indexRaw);
-      originalPath = index.originalPath;
-    } catch { /* no index */ }
-
-    // Scan all JSONL files by mtime (index doesn't always track all sessions)
-    try {
-      const files = await readdir(projDir);
-      for (const f of files) {
-        if (!f.endsWith('.jsonl')) continue;
-        const filePath = path.join(projDir, f);
-        const fstat = await stat(filePath).catch(() => null);
-        if (fstat && fstat.mtimeMs >= cutoff) {
-          hot.push({
-            path: filePath,
-            project: dir,
-            sessionId: f.replace('.jsonl', ''),
-            size: fstat.size,
-            originalPath,
-            format: 'claude',
-            harness: 'claude-code',
-          });
-        }
+      files = await readdir(opts.projDir);
+    } catch {
+      return out;
+    }
+    const stats = await Promise.all(
+      files
+        .filter((f) => f.endsWith('.jsonl'))
+        .map(async (f) => {
+          const filePath = path.join(opts.projDir, f);
+          const fstat = await stat(filePath).catch(() => null);
+          return { f, filePath, fstat };
+        })
+    );
+    for (const { f, filePath, fstat } of stats) {
+      if (fstat && fstat.mtimeMs >= cutoff) {
+        out.push({
+          path: filePath,
+          project: opts.project,
+          sessionId: f.replace('.jsonl', ''),
+          size: fstat.size,
+          originalPath: opts.originalPath,
+          format: opts.format,
+          harness: opts.harness,
+        });
       }
-    } catch { /* skip */ }
+    }
+    return out;
   }
+
+  // Claude project dirs — fan out the per-dir scan in parallel.
+  const claudeResults = await Promise.all(
+    projectDirs.map(async (dir) => {
+      const projDir = claudePaths.projectDir(dir);
+      const dirStat = await stat(projDir).catch(() => null);
+      if (!dirStat?.isDirectory()) return [];
+
+      let originalPath: string | undefined;
+      try {
+        const indexRaw = await readFile(claudePaths.sessionsIndex(dir), 'utf-8');
+        const index: SessionsIndex = JSON.parse(indexRaw);
+        originalPath = index.originalPath;
+      } catch { /* no index */ }
+
+      return scanProjectDir({
+        projDir,
+        project: dir,
+        format: 'claude',
+        harness: 'claude-code',
+        originalPath,
+      });
+    })
+  );
+  for (const arr of claudeResults) hot.push(...arr);
 
   // Native harness session dirs (~/.<name>/unfirehose/<slug>/<uuid>.jsonl).
-  // Same hot-session window (last 10 min mtime); entries from these
-  // live alongside Claude Code rows in the live stream so the UI
-  // shows an interleaved real-time feed.
-  for (const harness of discoverNativeHarnessRoots()) {
-    const slugs = await readdir(harness.root).catch(() => []);
-    for (const slug of slugs) {
-      const slugDir = path.join(harness.root, slug);
-      const dirStat = await stat(slugDir).catch(() => null);
-      if (!dirStat?.isDirectory()) continue;
-      try {
-        const files = await readdir(slugDir);
-        for (const f of files) {
-          if (!f.endsWith('.jsonl')) continue;
-          const filePath = path.join(slugDir, f);
-          const fstat = await stat(filePath).catch(() => null);
-          if (fstat && fstat.mtimeMs >= cutoff) {
-            hot.push({
-              path: filePath,
-              // Project key namespaces by harness so the UI doesn't
-              // collide a Claude project with a native-harness project
-              // sharing the same slug.
-              project: `${harness.name}:${slug}`,
-              sessionId: f.replace('.jsonl', ''),
-              size: fstat.size,
-              format: 'unfirehose',
-              harness: harness.name,
-            });
-          }
-        }
-      } catch { /* skip */ }
-    }
-  }
+  // Parallel per-harness, parallel per-slug — slowest single dir caps total time.
+  const roots = discoverNativeHarnessRoots();
+  const nativeResults = await Promise.all(
+    roots.map(async (harness) => {
+      const slugs = await readdir(harness.root).catch(() => []);
+      const slugResults = await Promise.all(
+        slugs.map(async (slug) => {
+          const slugDir = path.join(harness.root, slug);
+          const dirStat = await stat(slugDir).catch(() => null);
+          if (!dirStat?.isDirectory()) return [];
+          return scanProjectDir({
+            projDir: slugDir,
+            project: `${harness.name}:${slug}`,
+            format: 'unfirehose',
+            harness: harness.name,
+          });
+        })
+      );
+      return slugResults.flat();
+    })
+  );
+  for (const arr of nativeResults) hot.push(...arr);
 
   return hot;
 }
@@ -239,10 +260,22 @@ export async function GET() {
         return decodeProjectName(slug);
       }
 
+      // Concurrency guard. Poll interval fires every 2s but a full scan can
+      // take longer under load — without this, scans pile up, libuv saturates,
+      // and the SSE goes silent.
+      let scanning = false;
       async function scanAndEmit() {
-        if (closed) return;
+        if (closed || scanning) return;
+        scanning = true;
+        try {
+          const hotFiles = await findHotSessions();
+          await runScan(hotFiles);
+        } finally {
+          scanning = false;
+        }
+      }
 
-        const hotFiles = await findHotSessions();
+      async function runScan(hotFiles: TrackedFile[]) {
 
         send({
           type: 'sessions',
