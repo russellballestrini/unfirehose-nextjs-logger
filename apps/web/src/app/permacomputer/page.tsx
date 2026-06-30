@@ -144,6 +144,17 @@ function nodeEconKey(hostname: string): string {
   return `mesh_node_econ_${hostname.replace(/[^a-zA-Z0-9]/g, '_')}`;
 }
 
+const EXCLUDED_HOSTS_KEY = 'mesh_excluded_hosts';
+
+function parseExcludedHosts(settings: any): Set<string> {
+  const raw = settings?.[EXCLUDED_HOSTS_KEY];
+  if (!raw) return new Set();
+  try {
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch { return new Set(); }
+}
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -436,12 +447,17 @@ export default function PermacomputerPage() {
     }
   }, [geoipData, settings, saveNodeEcon]);
 
-  // Build combined node list: mesh nodes enriched with SSH config
+  // Build combined node list: mesh nodes + SSH hosts the user has econ-configured.
+  // SSH-only hosts with no econ (e.g. git servers parsed from ~/.ssh/config) are
+  // skipped — they shouldn't get billed a default $110/mo just for existing.
+  // Hosts in mesh_excluded_hosts are filtered out at every layer.
   const allNodes = useMemo(() => {
     const nodes: { meshNode: any; sshHost?: SshHost; key: string }[] = [];
     const seen = new Set<string>();
+    const excluded = parseExcludedHosts(settings);
 
     for (const mn of meshNodes) {
+      if (excluded.has(mn.hostname)) continue;
       const host = hosts.find(h =>
         h.name === mn.hostname || h.hostname === mn.hostname ||
         h.name?.startsWith(mn.hostname + '.') || h.hostname?.startsWith(mn.hostname + '.')
@@ -452,15 +468,24 @@ export default function PermacomputerPage() {
       nodes.push({ meshNode: mn, sshHost: host, key });
     }
 
-    // SSH hosts not in mesh
+    // SSH hosts not in mesh — only include if user has explicitly configured econ.
     for (const h of hosts) {
-      if (!seen.has(h.name) && !seen.has(h.hostname ?? '')) {
-        nodes.push({ meshNode: null, sshHost: h, key: h.name });
-      }
+      if (excluded.has(h.name)) continue;
+      if (seen.has(h.name) || seen.has(h.hostname ?? '')) continue;
+      if (!getNodeEcon(h.name).location) continue;
+      nodes.push({ meshNode: null, sshHost: h, key: h.name });
     }
 
     return nodes;
-  }, [meshNodes, hosts]);
+  }, [meshNodes, hosts, settings, getNodeEcon]);
+
+  const hideNode = useCallback(async (hostname: string) => {
+    const excluded = parseExcludedHosts(settings);
+    excluded.add(hostname);
+    const value = JSON.stringify([...excluded]);
+    mutateSettings((prev: any) => ({ ...prev, [EXCLUDED_HOSTS_KEY]: value }), { revalidate: false });
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: EXCLUDED_HOSTS_KEY, value }) });
+  }, [settings, mutateSettings]);
 
   const geoipNodes: any[] = useMemo(() => geoipData?.nodes ?? [], [geoipData]);
   const firstMeshHostname = meshNodes[0]?.hostname;
@@ -493,7 +518,7 @@ export default function PermacomputerPage() {
 
       {/* Node Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} mutate={() => { mutateSsh(); mutateMesh(); }} />
+        <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} mutate={() => { mutateSsh(); mutateMesh(); }} seedEcon={saveNodeEcon} settings={settings} />
         {allNodes.map(({ meshNode, sshHost, key }) => (
           <NodeCard
             key={key}
@@ -502,6 +527,7 @@ export default function PermacomputerPage() {
             econ={getNodeEcon(key)}
             geoip={getNodeGeoIP(key)}
             egressGroups={egressGroups}
+            onHide={() => hideNode(key)}
           />
         ))}
         {unsandboxStatus?.connected && (
@@ -574,8 +600,9 @@ function MiniStat({ label, value, accent }: { label: string; value: string | num
 // Node Card (compact, clickable)
 // ============================================================
 
-function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
+function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
   node: any; sshHost?: SshHost; econ: NodeEcon; geoip?: any; egressGroups?: Map<string, string[]>;
+  onHide?: () => void;
 }) {
   const reachable = node?.reachable;
   const name = sshHost?.name ?? node?.hostname ?? '?';
@@ -593,7 +620,7 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
   return (
     <Link
       href={`/permacomputer/${encodeURIComponent(probeHost)}`}
-      className={`text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block`}
+      className={`group text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block relative`}
     >
       {/* Header row */}
       <div className="flex items-center gap-2 mb-3">
@@ -608,6 +635,20 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups }: {
           <span className="ml-auto text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
             {claudes} claude{claudes !== 1 ? 's' : ''}
           </span>
+        )}
+        {onHide && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (confirm(`Hide ${name} from permacomputer? Re-include by removing it from the mesh_excluded_hosts setting.`)) onHide();
+            }}
+            title="Hide from permacomputer"
+            className={`${claudes > 0 ? '' : 'ml-auto'} opacity-0 group-hover:opacity-100 text-xs text-[var(--color-muted)] hover:text-red-400 px-1 leading-none transition-opacity`}
+          >
+            ✕
+          </button>
         )}
       </div>
 
@@ -805,7 +846,7 @@ function MiniGauge({ label, value, pct }: { label: string; value: string; pct: n
 // ============================================================
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function AddNodeButton({ hosts: _hosts, keys, mutate }: { hosts: SshHost[]; keys: string[]; mutate: () => void }) {
+function AddNodeButton({ hosts: _hosts, keys, mutate, seedEcon, settings }: { hosts: SshHost[]; keys: string[]; mutate: () => void; seedEcon?: (hostname: string, econ: NodeEcon) => Promise<void>; settings?: any }) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<SshHost>({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' });
   const [saving, setSaving] = useState(false);
@@ -815,7 +856,17 @@ function AddNodeButton({ hosts: _hosts, keys, mutate }: { hosts: SshHost[]; keys
     setSaving(true);
     try {
       const res = await fetch('/api/ssh-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-      if (res.ok) { mutate(); setAdding(false); setForm({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' }); }
+      if (res.ok) {
+        // Seed a placeholder econ so the new node shows up immediately under the
+        // "configured-only" filter. User refines from the node detail page.
+        if (seedEcon) {
+          const econ: NodeEcon = { ...getDefaultEcon(settings), location: form.name };
+          await seedEcon(form.name, econ);
+        }
+        mutate();
+        setAdding(false);
+        setForm({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' });
+      }
     } finally { setSaving(false); }
   };
 
