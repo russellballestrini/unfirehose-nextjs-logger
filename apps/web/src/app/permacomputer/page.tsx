@@ -1651,13 +1651,14 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
   const score = useMemo(() => computeMeshScore(econNodes, geoipNodes, firstMeshHostname), [econNodes, geoipNodes, firstMeshHostname]);
   const configuredCount = econNodes.filter(n => n.econ.location).length;
 
-  // Aggregate by provider
+  // Aggregate by provider — ISP subscription cost only (stable/configured).
+  // Electricity is per-node and lives in the fleet metrics chart, not here.
   const byProvider = useMemo(() => {
     const map = new Map<string, { count: number; cost: number }>();
     for (const n of econNodes) {
       const p = n.econ.provider;
       const cur = map.get(p) ?? { count: 0, cost: 0 };
-      const nodeCost = getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, score.egressGroups) + nodeElecMonthly(n.econ, n.meshNode);
+      const nodeCost = getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, score.egressGroups);
       map.set(p, { count: cur.count + 1, cost: cur.cost + nodeCost });
     }
     return [...map.entries()].sort((a, b) => b[1].cost - a[1].cost);
