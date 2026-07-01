@@ -25,6 +25,20 @@ function authHeaders(publicKey: string, secretKey: string, method: string, path:
   };
 }
 
+// Turn opaque server errors into a hint the user can act on. Both HTTP 401
+// and `:invalid_signature` mean "server rejected the HMAC" — almost always
+// a stale/rotated secret rather than a code defect.
+function humanizeAuthError(raw: string): string {
+  const s = raw.toLowerCase();
+  if (s.includes('invalid_signature') || s.includes('http 401')) {
+    return `${raw} — likely stale secret key. Rotate or re-paste in Settings.`;
+  }
+  if (s.includes('invalid_timestamp') || s.includes('timestamp')) {
+    return `${raw} — server clock skew. Check system time.`;
+  }
+  return raw;
+}
+
 // Helper: authenticated GET to unsandbox API
 async function apiGet(publicKey: string, secretKey: string, apiPath: string, timeout = 10000) {
   const headers = authHeaders(publicKey, secretKey, 'GET', apiPath);
@@ -101,7 +115,7 @@ export async function GET(request: NextRequest) {
       burst: data.burst,
     });
   } catch (err) {
-    return NextResponse.json({ connected: false, error: String(err) });
+    return NextResponse.json({ connected: false, error: humanizeAuthError(String(err)) });
   }
 }
 
@@ -124,12 +138,12 @@ export async function POST(request: NextRequest) {
       const headers = authHeaders(publicKey, secretKey, 'GET', path);
       const res = await fetch(`${API_BASE}${path}`, { headers, signal: AbortSignal.timeout(10000) });
       if (!res.ok) {
-        return NextResponse.json({ ok: false, error: `HTTP ${res.status}` });
+        return NextResponse.json({ ok: false, error: humanizeAuthError(`HTTP ${res.status}`) });
       }
       const data = await res.json();
       return NextResponse.json({ ok: true, tier: data.tier });
     } catch (err) {
-      return NextResponse.json({ ok: false, error: String(err) });
+      return NextResponse.json({ ok: false, error: humanizeAuthError(String(err)) });
     }
   }
 
