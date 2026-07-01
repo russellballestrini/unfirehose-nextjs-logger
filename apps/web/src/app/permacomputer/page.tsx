@@ -223,6 +223,143 @@ function nodeElecMonthly(econ: NodeEcon, meshNode?: any): number {
   return kwhMonth * econ.electricityCostKwh;
 }
 
+// ============================================================
+// Permacomputer Node Score (PNS)
+// Formalization of the timehexon.com/permacomputer scoring doctrine.
+// Full write-up: docs/architecture/node-score.md
+// ============================================================
+
+const CURRENT_YEAR = new Date().getUTCFullYear();
+// Hexagonal harmonics — every cap & tier lands on a multiple of 7.
+const CAP_WISDOM = 42;      // 7×6
+const CAP_STORAGE = 42;     // 7×6
+const CAP_EFFICIENCY = 42;  // 7×6 — soft asymptote; raw exposed on the card
+const CAP_DISTANCE = 42;    // 7×6
+const CAP_DIVERSITY = 21;   // 7×3
+const CAP_UPTIME = 21;      // 7×3
+const SAME_LOCATION_KM_PAYOUT = 49; // 7²
+
+// Memory tier — doctrine says 128G and 256G are qualitative jumps (local ML inference,
+// fleet-wide services). Tiers on the 7-lattice: 7 → 14 → 21 → 49 (boost) → 77 (huge boost).
+function memoryScore(memTotalGB: number): number {
+  if (memTotalGB >= 256) return 77; // 7×11
+  if (memTotalGB >= 128) return 49; // 7×7
+  if (memTotalGB >= 64) return 21;  // 7×3
+  if (memTotalGB >= 32) return 14;  // 7×2
+  return 7;                          // 7×1
+}
+
+// Wisdom — older silicon scores higher. Log curve so a 15-year Sandy Bridge doesn't
+// infinitely out-score a 10-year Ivy Bridge. Cap 42. Unknown CPU → 0 (extend table).
+function wisdomScore(cpuYear?: number): number {
+  if (!cpuYear || cpuYear <= 0) return 0;
+  const ageYears = Math.max(0, CURRENT_YEAR - cpuYear);
+  return Math.min(CAP_WISDOM, Math.round(Math.log2(1 + ageYears) * 10));
+}
+
+// Storage — Pass 1 uses disk counts as a rough proxy (spinning + SSD). Log scale
+// so 100TB isn't 10x more useful than 10TB. Byte-accurate lsblk lands in Pass 3.
+// Cap 42.
+function storageScore(spinningDisks: number, ssdCount: number): number {
+  const disks = (spinningDisks ?? 0) + (ssdCount ?? 0);
+  if (disks === 0) return 0;
+  return Math.min(CAP_STORAGE, Math.round(Math.log10(disks + 1) * 28));
+}
+
+// Efficiency — hard cap 42 (fox's call). Raw exposed alongside for observability.
+// Removing the cap later = one-line change. `200 / (w/c + 2)` gives ~40 at 3W/core,
+// ~28 at 5W/core, ~16 at 10W/core, ~9 at 20W/core.
+function efficiencyScore(watts: number, cores: number): { capped: number; raw: number } {
+  const wattsPerCore = watts > 0 && cores > 0 ? watts / cores : 20;
+  const raw = Math.round(200 / (wattsPerCore + 2));
+  return { capped: Math.min(CAP_EFFICIENCY, raw), raw };
+}
+
+// Uptime — sqrt curve so 1yr (18pts) isn't infinitely better than 6mo (13pts).
+// Cap 21 because past ~49 days a machine has proven itself; more days don't prove more.
+function uptimeScore(uptimeSeconds?: number): number {
+  if (!uptimeSeconds || uptimeSeconds <= 0) return 0;
+  const days = uptimeSeconds / 86400;
+  return Math.min(CAP_UPTIME, Math.round(Math.sqrt(days) * 3));
+}
+
+// Diversity — per-node version of the doctrine's "separate ISPs = gold" rule.
+// +21 for each unique egress IP at same-location cluster; -7 for each shared pipe.
+function diversityScore(hostname: string, allConfigured: { hostname: string; econ: NodeEcon }[],
+    thisEcon: NodeEcon, egressGroups: Map<string, string[]>, geoipNodes: any[]): number {
+  let score = 0;
+  const thisIp = [...egressGroups.entries()].find(([, hs]) => hs.includes(hostname))?.[0];
+  if (!thisIp) return 0;
+  for (const other of allConfigured) {
+    if (other.hostname === hostname) continue;
+    const dist = haversineKm(thisEcon.lat, thisEcon.lon, other.econ.lat, other.econ.lon);
+    if (dist > SAME_LOCATION_KM_PAYOUT) continue;
+    const otherIp = [...egressGroups.entries()].find(([, hs]) => hs.includes(other.hostname))?.[0];
+    if (!otherIp) continue;
+    if (otherIp !== thisIp) score += 21; // 7×3
+    else score -= 7;                     // 7×1
+  }
+  // Silence geoipNodes-unused warning; kept in signature for future use.
+  void geoipNodes;
+  return Math.max(-CAP_DIVERSITY, Math.min(CAP_DIVERSITY, score));
+}
+
+// Distance — sum of (peer_km × min_link_mbps / 1000) averaged over peers. Cap 42.
+function distanceScore(hostname: string, econ: NodeEcon,
+    configured: { hostname: string; econ: NodeEcon }[]): number {
+  const peers = configured.filter(n => n.hostname !== hostname);
+  if (peers.length === 0) return 0;
+  let sum = 0;
+  for (const p of peers) {
+    const d = haversineKm(econ.lat, econ.lon, p.econ.lat, p.econ.lon);
+    const linkFactor = Math.min(econ.linkMbps, p.econ.linkMbps) / 1000;
+    sum += d * linkFactor;
+  }
+  return Math.min(CAP_DISTANCE, Math.round(sum / peers.length));
+}
+
+// Payout gate — doctrine: 2 nodes max paid per location; 3rd+ is a donation.
+// Same location = haversine < 50km AND same egress IP.
+function computePaidGates(configured: { hostname: string; econ: NodeEcon }[],
+    egressGroups: Map<string, string[]>): Map<string, { paid: boolean; donation: boolean }> {
+  const result = new Map<string, { paid: boolean; donation: boolean }>();
+  // Group by (rough_location, egressIp)
+  const buckets = new Map<string, string[]>();
+  for (const n of configured) {
+    const ip = [...egressGroups.entries()].find(([, hs]) => hs.includes(n.hostname))?.[0] ?? n.hostname;
+    // Bucket key: quantized lat/lon to 0.5deg (~55km) + egress IP
+    const key = `${Math.round(n.econ.lat * 2) / 2},${Math.round(n.econ.lon * 2) / 2}|${ip}`;
+    const b = buckets.get(key) ?? [];
+    b.push(n.hostname);
+    buckets.set(key, b);
+  }
+  for (const [, hosts] of buckets) {
+    hosts.forEach((h, i) => {
+      result.set(h, { paid: i < 2, donation: i >= 2 });
+    });
+  }
+  return result;
+}
+
+interface NodeScoreDetail {
+  hostname: string;
+  score: number;
+  paid: boolean;
+  donation: boolean;
+  components: {
+    wisdom: number;
+    storage: number;
+    memory: number;
+    efficiency: number;
+    efficiencyRaw: number;
+    distance: number;
+    diversity: number;
+    uptime: number;
+  };
+  distanceScore: number;   // legacy alias (breakdown line)
+  efficiencyScore: number; // legacy alias (breakdown line)
+}
+
 function computeMeshScore(
   nodes: { hostname: string; sshHostname?: string; econ: NodeEcon; meshNode?: any }[],
   geoipNodes?: any[],
@@ -241,7 +378,7 @@ function computeMeshScore(
   pipeDiversityBonus: number;
   sameLocationPenalty: number;
   egressGroups: Map<string, string[]>;
-  nodeScores: { hostname: string; score: number; distanceScore: number; efficiencyScore: number }[];
+  nodeScores: NodeScoreDetail[];
 } {
   const configured = nodes.filter(n => n.econ.lat !== 0 || n.econ.lon !== 0);
   const egressGroups = computeEgressGroups(nodes, geoipNodes ?? [], firstMeshHostname);
@@ -312,27 +449,38 @@ function computeMeshScore(
     }
   }
 
-  // Per-node scores
-  const nodeScores = configured.map(n => {
-    let distScore = 0;
-    for (const other of configured) {
-      if (other.hostname === n.hostname) continue;
-      const d = haversineKm(n.econ.lat, n.econ.lon, other.econ.lat, other.econ.lon);
-      const linkFactor = Math.min(n.econ.linkMbps, other.econ.linkMbps) / 100;
-      distScore += d * linkFactor;
-    }
-    distScore = configured.length > 1 ? distScore / (configured.length - 1) : 0;
-
+  // Per-node PNS — 7 components, each capped, decomposed for the UI.
+  const paidGates = computePaidGates(configured, egressGroups);
+  const nodeScores: NodeScoreDetail[] = configured.map(n => {
+    const wisdom = wisdomScore(n.meshNode?.cpuYear);
+    const storage = storageScore(n.meshNode?.spinningDisks ?? 0, n.meshNode?.ssdCount ?? 0);
+    const memory = memoryScore(n.meshNode?.memTotalGB ?? 0);
     const watts = nodeTotalWatts(n.meshNode);
     const cores = n.meshNode?.cpuCores ?? 1;
-    const wattsPerCore = watts > 0 ? watts / cores : 20;
-    const efficiencyScore = Math.round(100 / wattsPerCore);
+    const eff = efficiencyScore(watts, cores);
+    const distance = distanceScore(n.hostname, n.econ, configured);
+    const diversity = diversityScore(n.hostname, configured, n.econ, egressGroups, geoipNodes ?? []);
+    const uptime = uptimeScore(n.meshNode?.uptimeSeconds);
+    const gate = paidGates.get(n.hostname) ?? { paid: true, donation: false };
 
-    const score = Math.round(distScore * 0.5 + efficiencyScore * 0.3 + n.econ.linkMbps * 0.2);
-    return { hostname: n.hostname, score, distanceScore: Math.round(distScore), efficiencyScore };
+    const score = wisdom + storage + memory + eff.capped + distance + diversity + uptime;
+    return {
+      hostname: n.hostname,
+      score,
+      paid: gate.paid,
+      donation: gate.donation,
+      components: {
+        wisdom, storage, memory,
+        efficiency: eff.capped,
+        efficiencyRaw: eff.raw,
+        distance, diversity, uptime,
+      },
+      distanceScore: distance,
+      efficiencyScore: eff.capped,
+    };
   });
 
-  const totalScore = nodeScores.reduce((s, n) => s + n.score, 0) + geoDiversityBonus + ispDiversityBonus + pipeDiversityBonus - sameLocationPenalty;
+  const totalScore = nodeScores.reduce((s, n) => s + n.score, 0);
 
   return { totalScore, totalMonthlyCost, totalIspCost, totalElecCost, totalWatts, totalGpuWatts, blendedKwhRate, avgDistance, geoDiversityBonus, ispDiversityBonus, pipeDiversityBonus, sameLocationPenalty, egressGroups, nodeScores };
 }
@@ -616,6 +764,13 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
   const claudes = node?.claudeProcesses ?? 0;
   const swap = node?.swapUsedGB ?? 0;
   const probeHost = sshHost?.hostname ?? sshHost?.name ?? node?.hostname ?? name;
+  const gpuUtil = node?.gpuUtil;
+  const gpuMemTotalMB = node?.gpuMemTotalMB ?? 0;
+  const gpuMemUsedMB = node?.gpuMemUsedMB ?? 0;
+  const hasGpu = gpuMemTotalMB > 0 || (gpuUtil != null && gpuUtil > 0);
+  const gpuVramTotalGB = gpuMemTotalMB / 1024;
+  const gpuVramUsedGB = gpuMemUsedMB / 1024;
+  const gpuVramPct = gpuMemTotalMB > 0 ? Math.round((gpuMemUsedMB / gpuMemTotalMB) * 100) : 0;
 
   return (
     <Link
@@ -656,8 +811,14 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
         <>
           {/* Mini gauges */}
           <div className="space-y-2 mb-3">
-            <MiniGauge label="CPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
-            <MiniGauge label="MEM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
+            <MiniGauge label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
+            <MiniGauge label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
+            {hasGpu && (
+              <>
+                <MiniGauge label="GPU" value={`${gpuUtil ?? 0}%`} pct={gpuUtil ?? 0} />
+                <MiniGauge label="VRAM" value={`${gpuVramUsedGB.toFixed(1)}/${gpuVramTotalGB.toFixed(1)}G`} pct={gpuVramPct} />
+              </>
+            )}
           </div>
 
           {/* Stats row */}
@@ -766,8 +927,8 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
         <>
           {/* Mini gauges — same as SSH nodes */}
           <div className="space-y-2 mb-3">
-            <MiniGauge label="CPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
-            <MiniGauge label="MEM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
+            <MiniGauge label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
+            <MiniGauge label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
           </div>
 
           {/* Stats row */}
@@ -832,11 +993,11 @@ function MiniGauge({ label, value, pct }: { label: string; value: string; pct: n
   const color = pct > 85 ? '#ef4444' : pct > 60 ? '#eab308' : 'var(--color-accent)';
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-[var(--color-muted)] w-6">{label}</span>
+      <span className="text-xs text-[var(--color-muted)] w-10 shrink-0">{label}</span>
       <div className="flex-1 h-1.5 bg-[var(--color-background)] rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="text-xs font-mono w-16 text-right">{value}</span>
+      <span className="text-xs font-mono w-24 text-right shrink-0 whitespace-nowrap">{value}</span>
     </div>
   );
 }
@@ -1794,18 +1955,41 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
       {/* Node scores */}
       {score.nodeScores.length > 0 && (
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
-          <div className="text-xs text-[var(--color-muted)] mb-2">Node Scores (higher = better mesh contribution)</div>
+          <div className="text-xs text-[var(--color-muted)] mb-2">
+            Permacomputer Node Scores (PNS) — hexagonal harmonics on the 7-lattice.{' '}
+            <Link href="/docs/architecture/node-score" className="underline opacity-60 hover:opacity-100">formula</Link>
+          </div>
           <div className="space-y-1">
             {score.nodeScores.sort((a, b) => b.score - a.score).map(ns => {
               const maxScore = Math.max(...score.nodeScores.map(s => s.score), 1);
+              const tier = ns.score >= 189 ? 'Anchor'
+                         : ns.score >= 126 ? 'Contributor'
+                         : ns.score >= 63  ? 'Supporter'
+                         :                    'Hobbyist';
+              const tierColor = ns.score >= 189 ? 'text-[var(--color-accent)]'
+                              : ns.score >= 126 ? 'text-green-400'
+                              : ns.score >= 63  ? 'text-yellow-400'
+                              :                    'text-[var(--color-muted)]';
+              const c = ns.components;
               return (
                 <div key={ns.hostname} className="flex items-center gap-2">
                   <span className="text-xs font-mono w-32 truncate">{ns.hostname}</span>
                   <div className="flex-1 h-1.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
                     <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${(ns.score / maxScore) * 100}%` }} />
                   </div>
-                  <span className="text-xs font-mono w-8 text-right">{ns.score}</span>
-                  <span className="text-xs text-[var(--color-muted)]">dist:{ns.distanceScore} eff:{ns.efficiencyScore}</span>
+                  <span className="text-xs font-mono w-10 text-right">{ns.score}</span>
+                  <span className={`text-xs font-mono w-20 ${tierColor}`}>{tier}</span>
+                  {ns.donation && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-muted)]/10 text-[var(--color-muted)]" title="3rd+ node at same location — donated compute, no payout per doctrine">
+                      donated
+                    </span>
+                  )}
+                  <span
+                    className="text-xs text-[var(--color-muted)] font-mono whitespace-nowrap"
+                    title={`Wisdom: silicon age\nStorage: disks/RAID\nMemory: RAM tier\nEfficiency: capped at 42, raw ${c.efficiencyRaw}\nDistance: peer km × link\nDiversity: unique pipes at same loc\nUptime: √days × 3`}
+                  >
+                    W:{c.wisdom} S:{c.storage} M:{c.memory} E:{c.efficiency}{c.efficiencyRaw > c.efficiency ? `(${c.efficiencyRaw})` : ''} D:{c.distance} V:{c.diversity} U:{c.uptime}
+                  </span>
                 </div>
               );
             })}

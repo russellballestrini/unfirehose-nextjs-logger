@@ -16,6 +16,8 @@ interface MeshNode {
   memAvailableGB?: number;
   loadAvg?: [number, number, number];
   uptime?: string;
+  uptimeSeconds?: number;
+  cpuYear?: number;
   claudeProcesses?: number;
   swapUsedGB?: number;
   swapTotalGB?: number;
@@ -344,6 +346,65 @@ function lookupCpuTdp(model: string): number | null {
   return null;
 }
 
+// CPU release year lookup. Doctrine: older silicon > newer (proven > theoretical).
+// Table is ordered most-specific first so "Xeon E5-26" matches before generic "Xeon".
+// Add entries as we encounter new CPUs; unmatched CPUs return null (age = 0 in scoring).
+const CPU_YEAR_TABLE: [RegExp, number][] = [
+  // Intel Xeon E5 v1 (Sandy Bridge-EP) — cammy, guile family
+  [/Xeon.*E5-26\d{2}\b(?!\s*v)/i, 2012],
+  [/Xeon.*E5-46\d{2}\b(?!\s*v)/i, 2012],
+  [/Xeon.*E5-16\d{2}\b(?!\s*v)/i, 2012],
+  [/Xeon.*E5-\d{4}\s*v2\b/i, 2013],
+  [/Xeon.*E5-\d{4}\s*v3\b/i, 2014],
+  [/Xeon.*E5-\d{4}\s*v4\b/i, 2016],
+  // Intel Xeon Scalable
+  [/Xeon.*(Platinum|Gold|Silver|Bronze)\s*8[12]\d{2}\b/i, 2017],
+  [/Xeon.*(Platinum|Gold|Silver|Bronze)\s*[8]2\d{2}\b/i, 2019],
+  [/Xeon.*(Platinum|Gold|Silver|Bronze)\s*[8]3\d{2}\b/i, 2021],
+  [/Xeon.*(Platinum|Gold|Silver|Bronze)\s*[8]4\d{2}\b/i, 2023],
+  // Intel Core desktop
+  [/i[3579]-2\d{3}[A-Z]?\b/i, 2011],
+  [/i[3579]-3\d{3}[A-Z]?\b/i, 2012],
+  [/i[3579]-4\d{3}[A-Z]?\b/i, 2013],
+  [/i[3579]-5\d{3}[A-Z]?\b/i, 2015],
+  [/i[3579]-6\d{3}[A-Z]?\b/i, 2015],
+  [/i[3579]-7\d{3}[A-Z]?\b/i, 2017],
+  [/i[3579]-8\d{3}[A-Z]?\b/i, 2018],
+  [/i[3579]-9\d{3}[A-Z]?\b/i, 2018],
+  [/i[3579]-10\d{3}[A-Z]?\b/i, 2020],
+  [/i[3579]-11\d{3}[A-Z]?\b/i, 2021],
+  [/i[3579]-12\d{3}[A-Z]?\b/i, 2022],
+  [/i[3579]-13\d{3}[A-Z]?\b/i, 2023],
+  [/i[3579]-14\d{3}[A-Z]?\b/i, 2024],
+  // AMD Ryzen
+  [/Ryzen.*1\d{3}[A-Z]?\b/i, 2017],
+  [/Ryzen.*2\d{3}[A-Z]?\b/i, 2018],
+  [/Ryzen.*3\d{3}[A-Z]?\b/i, 2019],
+  [/Ryzen.*5\d{3}[A-Z]?\b/i, 2020],
+  [/Ryzen.*7\d{3}[A-Z]?\b/i, 2022],
+  [/Ryzen.*9\d{3}[A-Z]?\b/i, 2024],
+  // AMD EPYC
+  [/EPYC.*7[12]\d{2}\b/i, 2017],
+  [/EPYC.*7[34]\d{2}\b/i, 2019],
+  [/EPYC.*7[56]\d{2}\b/i, 2022],
+  [/EPYC.*9\d{3}\b/i, 2022],
+  // Apple Silicon
+  [/Apple M1\b/i, 2020],
+  [/Apple M2\b/i, 2022],
+  [/Apple M3\b/i, 2023],
+  [/Apple M4\b/i, 2024],
+  // Generic fallbacks — very rough, avoids null for old chips
+  [/Xeon.*\bX5\d{3}\b/i, 2010],
+  [/Xeon.*\bE5\d{3}\b/i, 2011],
+];
+
+function lookupCpuYear(model: string): number | null {
+  for (const [pattern, year] of CPU_YEAR_TABLE) {
+    if (pattern.test(model)) return year;
+  }
+  return null;
+}
+
 /**
  * Read CPU model name from /proc/cpuinfo text.
  */
@@ -530,6 +591,8 @@ function getLocalStats(): MeshNode {
       memAvailableGB: round(memAvailable),
       loadAvg,
       uptime,
+      uptimeSeconds,
+      cpuYear: cpuModel ? lookupCpuYear(cpuModel) ?? undefined : undefined,
       claudeProcesses,
       swapTotalGB: round(swapTotal),
       swapUsedGB: round(swapTotal - swapFree),
@@ -683,7 +746,9 @@ function getRemoteStatsAsync(host: string): Promise<MeshNode> {
             cpuModel: cpuModel ?? undefined, cpuTdpWatts: cpuTdpWatts ?? undefined,
             spinningDisks, ssdCount, cpuCores,
             memTotalGB: round(memTotal), memCapGB: memCapGB(memTotal), memUsedGB: round(memTotal - memAvailable), memAvailableGB: round(memAvailable),
-            loadAvg, uptime, claudeProcesses,
+            loadAvg, uptime, uptimeSeconds,
+            cpuYear: cpuModel ? lookupCpuYear(cpuModel) ?? undefined : undefined,
+            claudeProcesses,
             swapTotalGB: round(swapTotal), swapUsedGB: round(swapTotal - swapFree),
             powerWatts, gpuPowerWatts: gpuPowerWatts ?? undefined,
             gpuModel, gpuMemTotalMB: gpuMemTotalMB ? Math.round(gpuMemTotalMB) : undefined,
