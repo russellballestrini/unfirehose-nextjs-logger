@@ -237,6 +237,7 @@ const CAP_EFFICIENCY = 42;  // 7×6 — soft asymptote; raw exposed on the card
 const CAP_DISTANCE = 42;    // 7×6
 const CAP_DIVERSITY = 21;   // 7×3
 const CAP_UPTIME = 21;      // 7×3
+const CAP_GPU = 49;         // 7×7 — VRAM (0-21) + compute class (0-28)
 const SAME_LOCATION_KM_PAYOUT = 49; // 7²
 
 // Memory tier — doctrine says 128G and 256G are qualitative jumps (local ML inference,
@@ -304,6 +305,48 @@ function diversityScore(hostname: string, allConfigured: { hostname: string; eco
   return Math.max(-CAP_DIVERSITY, Math.min(CAP_DIVERSITY, score));
 }
 
+// GPU class — CUDA generation + tensor / RT / neural cores by architecture.
+// Model-name lookup: nvidia-smi doesn't report cores directly, so we key on gpuModel.
+// Tiers on the 7-lattice: 7 (no tensor), 14 (1st-gen tensor), 21 (2nd-gen), 28 (3rd-gen+).
+// Unknown GPU with valid gpuMemTotalMB gets 7 (present but architecture unknown).
+function gpuComputeClass(gpuModel?: string): number {
+  if (!gpuModel) return 0;
+  const m = gpuModel;
+  // Ada Lovelace / Hopper / Blackwell — 3rd-gen+ tensor, 3rd-gen RT
+  if (/RTX ?40|RTX ?50|H100|H200|B100|B200|L40|L4\b|GH200/i.test(m)) return 28;
+  // Ampere — 2nd-gen tensor, 2nd-gen RT
+  if (/RTX ?30|RTX ?A\d|A100|A40|A30|A10\b/i.test(m)) return 21;
+  // Turing — 1st-gen tensor, 1st-gen RT
+  if (/RTX ?20|GTX ?16|Tesla ?T4|Quadro RTX|T4\b/i.test(m)) return 14;
+  // Volta — 1st-gen tensor, no RT
+  if (/V100|Titan V/i.test(m)) return 14;
+  // Pascal / Maxwell / Kepler — no tensor cores (cammy's Tesla P40 lands here)
+  if (/GTX ?10|Tesla ?P|Tesla ?K|Tesla ?M|GTX ?9|Titan X\b|Titan Xp|Quadro P|Quadro M|Quadro K/i.test(m)) return 7;
+  // Apple Silicon — Neural Engine as tensor equivalent
+  if (/Apple M[234]/.test(m)) return 21;
+  if (/Apple M1/.test(m)) return 14;
+  // AMD ROCm datacenter
+  if (/MI[23]\d\d|MI3\d{2}X/i.test(m)) return 28;
+  if (/MI[12]\d\d|MI2\d{2}X/i.test(m)) return 21;
+  // AMD Radeon Pro / RX 7000
+  if (/RX ?7\d{3}|Radeon Pro W7/i.test(m)) return 14;
+  if (/RX ?6\d{3}|RX ?5\d{3}|Radeon Pro W6/i.test(m)) return 7;
+  // Present but unknown architecture — still worth something
+  return 7;
+}
+
+// GPU score — VRAM tier + compute class, capped 49.
+function gpuScore(gpuModel?: string, gpuMemTotalMB?: number): { total: number; vram: number; compute: number } {
+  const vramGB = (gpuMemTotalMB ?? 0) / 1024;
+  const vram = vramGB >= 24 ? 21
+             : vramGB >= 16 ? 14
+             : vramGB >= 8  ? 7
+             : vramGB >= 4  ? 7
+             : 0;
+  const compute = gpuComputeClass(gpuModel);
+  return { total: Math.min(CAP_GPU, vram + compute), vram, compute };
+}
+
 // Distance — sum of (peer_km × min_link_mbps / 1000) averaged over peers. Cap 42.
 function distanceScore(hostname: string, econ: NodeEcon,
     configured: { hostname: string; econ: NodeEcon }[]): number {
@@ -352,6 +395,9 @@ interface NodeScoreDetail {
     memory: number;
     efficiency: number;
     efficiencyRaw: number;
+    gpu: number;
+    gpuVram: number;
+    gpuCompute: number;
     distance: number;
     diversity: number;
     uptime: number;
@@ -458,12 +504,13 @@ function computeMeshScore(
     const watts = nodeTotalWatts(n.meshNode);
     const cores = n.meshNode?.cpuCores ?? 1;
     const eff = efficiencyScore(watts, cores);
+    const gpu = gpuScore(n.meshNode?.gpuModel, n.meshNode?.gpuMemTotalMB);
     const distance = distanceScore(n.hostname, n.econ, configured);
     const diversity = diversityScore(n.hostname, configured, n.econ, egressGroups, geoipNodes ?? []);
     const uptime = uptimeScore(n.meshNode?.uptimeSeconds);
     const gate = paidGates.get(n.hostname) ?? { paid: true, donation: false };
 
-    const score = wisdom + storage + memory + eff.capped + distance + diversity + uptime;
+    const score = wisdom + storage + memory + eff.capped + gpu.total + distance + diversity + uptime;
     return {
       hostname: n.hostname,
       score,
@@ -473,6 +520,7 @@ function computeMeshScore(
         wisdom, storage, memory,
         efficiency: eff.capped,
         efficiencyRaw: eff.raw,
+        gpu: gpu.total, gpuVram: gpu.vram, gpuCompute: gpu.compute,
         distance, diversity, uptime,
       },
       distanceScore: distance,
@@ -1986,9 +2034,9 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
                   )}
                   <span
                     className="text-xs text-[var(--color-muted)] font-mono whitespace-nowrap"
-                    title={`Wisdom: silicon age\nStorage: disks/RAID\nMemory: RAM tier\nEfficiency: capped at 42, raw ${c.efficiencyRaw}\nDistance: peer km × link\nDiversity: unique pipes at same loc\nUptime: √days × 3`}
+                    title={`Wisdom: silicon age (cap 42)\nStorage: disks/RAID (cap 42)\nMemory: RAM tier (cap 77)\nEfficiency: watts/core (cap 42, raw ${c.efficiencyRaw})\nGPU: VRAM ${c.gpuVram} + compute-class ${c.gpuCompute} (cap 49)\nDistance: peer km × link (cap 42)\nDiversity: unique pipes at same loc (cap ±21)\nUptime: √days × 3 (cap 21)`}
                   >
-                    W:{c.wisdom} S:{c.storage} M:{c.memory} E:{c.efficiency}{c.efficiencyRaw > c.efficiency ? `(${c.efficiencyRaw})` : ''} D:{c.distance} V:{c.diversity} U:{c.uptime}
+                    W:{c.wisdom} S:{c.storage} M:{c.memory} E:{c.efficiency}{c.efficiencyRaw > c.efficiency ? `(${c.efficiencyRaw})` : ''} G:{c.gpu} D:{c.distance} V:{c.diversity} U:{c.uptime}
                   </span>
                 </div>
               );

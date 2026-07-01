@@ -22,12 +22,38 @@ Formalizes the sketch published at [timehexon.com/permacomputer/](https://timehe
 | 2 | **Storage** | `log₁₀(disks + 1) × 28` (Pass 3: TB + raid_bonus) | **42** (7×6) | 0–42 | lsblk + /proc/mdstat |
 | 3 | **Memory** | tiered: <32G→7, 32-64G→14, 64-128G→21, **128-256G→49**, **256G+→77** | 77 (7×11) | 7–77 | memTotalGB |
 | 4 | **Efficiency** | `min(42, 200 / (watts_per_core + 2))` | **42** (7×6) | 5–42 | powerWatts / cpuCores |
-| 5 | **Distance** | `Σ (peer_km × min_link_mbps / 1000) / peers` | **42** (7×6) | 0–42 | econ.lat/lon + linkMbps |
-| 6 | **Diversity** | `+21` per unique egress IP at same location; `-7` per shared pipe at same location | ±**21** (7×3) | -21–+21 | geoipNodes + haversine |
-| 7 | **Uptime** | `min(21, √uptime_days × 3)` | **21** (7×3) | 0–21 | /proc/uptime seconds |
-| 8 | **Bonuses** | RAID mirror +7, RAID 5/6/10 +14, ZFS pool +7, ECC RAM +7 | 28 (7×4) | 0–28 | mdstat + zpool + dmidecode |
+| 5 | **GPU** | `vram_tier(0-21) + compute_class(0-28)` | **49** (7×7) | 0–49 | gpuModel + gpuMemTotalMB |
+| 6 | **Distance** | `Σ (peer_km × min_link_mbps / 1000) / peers` | **42** (7×6) | 0–42 | econ.lat/lon + linkMbps |
+| 7 | **Diversity** | `+21` per unique egress IP at same location; `-7` per shared pipe at same location | ±**21** (7×3) | -21–+21 | geoipNodes + haversine |
+| 8 | **Uptime** | `min(21, √uptime_days × 3)` | **21** (7×3) | 0–21 | /proc/uptime seconds |
+| 9 | **Bonuses** | RAID mirror +7, RAID 5/6/10 +14, ZFS pool +7, ECC RAM +7 | 28 (7×4) | 0–28 | mdstat + zpool + dmidecode |
 
-**Total PNS**: sum of components. Typical range 42–210, ceiling 315 (all caps maxed).
+### GPU subcomponents
+
+**VRAM tier** (cap 21):
+| VRAM | Score |
+|---|---|
+| <4 GB | 0 |
+| 4-8 GB | 7 |
+| 8-16 GB | 14 |
+| 16+ GB | 21 |
+
+**Compute class** (cap 28) — from `gpuModel` lookup, reflects tensor / RT / neural-engine generation. nvidia-smi doesn't expose core counts directly, so we map architecture → tier:
+
+| Architecture / Family | Score | Examples |
+|---|---|---|
+| Ada Lovelace / Hopper / Blackwell (3rd-gen+ tensor, 3rd-gen+ RT) | 28 | RTX 4090, RTX 4080, H100, H200, L40, GH200 |
+| Ampere (2nd-gen tensor, 2nd-gen RT) | 21 | RTX 3090, RTX 3080, A100, A40, A10 |
+| Turing / Volta (1st-gen tensor, 1st-gen RT) | 14 | RTX 2080, T4, V100, Titan V |
+| Pascal / Maxwell / Kepler (no tensor cores) | 7 | Tesla P40, GTX 1080, Titan Xp |
+| Apple Neural Engine (M2/M3/M4) | 21 | Apple M2, M3, M4 |
+| Apple Neural Engine (M1) | 14 | Apple M1 |
+| AMD ROCm MI300/MI250 | 28 | MI300X, MI250 |
+| AMD Radeon RX 7000 / W7000 | 14 | RX 7900, Radeon Pro W7900 |
+| Unknown but present | 7 | anything with valid gpuMemTotalMB |
+| No GPU | 0 | |
+
+**Total PNS**: sum of components. Typical range 42–260, ceiling 364 (all caps maxed).
 
 Payout location proximity threshold: **49 km** (7²).
 
@@ -130,12 +156,17 @@ Ship in three passes so the score keeps working while probe extensions land:
 
 Rough estimates on the 7-lattice (all values capped, then summed):
 
-| Node | Old | Wisdom | Storage | Memory | Eff | Dist | Div | Up | Bonus | **New** |
+| Node | Old | W | S | M | E | **G** | Dist | Div | Up | **New** |
 |---|---|---|---|---|---|---|---|---|---|---|
-| cammy (2012 Xeon, 378G, 16TB R5+3TB R1) | 26 | 38 | 34 | **77** | 14 | 0 | 21 | 21 | 21 | **~226** Anchor |
-| guile (2012, 128G RAM, single disk) | 26 | 38 | 8 | **49** | 14 | 0 | 21 | 21 | 0 | **~151** Contributor |
-| ai.foxhop (2024, 63G RAM, 4090) | 30 | 14 | 8 | 21 | 28 | 0 | 21 | 12 | 0 | **~104** Supporter |
-| 3090-ai (2024, 63G RAM, 3090) | 44 | 14 | 8 | 21 | 26 | 0 | 21 | 12 | 0 | **~102** Supporter |
-| neoblanka (Mac mini, 32G) | 28 | 12 | 5 | 14 | 30 | 0 | 21 | 9 | 0 | **~91** Supporter |
+| cammy (Xeon E5 v2 '13, 378G, 2 disks, Tesla P40) | 26 | 39 | 13 | **77** | 14 | **28** (21+7) | 0 | 21 | 21 | **~213** Anchor |
+| guile (Xeon E5 '12, 128G, 11 disks, no GPU) | 26 | 42 | 30 | **49** | 14 | **0** | 0 | 21 | 21 | **~177** Contributor |
+| 3090-ai ('22 i9, 63G, RTX 3090) | 44 | 24 | 13 | 21 | 26 | **42** (21+21) | 0 | 21 | 12 | **~159** Contributor |
+| ai.foxhop ('24 i9, 63G, RTX 4090) | 30 | 16 | 8 | 21 | 28 | **49** (21+28) | 0 | 21 | 12 | **~155** Contributor |
+| neoblanka (i5 '18, 31G, no GPU) | 28 | 32 | 13 | 7 | 30 | **0** | 0 | 21 | 21 | **~124** Supporter |
 
-cammy jumps from #4 to #1 — matches your instinct that a 16TB RAID5 + 378GB workstation outscores a modern gaming rig.
+- **cammy** stays #1 — 378GB RAM + Tesla P40 24GB still wins on capacity + storage
+- **guile** #2 — 42 wisdom (Sandy Bridge, oldest silicon in fleet) + 30 storage (11 disks) + 49 memory carries it
+- **3090-ai** & **ai.foxhop** climb — GPU component reflects their actual ML mesh value; ai's 4090 gets max GPU (49), 3090-ai gets 42
+- **neoblanka** — old wisdom (2018), but no GPU and modest RAM keeps it Supporter tier
+
+This matches doctrine: proven silicon + capacity + storage beats raw compute, but raw compute still gets fair credit.
