@@ -181,15 +181,6 @@ unsandbox.com cloud platform integration.
 - `?action=status` — tier, diagnostics, rate limits
 
 
-## Graph Explorer
-
-### GET /api/graph
-Graphviz visualizations of sessions, tools, projects, timelines.
-- `?view=sessions|tools|projects|timeline`
-- `?project=...&layout=dot|neato|fdp&format=svg`
-→ `{ svg, nodeCount, edgeCount, dot }`
-
-
 ## Scrobble (Social Feed)
 
 ### GET /api/scrobble/payload

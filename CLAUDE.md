@@ -95,7 +95,7 @@ cd packages/router && npm publish --access public   # has prepublishOnly: tsc
 cd packages/ui && npm publish --access public
 ```
 
-Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Graph Explorer, Schema, Settings, Permacomputer.
+Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Schema, Settings, Permacomputer.
 
 ### Website
 
