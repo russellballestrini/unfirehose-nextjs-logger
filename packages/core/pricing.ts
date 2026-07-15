@@ -10,19 +10,33 @@ export interface ModelPrice {
 }
 
 export const PRICING: Record<string, ModelPrice> = {
+  // Fable tier (most capable widely-released; above Opus)
+  'claude-fable-5':             { input: 10, output: 50, cacheRead: 1.00, cacheWrite: 12.50 },
+
   // Opus tier
+  'claude-opus-4-8':            { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-7':            { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-6':            { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
   'claude-opus-4-5-20251101':   { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 },
 
   // Sonnet tier
+  'claude-sonnet-5':            { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
   'claude-sonnet-4-6':          { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
   'claude-sonnet-4-5-20250929': { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
   'claude-sonnet-4-20250514':   { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
 
   // Haiku tier
+  'claude-haiku-4-5':           { input: 1, output:  5, cacheRead: 0.10, cacheWrite: 1.25 },
   'claude-haiku-4-5-20251001':  { input: 1, output:  5, cacheRead: 0.10, cacheWrite: 1.25 },
 };
+
+// Resolve a PRICING entry, tolerating context-window suffixes like the `[1m]`
+// on `claude-opus-4-8[1m]`. Exact match wins; otherwise strip a trailing
+// bracketed tag and retry. Keeps the table DRY — one row per model, not one
+// per context-window variant.
+export function priceForModel(model: string): ModelPrice | undefined {
+  return PRICING[model] ?? PRICING[model.replace(/\[[^\]]*\]$/, '')];
+}
 
 // Self-hosted hardware power+throughput. cost ≈ tokens × watts / tok/s / 3600s/h / 1000W/kW × $/kWh
 export interface SelfHostHardware {
@@ -123,7 +137,7 @@ export function calcCostBreakdown(
   cacheRead: number,
   cacheWrite: number,
 ): CostBreakdown {
-  const p = PRICING[model];
+  const p = priceForModel(model);
   if (p) {
     const i  = (input      / 1_000_000) * p.input;
     const o  = (output     / 1_000_000) * p.output;

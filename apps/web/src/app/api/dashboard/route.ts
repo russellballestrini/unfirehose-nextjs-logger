@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCostBreakdown, hostForMessage, getKwhRate, CLOUD_PROVIDERS, PRICING } from '@unturf/unfirehose/pricing';
+import { calcCostBreakdown, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
       const endpoint = a?.endpoint ?? null;
       // Backstop: legacy rows missing provider, but the model is in our
       // Anthropic price table — must be a cloud call.
-      if (!provider && PRICING[model]) provider = 'anthropic';
+      if (!provider && priceForModel(model)) provider = 'anthropic';
       // Cloud-provider claims override any model-name regex match.
       if (provider && CLOUD_PROVIDERS.has(provider)) {
         return { host: null, endpoint, provider };
@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
         cacheReadCostUSD: c.cacheRead,
         cacheWriteCostUSD: c.cacheWrite,
         costUSD: c.total,
-        costSource: PRICING[m.model] ? ('api' as const) : ('estimate' as const),
+        costSource: priceForModel(m.model) ? ('api' as const) : ('estimate' as const),
         host,
         provider,
         endpoint,
