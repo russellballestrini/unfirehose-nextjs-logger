@@ -90,6 +90,84 @@ function planLabel(rateLimitTier: string): string {
   return rateLimitTier || 'Unknown';
 }
 
+// Donut for the per-model breakdowns. Model names are open-ended (self-hosted
+// quants like `Lorbus/Qwen3.6-27B-int4-AutoRound` are long and unbounded in
+// count), so Recharts' in-chart <Legend> overflows the fixed-height box and
+// stacks over the donut. Instead: cap slices to the top N by value (rest folded
+// into "other" so the ring stays legible), and render the legend in its own
+// scrollable list below the donut — legend length can never push into the ring.
+const MODEL_DONUT_TOP_N = 10;
+
+function ModelDonut({
+  title,
+  data,
+  format,
+}: {
+  title: string;
+  data: Array<{ name: string; fullName?: string; value: number; color: string }>;
+  format: (n: number) => string;
+}) {
+  const sorted = [...data].sort((a, b) => b.value - a.value);
+  const top = sorted.slice(0, MODEL_DONUT_TOP_N);
+  const rest = sorted.slice(MODEL_DONUT_TOP_N);
+  const restTotal = rest.reduce((s, d) => s + d.value, 0);
+  const slices =
+    restTotal > 0
+      ? [
+          ...top,
+          {
+            name: `other (${rest.length})`,
+            fullName: `${rest.length} smaller models`,
+            value: restTotal,
+            color: 'var(--color-muted)',
+          },
+        ]
+      : top;
+
+  return (
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">{title}</h3>
+      <ResponsiveContainer width="100%" height={160}>
+        <PieChart>
+          <Pie
+            data={slices}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius={35}
+            outerRadius={70}
+            strokeWidth={0}
+          >
+            {slices.map((d, i) => (
+              <Cell key={i} fill={d.color} />
+            ))}
+          </Pie>
+          <Tooltip formatter={(v) => format(Number(v ?? 0))} />
+        </PieChart>
+      </ResponsiveContainer>
+      <ul className="mt-2 max-h-24 overflow-y-auto text-sm space-y-1 pr-1">
+        {slices.map((d, i) => (
+          <li
+            key={i}
+            className="flex items-center gap-1.5"
+            title={d.fullName ?? d.name}
+          >
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+              style={{ background: d.color }}
+            />
+            <span className="truncate">{d.name}</span>
+            <span className="ml-auto shrink-0 text-[var(--color-muted)] tabular-nums">
+              {format(d.value)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function TokensPage() {
   const [range, setRange] = useTimeRange('tokens_range', '7d');
   // ?project=<name> from the URL pre-filters every chart + table to that
@@ -191,6 +269,7 @@ export default function TokensPage() {
     .filter((m: any) => m.costUSD > 0)
     .map((m: any) => ({
       name: shortModel(m.model),
+      fullName: m.model,
       value: m.costUSD,
       color: getModelColor(m.model),
     }));
@@ -437,70 +516,10 @@ export default function TokensPage() {
         </div>
 
         {/* Model token breakdown donut */}
-        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
-            Tokens by Model
-          </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={modelPie}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={35}
-                outerRadius={75}
-                strokeWidth={0}
-              >
-                {modelPie.map((d: any, i: number) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip
-
-                formatter={(v) => formatTokens(Number(v ?? 0))}
-              />
-              <Legend
-                iconSize={8}
-                wrapperStyle={{ fontSize: 16 }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        <ModelDonut title="Tokens by Model" data={modelPie} format={formatTokens} />
 
         {/* Cost by model donut */}
-        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-          <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
-            Equivalent Cost by Model
-          </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={costPie}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={35}
-                outerRadius={75}
-                strokeWidth={0}
-              >
-                {costPie.map((d: any, i: number) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip
-
-                formatter={(v) => formatCost(Number(v ?? 0))}
-              />
-              <Legend
-                iconSize={8}
-                wrapperStyle={{ fontSize: 16 }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        <ModelDonut title="Equivalent Cost by Model" data={costPie} format={formatCost} />
       </div>
 
       {/* Model breakdown table */}
