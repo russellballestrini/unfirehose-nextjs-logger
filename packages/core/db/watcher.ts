@@ -20,8 +20,12 @@ async function onFileChange() {
     await ingestAll();
   } catch (err) {
     console.error('[watcher] ingest failed:', err);
+  } finally {
+    // Must reset in finally: if the reset is ever skipped (an unexpected throw
+    // outside the try, a future early return) the flag sticks true and every
+    // later file event is silently dropped by the guard above.
+    ingesting = false;
   }
-  ingesting = false;
 }
 
 function debouncedIngest() {

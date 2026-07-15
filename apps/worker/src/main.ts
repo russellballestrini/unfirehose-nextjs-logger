@@ -14,7 +14,47 @@ const ROLLUP_TICK_MS = 60_000;
 // run of rollups. Cheap enough on this DB shape but locks briefly — schedule
 // at off-hours by offsetting the first run.
 const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Watchdog cadence + thresholds. The worker is meant to run for days; if the
+// ingest loop silently wedges (stuck flag, dropped timer, an event loop that
+// blocked then recovered) we want it to self-heal, not wait for a human.
+const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
+const INGEST_STALL_MS = 10 * 60_000;       // >10 min with no completed ingest = suspect
+const INGEST_HANG_MS = 30 * 60_000;        // in-flight this long = abandoned; force-restart it
 const NEXT_BASE_URL = process.env.UNFIREHOSE_NEXT_URL ?? 'http://localhost:3000';
+
+// ── Autoheal ─────────────────────────────────────────────────────────────────
+// A background timer that throws or rejects becomes an uncaughtException /
+// unhandledRejection, which Node turns into process exit — and `tsx watch` only
+// respawns on file changes, not on crash. That is exactly how ingest went dark
+// for 2.5 days (worker child died 2026-07-13T01:11Z, never came back). Log and
+// keep running so one transient fault can't take the worker down for days.
+process.on('uncaughtException', (err) => {
+  console.error('[worker] uncaughtException (continuing):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[worker] unhandledRejection (continuing):', reason);
+});
+
+// Heartbeat + single-flight guard for ingest. setInterval fires regardless of
+// whether the prior run finished; without a guard a slow run would stack. The
+// watchdog reads lastIngestAt to tell a healthy idle worker from a wedged one.
+let lastIngestAt = Date.now();
+let ingestInFlight = false;
+
+async function runIngestOnce(reason: string): Promise<void> {
+  if (ingestInFlight) return;
+  ingestInFlight = true;
+  try {
+    await ingestAll();
+    const s = getDbStats();
+    console.log(`[worker] ingest (${reason}): ${s.projects}p ${s.sessions}s ${s.messages}m`);
+  } catch (err) {
+    console.error(`[worker] ingest (${reason}) failed:`, err);
+  } finally {
+    lastIngestAt = Date.now();
+    ingestInFlight = false;
+  }
+}
 
 // Deterministic per-host phase offset within [0, MESH_POLL_INTERVAL_MS) so that
 // hundreds of nodes don't stampede the network and SSH targets at the same tick.
@@ -78,26 +118,33 @@ function startStaggeredMeshSampler(): Array<NodeJS.Timeout> {
 async function main() {
   console.log('[worker] starting ingestion worker');
 
-  // Initial full ingest
-  const result = await ingestAll();
-  const stats = getDbStats();
-  console.log('[worker] initial ingest:', result);
-  console.log('[worker] db stats:', stats);
+  // Initial full ingest. Runs through runIngestOnce so a startup failure logs
+  // and lets the watchdog retry, rather than exiting the process.
+  await runIngestOnce('startup');
 
   // Start file watchers for real-time ingestion
   startWatcher();
   console.log('[worker] file watchers active');
 
-  // Periodic full ingest as safety net
-  const interval = setInterval(async () => {
-    try {
-      await ingestAll();
-      const s = getDbStats();
-      console.log(`[worker] periodic ingest: ${s.projects}p ${s.sessions}s ${s.messages}m`);
-    } catch (err) {
-      console.error('[worker] periodic ingest failed:', err);
+  // Periodic full ingest as safety net (single-flight via runIngestOnce).
+  const interval = setInterval(() => { void runIngestOnce('periodic'); }, POLL_INTERVAL_MS);
+
+  // Watchdog: if no ingest has completed within INGEST_STALL_MS the loop is
+  // wedged — force a recovery run instead of waiting for a restart. A run that
+  // is legitimately still in flight is left alone until INGEST_HANG_MS, past
+  // which it's treated as abandoned and the guard is cleared so a fresh run can
+  // start.
+  const watchdog = setInterval(() => {
+    const idle = Date.now() - lastIngestAt;
+    if (idle <= INGEST_STALL_MS) return;
+    if (ingestInFlight && idle < INGEST_HANG_MS) {
+      console.warn(`[worker] ingest in flight ${Math.round(idle / 1000)}s (slow, not yet wedged)`);
+      return;
     }
-  }, POLL_INTERVAL_MS);
+    console.warn(`[worker] ingest idle ${Math.round(idle / 1000)}s — forcing recovery ingest`);
+    ingestInFlight = false; // clear a stuck/abandoned guard before retrying
+    void runIngestOnce('watchdog');
+  }, WATCHDOG_TICK_MS);
 
   // Headless mesh sampler — keeps GPU watts / utilization rolling without a
   // browser tab being open. Per-node phase offsets prevent a stampede when the
@@ -141,6 +188,7 @@ async function main() {
     process.on(signal, () => {
       console.log(`[worker] ${signal} received, shutting down`);
       clearInterval(interval);
+      clearInterval(watchdog);
       clearInterval(rollupInterval);
       clearTimeout(vacuumKickoff);
       for (const t of meshTimers) {
