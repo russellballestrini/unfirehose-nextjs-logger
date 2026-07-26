@@ -36,6 +36,24 @@ All thinking blocks from a specific session.
 - `?project=...`
 → `[{ sessionId, project, timestamp, thinking, precedingPrompt, model }]`
 
+### GET /api/tool-results
+Archived tool-result spill files. Claude Code writes large tool outputs to
+`~/.claude/projects/<project>/<session>/tool-results/` and keeps only the path
+in the transcript, then deletes those files once they pass `cleanupPeriodDays`
+(30 days by default). Ingest copies the bytes into our content-addressed blob
+store, so a transcript reference stays resolvable after the sweep.
+- `?session=<uuid>` — every spill for one session
+- `?tool_use_id=toolu_...` — resolve a specific reference seen in a transcript
+- `?limit=100` — max 1000
+→ `{ count, results: [{ sessionUuid, toolUseId, relPath, mimeType, sizeBytes, hash, archivedAt, url }] }`
+
+Nested spills keep their subdirectory in `relPath` — a single PDF read lands as
+`pdf-<uuid>/page-NN.jpg`, so many rows share one `toolUseId`.
+
+### GET /api/tool-results/{hash}
+Serve an archived payload by sha256, with its recorded mime type.
+→ raw bytes, or 404 once the blob is gone, 400 for a malformed hash
+
 
 ## Todo System
 

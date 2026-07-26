@@ -126,10 +126,13 @@ export async function DELETE(request: NextRequest) {
     // Delete the row
     db.prepare('DELETE FROM todo_attachments WHERE id = ?').run(id);
 
-    // Check if any other rows reference this hash
+    // Check if any other rows reference this hash. tool_results shares this
+    // blob store, and its payloads are unrecoverable once Claude Code's
+    // cleanup sweep removes the on-disk original — so it counts as a holder.
     const remaining = db.prepare(
-      'SELECT COUNT(*) as c FROM todo_attachments WHERE hash = ?'
-    ).get(hash) as any;
+      `SELECT (SELECT COUNT(*) FROM todo_attachments WHERE hash = ?)
+            + (SELECT COUNT(*) FROM tool_results WHERE hash = ?) AS c`
+    ).get(hash, hash) as any;
 
     if (remaining.c === 0) {
       const filePath = path.join(ATTACHMENTS_DIR, hash);

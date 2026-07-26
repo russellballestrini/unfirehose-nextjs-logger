@@ -231,6 +231,29 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_todo_attachments_todo ON todo_attachments(todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_attachments_hash ON todo_attachments(hash);
 
+    -- Archived tool-results: Claude Code spills large tool outputs to
+    -- projects/<p>/<session>/tool-results/<tool_use_id>.txt and keeps only the
+    -- path in the transcript. Those files are swept at cleanupPeriodDays (30d
+    -- default), so an archived message outlives its own payload. We copy the
+    -- bytes into the same content-addressed store as todo_attachments.
+    -- rel_path, not tool_use_id, is the identity: a single tool call can spill a
+    -- whole directory (multi-page PDF renders land as pdf-<uuid>/page-NN.jpg),
+    -- so many rows legitimately share one tool_use_id.
+    CREATE TABLE IF NOT EXISTS tool_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_uuid TEXT NOT NULL,
+      tool_use_id TEXT NOT NULL,
+      rel_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(session_uuid, rel_path)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_results_hash ON tool_results(hash);
+    CREATE INDEX IF NOT EXISTS idx_tool_results_tool_use ON tool_results(tool_use_id);
+
     -- Agent deployments: tracks tmux sessions spawned by mega deploy
     CREATE TABLE IF NOT EXISTS agent_deployments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -410,6 +433,36 @@ function migrate(db: Database.Database) {
     -- every text block in the DB per session — ~400ms per session × N sessions per page.
     CREATE INDEX IF NOT EXISTS idx_messages_session_type_ts ON messages(session_id, type, timestamp);
   `);
+
+  // tool_results shipped briefly with UNIQUE(session_uuid, tool_use_id) and a
+  // flat `filename`. That constraint rejects every page after the first when a
+  // tool spills a directory, so the table is rebuilt onto (session_uuid,
+  // rel_path). Rows are carried over; mime_type backfills as octet-stream and
+  // corrects itself on the next ingest pass.
+  const toolResultCols = db.prepare('PRAGMA table_info(tool_results)').all() as { name: string }[];
+  if (toolResultCols.length > 0 && !toolResultCols.some((c) => c.name === 'rel_path')) {
+    db.exec(`
+      ALTER TABLE tool_results RENAME TO tool_results_legacy;
+      CREATE TABLE tool_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_uuid TEXT NOT NULL,
+        tool_use_id TEXT NOT NULL,
+        rel_path TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        hash TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(session_uuid, rel_path)
+      );
+      INSERT INTO tool_results
+        (session_uuid, tool_use_id, rel_path, mime_type, size_bytes, hash, source_path, archived_at)
+        SELECT session_uuid, tool_use_id, filename, 'application/octet-stream',
+               size_bytes, hash, source_path, archived_at
+        FROM tool_results_legacy;
+      DROP TABLE tool_results_legacy;
+    `);
+  }
 
   // Schema migrations: add columns to existing tables
   const addColumn = (table: string, col: string, def: string) => {

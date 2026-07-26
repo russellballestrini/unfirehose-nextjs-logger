@@ -29,6 +29,13 @@ export const claudePaths = {
     return path.join(CLAUDE_DIR, 'projects', projectName, sessionId, 'subagents');
   },
 
+  // Large tool outputs Claude Code spills to disk. The transcript keeps only a
+  // path, so these die with the 30-day cleanupPeriodDays sweep and leave the
+  // archived message pointing at nothing. We copy them into our blob store.
+  toolResultsDir(projectName: string, sessionId: string) {
+    return path.join(CLAUDE_DIR, 'projects', projectName, sessionId, 'tool-results');
+  },
+
   memory(projectName: string) {
     return path.join(CLAUDE_DIR, 'projects', projectName, 'memory', 'MEMORY.md');
   },

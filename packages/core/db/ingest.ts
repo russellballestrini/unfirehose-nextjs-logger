@@ -1,11 +1,11 @@
-import { readdir, readFile, stat, mkdir, appendFile } from 'fs/promises';
+import { readdir, readFile, stat, mkdir, appendFile, writeFile } from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
 import { createInterface } from 'readline';
 import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import path from 'path';
 import { homedir } from 'os';
-import { getDb } from './schema';
+import { getDb, UNFIREHOSE_DIR } from './schema';
 import { claudePaths, decodeProjectName, resolveProjectPath } from '../claude-paths';
 // uncloseai: auto-discovered via ~/.uncloseai/unfirehose/ (native unfirehose/1.0)
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
@@ -567,6 +567,132 @@ async function ingestSubagentsForSession(
     db.prepare(
       'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
     ).run(new Date().toISOString(), subSessionUuid);
+  }
+}
+
+// Matches todo_attachments — same blob store, same ceiling. Observed spill
+// files top out around 2.7MB, so this leaves generous headroom.
+const TOOL_RESULT_MAX_BYTES = 10 * 1024 * 1024;
+
+// Spills nest one level when a single tool call renders a document
+// (pdf-<uuid>/page-NN.jpg). Cap the descent so a symlink loop or an
+// unexpectedly deep tree can't stall ingest.
+const TOOL_RESULT_MAX_DEPTH = 3;
+
+const TOOL_RESULT_MIME: Record<string, string> = {
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.json': 'application/json',
+  '.jsonl': 'application/x-ndjson',
+  '.csv': 'text/csv',
+  '.html': 'text/html; charset=utf-8',
+  '.xml': 'application/xml',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+};
+
+function toolResultMime(relPath: string): string {
+  return TOOL_RESULT_MIME[path.extname(relPath).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/** Relative paths of every file under a spill dir, descending into subdirs. */
+async function walkToolResultFiles(root: string, prefix = '', depth = 0): Promise<string[]> {
+  if (depth >= TOOL_RESULT_MAX_DEPTH) return [];
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const found: string[] = [];
+  for (const entry of entries) {
+    const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      found.push(...(await walkToolResultFiles(path.join(root, entry.name), rel, depth + 1)));
+    } else if (entry.isFile()) {
+      found.push(rel);
+    }
+  }
+  return found;
+}
+
+/**
+ * Copy a session's tool-results/ spill files into our content-addressed blob
+ * store before Claude Code's cleanupPeriodDays sweep deletes them.
+ *
+ * Claude Code writes large tool outputs to
+ * projects/<project>/<session>/tool-results/<tool_use_id>.txt and leaves only
+ * that path in the transcript. We archive the transcript but not the payload,
+ * so once the sweep runs (30 days by default) the message survives pointing at
+ * a file that no longer exists.
+ *
+ * Write-once files, so idempotency is a (session, tool_use_id, size) check
+ * rather than a byte offset — that keeps repeat passes off the hashing path.
+ */
+export async function archiveToolResultsForSession(
+  db: ReturnType<typeof getDb>,
+  projectDirName: string,
+  meta: { sessionId: string },
+  result: { filesScanned: number },
+): Promise<void> {
+  const dir = claudePaths.toolResultsDir(projectDirName, meta.sessionId);
+  const files = await walkToolResultFiles(dir);
+  if (files.length === 0) return;
+
+  const attachmentsDir = path.join(UNFIREHOSE_DIR, 'attachments');
+  const existing = db.prepare(
+    'SELECT size_bytes, mime_type FROM tool_results WHERE session_uuid = ? AND rel_path = ?'
+  );
+  const insert = db.prepare(
+    `INSERT INTO tool_results
+       (session_uuid, tool_use_id, rel_path, mime_type, size_bytes, hash, source_path)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_uuid, rel_path) DO UPDATE SET
+       tool_use_id = excluded.tool_use_id,
+       mime_type = excluded.mime_type,
+       size_bytes = excluded.size_bytes,
+       hash = excluded.hash,
+       archived_at = datetime('now')`
+  );
+
+  let madeDir = false;
+
+  for (const relPath of files) {
+    const srcPath = path.join(dir, relPath);
+    const st = await stat(srcPath).catch(() => null);
+    if (!st || !st.isFile()) continue;
+
+    const mimeType = toolResultMime(relPath);
+
+    // Size alone would leave the migration's placeholder mime in place forever,
+    // so a stale mime also counts as work to redo.
+    const prior = existing.get(meta.sessionId, relPath) as
+      { size_bytes: number; mime_type: string } | undefined;
+    if (prior && prior.size_bytes === st.size && prior.mime_type === mimeType) continue;
+
+    if (st.size > TOOL_RESULT_MAX_BYTES) continue;
+
+    const buffer = await readFile(srcPath).catch(() => null);
+    if (!buffer) continue;
+
+    // First segment names the originating tool call; a nested spill keeps the
+    // directory name (pdf-<uuid>) so every page resolves back to one call.
+    const [head] = relPath.split(path.sep);
+    const toolUseId = head.replace(/\.[^.]+$/, '');
+
+    const hash = createHash('sha256').update(buffer).digest('hex');
+    const destPath = path.join(attachmentsDir, hash);
+
+    if (!existsSync(destPath)) {
+      if (!madeDir) {
+        await mkdir(attachmentsDir, { recursive: true });
+        madeDir = true;
+      }
+      await writeFile(destPath, buffer);
+    }
+
+    insert.run(meta.sessionId, toolUseId, relPath, mimeType, st.size, hash, srcPath);
+    result.filesScanned++;
   }
 }
 
@@ -1747,6 +1873,7 @@ export async function ingestAll(): Promise<IngestResult> {
       // last user turn, and we still need to backfill the historical fleet.
       if (!parentHasNewBytes) {
         await ingestSubagentsForSession(db, dir, meta, projectId, result);
+        await archiveToolResultsForSession(db, dir, meta, result);
         continue;
       }
 
@@ -1885,6 +2012,10 @@ export async function ingestAll(): Promise<IngestResult> {
 
       // Subagent JSONLs live in <dir>/<sessionId>/subagents/agent-*.jsonl.
       await ingestSubagentsForSession(db, dir, meta, projectId, result);
+
+      // Spilled tool outputs live in <dir>/<sessionId>/tool-results/ and age
+      // out on the same sweep as the transcript — copy them while they exist.
+      await archiveToolResultsForSession(db, dir, meta, result);
     }
   }
 
