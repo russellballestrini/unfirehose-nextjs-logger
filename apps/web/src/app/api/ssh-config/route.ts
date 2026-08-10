@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, writeFile, readdir } from 'fs/promises';
+import { readFile, writeFile, readdir, rename } from 'fs/promises';
+import { createHash } from 'crypto';
 import { homedir } from 'os';
 import path from 'path';
 
@@ -59,15 +60,40 @@ function serializeHost(host: { name: string; hostname?: string; port?: string; u
   return lines.join('\n');
 }
 
-// GET — list hosts + available keys
-export async function GET() {
-  let configText = '';
-  try {
-    configText = await readFile(SSH_CONFIG, 'utf-8');
-  } catch {
-    // no config yet
-  }
+function hashConfig(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
 
+async function readConfig(): Promise<string> {
+  try {
+    return await readFile(SSH_CONFIG, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+// Atomic write: temp file + rename so a concurrent reader never sees a torn
+// config and a crash mid-write never truncates it.
+async function writeConfigAtomic(text: string): Promise<void> {
+  const tmp = path.join(SSH_DIR, `.config.tmp-${process.pid}`);
+  await writeFile(tmp, text, { mode: 0o600 });
+  await rename(tmp, SSH_CONFIG);
+}
+
+function invalidName(name: unknown): boolean {
+  return !name || typeof name !== 'string' || name.includes('*') || name.includes('/') || name.includes('..');
+}
+
+function conflict(configText: string) {
+  return NextResponse.json(
+    { error: 'SSH config changed on disk since it was loaded', hosts: parseSshConfig(configText), hash: hashConfig(configText) },
+    { status: 409 }
+  );
+}
+
+// GET — list hosts + available keys + content hash for optimistic concurrency
+export async function GET() {
+  const configText = await readConfig();
   const hosts = parseSshConfig(configText);
 
   // List available public keys
@@ -79,62 +105,76 @@ export async function GET() {
     // no .ssh dir
   }
 
-  return NextResponse.json({ hosts, keys });
+  return NextResponse.json({ hosts, keys, hash: hashConfig(configText) });
 }
 
-// POST — add or update a host entry
+// POST — add, update, or rename a host entry.
+// `originalName` targets the block being edited (supports renames);
+// `hash` is the config hash the client loaded — mismatch means someone else
+// wrote the file since, so we 409 instead of clobbering their change.
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { name, hostname, port, user, identityFile, forwardAgent } = body;
+  const { name, hostname, port, user, identityFile, forwardAgent, originalName, hash } = body;
 
-  if (!name || typeof name !== 'string') {
-    return NextResponse.json({ error: 'Missing host name' }, { status: 400 });
-  }
-
-  // Reject wildcards and dangerous names
-  if (name.includes('*') || name.includes('/') || name.includes('..')) {
+  if (invalidName(name)) {
     return NextResponse.json({ error: 'Invalid host name' }, { status: 400 });
   }
+  if (originalName !== undefined && invalidName(originalName)) {
+    return NextResponse.json({ error: 'Invalid original host name' }, { status: 400 });
+  }
 
-  let configText = '';
-  try {
-    configText = await readFile(SSH_CONFIG, 'utf-8');
-  } catch {
-    // will create
+  const configText = await readConfig();
+  if (hash && hash !== hashConfig(configText)) {
+    return conflict(configText);
   }
 
   const hosts = parseSshConfig(configText);
-  const existing = hosts.find(h => h.name === name);
+  const targetName = originalName ?? name;
+  const existing = hosts.find(h => h.name === targetName);
+
+  // Renaming onto a name that already has its own block would silently fork —
+  // reject so the caller resolves it explicitly.
+  if (originalName && originalName !== name && hosts.some(h => h.name === name)) {
+    return NextResponse.json({ error: `Host "${name}" already exists` }, { status: 400 });
+  }
+
   const newBlock = serializeHost({ name, hostname, port, user, identityFile, forwardAgent });
 
   let newConfig: string;
   if (existing) {
-    // Replace existing block
-    newConfig = configText.replace(existing.raw, newBlock);
+    // Replace existing block by position, not String.replace, so identical
+    // sibling blocks can't be swapped by mistake.
+    const idx = configText.indexOf(existing.raw);
+    newConfig = configText.slice(0, idx) + newBlock + configText.slice(idx + existing.raw.length);
   } else {
     // Append
     newConfig = configText.trimEnd() + '\n\n' + newBlock + '\n';
   }
 
-  await writeFile(SSH_CONFIG, newConfig, { mode: 0o600 });
+  await writeConfigAtomic(newConfig);
 
-  return NextResponse.json({ ok: true, host: { name, hostname, port, user, identityFile, forwardAgent } });
+  return NextResponse.json({
+    ok: true,
+    host: { name, hostname, port, user, identityFile, forwardAgent },
+    hash: hashConfig(newConfig),
+  });
 }
 
-// DELETE — remove a host entry
+// DELETE — remove a host entry (same hash precondition as POST)
 export async function DELETE(request: NextRequest) {
   const body = await request.json();
-  const { name } = body;
+  const { name, hash } = body;
 
   if (!name || typeof name !== 'string') {
     return NextResponse.json({ error: 'Missing host name' }, { status: 400 });
   }
 
-  let configText = '';
-  try {
-    configText = await readFile(SSH_CONFIG, 'utf-8');
-  } catch {
+  const configText = await readConfig();
+  if (!configText) {
     return NextResponse.json({ error: 'No SSH config found' }, { status: 404 });
+  }
+  if (hash && hash !== hashConfig(configText)) {
+    return conflict(configText);
   }
 
   const hosts = parseSshConfig(configText);
@@ -143,8 +183,10 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Host not found' }, { status: 404 });
   }
 
-  const newConfig = configText.replace(existing.raw, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
-  await writeFile(SSH_CONFIG, newConfig, { mode: 0o600 });
+  const idx = configText.indexOf(existing.raw);
+  const removed = configText.slice(0, idx) + configText.slice(idx + existing.raw.length);
+  const newConfig = removed.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  await writeConfigAtomic(newConfig);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, hash: hashConfig(newConfig) });
 }

@@ -565,7 +565,7 @@ export default function PermacomputerPage() {
     }).catch(() => {});
   }, [mesh]);
 
-  const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[] }>('/api/ssh-config', fetcher);
+  const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[]; hash?: string }>('/api/ssh-config', fetcher);
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
   const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 60000 });
   const { data: unsandboxServices } = useSWR(
@@ -714,7 +714,7 @@ export default function PermacomputerPage() {
 
       {/* Node Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} mutate={() => { mutateSsh(); mutateMesh(); }} seedEcon={saveNodeEcon} settings={settings} />
+        <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} configHash={sshData?.hash} mutate={() => { mutateSsh(); mutateMesh(); }} seedEcon={saveNodeEcon} settings={settings} />
         {allNodes.map(({ meshNode, sshHost, key }) => (
           <NodeCard
             key={key}
@@ -1055,7 +1055,7 @@ function MiniGauge({ label, value, pct }: { label: string; value: string; pct: n
 // ============================================================
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function AddNodeButton({ hosts: _hosts, keys, mutate, seedEcon, settings }: { hosts: SshHost[]; keys: string[]; mutate: () => void; seedEcon?: (hostname: string, econ: NodeEcon) => Promise<void>; settings?: any }) {
+function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEcon, settings }: { hosts: SshHost[]; keys: string[]; configHash?: string; mutate: () => void; seedEcon?: (hostname: string, econ: NodeEcon) => Promise<void>; settings?: any }) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<SshHost>({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' });
   const [saving, setSaving] = useState(false);
@@ -1064,7 +1064,17 @@ function AddNodeButton({ hosts: _hosts, keys, mutate, seedEcon, settings }: { ho
     if (!form.name) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/ssh-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const res = await fetch('/api/ssh-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, hash: configHash }) });
+      if (res.status === 409) {
+        mutate();
+        alert('SSH config changed on disk since this page loaded — reloaded it. Please re-apply your entry.');
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error ?? 'Failed to save host');
+        return;
+      }
       if (res.ok) {
         // Seed a placeholder econ so the new node shows up immediately under the
         // "configured-only" filter. User refines from the node detail page.
@@ -1132,8 +1142,9 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
     if (!form.name) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/ssh-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const res = await fetch('/api/ssh-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, originalName: sshHost?.name }) });
       if (res.ok) { mutateSsh(); mutateMesh(); setEditing(false); }
+      else alert((await res.json().catch(() => ({}))).error ?? 'Failed to save host');
     } finally { setSaving(false); }
   };
 
@@ -1166,7 +1177,7 @@ function NodeDetailPanel({ hostname, sshHost, meshNode, onClose, keys, mutateSsh
         <div className="flex items-center gap-2">
           <button onClick={refresh} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer">refresh</button>
           {sshHost && (
-            <button onClick={() => setEditing(!editing)} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer">
+            <button onClick={() => { if (!editing) setForm(sshHost ?? { name: hostname }); setEditing(!editing); }} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer">
               {editing ? 'cancel edit' : 'edit host'}
             </button>
           )}

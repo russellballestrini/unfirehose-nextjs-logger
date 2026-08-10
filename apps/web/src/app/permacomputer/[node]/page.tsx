@@ -543,23 +543,36 @@ export default function NodeDetailPage() {
   const [sshForm, setSshForm] = useState<{ name: string; hostname?: string; port?: string; user?: string; identityFile?: string; forwardAgent?: string }>({ name: host });
   const [sshSaving, setSshSaving] = useState(false);
 
-  // Hydrate SSH form from config
+  // Hydrate SSH form from config — never while editing, or every SWR
+  // revalidation clobbers in-progress changes mid-keystroke.
+  const sshOriginalName = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (sshEditing) return;
     if (!sshConfig?.hosts) return;
     const found = sshConfig.hosts.find((h: any) => h.name === host || h.hostname === host);
-    if (found) setSshForm(found);
-  }, [sshConfig, host]);
+    if (found) { setSshForm(found); sshOriginalName.current = found.name; }
+  }, [sshConfig, host, sshEditing]);
 
   const saveSshHost = async () => {
     setSshSaving(true);
     try {
-      await fetch('/api/ssh-config', {
+      const res = await fetch('/api/ssh-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sshForm),
+        // originalName lets the server treat a name change as a rename of the
+        // existing block instead of appending a duplicate; hash makes the save
+        // fail with 409 if the file changed since we loaded it.
+        body: JSON.stringify({ ...sshForm, originalName: sshOriginalName.current, hash: sshConfig?.hash }),
       });
-      await mutateSsh();
-      setSshEditing(false);
+      if (res.status === 409) {
+        await mutateSsh();
+        alert('SSH config changed on disk since this page loaded — reloaded it. Please re-apply your edit.');
+      } else if (!res.ok) {
+        alert((await res.json().catch(() => ({}))).error ?? 'Failed to save host');
+      } else {
+        await mutateSsh();
+        setSshEditing(false);
+      }
     } catch { /* ignore */ }
     setSshSaving(false);
   };
