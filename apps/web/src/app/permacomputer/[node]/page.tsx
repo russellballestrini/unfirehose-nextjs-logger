@@ -6,6 +6,7 @@ import Link from 'next/link';
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes, TIME_RANGE_OPTIONS } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
+import { ThermalPanel } from '@/components/ThermalPanel';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
   AreaChart,
@@ -830,20 +831,6 @@ export default function NodeDetailPage() {
               </Section>
             )}
 
-            {probe?.temperatures?.length > 0 && (
-              <Section title="Thermal Zones">
-                <div className="flex flex-wrap gap-3">
-                  {probe.temperatures.map((t: any) => (
-                    <div key={t.zone} className="text-sm">
-                      <span className="text-[var(--color-muted)]">{t.zone}</span>{' '}
-                      <span className={t.tempC > 80 ? 'text-[var(--color-error)] font-bold' : t.tempC > 60 ? 'text-[#f97316]' : 'text-[var(--color-foreground)]'}>
-                        {t.tempC}°C
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
           </div>
 
           <div className="space-y-6">
@@ -913,6 +900,14 @@ export default function NodeDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Thermal & cooling — full width: sensor bars plus temp/fan/clock charts */}
+        <ThermalPanel
+          host={host}
+          temps={probe?.sensors?.temps ?? []}
+          fans={probe?.sensors?.fans ?? []}
+          throttle={probe?.throttle ?? null}
+        />
 
         {/* Time-Series Charts */}
         {chartData.length > 0 && (() => {

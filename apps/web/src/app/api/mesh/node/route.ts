@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
+import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle } from '@/lib/sensors';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -82,10 +83,52 @@ nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,nohead
 echo '===SECTION:AMD_GPU==='
 rocm-smi --showtemp --showuse --showmemuse --showpower --showfan --csv 2>/dev/null || echo 'none'
 
-# --- temperatures ---
+# --- temperatures (ACPI thermal zones) ---
+# Emitted as type|millidegrees pairs on one line each. The old shape printed
+# every temp then every type as two separate runs and rejoined them by index,
+# which silently mispaired the moment one cat returned fewer lines than the
+# other (a zone can vanish between the two globs).
 echo '===SECTION:TEMPS==='
-cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | head -10 || echo 'none'
-cat /sys/class/thermal/thermal_zone*/type 2>/dev/null | head -10 || echo ''
+for z in /sys/class/thermal/thermal_zone*; do
+  [ -d "\$z" ] || continue
+  echo "\$(cat "\$z/type" 2>/dev/null)|\$(cat "\$z/temp" 2>/dev/null)"
+done
+
+# --- hwmon sensors (temps + fans, with per-sensor limits) ---
+# hwmon is strictly richer than thermal_zone: it carries chip names, human
+# labels (Core 0, Composite), fan RPM, and each sensor's own crit/max. We
+# grade against those limits rather than a hardcoded threshold — 87C on a
+# chip that crits at 100 is not the same story as 87C on an unbounded
+# chassis zone. Emits chip|key|label|value|crit|max|pwm.
+echo '===SECTION:HWMON==='
+for d in /sys/class/hwmon/hwmon*; do
+  [ -d "\$d" ] || continue
+  n=\$(cat "\$d/name" 2>/dev/null)
+  [ -n "\$n" ] || n=hwmon
+  for f in "\$d"/temp*_input "\$d"/fan*_input; do
+    [ -e "\$f" ] || continue
+    b=\${f%_input}
+    k=\$(basename "\$b")
+    v=\$(cat "\$f" 2>/dev/null)
+    [ -n "\$v" ] || continue
+    p=''
+    case "\$k" in fan*) p=\$(cat "\$d/pwm\${k#fan}" 2>/dev/null) ;; esac
+    echo "\$n|\$k|\$(cat "\${b}_label" 2>/dev/null)|\$v|\$(cat "\${b}_crit" 2>/dev/null)|\$(cat "\${b}_max" 2>/dev/null)|\$p"
+  done
+done
+
+# --- thermal throttling + clock ---
+# The counters are the ground truth for "did this box actually throttle".
+# Temperature says how hot; these say what the hot cost us. A rising
+# package_throttle_count with the clock parked below cpuinfo_max_freq is
+# exactly the state a human feels as a stuttering mouse and glitching audio.
+echo '===SECTION:THROTTLE==='
+echo "pkg_count|\$(cat /sys/devices/system/cpu/cpu*/thermal_throttle/package_throttle_count 2>/dev/null | sort -n | tail -1)"
+echo "core_count|\$(cat /sys/devices/system/cpu/cpu*/thermal_throttle/core_throttle_count 2>/dev/null | sort -n | tail -1)"
+echo "pkg_ms|\$(cat /sys/devices/system/cpu/cpu*/thermal_throttle/package_throttle_total_time_ms 2>/dev/null | sort -n | tail -1)"
+echo "cur_khz|\$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | awk '{s+=\$1;n++} END{if(n)print int(s/n)}')"
+echo "max_khz|\$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null)"
+echo "min_khz|\$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq 2>/dev/null)"
 
 # --- network interfaces ---
 echo '===SECTION:NET==='
@@ -117,7 +160,7 @@ echo '===SECTION:END==='
 const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
   'LOADAVG', 'UPTIME', 'DISK', 'PS', 'CLAUDE_PS', 'NVIDIA', 'NVIDIA_PS',
-  'AMD_GPU', 'TEMPS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
+  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
 ];
 
 function parseSection(output: string, marker: string): string {
@@ -267,19 +310,6 @@ function parseDisk(raw: string) {
   }).filter(Boolean);
 }
 
-function parseTemperatures(raw: string) {
-  if (!raw || raw === 'none') return [];
-  const lines = raw.split('\n').filter(l => l.trim());
-  // First half is temps (millidegrees), second half is zone types
-  const mid = Math.ceil(lines.length / 2);
-  const temps = lines.slice(0, mid).map(l => parseFloat(l) / 1000);
-  const types = lines.slice(mid);
-  return temps.map((t, i) => ({
-    zone: types[i] ?? `zone${i}`,
-    tempC: round(t),
-  }));
-}
-
 function parseNetInterfaces(raw: string) {
   if (!raw || raw === 'n/a') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
@@ -374,6 +404,8 @@ function parseProbeOutput(raw: string, host: string) {
   const nvidiaProcesses = parseNvidiaProcesses(parseSection(raw, 'NVIDIA_PS'));
   const amdGpus = parseAmdGpu(parseSection(raw, 'AMD_GPU'));
   const temperatures = parseTemperatures(parseSection(raw, 'TEMPS'));
+  const sensors = mergeSensors(parseHwmon(parseSection(raw, 'HWMON')), temperatures);
+  const throttle = parseThrottle(parseSection(raw, 'THROTTLE'));
   const netInterfaces = parseNetInterfaces(parseSection(raw, 'NET'));
   const netDev = parseNetDev(parseSection(raw, 'NETSTAT'));
   const docker = parseDocker(parseSection(raw, 'DOCKER'));
@@ -397,7 +429,11 @@ function parseProbeOutput(raw: string, host: string) {
       amd: amdGpus,
       hasGpu: nvidiaGpus.length > 0 || amdGpus.length > 0,
     },
+    // `temperatures` stays the raw ACPI zone list — the mesh overview page
+    // reads that shape. `sensors` is the merged, labeled, limit-aware view.
     temperatures,
+    sensors,
+    throttle,
     network: { interfaces: netInterfaces, throughput: netDev },
     containers: docker,
     sessions: { tmux: tmuxSessions, screen: screenSessions },
