@@ -998,6 +998,7 @@ export default function NodeDetailPage() {
           fans={probe?.sensors?.fans ?? []}
           throttle={probe?.throttle ?? null}
           gpus={probe?.gpu?.nvidia ?? []}
+          topology={probe?.cpuTopology ?? null}
         />
 
         {/* Time-Series Charts */}

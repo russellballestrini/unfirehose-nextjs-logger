@@ -14,15 +14,21 @@
 
 export interface SensorTemp {
   chip: string;
+  /** hwmon instance (hwmon0…) — the only thing separating two sockets'
+   *  coretemp chips, which otherwise share chip name AND sensor key. */
+  instance: string;
   key: string;
   label: string;
   tempC: number;
   critC: number | null;
   maxC: number | null;
+  /** Package this sensor's chip reports, from its own "Package id N". */
+  socket: number | null;
 }
 
 export interface SensorFan {
   chip: string;
+  instance: string;
   key: string;
   label: string;
   rpm: number;
@@ -104,7 +110,7 @@ export function parseHwmon(raw: string): { temps: SensorTemp[]; fans: SensorFan[
 
   for (const line of raw.split('\n')) {
     if (!line.includes('|')) continue;
-    const [chip, key, label, value, crit, max, pwm] = line.split('|');
+    const [chip, instance, key, label, value, crit, max, pwm] = line.split('|');
     const v = parseFloat(value);
     if (!Number.isFinite(v) || v === 0) continue;
 
@@ -113,17 +119,20 @@ export function parseHwmon(raw: string): { temps: SensorTemp[]; fans: SensorFan[
       if (tempC < -50 || tempC > 200) continue;
       temps.push({
         chip,
+        instance: instance || chip,
         key,
         label: label?.trim() || '',
         tempC: round(tempC),
         critC: sanitizeLimitC(crit),
         maxC: sanitizeLimitC(max),
+        socket: null,
       });
     } else if (key?.startsWith('fan')) {
       // pwm is 0-255 duty, not a percentage.
       const duty = parseFloat(pwm);
       fans.push({
         chip,
+        instance: instance || chip,
         key,
         label: label?.trim() || '',
         rpm: Math.round(v),
@@ -131,6 +140,20 @@ export function parseHwmon(raw: string): { temps: SensorTemp[]; fans: SensorFan[
       });
     }
   }
+
+  // Each coretemp instance carries exactly one "Package id N", which names
+  // the socket every core sensor on that instance belongs to. Without this,
+  // socket 1's Core 0 is indistinguishable from socket 0's.
+  const socketOfInstance = new Map<string, number>();
+  for (const t of temps) {
+    const m = /^Package id (\d+)$/.exec(t.label);
+    if (m) socketOfInstance.set(t.instance, parseInt(m[1]));
+  }
+  for (const t of temps) {
+    const s = socketOfInstance.get(t.instance);
+    if (s !== undefined) t.socket = s;
+  }
+
   return { temps, fans };
 }
 
@@ -148,8 +171,18 @@ export function mergeSensors(
 ): { temps: MergedTemp[]; fans: SensorFan[] } {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const seen = new Set<string>();
+  // On a multi-socket box the same label arrives once per socket, so the
+  // socket has to be part of the display name or two real, differently-hot
+  // cores render as one.
+  const multiSocket = new Set(
+    hwmon.temps.map(t => t.socket).filter(s => s !== null),
+  ).size > 1;
+
   const temps: MergedTemp[] = hwmon.temps.map(t => {
-    const name = t.label || t.chip;
+    const base = t.label || t.chip;
+    const name = multiSocket && t.socket !== null && /^Core \d+$/.test(t.label)
+      ? `S${t.socket} ${base}`
+      : base;
     seen.add(norm(name));
     seen.add(norm(t.chip));
     return { ...t, name, source: 'hwmon' };
@@ -166,16 +199,165 @@ export function mergeSensors(
     seen.add(norm(z.zone));
     temps.push({
       chip: 'acpi',
+      instance: 'acpi',
       key: z.zone,
       label: z.zone,
       tempC: z.tempC,
       critC: null,
       maxC: null,
+      socket: null,
       name: z.zone,
       source: 'acpi',
     });
   }
   return { temps, fans: hwmon.fans };
+}
+
+export interface TopoCore {
+  coreId: number;
+  pkg: number;
+  die: number;
+  /** Cores sharing this core's cluster cache, as a stable group key. */
+  clusterKey: string;
+  /** Cores in that cluster — 1 means a private cluster cache. */
+  clusterSize: number;
+  maxKhz: number | null;
+  /** 'P'/'E' only when a machine genuinely has two frequency tiers. */
+  tier: 'P' | 'E' | null;
+  threads: number[];
+}
+
+export interface CpuTopology {
+  cores: TopoCore[];
+  hybrid: boolean;
+  /** Which cache level produced our clustering, for display. */
+  clusterLevel: 2 | 3 | null;
+  packages: number;
+  dies: number;
+}
+
+/** "0-3" / "0,4" / "16-19" → [0,1,2,3] */
+function expandCpuList(list: string): number[] {
+  const out: number[] = [];
+  for (const part of list.split(',')) {
+    const t = part.trim();
+    if (!t) continue;
+    const m = /^(\d+)-(\d+)$/.exec(t);
+    if (m) {
+      for (let i = +m[1]; i <= +m[2]; i++) out.push(i);
+    } else if (/^\d+$/.test(t)) {
+      out.push(+t);
+    }
+  }
+  return out;
+}
+
+/**
+ * CPU topology → physical cores with cluster and tier.
+ *
+ * Deliberately derived from sysfs rather than a model-name table: every
+ * Linux box publishes this, and a lookup table is wrong the day a node we
+ * have never seen joins our mesh.
+ *
+ * Clustering picks whichever cache level actually groups cores. Intel
+ * hybrid shares L2 across an E-core quad; AMD keeps L2 private and shares
+ * L3 across a CCX. Choosing a level up front would draw one vendor's
+ * floorplan correctly and flatten the other's.
+ */
+export function parseCpuTopology(raw: string): CpuTopology | null {
+  if (!raw || raw === 'none') return null;
+
+  const byCore = new Map<string, TopoCore & { l2: string; l3: string }>();
+  const pkgs = new Set<number>();
+  const dies = new Set<string>();
+
+  for (const line of raw.split('\n')) {
+    if (!line.includes('|')) continue;
+    const [cpuS, coreS, pkgS, dieS, l2, l3, khzS] = line.split('|');
+    const cpu = parseInt(cpuS);
+    const coreId = parseInt(coreS);
+    if (!Number.isFinite(cpu) || !Number.isFinite(coreId)) continue;
+    const pkg = parseInt(pkgS) || 0;
+    const die = parseInt(dieS) || 0;
+    const khz = parseFloat(khzS);
+    pkgs.add(pkg);
+    dies.add(`${pkg}/${die}`);
+
+    // Keyed by package+die+core, NOT core alone. Every socket numbers its
+    // cores from 0, so a dual-socket Xeon collapses to a single socket's
+    // worth of cores under a coreId-only key — half our fleet's cores
+    // silently vanishing.
+    const key = `${pkg}/${die}/${coreId}`;
+    // Threads collapse onto their physical core — a core has one sensor.
+    const existing = byCore.get(key);
+    if (existing) {
+      existing.threads.push(cpu);
+      continue;
+    }
+    byCore.set(key, {
+      coreId, pkg, die,
+      clusterKey: '', clusterSize: 1,
+      maxKhz: Number.isFinite(khz) ? khz : null,
+      tier: null,
+      threads: [cpu],
+      l2: (l2 || '').trim(),
+      l3: (l3 || '').trim(),
+    });
+  }
+  if (!byCore.size) return null;
+
+  const cores = [...byCore.values()].sort(
+    (a, b) => a.pkg - b.pkg || a.die - b.die || a.coreId - b.coreId,
+  );
+
+  // Count distinct physical cores behind each cache group, at both levels.
+  const coresPerGroup = (pick: (c: typeof cores[number]) => string) => {
+    const m = new Map<string, Set<string>>();
+    for (const c of cores) {
+      const k = pick(c);
+      if (!k) continue;
+      (m.get(k) ?? m.set(k, new Set()).get(k)!).add(`${c.pkg}/${c.die}/${c.coreId}`);
+    }
+    return m;
+  };
+  const l2Groups = coresPerGroup(c => c.l2);
+  const l3Groups = coresPerGroup(c => c.l3);
+
+  // A level clusters usefully when it puts >1 core in a group AND does not
+  // simply swallow every core into one group.
+  const useful = (m: Map<string, Set<string>>) =>
+    m.size > 1 && [...m.values()].some(s => s.size > 1);
+
+  let clusterLevel: 2 | 3 | null = null;
+  let groups: Map<string, Set<string>> | null = null;
+  if (useful(l2Groups)) { clusterLevel = 2; groups = l2Groups; }
+  else if (useful(l3Groups)) { clusterLevel = 3; groups = l3Groups; }
+
+  for (const c of cores) {
+    const key = clusterLevel === 2 ? c.l2 : clusterLevel === 3 ? c.l3 : '';
+    c.clusterKey = key ? `${c.pkg}/${c.die}/${key}` : `core${c.pkg}/${c.die}/${c.coreId}`;
+    c.clusterSize = groups?.get(key)?.size ?? 1;
+  }
+
+  // Two frequency tiers means a hybrid part. One tier (or no cpufreq at
+  // all, as under many hypervisors) means every core is peer.
+  const freqs = [...new Set(cores.map(c => c.maxKhz).filter((f): f is number => f != null))];
+  const hybrid = freqs.length > 1 && Math.max(...freqs) - Math.min(...freqs) > 200_000;
+  if (hybrid) {
+    // Split on the midpoint of the observed range, not on the top value —
+    // a 14900K's two favored cores boost 300MHz above their eight peers and
+    // must not become their own tier.
+    const mid = (Math.max(...freqs) + Math.min(...freqs)) / 2;
+    for (const c of cores) c.tier = c.maxKhz != null && c.maxKhz >= mid ? 'P' : 'E';
+  }
+
+  return {
+    cores: cores.map(({ l2: _l2, l3: _l3, ...c }) => c),
+    hybrid,
+    clusterLevel,
+    packages: pkgs.size,
+    dies: dies.size,
+  };
 }
 
 /**

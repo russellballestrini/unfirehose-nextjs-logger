@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
-import type { MergedTemp, SensorFan, ThrottleInfo } from '@/lib/sensors';
+import type { MergedTemp, SensorFan, ThrottleInfo, CpuTopology, TopoCore } from '@/lib/sensors';
 
 // Sensors lacking a declared crit still need a scale. Tjmax is ~100°C on
 // essentially every x86 part we run, so grade against that and mark it
@@ -44,6 +44,31 @@ type SensorTemp = MergedTemp;
 function coreIndexOf(t: { label: string }): number | null {
   const m = /^Core (\d+)$/.exec(t.label);
   return m ? parseInt(m[1]) : null;
+}
+
+// A core's identity is (socket, coreId) — every socket numbers from 0.
+function coreKeyOf(t: { label: string; socket: number | null }): string | null {
+  const i = coreIndexOf(t);
+  return i == null ? null : `${t.socket ?? 0}/${i}`;
+}
+
+/**
+ * Column count that renders `n` tiles as the squarest rectangle available.
+ *
+ * Prefers an exact divisor pair so a block comes out solid rather than with
+ * a ragged last row — 8 becomes 4×2, 24 becomes 6×4, 16 becomes 4×4. Falls
+ * back to a near-square ragged grid when n is prime or the best pair is too
+ * elongated to read as a block (7 would otherwise be a 7×1 line).
+ */
+function bestCols(n: number): number {
+  if (n <= 1) return 1;
+  if (n <= 3) return n;
+  let best = 0;
+  for (let rows = 1; rows * rows <= n; rows++) {
+    if (n % rows === 0) best = n / rows;   // widest-to-squarest exact pair
+  }
+  if (best && best / (n / best) <= 3) return best;
+  return Math.ceil(Math.sqrt(n));
 }
 
 function slug(s: string) {
@@ -226,6 +251,179 @@ function useSensorHistory(
   return rows;
 }
 
+function CoreTile({ t, topo }: { t: SensorTemp; topo?: TopoCore }) {
+  const { limit } = limitOf(t);
+  const pct = (t.tempC / limit) * 100;
+  const color = heatColor(pct);
+  const ghz = topo?.maxKhz ? (topo.maxKhz / 1_000_000).toFixed(1) : null;
+  return (
+    <div
+      title={
+        `${t.label} — ${t.tempC}°C, ${pct.toFixed(0)}% of its ${limit}°C limit.` +
+        (ghz ? ` Rated ${ghz} GHz${topo?.tier ? ` (${topo.tier}-core)` : ''}.` : '') +
+        (topo?.threads.length ? ` Threads: ${topo.threads.join(', ')}.` : '') +
+        ' Numbering comes from coretemp and follows physical core IDs, which are sparse on many parts — 0, 4, 8, 12 is sorted, not shuffled.' +
+        ' A single core well above its neighbours usually means one pinned thread, not a cooling fault.'
+      }
+      className="rounded text-center py-1 font-mono tabular-nums leading-tight border"
+      style={{
+        // Fill carries the heat so a block reads as a gradient at a glance;
+        // the border keeps a cool core from vanishing entirely.
+        //
+        // Text stays a fixed near-white rather than the heat colour. Tinting
+        // both meant an orange core printed orange on orange and a hot one
+        // red on red — exactly where the number matters most, it disappeared.
+        // Fill tops out at 80% so light text keeps its contrast at the red end.
+        background: `color-mix(in srgb, ${color} ${Math.max(14, Math.min(pct * 0.8, 80))}%, transparent)`,
+        borderColor: `color-mix(in srgb, ${color} 60%, transparent)`,
+        color: '#fafafa',
+      }}
+    >
+      <div className="text-[9px] opacity-55">c{coreIndexOf(t)}</div>
+      <div className="text-[11px] font-bold">{t.tempC.toFixed(0)}°</div>
+    </div>
+  );
+}
+
+function CoreBlock({ list, topoBy, label }: {
+  list: SensorTemp[];
+  topoBy: Map<string, TopoCore>;
+  label?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      {label && (
+        <div className="text-[9px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      )}
+      <div
+        className="grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${bestCols(list.length)}, minmax(0, 46px))` }}
+      >
+        {list.map(t => (
+          <CoreTile key={t.instance + t.key} t={t} topo={topoBy.get(coreKeyOf(t) ?? '')} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Cores drawn as a die floorplan rather than one long line.
+ *
+ * Grouping comes from the machine's own topology: cores sharing a cluster
+ * cache are drawn as one rectangle, because that is what they are on the
+ * die. On an Intel hybrid part that yields four E-cores per shared-L2 quad
+ * beside eight private-L2 P-cores; on AMD it yields a CCX per shared L3.
+ * With no topology, or a homogeneous part, every core lands in one block
+ * sized to the squarest rectangle that fits.
+ */
+function CoreFloorplan({ cores, topology }: { cores: SensorTemp[]; topology: CpuTopology | null }) {
+  // A dual-socket box is two physical chips. Drawing their cores as one
+  // block would be a floorplan of a package that does not exist, so each
+  // socket gets its own die.
+  const sockets = [...new Set(cores.map(c => c.socket ?? 0))].sort((a, b) => a - b);
+  if (sockets.length > 1) {
+    return (
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+        {sockets.map(s => (
+          <div key={s} className="space-y-1">
+            <div className="text-[9px] uppercase tracking-wide text-[var(--color-muted)]">
+              socket {s}
+            </div>
+            <div className="rounded border border-[var(--color-border)] p-1.5">
+              <CoreFloorplanDie
+                cores={cores.filter(c => (c.socket ?? 0) === s)}
+                topology={topology}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <CoreFloorplanDie cores={cores} topology={topology} />;
+}
+
+function CoreFloorplanDie({ cores, topology }: { cores: SensorTemp[]; topology: CpuTopology | null }) {
+  // Keyed by socket/coreId, matching how sensors identify themselves. Core
+  // IDs restart at 0 on every socket, so a bare coreId maps two different
+  // physical cores onto one topology entry.
+  const topoBy = new Map<string, TopoCore>();
+  for (const c of topology?.cores ?? []) topoBy.set(`${c.pkg}/${c.coreId}`, c);
+
+  // Cluster cores by the topology's own grouping. Cores the topology never
+  // mentions still get drawn — a sensor without a matching core_id is worth
+  // showing, just ungrouped.
+  const groups = new Map<string, { cores: SensorTemp[]; topo?: TopoCore }>();
+  for (const t of cores) {
+    const ck = coreKeyOf(t);
+    const topo = ck == null ? undefined : topoBy.get(ck);
+    const key = topo?.clusterKey ?? 'ungrouped';
+    const g = groups.get(key) ?? { cores: [], topo };
+    g.cores.push(t);
+    groups.set(key, g);
+  }
+
+  // Blocks: every private-cluster core (P-cores, or any homogeneous part)
+  // merges into one rectangle; each multi-core cluster keeps its own.
+  const singles: SensorTemp[] = [];
+  const clusters: Array<{ key: string; cores: SensorTemp[]; topo?: TopoCore }> = [];
+  for (const [key, g] of groups) {
+    if (g.cores.length > 1) clusters.push({ key, cores: g.cores, topo: g.topo });
+    else singles.push(...g.cores);
+  }
+  singles.sort((a, b) => (coreIndexOf(a)! - coreIndexOf(b)!));
+  clusters.sort((a, b) => (coreIndexOf(a.cores[0])! - coreIndexOf(b.cores[0])!));
+
+  const tierOf = (t: SensorTemp) => topoBy.get(coreKeyOf(t) ?? '')?.tier;
+  const singlesTier = singles.length ? tierOf(singles[0]) : undefined;
+  const clusterTier = clusters.length ? tierOf(clusters[0].cores[0]) : undefined;
+
+  return (
+    <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
+      {singles.length > 0 && (
+        <CoreBlock
+          list={singles}
+          topoBy={topoBy}
+          label={singlesTier === 'P' ? `${singles.length} P-cores` : undefined}
+        />
+      )}
+      {clusters.length > 0 && (
+        <div className="space-y-1">
+          {clusterTier === 'E' && (
+            <div className="text-[9px] uppercase tracking-wide text-[var(--color-muted)]">
+              {clusters.reduce((n, c) => n + c.cores.length, 0)} E-cores
+              <span className="ml-1 opacity-60">
+                · {clusters.length} clusters sharing L{topology?.clusterLevel ?? 2}
+              </span>
+            </div>
+          )}
+          <div className="flex flex-wrap items-start gap-2">
+            {clusters.map(c => (
+              <div
+                key={c.key}
+                className="rounded border border-[var(--color-border)] p-1"
+                title={`Cores ${c.cores.map(x => coreIndexOf(x)).join(', ')} share one L${topology?.clusterLevel ?? 2} cache — on the die they sit together as one cluster.`}
+              >
+                <div
+                  className="grid gap-1"
+                  style={{ gridTemplateColumns: `repeat(${bestCols(c.cores.length)}, minmax(0, 46px))` }}
+                >
+                  {c.cores
+                    .sort((a, b) => (coreIndexOf(a)! - coreIndexOf(b)!))
+                    .map(t => (
+                      <CoreTile key={t.instance + t.key} t={t} topo={topoBy.get(coreKeyOf(t) ?? '')} />
+                    ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SensorBar({ t }: { t: SensorTemp }) {
   const { limit, assumed } = limitOf(t);
   const pct = (t.tempC / limit) * 100;
@@ -260,13 +458,14 @@ function SensorBar({ t }: { t: SensorTemp }) {
 }
 
 export function ThermalPanel({
-  host, temps, fans, throttle, gpus = [],
+  host, temps, fans, throttle, gpus = [], topology = null,
 }: {
   host: string;
   temps: SensorTemp[];
   fans: SensorFan[];
   throttle: ThrottleInfo | null;
   gpus?: GpuInfo[];
+  topology?: CpuTopology | null;
 }) {
   const history = useSensorHistory(host, temps, fans, throttle, gpus);
 
@@ -499,7 +698,7 @@ export function ThermalPanel({
               <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] font-bold">
                 {chip}
               </div>
-              {list.map(t => <SensorBar key={t.chip + t.key} t={t} />)}
+              {list.map(t => <SensorBar key={t.instance + t.key} t={t} />)}
             </div>
           ))}
         </div>
@@ -519,37 +718,7 @@ export function ThermalPanel({
                 <span className="ml-1 opacity-60">/{coreStats.limit}°</span>
               </span>
             </div>
-            <div
-              className="grid gap-1"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(46px, 1fr))' }}
-            >
-              {cores.map(c => {
-                const { limit } = limitOf(c);
-                const pct = (c.tempC / limit) * 100;
-                const color = heatColor(pct);
-                return (
-                  <div
-                    key={c.chip + c.key}
-                    title={`${c.label} — ${c.tempC}°C, ${pct.toFixed(0)}% of its ${limit}°C limit. Numbering comes from coretemp and follows physical core IDs, which are sparse on many parts — 0, 4, 8, 12 is sorted, not shuffled. A single core well above its neighbours usually means one pinned thread, not a cooling fault.`}
-                    className="rounded text-center py-1 font-mono tabular-nums leading-tight border"
-                    style={{
-                      // Opacity carries the heat so the grid reads as a
-                      // gradient at a glance; the border keeps a cool core
-                      // from disappearing into the background entirely.
-                      background: `color-mix(in srgb, ${color} ${Math.max(12, Math.min(pct, 100))}%, transparent)`,
-                      borderColor: `color-mix(in srgb, ${color} 45%, transparent)`,
-                      color,
-                    }}
-                  >
-                    {/* Core ID on the tile, not only in the tooltip. Without
-                        it a sparse ID space (0, 4, 8, 12 …) reads as shuffled
-                        and there is no way to check the order at a glance. */}
-                    <div className="text-[9px] opacity-60">c{coreIndexOf(c)}</div>
-                    <div className="text-[11px]">{c.tempC.toFixed(0)}°</div>
-                  </div>
-                );
-              })}
-            </div>
+            <CoreFloorplan cores={cores} topology={topology} />
           </div>
         )}
       </div>

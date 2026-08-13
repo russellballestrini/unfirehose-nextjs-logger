@@ -1,26 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import {
   sanitizeLimitC, parseTemperatures, parseHwmon, mergeSensors, parseThrottle,
-  parseGpuThrottleReasons, parseNvidiaClocks,
+  parseGpuThrottleReasons, parseNvidiaClocks, parseCpuTopology,
 } from './sensors';
 
 // Verbatim probe output from neoblanka (ThinkPad, i7-8650U) at
 // 2026-08-13T18:36Z, captured while the box was thermally saturated.
 // Every quirk asserted below is real hardware, not a hypothetical.
 const HWMON_FIXTURE = [
-  'acpitz|temp1||86000|||',
-  'coretemp|temp1|Package id 0|87000|100000|100000|',
-  'coretemp|temp2|Core 0|84000|100000|100000|',
-  'coretemp|temp3|Core 1|87000|100000|100000|',
-  'nvme|temp1|Composite|40850|84850|82850|',
-  'nvme|temp2|Sensor 1|41850||65261850|',   // 65261°C max — sentinel garbage
-  'pch_skylake|temp1||70000|||',
-  'thinkpad|temp1|CPU|86000|||',
-  'thinkpad|temp2|GPU||||',                 // empty — no discrete GPU
-  'thinkpad|temp3||0|||',                   // unpopulated header
-  'thinkpad|temp8||0|||',
-  'thinkpad|fan1||3957|||255',
-  'iwlwifi_1|temp1||53000|||',
+  'acpitz|hwmon1|temp1||86000|||',
+  'coretemp|hwmon10|temp1|Package id 0|87000|100000|100000|',
+  'coretemp|hwmon10|temp2|Core 0|84000|100000|100000|',
+  'coretemp|hwmon10|temp3|Core 1|87000|100000|100000|',
+  'nvme|hwmon4|temp1|Composite|40850|84850|82850|',
+  'nvme|hwmon4|temp2|Sensor 1|41850||65261850|',   // 65261°C max — sentinel garbage
+  'pch_skylake|hwmon7|temp1||70000|||',
+  'thinkpad|hwmon8|temp1|CPU|86000|||',
+  'thinkpad|hwmon8|temp2|GPU||||',                 // empty — no discrete GPU
+  'thinkpad|hwmon8|temp3||0|||',                   // unpopulated header
+  'thinkpad|hwmon8|temp8||0|||',
+  'thinkpad|hwmon8|fan1||3957|||255',
+  'iwlwifi_1|hwmon9|temp1||53000|||',
 ].join('\n');
 
 const TEMPS_FIXTURE = [
@@ -112,7 +112,7 @@ describe('parseHwmon', () => {
   });
 
   it('reports no pwm rather than 0% when the chip publishes none', () => {
-    const { fans: f } = parseHwmon('dell_smm|fan1|Processor Fan|2400|||');
+    const { fans: f } = parseHwmon('dell_smm|hwmon0|fan1|Processor Fan|2400|||');
     expect(f[0].pwmPct).toBeNull();
     expect(f[0].label).toBe('Processor Fan');
   });
@@ -251,5 +251,164 @@ describe('parseNvidiaClocks', () => {
   it('returns an empty map when nvidia-smi is absent', () => {
     expect(parseNvidiaClocks('none').size).toBe(0);
     expect(parseNvidiaClocks('').size).toBe(0);
+  });
+});
+
+describe('parseCpuTopology', () => {
+  // Verbatim from 4090-ai (i9-14900K): 8 P-cores each on a private L2,
+  // 16 E-cores in 4 quads sharing L2. Core IDs step by 4 then run contiguous.
+  const RAPTOR = [
+    '0|0|0|0|0-1||5700000', '1|0|0|0|0-1||5700000',
+    '2|4|0|0|2-3||5700000', '3|4|0|0|2-3||5700000',
+    '4|8|0|0|4-5||5700000', '5|8|0|0|4-5||5700000',
+    '6|12|0|0|6-7||5700000', '7|12|0|0|6-7||5700000',
+    '8|16|0|0|8-9||6000000', '9|16|0|0|8-9||6000000',
+    '10|20|0|0|10-11||6000000', '11|20|0|0|10-11||6000000',
+    '12|24|0|0|12-13||5700000', '13|24|0|0|12-13||5700000',
+    '14|28|0|0|14-15||5700000', '15|28|0|0|14-15||5700000',
+    '16|32|0|0|16-19||4400000', '17|33|0|0|16-19||4400000',
+    '18|34|0|0|16-19||4400000', '19|35|0|0|16-19||4400000',
+    '20|36|0|0|20-23||4400000', '21|37|0|0|20-23||4400000',
+    '22|38|0|0|20-23||4400000', '23|39|0|0|20-23||4400000',
+    '24|40|0|0|24-27||4400000', '25|41|0|0|24-27||4400000',
+    '26|42|0|0|24-27||4400000', '27|43|0|0|24-27||4400000',
+    '28|44|0|0|28-31||4400000', '29|45|0|0|28-31||4400000',
+    '30|46|0|0|28-31||4400000', '31|47|0|0|28-31||4400000',
+  ].join('\n');
+
+  // Verbatim from neoblanka (i5-8350U): homogeneous quad, SMT pairs.
+  const KABY = [
+    '0|0|0|0|0,4||3600000', '1|1|0|0|1,5||3600000',
+    '2|2|0|0|2,6||3600000', '3|3|0|0|3,7||3600000',
+    '4|0|0|0|0,4||3600000', '5|1|0|0|1,5||3600000',
+    '6|2|0|0|2,6||3600000', '7|3|0|0|3,7||3600000',
+  ].join('\n');
+
+  it('collapses SMT threads onto their physical core', () => {
+    const t = parseCpuTopology(KABY)!;
+    expect(t.cores).toHaveLength(4);
+    expect(t.cores[0].threads).toEqual([0, 4]);
+  });
+
+  it('reads a homogeneous part as non-hybrid with no tiers', () => {
+    const t = parseCpuTopology(KABY)!;
+    expect(t.hybrid).toBe(false);
+    expect(t.cores.every(c => c.tier === null)).toBe(true);
+    expect(t.cores.every(c => c.clusterSize === 1)).toBe(true);
+  });
+
+  it('splits a hybrid part into P and E tiers', () => {
+    const t = parseCpuTopology(RAPTOR)!;
+    expect(t.hybrid).toBe(true);
+    const p = t.cores.filter(c => c.tier === 'P');
+    const e = t.cores.filter(c => c.tier === 'E');
+    expect(p).toHaveLength(8);
+    expect(e).toHaveLength(16);
+  });
+
+  it('does not split favored boost cores into their own tier', () => {
+    // Two 14900K P-cores rate 6.0GHz against their peers' 5.7. Splitting on
+    // the top value instead of the range midpoint would make those a tier.
+    const t = parseCpuTopology(RAPTOR)!;
+    const favored = t.cores.filter(c => c.maxKhz === 6_000_000);
+    expect(favored).toHaveLength(2);
+    expect(favored.every(c => c.tier === 'P')).toBe(true);
+  });
+
+  it('clusters E-cores into shared-L2 quads and leaves P-cores private', () => {
+    const t = parseCpuTopology(RAPTOR)!;
+    expect(t.clusterLevel).toBe(2);
+    expect(t.cores.filter(c => c.tier === 'P').every(c => c.clusterSize === 1)).toBe(true);
+    const eClusters = new Set(t.cores.filter(c => c.tier === 'E').map(c => c.clusterKey));
+    expect(eClusters.size).toBe(4);
+    expect(t.cores.filter(c => c.tier === 'E').every(c => c.clusterSize === 4)).toBe(true);
+  });
+
+  it('clusters on L3 when L2 is private, as AMD reports it', () => {
+    // Zen: L2 per core, L3 shared across a CCX. Two CCXs of 2 cores here.
+    const zen = [
+      '0|0|0|0|0-1|0-3|4200000', '1|0|0|0|0-1|0-3|4200000',
+      '2|1|0|0|2-3|0-3|4200000', '3|1|0|0|2-3|0-3|4200000',
+      '4|2|0|1|4-5|4-7|4200000', '5|2|0|1|4-5|4-7|4200000',
+      '6|3|0|1|6-7|4-7|4200000', '7|3|0|1|6-7|4-7|4200000',
+    ].join('\n');
+    const t = parseCpuTopology(zen)!;
+    // L2 groups exist but hold one core each, so L3 is what actually clusters.
+    expect(t.clusterLevel).toBe(3);
+    expect(t.cores.every(c => c.clusterSize === 2)).toBe(true);
+    expect(new Set(t.cores.map(c => c.clusterKey)).size).toBe(2);
+    expect(t.dies).toBe(2);
+  });
+
+  it('survives a machine with no cpufreq, as under a hypervisor', () => {
+    const vm = ['0|0|0|0|||', '1|1|0|0|||'].join('\n');
+    const t = parseCpuTopology(vm)!;
+    expect(t.cores).toHaveLength(2);
+    expect(t.hybrid).toBe(false);
+    expect(t.cores[0].maxKhz).toBeNull();
+    expect(t.clusterLevel).toBeNull();
+  });
+
+  it('counts packages on a multi-socket box', () => {
+    const dual = ['0|0|0|0|0|0-1|3000000', '1|0|1|0|1|0-1|3000000'].join('\n');
+    expect(parseCpuTopology(dual)!.packages).toBe(2);
+  });
+
+  it('returns null when a node reports no topology at all', () => {
+    expect(parseCpuTopology('')).toBeNull();
+    expect(parseCpuTopology('none')).toBeNull();
+  });
+});
+
+describe('dual-socket boxes', () => {
+  // cammy/guile shape: two Xeon E5 sockets, each with its OWN coretemp chip
+  // publishing Package id N and Core 0..7. Chip name and sensor key are
+  // identical across both — only the hwmon instance separates them.
+  const DUAL_HWMON = [
+    'coretemp|hwmon0|temp1|Package id 0|52000|85000|85000|',
+    'coretemp|hwmon0|temp2|Core 0|51000|85000|85000|',
+    'coretemp|hwmon0|temp3|Core 1|49000|85000|85000|',
+    'coretemp|hwmon1|temp1|Package id 1|43000|85000|85000|',
+    'coretemp|hwmon1|temp2|Core 0|40000|85000|85000|',
+    'coretemp|hwmon1|temp3|Core 1|42000|85000|85000|',
+  ].join('\n');
+
+  it('keeps both sockets\' cores instead of collapsing them', () => {
+    const { temps } = parseHwmon(DUAL_HWMON);
+    expect(temps.filter(t => t.label === 'Core 0')).toHaveLength(2);
+  });
+
+  it('attributes each sensor to the socket its own chip reports', () => {
+    const { temps } = parseHwmon(DUAL_HWMON);
+    const c0 = temps.filter(t => t.label === 'Core 0');
+    expect(c0.map(t => t.socket).sort()).toEqual([0, 1]);
+    // Same label, genuinely different temperatures — collapsing them would
+    // have thrown away an 11°C difference between sockets.
+    expect(c0.map(t => t.tempC).sort()).toEqual([40, 51]);
+  });
+
+  it('gives same-labelled cores distinct display names', () => {
+    const merged = mergeSensors(parseHwmon(DUAL_HWMON), []);
+    const names = merged.temps.filter(t => /Core 0/.test(t.name)).map(t => t.name);
+    expect(names.sort()).toEqual(['S0 Core 0', 'S1 Core 0']);
+  });
+
+  it('leaves a single-socket box\'s names unprefixed', () => {
+    const merged = mergeSensors(parseHwmon(HWMON_FIXTURE), []);
+    expect(merged.temps.find(t => t.label === 'Core 0')?.name).toBe('Core 0');
+  });
+
+  it('counts every core across sockets, not one socket\'s worth', () => {
+    // Both sockets number their cores from 0. Keying topology by coreId
+    // alone silently halved an entire dual-socket machine.
+    const dual = [
+      '0|0|0|0|0|0-7|2600000', '1|1|0|0|1|0-7|2600000',
+      '2|0|1|0|2|8-15|2600000', '3|1|1|0|3|8-15|2600000',
+    ].join('\n');
+    const t = parseCpuTopology(dual)!;
+    expect(t.cores).toHaveLength(4);
+    expect(t.packages).toBe(2);
+    expect(t.cores.filter(c => c.pkg === 0)).toHaveLength(2);
+    expect(t.cores.filter(c => c.pkg === 1)).toHaveLength(2);
   });
 });

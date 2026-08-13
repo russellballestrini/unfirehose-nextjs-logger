@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
-import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle, parseNvidiaClocks } from '@/lib/sensors';
+import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle, parseNvidiaClocks, parseCpuTopology } from '@/lib/sensors';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -107,12 +107,18 @@ done
 # labels (Core 0, Composite), fan RPM, and each sensor's own crit/max. We
 # grade against those limits rather than a hardcoded threshold — 87C on a
 # chip that crits at 100 is not the same story as 87C on an unbounded
-# chassis zone. Emits chip|key|label|value|crit|max|pwm.
+# chassis zone.
+# The hwmon instance is carried because a dual-socket box exposes ONE
+# coretemp chip PER SOCKET, each publishing its own Core 0..N. Chip name
+# plus sensor key is identical across them, so without the instance the two
+# sockets' cores are indistinguishable and collide.
+# Emits chip|instance|key|label|value|crit|max|pwm.
 echo '===SECTION:HWMON==='
 for d in /sys/class/hwmon/hwmon*; do
   [ -d "\$d" ] || continue
   n=\$(cat "\$d/name" 2>/dev/null)
   [ -n "\$n" ] || n=hwmon
+  inst=\$(basename "\$d")
   for f in "\$d"/temp*_input "\$d"/fan*_input; do
     [ -e "\$f" ] || continue
     b=\${f%_input}
@@ -121,7 +127,7 @@ for d in /sys/class/hwmon/hwmon*; do
     [ -n "\$v" ] || continue
     p=''
     case "\$k" in fan*) p=\$(cat "\$d/pwm\${k#fan}" 2>/dev/null) ;; esac
-    echo "\$n|\$k|\$(cat "\${b}_label" 2>/dev/null)|\$v|\$(cat "\${b}_crit" 2>/dev/null)|\$(cat "\${b}_max" 2>/dev/null)|\$p"
+    echo "\$n|\$inst|\$k|\$(cat "\${b}_label" 2>/dev/null)|\$v|\$(cat "\${b}_crit" 2>/dev/null)|\$(cat "\${b}_max" 2>/dev/null)|\$p"
   done
 done
 
@@ -137,6 +143,30 @@ echo "pkg_ms|\$(cat /sys/devices/system/cpu/cpu*/thermal_throttle/package_thrott
 echo "cur_khz|\$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | awk '{s+=\$1;n++} END{if(n)print int(s/n)}')"
 echo "max_khz|\$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null)"
 echo "min_khz|\$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq 2>/dev/null)"
+
+# --- cpu topology (for physical core layout) ---
+# core_id + package + die place a core on our chip. Cache sharing is what
+# reveals a cluster, and WHICH level does it is vendor-specific: Intel
+# hybrid parts put four E-cores behind one shared L2, while AMD keeps L2
+# private and clusters at L3 (a CCX). So we read cache level explicitly
+# rather than assuming index2 is L2 — that assumption holds on x86 but not
+# everywhere, and picks the wrong level on AMD regardless.
+# Max frequency separates core types without guessing from a model name.
+# Emits cpu|core_id|pkg|die|l2_shared|l3_shared|max_khz.
+echo '===SECTION:CPUTOPO==='
+for c in /sys/devices/system/cpu/cpu[0-9]*; do
+  [ -d "\$c/topology" ] || continue
+  n=\$(basename "\$c")
+  l2=''; l3=''
+  for ci in "\$c"/cache/index*; do
+    [ -d "\$ci" ] || continue
+    case "\$(cat "\$ci/level" 2>/dev/null)" in
+      2) l2=\$(cat "\$ci/shared_cpu_list" 2>/dev/null) ;;
+      3) l3=\$(cat "\$ci/shared_cpu_list" 2>/dev/null) ;;
+    esac
+  done
+  echo "\${n#cpu}|\$(cat "\$c/topology/core_id" 2>/dev/null)|\$(cat "\$c/topology/physical_package_id" 2>/dev/null)|\$(cat "\$c/topology/die_id" 2>/dev/null)|\$l2|\$l3|\$(cat "\$c/cpufreq/cpuinfo_max_freq" 2>/dev/null)"
+done
 
 # --- network interfaces ---
 echo '===SECTION:NET==='
@@ -168,7 +198,7 @@ echo '===SECTION:END==='
 const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
   'LOADAVG', 'UPTIME', 'DISK', 'PS', 'CLAUDE_PS', 'NVIDIA', 'NVIDIA_PS',
-  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
+  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
 ];
 
 function parseSection(output: string, marker: string): string {
@@ -418,6 +448,7 @@ function parseProbeOutput(raw: string, host: string) {
   const temperatures = parseTemperatures(parseSection(raw, 'TEMPS'));
   const sensors = mergeSensors(parseHwmon(parseSection(raw, 'HWMON')), temperatures);
   const throttle = parseThrottle(parseSection(raw, 'THROTTLE'));
+  const cpuTopology = parseCpuTopology(parseSection(raw, 'CPUTOPO'));
   const netInterfaces = parseNetInterfaces(parseSection(raw, 'NET'));
   const netDev = parseNetDev(parseSection(raw, 'NETSTAT'));
   const docker = parseDocker(parseSection(raw, 'DOCKER'));
@@ -446,6 +477,7 @@ function parseProbeOutput(raw: string, host: string) {
     temperatures,
     sensors,
     throttle,
+    cpuTopology,
     network: { interfaces: netInterfaces, throughput: netDev },
     containers: docker,
     sessions: { tmux: tmuxSessions, screen: screenSessions },
