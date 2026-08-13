@@ -412,3 +412,76 @@ describe('dual-socket boxes', () => {
     expect(t.cores.filter(c => c.pkg === 1)).toHaveLength(2);
   });
 });
+
+describe('non-Intel and non-x86 hosts', () => {
+  // Ryzen 9 7950X. k10temp publishes Tctl plus one Tccd per chiplet, and
+  // NO per-core temperature — that granularity does not exist on AMD.
+  const AMD_HWMON = [
+    'k10temp|hwmon3|temp1|Tctl|61000|||',
+    'k10temp|hwmon3|temp2|Tccd1|58000|||',
+    'k10temp|hwmon3|temp3|Tccd2|56000|||',
+  ].join('\n');
+
+  it('reads AMD chip sensors without inventing cores', () => {
+    const { temps } = parseHwmon(AMD_HWMON);
+    expect(temps.map(t => t.label)).toEqual(['Tctl', 'Tccd1', 'Tccd2']);
+    // The floorplan keys off this; AMD legitimately has nothing here.
+    expect(temps.filter(t => /^Core \d+$/.test(t.label))).toHaveLength(0);
+    // Chiplets are what AMD does expose, and they are real physical units.
+    expect(temps.filter(t => /^Tccd\d+$/.test(t.label))).toHaveLength(2);
+  });
+
+  it('clusters an AMD CCX on L3 where L2 is private', () => {
+    const zen = [
+      '0|0|0|0|0-1|0-15|5700000', '1|0|0|0|0-1|0-15|5700000',
+      '2|1|0|0|2-3|0-15|5700000', '3|1|0|0|2-3|0-15|5700000',
+      '4|2|0|1|4-5|16-31|5700000', '5|2|0|1|4-5|16-31|5700000',
+    ].join('\n');
+    const t = parseCpuTopology(zen)!;
+    expect(t.clusterLevel).toBe(3);
+    expect(t.dies).toBe(2);
+    expect(t.hybrid).toBe(false);
+  });
+
+  // Raspberry Pi 5: one SoC-wide thermal zone, no coretemp, no hwmon cores.
+  it('reads a Pi as a single SoC zone with no floorplan', () => {
+    const m = mergeSensors(parseHwmon(''), parseTemperatures('cpu-thermal|47000'));
+    expect(m.temps).toEqual([
+      expect.objectContaining({ name: 'cpu-thermal', tempC: 47, source: 'acpi' }),
+    ]);
+    expect(m.temps.filter(t => /^Core \d+$/.test(t.label))).toHaveLength(0);
+  });
+
+  it('reads ARM topology without pretending one shared L3 is a cluster', () => {
+    // Pi 5: four Cortex-A76, private L2, one L3 spanning all of them. A
+    // single group covering every core is not a clustering, it is the chip.
+    const pi = [
+      '0|0|0|0|0|0-3|2400000', '1|1|0|0|1|0-3|2400000',
+      '2|2|0|0|2|0-3|2400000', '3|3|0|0|3|0-3|2400000',
+    ].join('\n');
+    const t = parseCpuTopology(pi)!;
+    expect(t.cores).toHaveLength(4);
+    expect(t.clusterLevel).toBeNull();
+    expect(t.cores.every(c => c.clusterSize === 1)).toBe(true);
+    expect(t.hybrid).toBe(false);
+  });
+
+  it('splits an ARM big.LITTLE part on frequency like any hybrid', () => {
+    // A Pi-class SoC with two core types, e.g. an RK3588 4×A76 + 4×A55.
+    const bigLittle = [
+      '0|0|0|0|0|0-3|2400000', '1|1|0|0|1|0-3|2400000',
+      '2|2|0|0|2|4-7|1800000', '3|3|0|0|3|4-7|1800000',
+    ].join('\n');
+    const t = parseCpuTopology(bigLittle)!;
+    expect(t.hybrid).toBe(true);
+    expect(t.cores.filter(c => c.tier === 'P')).toHaveLength(2);
+    expect(t.cores.filter(c => c.tier === 'E')).toHaveLength(2);
+  });
+
+  it('omits x86 throttle counters an ARM board never exposes', () => {
+    // No thermal_throttle sysfs on ARM; cpufreq still reports clocks.
+    const t = parseThrottle('pkg_count|\ncore_count|\npkg_ms|\ncur_khz|1500000\nmax_khz|2400000\nmin_khz|1000000')!;
+    expect(t.packageCount).toBeNull();
+    expect(t.clockPct).toBe(62.5);
+  });
+});

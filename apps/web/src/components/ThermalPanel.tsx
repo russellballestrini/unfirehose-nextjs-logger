@@ -46,6 +46,15 @@ function coreIndexOf(t: { label: string }): number | null {
   return m ? parseInt(m[1]) : null;
 }
 
+// AMD's k10temp publishes NO per-core temperature at all — the finest
+// granularity it exposes is one Tccd per chiplet. Those are still real
+// physical units on the package, so a Ryzen gets a floorplan too, drawn at
+// chiplet resolution instead of core resolution.
+function chipletIndexOf(t: { label: string }): number | null {
+  const m = /^Tccd(\d+)$/i.exec(t.label);
+  return m ? parseInt(m[1]) : null;
+}
+
 // A core's identity is (socket, coreId) — every socket numbers from 0.
 function coreKeyOf(t: { label: string; socket: number | null }): string | null {
   const i = coreIndexOf(t);
@@ -251,7 +260,7 @@ function useSensorHistory(
   return rows;
 }
 
-function CoreTile({ t, topo }: { t: SensorTemp; topo?: TopoCore }) {
+function CoreTile({ t, topo, prefix = 'c' }: { t: SensorTemp; topo?: TopoCore; prefix?: string }) {
   const { limit } = limitOf(t);
   const pct = (t.tempC / limit) * 100;
   const color = heatColor(pct);
@@ -279,16 +288,17 @@ function CoreTile({ t, topo }: { t: SensorTemp; topo?: TopoCore }) {
         color: '#fafafa',
       }}
     >
-      <div className="text-[9px] opacity-55">c{coreIndexOf(t)}</div>
+      <div className="text-[9px] opacity-55">{prefix}{coreIndexOf(t) ?? chipletIndexOf(t)}</div>
       <div className="text-[11px] font-bold">{t.tempC.toFixed(0)}°</div>
     </div>
   );
 }
 
-function CoreBlock({ list, topoBy, label }: {
+function CoreBlock({ list, topoBy, label, prefix = 'c' }: {
   list: SensorTemp[];
   topoBy: Map<string, TopoCore>;
   label?: string;
+  prefix?: string;
 }) {
   return (
     <div className="space-y-1">
@@ -300,7 +310,7 @@ function CoreBlock({ list, topoBy, label }: {
         style={{ gridTemplateColumns: `repeat(${bestCols(list.length)}, minmax(0, 46px))` }}
       >
         {list.map(t => (
-          <CoreTile key={t.instance + t.key} t={t} topo={topoBy.get(coreKeyOf(t) ?? '')} />
+          <CoreTile key={t.instance + t.key} t={t} topo={topoBy.get(coreKeyOf(t) ?? '')} prefix={prefix} />
         ))}
       </div>
     </div>
@@ -317,7 +327,7 @@ function CoreBlock({ list, topoBy, label }: {
  * With no topology, or a homogeneous part, every core lands in one block
  * sized to the squarest rectangle that fits.
  */
-function CoreFloorplan({ cores, topology }: { cores: SensorTemp[]; topology: CpuTopology | null }) {
+function CoreFloorplan({ cores, topology, prefix = 'c' }: { cores: SensorTemp[]; topology: CpuTopology | null; prefix?: string }) {
   // A dual-socket box is two physical chips. Drawing their cores as one
   // block would be a floorplan of a package that does not exist, so each
   // socket gets its own die.
@@ -334,6 +344,7 @@ function CoreFloorplan({ cores, topology }: { cores: SensorTemp[]; topology: Cpu
               <CoreFloorplanDie
                 cores={cores.filter(c => (c.socket ?? 0) === s)}
                 topology={topology}
+                prefix={prefix}
               />
             </div>
           </div>
@@ -341,10 +352,10 @@ function CoreFloorplan({ cores, topology }: { cores: SensorTemp[]; topology: Cpu
       </div>
     );
   }
-  return <CoreFloorplanDie cores={cores} topology={topology} />;
+  return <CoreFloorplanDie cores={cores} topology={topology} prefix={prefix} />;
 }
 
-function CoreFloorplanDie({ cores, topology }: { cores: SensorTemp[]; topology: CpuTopology | null }) {
+function CoreFloorplanDie({ cores, topology, prefix = 'c' }: { cores: SensorTemp[]; topology: CpuTopology | null; prefix?: string }) {
   // Keyed by socket/coreId, matching how sensors identify themselves. Core
   // IDs restart at 0 on every socket, so a bare coreId maps two different
   // physical cores onto one topology entry.
@@ -385,6 +396,7 @@ function CoreFloorplanDie({ cores, topology }: { cores: SensorTemp[]; topology: 
         <CoreBlock
           list={singles}
           topoBy={topoBy}
+          prefix={prefix}
           label={singlesTier === 'P' ? `${singles.length} P-cores` : undefined}
         />
       )}
@@ -412,7 +424,7 @@ function CoreFloorplanDie({ cores, topology }: { cores: SensorTemp[]; topology: 
                   {c.cores
                     .sort((a, b) => (coreIndexOf(a)! - coreIndexOf(b)!))
                     .map(t => (
-                      <CoreTile key={t.instance + t.key} t={t} topo={topoBy.get(coreKeyOf(t) ?? '')} />
+                      <CoreTile key={t.instance + t.key} t={t} topo={topoBy.get(coreKeyOf(t) ?? '')} prefix={prefix} />
                     ))}
                 </div>
               </div>
@@ -549,24 +561,40 @@ export function ThermalPanel({
   const cores = temps
     .filter(t => coreIndexOf(t) !== null)
     .sort((a, b) => (coreIndexOf(a)! - coreIndexOf(b)!));   // hwmon order is not core order
-  const coreSet = new Set(cores);
+
+  // Only Intel's coretemp publishes per-core temperature. AMD's k10temp
+  // stops at one Tccd per chiplet, so on a Ryzen the die units ARE the
+  // chiplets. Anything with neither (a Pi's single SoC zone, a VM) simply
+  // has no floorplan to draw and falls through to ordinary bars.
+  const chiplets = cores.length
+    ? []
+    : temps
+        .filter(t => chipletIndexOf(t) !== null)
+        .sort((a, b) => (chipletIndexOf(a)! - chipletIndexOf(b)!));
+
+  const dieUnits = cores.length ? cores : chiplets;
+  const unitPrefix = cores.length ? 'c' : 'ccd';
+  const unitNoun = cores.length
+    ? `${cores.length} cpu cores`
+    : `${chiplets.length} chiplet${chiplets.length === 1 ? '' : 's'}`;
+  const unitSet = new Set(dieUnits);
 
   const byChip = temps.reduce<Record<string, SensorTemp[]>>((acc, t) => {
-    if (coreSet.has(t)) return acc;
+    if (unitSet.has(t)) return acc;
     (acc[t.chip] ??= []).push(t);
     return acc;
   }, {});
 
-  const coreStats = cores.length
+  const coreStats = dieUnits.length
     ? (() => {
-        const vals = cores.map(c => c.tempC).sort((a, b) => a - b);
-        const hottest = cores.reduce((a, b) => (b.tempC > a.tempC ? b : a));
+        const vals = dieUnits.map(c => c.tempC).sort((a, b) => a - b);
+        const hottest = dieUnits.reduce((a, b) => (b.tempC > a.tempC ? b : a));
         return {
           min: vals[0],
           max: vals[vals.length - 1],
           median: vals[Math.floor(vals.length / 2)],
           hottest,
-          limit: limitOf(cores[0]).limit,
+          limit: limitOf(dieUnits[0]).limit,
         };
       })()
     : null;
@@ -709,7 +737,7 @@ export function ThermalPanel({
           <div className="mt-4 space-y-2">
             <div className="flex items-baseline justify-between flex-wrap gap-x-4 gap-y-1">
               <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] font-bold">
-                {cores.length} cpu cores
+                {unitNoun}
               </span>
               <span className="text-xs text-[var(--color-muted)] tabular-nums">
                 {coreStats.min.toFixed(0)}–{coreStats.max.toFixed(0)}°C
@@ -718,7 +746,7 @@ export function ThermalPanel({
                 <span className="ml-1 opacity-60">/{coreStats.limit}°</span>
               </span>
             </div>
-            <CoreFloorplan cores={cores} topology={topology} />
+            <CoreFloorplan cores={dieUnits} topology={topology} prefix={unitPrefix} />
           </div>
         )}
       </div>
