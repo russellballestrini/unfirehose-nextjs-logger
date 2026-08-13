@@ -831,6 +831,22 @@ export default function NodeDetailPage() {
               </Section>
             )}
 
+            {probe?.network?.interfaces?.length > 0 && (
+              <Section title="Network">
+                <div className="space-y-1">
+                  {probe.network.interfaces
+                    .filter((i: any) => i.state === 'UP' && !i.name.startsWith('lo') && !i.name.startsWith('veth'))
+                    .map((iface: any) => (
+                    <div key={iface.name} className="flex items-center gap-3 text-sm">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="font-mono">{iface.name}</span>
+                      <span className="text-[var(--color-muted)] text-xs">{iface.addrs}</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
           </div>
 
           <div className="space-y-6">
@@ -938,22 +954,6 @@ export default function NodeDetailPage() {
                       </div>
                     </div>
                   )}
-                </div>
-              </Section>
-            )}
-
-            {probe?.network?.interfaces?.length > 0 && (
-              <Section title="Network">
-                <div className="space-y-1">
-                  {probe.network.interfaces
-                    .filter((i: any) => i.state === 'UP' && !i.name.startsWith('lo') && !i.name.startsWith('veth'))
-                    .map((iface: any) => (
-                    <div key={iface.name} className="flex items-center gap-3 text-sm">
-                      <span className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="font-mono">{iface.name}</span>
-                      <span className="text-[var(--color-muted)] text-xs">{iface.addrs}</span>
-                    </div>
-                  ))}
                 </div>
               </Section>
             )}
