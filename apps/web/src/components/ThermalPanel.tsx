@@ -134,7 +134,22 @@ const sensorHistory = (() => {
   }
 })();
 
-function useSensorHistory(host: string, temps: SensorTemp[], fans: SensorFan[], throttle: ThrottleInfo | null) {
+export interface GpuInfo {
+  index: number; name: string; tempC: number; gpuUtil: number; memUtil: number;
+  memTotalMB: number; memUsedMB: number; powerDrawW: number; powerLimitW: number;
+  fanPct: number; pstate: string;
+  clockMhz?: number | null; clockMaxMhz?: number | null;
+  throttle?: { mask: string; reasons: string[]; throttling: boolean; thermal: boolean } | null;
+}
+
+function gpuKey(g: GpuInfo, field: string) {
+  return `g${g.index}_${field}`;
+}
+
+function useSensorHistory(
+  host: string, temps: SensorTemp[], fans: SensorFan[],
+  throttle: ThrottleInfo | null, gpus: GpuInfo[],
+) {
   const rows = useSyncExternalStore(
     useMemo(() => (cb: () => void) => sensorHistory.subscribe(host, cb), [host]),
     () => sensorHistory.snapshot(host),
@@ -158,6 +173,7 @@ function useSensorHistory(host: string, temps: SensorTemp[], fans: SensorFan[], 
     const sig = [
       ...temps.map(t => `${t.chip}.${t.key}=${t.tempC}`),
       ...fans.map(f => `${f.chip}.${f.key}=${f.rpm}`),
+      ...gpus.map(g => `g${g.index}=${g.tempC}/${g.gpuUtil}/${g.memUsedMB}/${g.powerDrawW}/${g.clockMhz}`),
       `clk=${throttle?.curMhz ?? ''}`,
       `thr=${throttle?.packageCount ?? ''}`,
     ].join(',');
@@ -171,8 +187,24 @@ function useSensorHistory(host: string, temps: SensorTemp[], fans: SensorFan[], 
     if (throttle?.maxMhz != null) row.clockMaxMhz = throttle.maxMhz;
     if (throttle?.packageCount != null) row.throttleCount = throttle.packageCount;
 
+    // Every GPU field we collect gets a series. Charting only temperature
+    // meant we probed util, VRAM, power, fan and clocks on every poll and
+    // then dropped them on the floor.
+    for (const g of gpus) {
+      row[gpuKey(g, 'temp')] = g.tempC;
+      row[gpuKey(g, 'util')] = g.gpuUtil;
+      row[gpuKey(g, 'memutil')] = g.memUtil;
+      row[gpuKey(g, 'memgb')] = g.memUsedMB / 1024;
+      row[gpuKey(g, 'memtotgb')] = g.memTotalMB / 1024;
+      row[gpuKey(g, 'power')] = g.powerDrawW;
+      row[gpuKey(g, 'powerlimit')] = g.powerLimitW;
+      if (g.fanPct > 0) row[gpuKey(g, 'fan')] = g.fanPct;
+      if (g.clockMhz != null) row[gpuKey(g, 'clock')] = g.clockMhz;
+      if (g.clockMaxMhz != null) row[gpuKey(g, 'clockmax')] = g.clockMaxMhz;
+    }
+
     sensorHistory.push(host, row);
-  }, [temps, fans, throttle, host]);
+  }, [temps, fans, throttle, gpus, host]);
 
   return rows;
 }
@@ -211,14 +243,15 @@ function SensorBar({ t }: { t: SensorTemp }) {
 }
 
 export function ThermalPanel({
-  host, temps, fans, throttle,
+  host, temps, fans, throttle, gpus = [],
 }: {
   host: string;
   temps: SensorTemp[];
   fans: SensorFan[];
   throttle: ThrottleInfo | null;
+  gpus?: GpuInfo[];
 }) {
-  const history = useSensorHistory(host, temps, fans, throttle);
+  const history = useSensorHistory(host, temps, fans, throttle, gpus);
 
   // Hottest by fraction-of-limit, with near-ties broken toward the sensor
   // whose limit the chip actually declared. Otherwise an ACPI alias of the
@@ -276,7 +309,7 @@ export function ThermalPanel({
     { key: 'clockMhz', label: 'Current Clock', stroke: '#facc15', fill: 'rgba(250,204,21,0.22)', width: 1.5 },
   ];
 
-  if (!temps.length && !fans.length && !throttle) return null;
+  if (!temps.length && !fans.length && !throttle && !gpus.length) return null;
 
   const byChip = temps.reduce<Record<string, SensorTemp[]>>((acc, t) => {
     (acc[t.chip] ??= []).push(t);
@@ -295,14 +328,28 @@ export function ThermalPanel({
           <h3 className="text-sm font-bold text-[var(--color-muted)]">
             Thermal &amp; Cooling
           </h3>
-          {throttlingNow && (
-            <span
-              className="text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--color-error)] text-white animate-pulse"
-              title="Our package throttle counter rose between the last two polls — this machine is clamping its own clock right now to stay under its thermal limit. This is what a stuttering mouse and glitching audio feel like."
-            >
-              THROTTLING NOW
-            </span>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Scoped to CPU on purpose. On a GPU box an unqualified badge
+                reads as a claim about the card, which is a different sensor
+                with a different ground truth (NVML throttle reasons). */}
+            {throttlingNow && (
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--color-error)] text-white animate-pulse"
+                title="Our CPU package throttle counter rose between the last two polls — this machine is clamping its own clock right now to stay under its thermal limit. This is what a stuttering mouse and glitching audio feel like."
+              >
+                CPU THROTTLING NOW
+              </span>
+            )}
+            {gpus.filter(g => g.throttle?.throttling).map(g => (
+              <span
+                key={g.index}
+                className="text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--color-error)] text-white"
+                title={`nvidia-smi reports active throttle reasons for this card: ${g.throttle!.reasons.join(', ')}. This comes from NVML's own bitmask, not inferred from a clock ratio.`}
+              >
+                GPU{gpus.length > 1 ? ` ${g.index}` : ''} {g.throttle!.thermal ? 'THERMAL' : 'POWER'} CAP
+              </span>
+            ))}
+          </div>
         </div>
 
         {/* Headline: hottest sensor, clock held, fan */}
@@ -323,10 +370,10 @@ export function ThermalPanel({
           })()}
 
           {throttle?.clockPct != null && (
-            <div title={`Current CPU clock averaged across cores, against the rated maximum from cpuinfo_max_freq. Sustained time well under 100% while temperatures are high means our thermal limit — not our workload — is setting our speed.`}>
+            <div title={`Current CPU clock averaged across cores, against the rated maximum from cpuinfo_max_freq. A low ratio on its own is NOT throttling — an idle CPU parks at its minimum P-state by design. Only a rising throttle counter proves our thermal limit is setting our speed, so this reads neutral unless that counter moves.`}>
               <div
                 className="text-2xl font-bold tabular-nums"
-                style={{ color: throttle.clockPct < 70 ? '#ef4444' : throttle.clockPct < 90 ? '#f97316' : '#22c55e' }}
+                style={{ color: throttlingNow ? '#ef4444' : 'var(--color-foreground)' }}
               >
                 {throttle.clockPct.toFixed(0)}%
               </div>
@@ -357,6 +404,24 @@ export function ThermalPanel({
               <div className="text-xs text-[var(--color-muted)]">no fan telemetry</div>
             </div>
           )}
+
+          {gpus.map(g => (
+            <div
+              key={g.index}
+              title={`${g.name} die temperature at ${g.gpuUtil}% utilization, drawing ${g.powerDrawW}W of a ${g.powerLimitW}W limit${g.clockMhz ? ` at ${g.clockMhz}/${g.clockMaxMhz} MHz` : ''}. Throttle state comes from NVML: ${g.throttle ? (g.throttle.reasons.length ? g.throttle.reasons.join(', ') : 'no active reasons') : 'not reported by this driver'}.`}
+            >
+              <div
+                className="text-2xl font-bold tabular-nums"
+                style={{ color: g.throttle?.thermal ? '#ef4444' : heatColor((g.tempC / 85) * 100) }}
+              >
+                {g.tempC}°C
+              </div>
+              <div className="text-xs text-[var(--color-muted)]">
+                GPU{gpus.length > 1 ? ` ${g.index}` : ''} · {g.gpuUtil}% · {g.powerDrawW}W
+                {g.fanPct > 0 && ` · ${g.fanPct}% fan`}
+              </div>
+            </div>
+          ))}
 
           {throttle?.packageCount != null && (
             <div title={`Total package throttle events since boot, from /sys/devices/system/cpu/*/thermal_throttle/package_throttle_count. Cumulative — useful as a lifetime measure of how thermally constrained this machine has been, not as a reading of right now.${throttle.packageMs ? ` Total time spent throttled: ${(throttle.packageMs / 3_600_000).toFixed(1)} hours.` : ''}`}>
@@ -429,11 +494,73 @@ export function ThermalPanel({
                 syncKey={SYNC} domain={null} yUnit=" MHz" yMin={0}
               />
               <p className="text-[11px] text-[var(--color-muted)] mt-2">
-                Gap between our rated-max band and our clock line is thermal
-                headroom we paid for and cannot use.
+                A gap under our rated-max band is not automatically throttling —
+                an idle CPU parks low by design. It only costs us when the
+                throttle counter is climbing at the same time.
               </p>
             </div>
           )}
+
+          {/* Every GPU field the probe collects, charted. */}
+          {gpus.map(g => {
+            const label = gpus.length > 1 ? `GPU ${g.index}` : 'GPU';
+            const charts: Array<{ title: string; note: string; unit: string; max?: number; series: UPlotSeries[] }> = [
+              {
+                title: `${label} Temperature`, note: `${g.tempC}°C`, unit: '°C',
+                series: [{ key: gpuKey(g, 'temp'), label: 'Die', stroke: '#ef4444', fill: 'rgba(239,68,68,0.22)', width: 1.5 }],
+              },
+              {
+                title: `${label} Utilization`, note: `${g.gpuUtil}% core · ${g.memUtil}% mem bus`, unit: '%', max: 100,
+                series: [
+                  { key: gpuKey(g, 'util'), label: 'Core', stroke: '#22c55e', fill: 'rgba(34,197,94,0.22)', width: 1.5 },
+                  { key: gpuKey(g, 'memutil'), label: 'Mem bus', stroke: '#22d3ee', width: 1.5 },
+                ],
+              },
+              {
+                title: `${label} VRAM`, note: `${(g.memUsedMB / 1024).toFixed(1)} / ${(g.memTotalMB / 1024).toFixed(1)} GB`, unit: 'GB',
+                series: [
+                  { key: gpuKey(g, 'memtotgb'), label: 'Total', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
+                  { key: gpuKey(g, 'memgb'), label: 'Used', stroke: '#22c55e', fill: 'rgba(34,197,94,0.25)', width: 1.5 },
+                ],
+              },
+              {
+                title: `${label} Power`, note: `${g.powerDrawW}W / ${g.powerLimitW}W`, unit: 'W',
+                series: [
+                  { key: gpuKey(g, 'powerlimit'), label: 'Limit', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true },
+                  { key: gpuKey(g, 'power'), label: 'Draw', stroke: '#a78bfa', fill: 'rgba(167,139,250,0.25)', width: 1.5 },
+                ],
+              },
+            ];
+            // A passive card reports 0% and means "no onboard fan", not
+            // "stopped" — charting a flat zero would invent a dead fan.
+            if (g.fanPct > 0) {
+              charts.push({
+                title: `${label} Fan`, note: `${g.fanPct}%`, unit: '%', max: 100,
+                series: [{ key: gpuKey(g, 'fan'), label: 'Fan', stroke: '#22d3ee', fill: 'rgba(34,211,238,0.22)', width: 1.5 }],
+              });
+            }
+            if (g.clockMhz != null) {
+              charts.push({
+                title: `${label} Clock`, note: `${g.clockMhz} / ${g.clockMaxMhz} MHz`, unit: ' MHz',
+                series: [
+                  ...(g.clockMaxMhz != null ? [{ key: gpuKey(g, 'clockmax'), label: 'Max', stroke: '#52525b', fill: 'rgba(82,82,91,0.18)', watermark: true } as UPlotSeries] : []),
+                  { key: gpuKey(g, 'clock'), label: 'Current', stroke: '#facc15', fill: 'rgba(250,204,21,0.22)', width: 1.5 },
+                ],
+              });
+            }
+            return charts.map(c => (
+              <div key={`${g.index}-${c.title}`} className={cardCls}>
+                <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+                  {c.title}
+                  <span className="text-xs font-normal ml-2">{c.note}</span>
+                </h3>
+                <UPlotTimeChart
+                  data={history} series={c.series} height={180}
+                  syncKey={SYNC} domain={null} yUnit={c.unit} yMin={0} yMax={c.max}
+                />
+              </div>
+            ));
+          })}
         </div>
       )}
     </div>

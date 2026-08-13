@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
-import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle } from '@/lib/sensors';
+import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle, parseNvidiaClocks } from '@/lib/sensors';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -74,6 +74,14 @@ ps aux 2>/dev/null | awk 'NR>1 {
 # --- GPU nvidia ---
 echo '===SECTION:NVIDIA==='
 nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free,power.draw,power.limit,fan.speed,pstate --format=csv,noheader,nounits 2>/dev/null || echo 'none'
+
+# --- GPU nvidia clocks + throttle reasons ---
+# Deliberately a SECOND query rather than extra columns on the one above.
+# clocks_throttle_reasons.active is not supported on every driver, and an
+# unsupported field fails the WHOLE query — folding it in would blank our
+# entire GPU panel on older boxes to gain one field.
+echo '===SECTION:NVIDIA_CLOCKS==='
+nvidia-smi --query-gpu=index,clocks.current.graphics,clocks.max.graphics,clocks_throttle_reasons.active --format=csv,noheader,nounits 2>/dev/null || echo 'none'
 
 # --- GPU nvidia processes ---
 echo '===SECTION:NVIDIA_PS==='
@@ -160,7 +168,7 @@ echo '===SECTION:END==='
 const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
   'LOADAVG', 'UPTIME', 'DISK', 'PS', 'CLAUDE_PS', 'NVIDIA', 'NVIDIA_PS',
-  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
+  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
 ];
 
 function parseSection(output: string, marker: string): string {
@@ -400,7 +408,11 @@ function parseProbeOutput(raw: string, host: string) {
   const disk = parseDisk(parseSection(raw, 'DISK'));
   const processes = parseProcesses(parseSection(raw, 'PS'));
   const claudeProcesses = parseClaudeProcesses(parseSection(raw, 'CLAUDE_PS'));
-  const nvidiaGpus = parseNvidiaGpu(parseSection(raw, 'NVIDIA'));
+  const nvidiaClocks = parseNvidiaClocks(parseSection(raw, 'NVIDIA_CLOCKS'));
+  const nvidiaGpus = parseNvidiaGpu(parseSection(raw, 'NVIDIA')).map((g: any) => ({
+    ...g,
+    ...(nvidiaClocks.get(g.index) ?? { clockMhz: null, clockMaxMhz: null, throttle: null }),
+  }));
   const nvidiaProcesses = parseNvidiaProcesses(parseSection(raw, 'NVIDIA_PS'));
   const amdGpus = parseAmdGpu(parseSection(raw, 'AMD_GPU'));
   const temperatures = parseTemperatures(parseSection(raw, 'TEMPS'));

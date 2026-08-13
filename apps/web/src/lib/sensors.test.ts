@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   sanitizeLimitC, parseTemperatures, parseHwmon, mergeSensors, parseThrottle,
+  parseGpuThrottleReasons, parseNvidiaClocks,
 } from './sensors';
 
 // Verbatim probe output from neoblanka (ThinkPad, i7-8650U) at
@@ -176,5 +177,79 @@ describe('parseThrottle', () => {
     const t = parseThrottle('pkg_count|12\ncur_khz|2000000\nmax_khz|')!;
     expect(t.packageCount).toBe(12);
     expect(t.clockPct).toBeNull();
+  });
+});
+
+describe('parseGpuThrottleReasons', () => {
+  it('reads a clean card as not throttling', () => {
+    // Verbatim from 4090-ai while the card ran 99% util at 70°C.
+    const r = parseGpuThrottleReasons('0x0000000000000000')!;
+    expect(r.throttling).toBe(false);
+    expect(r.thermal).toBe(false);
+    expect(r.reasons).toEqual([]);
+  });
+
+  it('does not call an idle card throttled', () => {
+    // GpuIdle. A resting card is not a card defending itself, and treating
+    // it as throttling is precisely the false alarm this decoder replaces.
+    const r = parseGpuThrottleReasons('0x0000000000000001')!;
+    expect(r.reasons).toEqual(['idle']);
+    expect(r.throttling).toBe(false);
+  });
+
+  it('does not call an operator-set clock target throttled', () => {
+    const r = parseGpuThrottleReasons('0x0000000000000002')!;
+    expect(r.throttling).toBe(false);
+  });
+
+  it('flags thermal slowdown as both throttling and thermal', () => {
+    const sw = parseGpuThrottleReasons('0x0000000000000020')!;
+    expect(sw.throttling).toBe(true);
+    expect(sw.thermal).toBe(true);
+    const hw = parseGpuThrottleReasons('0x0000000000000040')!;
+    expect(hw.thermal).toBe(true);
+  });
+
+  it('separates a power cap from a thermal cap', () => {
+    const r = parseGpuThrottleReasons('0x0000000000000004')!;
+    expect(r.throttling).toBe(true);
+    expect(r.thermal).toBe(false);
+    expect(r.reasons).toContain('sw power cap');
+  });
+
+  it('decodes several simultaneous reasons', () => {
+    // 0x45 = idle (0x01) + sw power cap (0x04) + hw thermal slowdown (0x40)
+    const r = parseGpuThrottleReasons('0x0000000000000045')!;
+    expect(r.reasons).toEqual(['idle', 'sw power cap', 'hw thermal slowdown']);
+    expect(r.throttling).toBe(true);
+    expect(r.thermal).toBe(true);
+  });
+
+  it('returns null when a driver does not report the field', () => {
+    expect(parseGpuThrottleReasons(undefined)).toBeNull();
+    expect(parseGpuThrottleReasons('')).toBeNull();
+    expect(parseGpuThrottleReasons('[Not Supported]')).toBeNull();
+    expect(parseGpuThrottleReasons('[N/A]')).toBeNull();
+    expect(parseGpuThrottleReasons('garbage')).toBeNull();
+  });
+});
+
+describe('parseNvidiaClocks', () => {
+  it('keys clocks and throttle state by GPU index', () => {
+    const m = parseNvidiaClocks('0, 2760, 3150, 0x0000000000000000\n1, 1400, 1980, 0x0000000000000040');
+    expect(m.get(0)).toMatchObject({ clockMhz: 2760, clockMaxMhz: 3150 });
+    expect(m.get(0)!.throttle!.throttling).toBe(false);
+    expect(m.get(1)!.throttle!.thermal).toBe(true);
+  });
+
+  it('survives a driver that omits the throttle field', () => {
+    const m = parseNvidiaClocks('0, 2760, 3150, [Not Supported]');
+    expect(m.get(0)!.clockMhz).toBe(2760);
+    expect(m.get(0)!.throttle).toBeNull();
+  });
+
+  it('returns an empty map when nvidia-smi is absent', () => {
+    expect(parseNvidiaClocks('none').size).toBe(0);
+    expect(parseNvidiaClocks('').size).toBe(0);
   });
 });

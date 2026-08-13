@@ -179,7 +179,87 @@ export function mergeSensors(
 }
 
 /**
- * Throttle counters + current clock.
+ * NVML clock-throttle reasons, as a bitmask off
+ * `nvidia-smi --query-gpu=clocks_throttle_reasons.active`.
+ *
+ * This is the only ground truth for "is this GPU throttling". A GPU running
+ * below its max clock is usually just idle or power-managed — inferring
+ * throttle from a clock ratio produces exactly the false alarm this decoder
+ * exists to replace.
+ *
+ * GpuIdle and ApplicationsClocksSetting are deliberately NOT treated as
+ * throttling: idle is the card resting, and an application clock target is
+ * an operator's decision, not the card defending itself.
+ */
+const NVML_THROTTLE_BITS: Array<[number, string, boolean]> = [
+  [0x001, 'idle', false],
+  [0x002, 'app clock target', false],
+  [0x004, 'sw power cap', true],
+  [0x008, 'hw slowdown', true],
+  [0x010, 'sync boost', false],
+  [0x020, 'sw thermal slowdown', true],
+  [0x040, 'hw thermal slowdown', true],
+  [0x080, 'hw power brake', true],
+  [0x100, 'display clock setting', false],
+];
+
+export interface GpuThrottleReasons {
+  mask: string;
+  reasons: string[];
+  throttling: boolean;
+  thermal: boolean;
+}
+
+export function parseGpuThrottleReasons(raw: string | undefined): GpuThrottleReasons | null {
+  if (!raw) return null;
+  const txt = raw.trim();
+  if (!txt || /not supported|n\/a/i.test(txt)) return null;
+  // nvidia-smi prints a 64-bit mask, but every reason NVML defines sits in
+  // the low bits. Decode the low 32 with plain Number rather than reaching
+  // for BigInt, whose literals this project's build target rejects — and
+  // whose extra range would buy us nothing here.
+  const hex = (txt.startsWith('0x') ? txt.slice(2) : txt).slice(-8);
+  if (!/^[0-9a-f]+$/i.test(hex)) return null;
+  const bits = parseInt(hex, 16);
+  if (!Number.isFinite(bits)) return null;
+
+  const reasons: string[] = [];
+  let throttling = false;
+  let thermal = false;
+  for (const [bit, label, counts] of NVML_THROTTLE_BITS) {
+    if ((bits & bit) === 0) continue;
+    reasons.push(label);
+    if (counts) throttling = true;
+    if (counts && label.includes('thermal')) thermal = true;
+  }
+  return { mask: txt, reasons, throttling, thermal };
+}
+
+/**
+ * `index,clocks.current,clocks.max,throttle_reasons` — merged onto the main
+ * GPU rows by index.
+ */
+export function parseNvidiaClocks(raw: string) {
+  const out = new Map<number, { clockMhz: number | null; clockMaxMhz: number | null; throttle: GpuThrottleReasons | null }>();
+  if (!raw || raw === 'none') return out;
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    const p = line.split(',').map(s => s.trim());
+    const idx = parseInt(p[0]);
+    if (!Number.isFinite(idx)) continue;
+    const cur = parseFloat(p[1]);
+    const max = parseFloat(p[2]);
+    out.set(idx, {
+      clockMhz: Number.isFinite(cur) ? cur : null,
+      clockMaxMhz: Number.isFinite(max) ? max : null,
+      throttle: parseGpuThrottleReasons(p[3]),
+    });
+  }
+  return out;
+}
+
+/**
+ * CPU throttle counters + current clock.
  *
  * The counts are monotonic since boot, so an absolute value says little on
  * its own (a long-lived ThinkPad sits in the millions). What matters is the
