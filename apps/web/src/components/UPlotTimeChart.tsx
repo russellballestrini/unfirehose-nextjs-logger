@@ -173,7 +173,34 @@ export function UPlotTimeChart({
           grid: { stroke: 'rgba(63, 63, 70, 0.4)', width: 1 },
           ticks: { stroke: 'rgba(63, 63, 70, 0.6)', size: 4 },
           font: '11px ui-sans-serif, system-ui, sans-serif',
-          size: 48,
+          // Measure the widest rendered label rather than reserving a fixed
+          // gutter. 48px fits "100%" and "24GB", but clips the moment a unit
+          // rides along with a wide value — " RPM" against a four-digit fan
+          // reading needs closer to 70. uPlot re-invokes this as the scale
+          // settles, so the gutter tracks whatever the axis actually draws.
+          size: (u, values, axisIdx) => {
+            const FALLBACK = 48;
+            if (!values?.length) return FALLBACK;
+            const ctx = u.ctx;
+            ctx.save();
+            // uPlot rewrites axis.font during init into
+            // [scaledFontString, sizePx, cssSizePx] — assigning the array
+            // straight to ctx.font stringifies it into an invalid value and
+            // silently measures against the canvas default.
+            const raw = (u.axes[axisIdx] as { font?: string | unknown[] })?.font;
+            const font = Array.isArray(raw) ? String(raw[0]) : raw;
+            if (font) ctx.font = font;
+            let widest = 0;
+            for (const v of values) {
+              widest = Math.max(widest, ctx.measureText(String(v)).width);
+            }
+            ctx.restore();
+            // That font is already pxRatio-scaled, so measureText hands back
+            // device pixels while `size` is specified in CSS pixels.
+            const cssPx = widest / (uPlot.pxRatio || 1);
+            // + tick length and the breathing room before the plot edge.
+            return Math.max(FALLBACK, Math.ceil(cssPx) + 12);
+          },
           values: yUnit ? (_u, vals) => vals.map(v => `${v}${yUnit}`) : undefined,
         },
       ],
