@@ -39,6 +39,13 @@ const MAX_POINTS = 1200;
 // that parses them.
 type SensorTemp = MergedTemp;
 
+// `Core 12` from coretemp. Package/other labels deliberately excluded — the
+// package sensor is the aggregate we want kept as a first-class series.
+function coreIndexOf(t: { label: string }): number | null {
+  const m = /^Core (\d+)$/.exec(t.label);
+  return m ? parseInt(m[1]) : null;
+}
+
 function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
@@ -182,6 +189,16 @@ function useSensorHistory(
 
     const row: HistRow = { tsMs: Date.now() };
     for (const t of temps) row[`t_${slug(t.name)}`] = t.tempC;
+
+    // Envelope across CPU cores. Forty-eight individual lines is not a
+    // chart; hottest-vs-coolest is, and it makes one pinned core visible as
+    // a widening band instead of a line lost in a bundle.
+    const coreTemps = temps.filter(t => coreIndexOf(t) !== null).map(t => t.tempC);
+    if (coreTemps.length > 1) {
+      row.coresMax = Math.max(...coreTemps);
+      row.coresMin = Math.min(...coreTemps);
+    }
+
     for (const f of fans) row[`f_${slug(f.chip + '_' + f.key)}`] = f.rpm;
     if (throttle?.curMhz != null) row.clockMhz = throttle.curMhz;
     if (throttle?.maxMhz != null) row.clockMaxMhz = throttle.maxMhz;
@@ -282,15 +299,29 @@ export function ThermalPanel({
   // Chart the hottest sensors by headroom. Fourteen lines is unreadable;
   // the coolest ones are also the least interesting.
   const tempSeries: UPlotSeries[] = useMemo(() => {
-    return [...temps]
+    // Individual cores are collapsed to a hot/cool envelope. Left in, they
+    // crowd out every other sensor on a many-core box — all eight "hottest"
+    // slots go to cores that sit within a couple of degrees of each other.
+    const coreCount = temps.filter(t => coreIndexOf(t) !== null).length;
+    const envelope: UPlotSeries[] = coreCount > 1
+      ? [
+          { key: 'coresMax', label: `Hottest of ${coreCount} cores`, stroke: '#ef4444', fill: 'rgba(239,68,68,0.16)', width: 1.5 },
+          { key: 'coresMin', label: 'Coolest core', stroke: '#60a5fa', width: 1 },
+        ]
+      : [];
+
+    const rest = temps
+      .filter(t => coreIndexOf(t) === null)
       .sort((a, b) => b.tempC / limitOf(b).limit - a.tempC / limitOf(a).limit)
       .slice(0, 8)
       .map((t, i) => ({
         key: `t_${slug(t.name)}`,
         label: t.name,
-        stroke: STROKES[i % STROKES.length],
+        stroke: STROKES[(i + envelope.length) % STROKES.length],
         width: 1.5,
       }));
+
+    return [...envelope, ...rest];
   }, [temps]);
 
   const fanSeries: UPlotSeries[] = useMemo(
@@ -311,10 +342,35 @@ export function ThermalPanel({
 
   if (!temps.length && !fans.length && !throttle && !gpus.length) return null;
 
+  // Individual CPU cores are the one sensor class that arrives in bulk — a
+  // Threadripper hands us 48 of them. Rendered as bars they were 48 rows of
+  // near-identical green stacked beside single-sensor chips, which is one
+  // fact ("cores sit around 48°C") spent as 48 lines of vertical space.
+  // Split them out for a compact grid; everything else keeps its bar.
+  const cores = temps
+    .filter(t => coreIndexOf(t) !== null)
+    .sort((a, b) => (coreIndexOf(a)! - coreIndexOf(b)!));   // hwmon order is not core order
+  const coreSet = new Set(cores);
+
   const byChip = temps.reduce<Record<string, SensorTemp[]>>((acc, t) => {
+    if (coreSet.has(t)) return acc;
     (acc[t.chip] ??= []).push(t);
     return acc;
   }, {});
+
+  const coreStats = cores.length
+    ? (() => {
+        const vals = cores.map(c => c.tempC).sort((a, b) => a - b);
+        const hottest = cores.reduce((a, b) => (b.tempC > a.tempC ? b : a));
+        return {
+          min: vals[0],
+          max: vals[vals.length - 1],
+          median: vals[Math.floor(vals.length / 2)],
+          hottest,
+          limit: limitOf(cores[0]).limit,
+        };
+      })()
+    : null;
 
   const SYNC = `thermal-${host}`;
   const cardCls = 'bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4';
@@ -447,6 +503,51 @@ export function ThermalPanel({
             </div>
           ))}
         </div>
+
+        {/* CPU cores as a heat grid — the spread and any outlier is the
+            signal here, not each core's individual number. */}
+        {coreStats && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-baseline justify-between flex-wrap gap-x-4 gap-y-1">
+              <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] font-bold">
+                {cores.length} cpu cores
+              </span>
+              <span className="text-xs text-[var(--color-muted)] tabular-nums">
+                {coreStats.min.toFixed(0)}–{coreStats.max.toFixed(0)}°C
+                &middot; median {coreStats.median.toFixed(0)}°
+                &middot; hottest {coreStats.hottest.label}
+                <span className="ml-1 opacity-60">/{coreStats.limit}°</span>
+              </span>
+            </div>
+            <div
+              className="grid gap-1"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(34px, 1fr))' }}
+            >
+              {cores.map(c => {
+                const { limit } = limitOf(c);
+                const pct = (c.tempC / limit) * 100;
+                const color = heatColor(pct);
+                return (
+                  <div
+                    key={c.chip + c.key}
+                    title={`${c.label} — ${c.tempC}°C, ${pct.toFixed(0)}% of its ${limit}°C limit. A single core well above its neighbours usually means one pinned thread, not a cooling fault.`}
+                    className="rounded text-center py-1 text-[10px] font-mono tabular-nums leading-tight border"
+                    style={{
+                      // Opacity carries the heat so the grid reads as a
+                      // gradient at a glance; the border keeps a cool core
+                      // from disappearing into the background entirely.
+                      background: `color-mix(in srgb, ${color} ${Math.max(12, Math.min(pct, 100))}%, transparent)`,
+                      borderColor: `color-mix(in srgb, ${color} 45%, transparent)`,
+                      color,
+                    }}
+                  >
+                    {c.tempC.toFixed(0)}°
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {showCharts && (
