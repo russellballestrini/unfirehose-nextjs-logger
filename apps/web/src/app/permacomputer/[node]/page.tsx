@@ -769,9 +769,17 @@ export default function NodeDetailPage() {
       </div>
 
       {/* ===== OVERVIEW TAB ===== */}
-      {activeTab === 'Overview' && (<>
+      {/* space-y-6 matches our grid's own gap-6, so the seam between the
+          grid, our thermal panel and our charts is the same gutter as the
+          one between two cards inside the grid. As a bare fragment these
+          blocks butted straight against each other. */}
+      {activeTab === 'Overview' && (<div className="space-y-6">
+        {/* min-w-0 on both tracks: a grid item defaults to min-width:auto, so
+            long unbreakable content (a node's IPv6 address list, a compute
+            process path) props the column open and pushes our whole page
+            into horizontal overflow rather than wrapping inside its card. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-6">
+          <div className="space-y-6 min-w-0">
             <Section title="System">
               {sys ? (
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
@@ -837,10 +845,16 @@ export default function NodeDetailPage() {
                   {probe.network.interfaces
                     .filter((i: any) => i.state === 'UP' && !i.name.startsWith('lo') && !i.name.startsWith('veth'))
                     .map((iface: any) => (
-                    <div key={iface.name} className="flex items-center gap-3 text-sm">
-                      <span className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="font-mono">{iface.name}</span>
-                      <span className="text-[var(--color-muted)] text-xs">{iface.addrs}</span>
+                    <div key={iface.name} className="flex items-start gap-3 text-sm">
+                      <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 mt-1.5" />
+                      <span className="font-mono shrink-0">{iface.name}</span>
+                      {/* A dual-stack interface carries a v4, a secondary v4
+                          and a v6 on one line. Left unbreakable it props the
+                          whole column open — break-all keeps it inside its
+                          card instead of widening our page. */}
+                      <span className="text-[var(--color-muted)] text-xs min-w-0 break-all">
+                        {iface.addrs}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -849,7 +863,7 @@ export default function NodeDetailPage() {
 
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-6 min-w-0">
             {probe?.disk?.length > 0 && (
               <Section title="Disk">
                 <div className="space-y-2">
@@ -1419,7 +1433,7 @@ export default function NodeDetailPage() {
           </div>
           );
         })()}
-      </>)}
+      </div>)}
 
       {/* ===== HARNESSES TAB ===== */}
       {activeTab === 'Harnesses' && (() => {

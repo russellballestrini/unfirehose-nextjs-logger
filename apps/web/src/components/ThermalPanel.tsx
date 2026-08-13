@@ -521,7 +521,7 @@ export function ThermalPanel({
             </div>
             <div
               className="grid gap-1"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(34px, 1fr))' }}
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(46px, 1fr))' }}
             >
               {cores.map(c => {
                 const { limit } = limitOf(c);
@@ -530,8 +530,8 @@ export function ThermalPanel({
                 return (
                   <div
                     key={c.chip + c.key}
-                    title={`${c.label} — ${c.tempC}°C, ${pct.toFixed(0)}% of its ${limit}°C limit. A single core well above its neighbours usually means one pinned thread, not a cooling fault.`}
-                    className="rounded text-center py-1 text-[10px] font-mono tabular-nums leading-tight border"
+                    title={`${c.label} — ${c.tempC}°C, ${pct.toFixed(0)}% of its ${limit}°C limit. Numbering comes from coretemp and follows physical core IDs, which are sparse on many parts — 0, 4, 8, 12 is sorted, not shuffled. A single core well above its neighbours usually means one pinned thread, not a cooling fault.`}
+                    className="rounded text-center py-1 font-mono tabular-nums leading-tight border"
                     style={{
                       // Opacity carries the heat so the grid reads as a
                       // gradient at a glance; the border keeps a cool core
@@ -541,7 +541,11 @@ export function ThermalPanel({
                       color,
                     }}
                   >
-                    {c.tempC.toFixed(0)}°
+                    {/* Core ID on the tile, not only in the tooltip. Without
+                        it a sparse ID space (0, 4, 8, 12 …) reads as shuffled
+                        and there is no way to check the order at a glance. */}
+                    <div className="text-[9px] opacity-60">c{coreIndexOf(c)}</div>
+                    <div className="text-[11px]">{c.tempC.toFixed(0)}°</div>
                   </div>
                 );
               })}
