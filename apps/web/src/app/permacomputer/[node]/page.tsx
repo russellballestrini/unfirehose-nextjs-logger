@@ -852,17 +852,93 @@ export default function NodeDetailPage() {
 
             {probe?.gpu?.hasGpu && (
               <Section title="GPU">
-                {probe.gpu.nvidia?.map((g: any, i: number) => (
-                  <div key={i} className="text-sm space-y-1 mb-2">
-                    <div className="font-bold">{g.name}</div>
-                    <div className="flex gap-4 text-[var(--color-muted)]">
-                      <span>{g.memUsed}/{g.memTotal} mem</span>
-                      <span>{g.utilization}% util</span>
-                      <span>{g.temp}°C</span>
-                      <span>{g.power}W</span>
+                <div className="space-y-4">
+                  {probe.gpu.nvidia?.map((g: any, i: number) => {
+                    // Field names here must track parseNvidiaGpu exactly. They
+                    // did not: this block read g.temp/g.utilization/g.memUsed/
+                    // g.power against a parser emitting tempC/gpuUtil/
+                    // memUsedMB/powerDrawW, so every number rendered as
+                    // undefined and only the card name survived.
+                    const memPct = g.memTotalMB ? (g.memUsedMB / g.memTotalMB) * 100 : 0;
+                    const powerPct = g.powerLimitW ? (g.powerDrawW / g.powerLimitW) * 100 : 0;
+                    // nvidia-smi exposes no crit in our query. Consumer cards
+                    // throttle around 83-88C, so grade against a nominal 85
+                    // and mark it assumed rather than invent precision.
+                    const tempPct = (g.tempC / 85) * 100;
+                    const heat = tempPct >= 95 ? 'var(--color-error)' : tempPct >= 80 ? '#f97316' : '#22c55e';
+                    return (
+                      <div key={i} className="space-y-2">
+                        <div className="flex justify-between items-baseline gap-2">
+                          <span className="font-bold text-sm">{g.name}</span>
+                          {g.pstate && (
+                            <span className="text-xs text-[var(--color-muted)] font-mono" title="Performance state reported by nvidia-smi. P0 is maximum clocks, higher numbers step down; P8 is idle.">
+                              {g.pstate}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-4 text-sm">
+                          <span title={`GPU die temperature. Graded against a nominal 85°C throttle point — nvidia-smi does not report this card's limit in our query.`}>
+                            <span className="font-bold" style={{ color: heat }}>{g.tempC}°C</span>
+                          </span>
+                          {g.fanPct > 0 && (
+                            <span className="text-[#22d3ee]" title="The card's own fan, as a percentage of maximum. Passive datacenter cards report 0 here and are cooled by chassis fans instead.">
+                              {g.fanPct}% fan
+                            </span>
+                          )}
+                          <span className="text-[var(--color-muted)]" title={`Power draw against this card's ${g.powerLimitW}W limit.`}>
+                            {g.powerDrawW}W / {g.powerLimitW}W
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-[var(--color-muted)]">
+                            <span>VRAM</span>
+                            <span>{(g.memUsedMB / 1024).toFixed(1)} / {(g.memTotalMB / 1024).toFixed(1)} GB ({memPct.toFixed(0)}%)</span>
+                          </div>
+                          <Bar pct={memPct} color={memPct > 90 ? 'var(--color-error)' : '#22c55e'} />
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-[var(--color-muted)]">
+                            <span>Utilization</span>
+                            <span>{g.gpuUtil}% core &middot; {g.memUtil}% mem bus</span>
+                          </div>
+                          <Bar pct={g.gpuUtil} color="#22c55e" />
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-[var(--color-muted)]">
+                            <span>Power</span>
+                            <span>{powerPct.toFixed(0)}% of limit</span>
+                          </div>
+                          <Bar pct={powerPct} color={powerPct > 90 ? '#f97316' : '#a78bfa'} />
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {probe.gpu.nvidiaProcesses?.length > 0 && (
+                    <div className="pt-2 border-t border-[var(--color-border)]">
+                      <div className="text-xs text-[var(--color-muted)] mb-2">
+                        Compute processes ({probe.gpu.nvidiaProcesses.length})
+                      </div>
+                      <div className="space-y-1">
+                        {probe.gpu.nvidiaProcesses.map((p: any) => (
+                          <div key={p.pid} className="flex justify-between gap-2 text-xs">
+                            <span className="font-mono truncate" title={p.name}>
+                              {p.name?.split('/').pop() || p.name}
+                            </span>
+                            <span className="text-[var(--color-muted)] whitespace-nowrap">
+                              {(p.memMB / 1024).toFixed(1)}G
+                              <span className="ml-2 opacity-60">{p.pid}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </Section>
             )}
 
