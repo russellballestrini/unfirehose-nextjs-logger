@@ -13,6 +13,15 @@ import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle, parseNvidia
  */
 
 const PROBE_SCRIPT = `
+# Any command below that touches a filesystem or a device can block forever,
+# and a blocked command does not fail — it hangs until our execSync timeout
+# kills SSH, truncating every section after it. A single wedged FUSE mount on
+# one node (a dead keybase-redirector, a stale NFS export) silently blanked
+# that node's disk, sensors, topology and network. Bound the ones that can
+# block so a stuck subsystem costs us that subsystem, not the whole probe.
+T=''
+command -v timeout >/dev/null 2>&1 && T='timeout 8'
+
 # --- hostname ---
 echo '===SECTION:HOSTNAME==='
 hostname
@@ -51,7 +60,7 @@ cat /proc/uptime 2>/dev/null || echo '0 0'
 
 # --- disk ---
 echo '===SECTION:DISK==='
-df -h --output=source,size,used,avail,pcent,target 2>/dev/null | grep -E '^(/dev|tmpfs)' || echo 'n/a'
+\$T df -h --output=source,size,used,avail,pcent,target 2>/dev/null | grep -E '^(/dev|tmpfs)' || echo 'n/a'
 
 # --- processes (top CPU consumers) ---
 echo '===SECTION:PS==='
@@ -73,7 +82,7 @@ ps aux 2>/dev/null | awk 'NR>1 {
 
 # --- GPU nvidia ---
 echo '===SECTION:NVIDIA==='
-nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free,power.draw,power.limit,fan.speed,pstate --format=csv,noheader,nounits 2>/dev/null || echo 'none'
+\$T nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free,power.draw,power.limit,fan.speed,pstate --format=csv,noheader,nounits 2>/dev/null || echo 'none'
 
 # --- GPU nvidia clocks + throttle reasons ---
 # Deliberately a SECOND query rather than extra columns on the one above.
@@ -81,15 +90,15 @@ nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.me
 # unsupported field fails the WHOLE query — folding it in would blank our
 # entire GPU panel on older boxes to gain one field.
 echo '===SECTION:NVIDIA_CLOCKS==='
-nvidia-smi --query-gpu=index,clocks.current.graphics,clocks.max.graphics,clocks_throttle_reasons.active --format=csv,noheader,nounits 2>/dev/null || echo 'none'
+\$T nvidia-smi --query-gpu=index,clocks.current.graphics,clocks.max.graphics,clocks_throttle_reasons.active --format=csv,noheader,nounits 2>/dev/null || echo 'none'
 
 # --- GPU nvidia processes ---
 echo '===SECTION:NVIDIA_PS==='
-nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null || echo 'none'
+\$T nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null || echo 'none'
 
 # --- GPU AMD ---
 echo '===SECTION:AMD_GPU==='
-rocm-smi --showtemp --showuse --showmemuse --showpower --showfan --csv 2>/dev/null || echo 'none'
+\$T rocm-smi --showtemp --showuse --showmemuse --showpower --showfan --csv 2>/dev/null || echo 'none'
 
 # --- temperatures (ACPI thermal zones) ---
 # Emitted as type|millidegrees pairs on one line each. The old shape printed
@@ -182,15 +191,15 @@ cat /proc/diskstats 2>/dev/null | head -20 || echo 'n/a'
 
 # --- docker/containers ---
 echo '===SECTION:DOCKER==='
-docker ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | head -20 || echo 'none'
+\$T docker ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | head -20 || echo 'none'
 
 # --- tmux sessions ---
 echo '===SECTION:TMUX==='
-tmux list-sessions 2>/dev/null || echo 'none'
+\$T tmux list-sessions 2>/dev/null || echo 'none'
 
 # --- screen sessions ---
 echo '===SECTION:SCREEN==='
-screen -ls 2>/dev/null | grep -E '^\s+\d+' || echo 'none'
+\$T screen -ls 2>/dev/null | grep -E '^\s+\d+' || echo 'none'
 
 echo '===SECTION:END==='
 `.trim();
@@ -458,6 +467,13 @@ function parseProbeOutput(raw: string, host: string) {
   return {
     hostname,
     reachable: !!hostname,
+    // Our probe prints SECTION:END last. Its absence means SSH was killed
+    // mid-stream, so every section after the cut is empty for a reason that
+    // has nothing to do with the hardware. Without this flag a truncated
+    // probe is indistinguishable from a node that genuinely has no sensors,
+    // no disks and no network — which is how a wedged mount on one box read
+    // as "this machine reports no temperatures".
+    truncated: !!hostname && !raw.includes('===SECTION:END==='),
     system: { arch, kernel, os: osName, cpuModel: cpuInfo.model, cpuMhz: cpuInfo.mhz, cpuCache: cpuInfo.cacheSize, cpuCores },
     memory,
     loadAvg,
