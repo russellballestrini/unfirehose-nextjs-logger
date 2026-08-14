@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { homedir } from 'os';
 import { mkdirSync } from 'fs';
+import { applyBasePragmas } from './pragmas';
 
 const UNFIREHOSE_DIR = path.join(homedir(), '.unfirehose');
 const DB_PATH = path.join(UNFIREHOSE_DIR, 'unfirehose.db');
@@ -19,9 +20,7 @@ export function getDb(): Database.Database {
 
   mkdirSync(UNFIREHOSE_DIR, { recursive: true });
   _db = new Database(DB_PATH);
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('synchronous = NORMAL');
-  _db.pragma('foreign_keys = ON');
+  applyBasePragmas(_db);
   // 256MB page cache keeps our covering indices in memory across requests —
   // /api/tokens does a full scan of messages and was cache-thrashing at 2MB.
   _db.pragma('cache_size = -262144');

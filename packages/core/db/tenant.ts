@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { mkdirSync } from 'fs';
 import { migrateTenantDb } from './schema';
+import { applyBasePragmas } from './pragmas';
 
 const TENANT_DB_DIR = process.env.TENANT_DB_DIR || '/data/tenants';
 const MAX_POOL_SIZE = 50;
@@ -46,9 +47,7 @@ export function getTenantDb(accountId: string): Database.Database {
   const dbPath = path.join(TENANT_DB_DIR, `${accountId}.db`);
 
   const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
+  applyBasePragmas(db);
 
   migrateTenantDb(db);
 

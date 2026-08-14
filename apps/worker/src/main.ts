@@ -1,6 +1,7 @@
 import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
 import { ingestAll, getDbStats } from '@unturf/unfirehose/db/ingest';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { rollupDrain } from './mesh-rollup';
 
@@ -11,9 +12,17 @@ const MESH_POLL_INTERVAL_MS = 15_000;
 // (capped at 16) catches up quickly without locking the DB for long.
 const ROLLUP_TICK_MS = 60_000;
 // Daily VACUUM to reclaim pages freed by the snake-eats-tail delete after a
-// run of rollups. Cheap enough on this DB shape but locks briefly — schedule
-// at off-hours by offsetting the first run.
+// run of rollups. Locks briefly and rewrites our whole database — schedule at
+// off-hours by offsetting our first run, and gate it on our freelist so it only
+// runs when there is something to reclaim.
 const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Below this much reclaimable space a VACUUM costs far more than it returns:
+// it rewrites every page through our WAL, so a no-op VACUUM on a 3.6G database
+// buys ~0 bytes and leaves a 3.6G WAL behind.
+const VACUUM_MIN_FREELIST_BYTES = 256 * 1024 * 1024;
+// Hourly WAL checkpoint so `journal_size_limit` is actually applied — SQLite
+// truncates our -wal on checkpoint, never on write.
+const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
@@ -166,15 +175,51 @@ async function main() {
     }
   }, ROLLUP_TICK_MS);
 
-  // Daily VACUUM to reclaim pages freed by the rollup-delete. Offset the
-  // first run by 1 hour so a fresh worker doesn't VACUUM the moment ingest
-  // is busiest.
+  // Hourly WAL checkpoint. `journal_size_limit` (see db/pragmas) caps our -wal
+  // file, but only a checkpoint actually applies that cap — SQLite truncates on
+  // checkpoint, not on write. Busy is an expected outcome, not a failure: web
+  // and worker are separate processes on one file, so some ticks will find
+  // readers holding our WAL and simply retry an hour later.
+  const checkpointInterval = setInterval(() => {
+    try {
+      const t0 = Date.now();
+      const r = checkpointTruncate(getDb());
+      const mb = (b: number) => (b / 1048576).toFixed(1);
+      if (r.busy) {
+        console.log(`[worker] WAL checkpoint busy (readers active), -wal still ${mb(r.walBytesAfter)}MB — retrying next tick`);
+      } else {
+        console.log(`[worker] WAL checkpoint reclaimed ${mb(r.reclaimedBytes)}MB (${mb(r.walBytesBefore)} → ${mb(r.walBytesAfter)}MB) in ${Date.now() - t0}ms`);
+      }
+    } catch (err) {
+      console.error('[worker] WAL checkpoint failed:', err);
+    }
+  }, CHECKPOINT_INTERVAL_MS);
+
+  // VACUUM only when there is something to reclaim. This ran unconditionally
+  // every day and was our reason our WAL reached 3.6G: VACUUM rewrites every
+  // page of our database, and in WAL mode those pages all land in our WAL, so
+  // one run sizes our WAL to match our whole database. Measured 2026-08-14 it
+  // recovered 9MB from a 3.6G database — it was paying our entire database size
+  // in WAL growth to reclaim a rounding error. Our freelist tells us what a
+  // VACUUM would genuinely return, so we only pay when it is worth paying.
+  // Offset our first run by 1 hour so a fresh worker doesn't VACUUM the moment
+  // ingest is busiest.
   const vacuumKickoff = setTimeout(() => {
     const runVacuum = () => {
       try {
+        const db = getDb();
+        const reclaimable = freelistBytes(db);
+        if (reclaimable < VACUUM_MIN_FREELIST_BYTES) {
+          console.log(`[worker] VACUUM skipped — freelist ${(reclaimable / 1048576).toFixed(1)}MB below ${(VACUUM_MIN_FREELIST_BYTES / 1048576).toFixed(0)}MB threshold`);
+          return;
+        }
         const t0 = Date.now();
-        getDb().exec('VACUUM');
-        console.log(`[worker] daily VACUUM complete in ${Date.now() - t0}ms`);
+        db.exec('VACUUM');
+        console.log(`[worker] VACUUM reclaimed ${(reclaimable / 1048576).toFixed(1)}MB in ${Date.now() - t0}ms`);
+        // VACUUM just pushed our whole database through our WAL. Fold it back
+        // immediately rather than leaving our file at its new high-water mark
+        // until our next hourly tick.
+        checkpointTruncate(db);
       } catch (err) {
         console.error('[worker] VACUUM failed:', err);
       }
@@ -190,6 +235,7 @@ async function main() {
       clearInterval(interval);
       clearInterval(watchdog);
       clearInterval(rollupInterval);
+      clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       for (const t of meshTimers) {
         clearTimeout(t);

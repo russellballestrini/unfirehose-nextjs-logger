@@ -31,6 +31,7 @@
   ],
   "exports": {
     "./db/schema": "./db/schema.ts",
+    "./db/pragmas": "./db/pragmas.ts",
     "./db/ingest": "./db/ingest.ts",
     "./db/watcher": "./db/watcher.ts",
     "./db/control": "./db/control.ts",

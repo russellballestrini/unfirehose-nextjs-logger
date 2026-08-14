@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { applyBasePragmas } from './pragmas';
 
 const CONTROL_DB_PATH = process.env.CONTROL_DB_PATH || '/data/control.db';
 
@@ -8,9 +9,7 @@ export function getControlDb(): Database.Database {
   if (_db) return _db;
 
   _db = new Database(CONTROL_DB_PATH);
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('synchronous = NORMAL');
-  _db.pragma('foreign_keys = ON');
+  applyBasePragmas(_db);
 
   migrateControl(_db);
   return _db;

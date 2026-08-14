@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { applyBasePragmas } from '../db/pragmas';
 
 /**
  * Creates a fresh in-memory SQLite DB with the full schema applied.
@@ -6,9 +7,7 @@ import Database from 'better-sqlite3';
  */
 export function createTestDb(): Database.Database {
   const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
+  applyBasePragmas(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
