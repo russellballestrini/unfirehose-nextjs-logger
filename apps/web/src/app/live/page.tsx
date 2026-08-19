@@ -569,17 +569,17 @@ export default function LivePage() {
               onMouseEnter={() => hasExpandableContent && onEntryMouseEnter(i)}
               onMouseLeave={onEntryMouseLeave}
             >
-              {/* Header row — always visible */}
-              <div className="flex gap-2 py-1.5 px-3 select-none">
+              {/* Header row — metadata only; output always goes on its own line below */}
+              <div className="flex gap-2 pt-1.5 pb-0.5 px-3 select-none min-w-0 items-center">
                 {/* Session dot + harness badge + project */}
-                <div className="shrink-0 flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
                   <span
                     className="inline-block w-2 h-2 rounded-full shrink-0"
                     style={{ background: color }}
                   />
                   {item.harness && (
                     <span
-                      className="text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
+                      className="shrink-0 text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
                       style={{
                         color: harnessColor(item.harness),
                         borderColor: 'color-mix(in srgb, currentColor 40%, transparent)',
@@ -589,7 +589,11 @@ export default function LivePage() {
                       {item.harness}
                     </span>
                   )}
-                  <span className="whitespace-nowrap text-sm" style={{ color }}>
+                  <span
+                    className="truncate text-sm"
+                    style={{ color }}
+                    title={item.projectName}
+                  >
                     {item.projectName}
                   </span>
                 </div>
@@ -603,33 +607,37 @@ export default function LivePage() {
                 </span>
 
                 {/* Timestamp */}
-                <span className="shrink-0 text-[var(--color-muted)] text-sm w-16">
+                <span className="shrink-0 text-[var(--color-muted)] text-sm">
                   {e.timestamp
                     ? formatTimestamp(e.timestamp).slice(11, 19)
                     : ''}
                 </span>
 
-                {/* Preview content */}
-                <div className="flex-1 min-w-0 text-sm">
-                  {/* Model tag for assistant */}
-                  {isAssistant && model && (
-                    <span className="text-[var(--color-muted)] mr-1.5">
-                      [{shortModel(model)}
-                      {usage ? ` in:${(usage.input_tokens / 1000).toFixed(0)}k out:${(usage.output_tokens / 1000).toFixed(0)}k` : ''}]
-                    </span>
-                  )}
+                {/* Model tag for assistant */}
+                {isAssistant && model && (
+                  <span className="shrink-0 text-[var(--color-muted)] text-sm">
+                    [{shortModel(model)}
+                    {usage ? ` in:${(usage.input_tokens / 1000).toFixed(0)}k out:${(usage.output_tokens / 1000).toFixed(0)}k` : ''}]
+                  </span>
+                )}
 
-                  {/* System subtype */}
-                  {isSystem && (
-                    <span className="text-[var(--color-muted)]">
-                      {e.subtype ?? 'event'}
-                      {e.durationMs ? ` (${(e.durationMs / 1000).toFixed(1)}s)` : ''}
-                    </span>
-                  )}
+                {/* System subtype */}
+                {isSystem && (
+                  <span className="shrink-0 text-[var(--color-muted)] text-sm">
+                    {e.subtype ?? 'event'}
+                    {e.durationMs ? ` (${(e.durationMs / 1000).toFixed(1)}s)` : ''}
+                  </span>
+                )}
+              </div>
 
+              {/* Output line — full width under the header, never squeezed by long names */}
+              {(tools.length > 0 ||
+                (!showExpanded && isToolOutput && toolResults.length > 0) ||
+                (!showExpanded && text && !isToolOutput)) && (
+                <div className="px-3 pb-1.5 pl-8 text-sm min-w-0">
                   {/* Tool names + details */}
                   {tools.length > 0 && (
-                    <span className="text-[var(--color-tool)]">
+                    <span className="text-[var(--color-tool)] break-words">
                       {tools.map((t, ti) => (
                         <span key={ti}>
                           [{t.name}]
@@ -644,7 +652,7 @@ export default function LivePage() {
 
                   {/* Tool result preview (only when collapsed) */}
                   {!showExpanded && isToolOutput && toolResults.length > 0 && (
-                    <span className={hasErrors ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-60'}>
+                    <span className={`break-words ${hasErrors ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-60'}`}>
                       {toolResults[0].content.split('\n')[0]}
                       {toolResults[0].content.split('\n').length > 1 ? '...' : ''}
                     </span>
@@ -652,13 +660,12 @@ export default function LivePage() {
 
                   {/* Text preview (only when collapsed) */}
                   {!showExpanded && text && !isToolOutput && (
-                    <span className="text-[var(--color-foreground)]">
+                    <span className="text-[var(--color-foreground)] break-words">
                       {text.split('\n')[0]}
                     </span>
                   )}
                 </div>
-
-              </div>
+              )}
 
               {/* Expanded content — auto for recent entries, hover for older */}
               <div
@@ -667,7 +674,7 @@ export default function LivePage() {
                 }`}
               >
                 <div
-                  className="px-3 pb-2 pl-[10rem] space-y-2"
+                  className="px-3 pb-2 pl-8 space-y-2"
                   style={{
                     background: isMostRecentOutput
                       ? 'color-mix(in srgb, var(--color-accent) 5%, var(--color-surface))'
