@@ -82,9 +82,14 @@ export default function ProjectsPage() {
     (activity ?? []).map((a) => [a.name, a])
   );
 
+  // `latestActivity` is now DB-backed and already folds in every harness's
+  // sessions, including agent scratch workspaces that roll up into their repo.
+  // The activity feed is still consulted first because it is windowed to the
+  // selected range and refreshes on its own interval, but it no longer decides
+  // whether a project can be seen at all.
   const sortedProjects = [...projects].sort((a, b) => {
-    const aTime = activityMap.get(a.name)?.last_activity || a.latestActivity || '';
-    const bTime = activityMap.get(b.name)?.last_activity || b.latestActivity || '';
+    const aTime = a.latestActivity || activityMap.get(a.name)?.last_activity || '';
+    const bTime = b.latestActivity || activityMap.get(b.name)?.last_activity || '';
     return bTime.localeCompare(aTime);
   });
 
@@ -334,9 +339,16 @@ function ProjectCard({
         ) : (
           <span />
         )}
-        {(activity?.last_activity || project.latestActivity) && (
-          <span className="text-base text-[var(--color-muted)]">
-            {formatRelativeTime(activity?.last_activity || project.latestActivity)}
+        {(project.latestActivity || activity?.last_activity) && (
+          <span
+            className="text-base text-[var(--color-muted)]"
+            title={
+              project.foldedCount
+                ? `newest session across ${(project.harnesses ?? []).join(', ') || 'all harnesses'} — includes ${project.foldedCount} agent workspace${project.foldedCount === 1 ? '' : 's'} folded into this repo`
+                : `newest session across ${(project.harnesses ?? []).join(', ') || 'all harnesses'}`
+            }
+          >
+            {formatRelativeTime(project.latestActivity || activity?.last_activity || '')}
           </span>
         )}
       </div>

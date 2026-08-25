@@ -188,6 +188,10 @@ export interface ProjectInfo {
   totalMessages: number;
   latestActivity: string;
   hasMemory: boolean;
+  /** Harnesses that have worked in this project, e.g. ['claude-code','uncloseai']. */
+  harnesses?: string[];
+  /** Ephemeral project rows folded into this one (agent scratch workspaces). */
+  foldedCount?: number;
 }
 
 // === Project Metadata (git) ===

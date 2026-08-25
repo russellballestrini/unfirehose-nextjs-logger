@@ -421,11 +421,16 @@ export function hostForMessage(
  */
 export const CLOUD_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'openrouter', 'hf-inference', 'nous']);
 
-// $/kWh — override via UNFIREHOSE_KWH_RATE_USD env var. Default = CT residential.
+// $/kWh. One default for the whole system — pages used to carry their own
+// `DEFAULT_KWH_RATE = 0.31` while this module used 0.33, so the same node's
+// energy cost differed depending on which page you were looking at.
+export const DEFAULT_KWH_RATE = 0.33;
+
+// Override via UNFIREHOSE_KWH_RATE_USD env var. Default = CT residential.
 export function getKwhRate(): number {
   const raw = typeof process !== 'undefined' ? process.env?.UNFIREHOSE_KWH_RATE_USD : undefined;
   const v = raw ? parseFloat(raw) : NaN;
-  return Number.isFinite(v) && v > 0 ? v : 0.33;
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_KWH_RATE;
 }
 
 /** GPU-seconds a token mix costs on one hardware profile. */
@@ -594,4 +599,84 @@ export function calcCost(
   opts: CostOptions = {},
 ): number {
   return calcCostBreakdown(model, input, output, cacheRead, cacheWrite, opts).total;
+}
+
+// ---------------------------------------------------------------------------
+// The one entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * One usage row as our database records it. Whatever a caller's query looks
+ * like, it can shape its rows into this.
+ */
+export interface UsageRow {
+  model: string | null | undefined;
+  input?: number | null;
+  output?: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
+  provider?: string | null;
+  endpoint?: string | null;
+}
+
+/**
+ * THE cost function. Every page, route and report goes through this.
+ *
+ * It exists because the decisions AROUND the arithmetic are what drift, not the
+ * arithmetic itself. Whether a row is self-hosted, which oracle to price it
+ * against, how a missing price is reported — each caller used to answer those
+ * for itself, and they answered differently:
+ *
+ *   /api/projects/activity   one blended Opus rate for every model  → $14
+ *   /api/projects/[p]/full   per-model catalog price                → $0.70
+ *   /api/alerts/[id]         a second copy of the blended rate
+ *   /usage/alert/[id]        rates typed inline in JSX
+ *
+ * Same tokens, four numbers. Route everything here and there is one number,
+ * right or wrong in one place.
+ */
+export function costForUsage(row: UsageRow): CostBreakdown {
+  const model = row.model ?? '';
+  if (!model) {
+    return {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+      total: 0, market: 0, avoided: 0, source: 'unknown', selfHosted: false,
+    };
+  }
+  return calcCostBreakdown(
+    model,
+    row.input ?? 0,
+    row.output ?? 0,
+    row.cacheRead ?? 0,
+    row.cacheWrite ?? 0,
+    {
+      selfHosted: isSelfHosted(model, row.endpoint, row.provider),
+      // Traffic that actually routed through Nous prices at Nous rates;
+      // everything else prices at list.
+      prefer: row.provider === 'nous' ? ['nous', 'openrouter'] : ['openrouter', 'nous'],
+    },
+  );
+}
+
+/** Sum costForUsage over many rows. The shape every dashboard needs. */
+export function costForUsageRows(rows: Iterable<UsageRow>): CostBreakdown {
+  const acc: CostBreakdown = {
+    input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+    total: 0, market: 0, avoided: 0, source: 'unknown', selfHosted: false,
+  };
+  let any = false;
+  for (const r of rows) {
+    const c = costForUsage(r);
+    acc.input += c.input;
+    acc.output += c.output;
+    acc.cacheRead += c.cacheRead;
+    acc.cacheWrite += c.cacheWrite;
+    acc.total += c.total;
+    acc.market += c.market;
+    acc.avoided += c.avoided;
+    acc.selfHosted = acc.selfHosted || c.selfHosted;
+    // A mixed set has no single source; report the first real one we saw.
+    if (!any && c.source !== 'unknown') { acc.source = c.source; any = true; }
+  }
+  return acc;
 }

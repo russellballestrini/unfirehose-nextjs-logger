@@ -58,6 +58,7 @@
     "./apmonitor-adapter": "./apmonitor-adapter.ts",
     "./training": "./training.ts",
     "./project-name": "./project-name.ts",
+    "./project-rollup": "./project-rollup.ts",
     "./agnt-paths": "./agnt-paths.ts",
     "./session-paths": "./session-paths.ts",
     "./claude-code-adapter": "./claude-code-adapter.ts"

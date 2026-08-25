@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCost } from '@unturf/unfirehose/pricing';
+import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -53,7 +53,7 @@ export async function GET(
 
     let totalCost = 0;
     for (const m of modelBreakdown) {
-      m.cost = calcCost(m.model, m.input, m.output, m.cache_read, m.cache_write);
+      m.cost = costForUsage({ model: m.model, input: m.input, output: m.output, cacheRead: m.cache_read, cacheWrite: m.cache_write, provider: m.provider, endpoint: m.endpoint }).total;
       totalCost += m.cost;
     }
 

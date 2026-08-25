@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
-import { calcCost } from '@unturf/unfirehose/pricing';
+import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
@@ -54,7 +54,7 @@ export async function GET() {
       totalOutput += m.out ?? 0;
       totalCacheRead += m.cr ?? 0;
       totalCacheWrite += m.cw ?? 0;
-      const cost = calcCost(m.model, m.inp, m.out, m.cr, m.cw);
+      const cost = costForUsage({ model: m.model, input: m.inp, output: m.out, cacheRead: m.cr, cacheWrite: m.cw }).total;
       totalCost += cost;
       return { model: m.model, messages: m.messages, inputTokens: m.inp, outputTokens: m.out };
     });
@@ -121,7 +121,7 @@ export async function GET() {
     const dailyAgg: Record<string, { cost: number; count: number }> = {};
     for (const r of dailyRows) {
       if (!dailyAgg[r.date]) dailyAgg[r.date] = { cost: 0, count: 0 };
-      dailyAgg[r.date].cost += calcCost(r.model, r.inp, r.out, r.cr, r.cw);
+      dailyAgg[r.date].cost += costForUsage({ model: r.model, input: r.inp, output: r.out, cacheRead: r.cr, cacheWrite: r.cw }).total;
       dailyAgg[r.date].count += r.msg_count;
     }
     const dailyCostSeries = Object.entries(dailyAgg)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCostBreakdown, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel, isSelfHosted } from '@unturf/unfirehose/pricing';
+import { costForUsage, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
@@ -182,21 +182,17 @@ export async function GET(request: NextRequest) {
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
       const { host, provider, endpoint } = attrFor(m.model);
-      // Neither the model-name regex nor provider='local' can decide this on
-      // its own — see isSelfHosted. ox-alpha logs as provider='local' and runs
-      // on OpenRouter.
-      const selfHosted = isSelfHosted(m.model, endpoint, provider);
-      // Traffic that actually went through Nous should price at Nous rates;
-      // everything else prices at list.
-      const prefer = provider === 'nous' ? (['nous', 'openrouter'] as const) : (['openrouter', 'nous'] as const);
-      const c = calcCostBreakdown(
-        m.model,
-        m.input_tokens,
-        m.output_tokens,
-        m.cache_read_tokens,
-        m.cache_creation_tokens,
-        { selfHosted, prefer: [...prefer] },
-      );
+      // selfHosted and oracle preference are decided inside costForUsage, so
+      // this route cannot disagree with any other page about either.
+      const c = costForUsage({
+        model: m.model,
+        input: m.input_tokens,
+        output: m.output_tokens,
+        cacheRead: m.cache_read_tokens,
+        cacheWrite: m.cache_creation_tokens,
+        provider,
+        endpoint,
+      });
       let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
         const hostCost = kwhByHost[host] * kwhRate;

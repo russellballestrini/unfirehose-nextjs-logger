@@ -355,10 +355,13 @@ export default function AlertDetailPage() {
 
         {/* Second row */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-          <StatCard label="Input Tokens" value={formatTokens(totals.input_tokens)} sub={formatCost((totals.input_tokens / 1_000_000) * 5)} />
-          <StatCard label="Output Tokens" value={formatTokens(totals.output_tokens)} sub={formatCost((totals.output_tokens / 1_000_000) * 25)} warn={stats.output_share_pct > 40} />
-          <StatCard label="Cache Read" value={formatTokens(totals.cache_read_tokens)} sub={formatCost((totals.cache_read_tokens / 1_000_000) * 0.50)} />
-          <StatCard label="Cache Write" value={formatTokens(totals.cache_creation_tokens)} sub={formatCost((totals.cache_creation_tokens / 1_000_000) * 6.25)} />
+          {/* Costs come from totals.cost_split_usd, priced per model by the API.
+              These used to be Opus rates multiplied inline here, so this panel
+              disagreed with every other page for anything not running on Opus. */}
+          <StatCard label="Input Tokens" value={formatTokens(totals.input_tokens)} sub={formatCost(totals.cost_split_usd?.input ?? 0)} />
+          <StatCard label="Output Tokens" value={formatTokens(totals.output_tokens)} sub={formatCost(totals.cost_split_usd?.output ?? 0)} warn={stats.output_share_pct > 40} />
+          <StatCard label="Cache Read" value={formatTokens(totals.cache_read_tokens)} sub={formatCost(totals.cost_split_usd?.cache_read ?? 0)} />
+          <StatCard label="Cache Write" value={formatTokens(totals.cache_creation_tokens)} sub={formatCost(totals.cost_split_usd?.cache_write ?? 0)} />
           <StatCard label="I/O Ratio" value={`${stats.input_output_ratio}:1`} sub={`${stats.unique_models} model${stats.unique_models !== 1 ? 's' : ''}`} />
         </div>
 

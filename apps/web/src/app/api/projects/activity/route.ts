@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
-import { getProjectActivity, getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
+import { getProjectActivity, getProjectModelActivity, getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
+import { calcCostBreakdown, isSelfHosted } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Average blended rate for rough per-project cost estimates (2026 Opus rates)
-const AVG_RATE = { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 };
+// Per-project cost is computed per MODEL against the price catalog. It used to
+// use one blended Opus rate for every project, which billed cheap traffic as if
+// it were Anthropic's most expensive tier: riseallships runs entirely on
+// ox-alpha and a local Qwen and reported $14 against an actual $0.70.
 
 // Cache: activity aggregates are expensive — refresh every 60s
 const activityCache = new Map<number, { data: any[]; ts: number }>();
@@ -148,17 +152,30 @@ export async function GET(request: NextRequest) {
         })();
     t.mark(fromCache ? 'activity_cache' : 'activity_query');
 
-    // Compute per-project cost estimates using blended rate
-    const enriched = activity.map((p: any) => {
-      const costEstimate =
-        ((p.total_input ?? 0) / 1_000_000) * AVG_RATE.input +
-        ((p.total_output ?? 0) / 1_000_000) * AVG_RATE.output +
-        ((p.total_cache_read ?? 0) / 1_000_000) * AVG_RATE.cacheRead +
-        ((p.total_cache_write ?? 0) / 1_000_000) * AVG_RATE.cacheWrite;
+    // Per-project cost, summed over each model that actually ran there.
+    ensurePricingHydrated();
+    const costByProject = new Map<string, { cost: number; market: number; avoided: number }>();
+    for (const r of getProjectModelActivity(days)) {
+      const selfHosted = isSelfHosted(r.model, r.endpoint, r.provider);
+      const c = calcCostBreakdown(
+        r.model, r.input, r.output, r.cache_read, r.cache_write,
+        { selfHosted },
+      );
+      const acc = costByProject.get(r.name) ?? { cost: 0, market: 0, avoided: 0 };
+      acc.cost += c.total;
+      acc.market += c.market;
+      acc.avoided += c.avoided;
+      costByProject.set(r.name, acc);
+    }
+    t.mark('cost');
 
+    const enriched = activity.map((p: any) => {
+      const c = costByProject.get(p.name) ?? { cost: 0, market: 0, avoided: 0 };
       return {
         ...p,
-        cost_estimate: Math.round(costEstimate * 100) / 100,
+        cost_estimate: Math.round(c.cost * 100) / 100,
+        market_estimate: Math.round(c.market * 100) / 100,
+        avoided_estimate: Math.round(c.avoided * 100) / 100,
       };
     });
     t.mark('enrich');

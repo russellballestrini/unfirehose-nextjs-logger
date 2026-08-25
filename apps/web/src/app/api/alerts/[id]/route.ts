@@ -1,25 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getAlertById,
-  getUsageByProjectInWindow,
+  getProjectModelUsageInWindow,
   getModelBreakdownInWindow,
   getActiveSessionsInWindow,
   getThinkingBlocksInWindow,
   getTimelineInWindow,
   getUserPromptsInWindow,
 } from '@unturf/unfirehose/db/ingest';
+import { costForUsage, costForUsageRows } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 
-// 2026 blended rates (same as /api/projects/activity)
-const AVG_RATE = { input: 5, output: 25, cacheRead: 0.50, cacheWrite: 6.25 };
-
-function computeCost(input: number, output: number, cacheRead: number, cacheWrite: number): number {
-  return (
-    (input / 1_000_000) * AVG_RATE.input +
-    (output / 1_000_000) * AVG_RATE.output +
-    (cacheRead / 1_000_000) * AVG_RATE.cacheRead +
-    (cacheWrite / 1_000_000) * AVG_RATE.cacheWrite
-  );
-}
+// Cost comes from costForUsage — the single entry point in @unturf/unfirehose/pricing.
+// This route used to carry its own copy of a blended Opus rate, which priced a
+// project running on local Qwen as if every token were Anthropic's most
+// expensive tier.
 
 export async function GET(
   _request: NextRequest,
@@ -61,7 +56,10 @@ export async function GET(
     const minuteEnd = windowEnd.slice(0, 16);
 
     // Run all queries
-    const projectBreakdown = getUsageByProjectInWindow(minuteStart, minuteEnd);
+    ensurePricingHydrated();
+    // Per project AND per model, so each project prices against what it
+    // actually ran rather than one blended rate.
+    const projectModelRows = getProjectModelUsageInWindow(windowStart, windowEnd);
     const modelBreakdown = getModelBreakdownInWindow(windowStart, windowEnd);
     const activeSessions = getActiveSessionsInWindow(windowStart, windowEnd);
     const reasoningBlocks = getThinkingBlocksInWindow(windowStart, windowEnd);
@@ -76,21 +74,53 @@ export async function GET(
     let totalCacheWrite = 0;
     let totalMessages = 0;
 
-    const enrichedProjects = projectBreakdown.map((p) => {
-      totalInput += p.input_tokens;
-      totalOutput += p.output_tokens;
-      totalCacheRead += p.cache_read_tokens;
-      totalCacheWrite += p.cache_creation_tokens;
-      totalMessages += p.message_count;
+    // Collapse the per-(project, model) rows back to one row per project,
+    // summing cost through the single cost function on the way.
+    const perProject = new Map<string, {
+      name: string; display_name: string;
+      input_tokens: number; output_tokens: number;
+      cache_read_tokens: number; cache_creation_tokens: number;
+      message_count: number; cost_usd: number; pct_of_total: number;
+    }>();
+    for (const r of projectModelRows) {
+      totalInput += r.input_tokens;
+      totalOutput += r.output_tokens;
+      totalCacheRead += r.cache_read_tokens;
+      totalCacheWrite += r.cache_creation_tokens;
+      totalMessages += r.message_count;
 
-      return {
-        ...p,
-        cost_usd: Math.round(computeCost(p.input_tokens, p.output_tokens, p.cache_read_tokens, p.cache_creation_tokens) * 10000) / 10000,
-        pct_of_total: 0, // filled below
+      const cost = costForUsage({
+        model: r.model,
+        input: r.input_tokens,
+        output: r.output_tokens,
+        cacheRead: r.cache_read_tokens,
+        cacheWrite: r.cache_creation_tokens,
+        provider: r.provider,
+        endpoint: r.endpoint,
+      }).total;
+
+      const cur = perProject.get(r.name) ?? {
+        name: r.name, display_name: r.display_name,
+        input_tokens: 0, output_tokens: 0,
+        cache_read_tokens: 0, cache_creation_tokens: 0,
+        message_count: 0, cost_usd: 0, pct_of_total: 0,
       };
-    });
+      cur.input_tokens += r.input_tokens;
+      cur.output_tokens += r.output_tokens;
+      cur.cache_read_tokens += r.cache_read_tokens;
+      cur.cache_creation_tokens += r.cache_creation_tokens;
+      cur.message_count += r.message_count;
+      cur.cost_usd += cost;
+      perProject.set(r.name, cur);
+    }
 
-    const totalCost = computeCost(totalInput, totalOutput, totalCacheRead, totalCacheWrite);
+    const enrichedProjects = [...perProject.values()]
+      .sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens));
+    for (const p of enrichedProjects) {
+      p.cost_usd = Math.round(p.cost_usd * 10000) / 10000;
+    }
+
+    const totalCost = enrichedProjects.reduce((s, p) => s + p.cost_usd, 0);
 
     // Fill percentages
     for (const p of enrichedProjects) {
@@ -99,10 +129,24 @@ export async function GET(
         : 0;
     }
 
-    const enrichedModels = modelBreakdown.map((m) => ({
-      ...m,
-      cost_usd: Math.round(computeCost(m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens) * 10000) / 10000,
-    }));
+    const enrichedModels = modelBreakdown.map((m: any) => {
+      const c = costForUsage({
+        model: m.model,
+        input: m.input_tokens,
+        output: m.output_tokens,
+        cacheRead: m.cache_read_tokens,
+        cacheWrite: m.cache_creation_tokens,
+        provider: m.provider,
+        endpoint: m.endpoint,
+      });
+      return {
+        ...m,
+        cost_usd: Math.round(c.total * 10000) / 10000,
+        market_usd: Math.round(c.market * 10000) / 10000,
+        avoided_usd: Math.round(c.avoided * 10000) / 10000,
+        cost_source: c.source,
+      };
+    });
 
     // Derived stats for bean counters + math people
     const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheWrite;
@@ -136,6 +180,25 @@ export async function GET(
         total_tokens: totalTokens,
         total_cost_usd: Math.round(totalCost * 10000) / 10000,
         messages: totalMessages,
+        // Per-class split, priced through the same function. The alert page
+        // used to multiply these by 5 / 25 / 0.50 / 6.25 typed inline in JSX.
+        cost_split_usd: (() => {
+          const c = costForUsageRows(projectModelRows.map((r) => ({
+            model: r.model,
+            input: r.input_tokens,
+            output: r.output_tokens,
+            cacheRead: r.cache_read_tokens,
+            cacheWrite: r.cache_creation_tokens,
+            provider: r.provider,
+            endpoint: r.endpoint,
+          })));
+          const r4 = (n: number) => Math.round(n * 10000) / 10000;
+          return {
+            input: r4(c.input), output: r4(c.output),
+            cache_read: r4(c.cacheRead), cache_write: r4(c.cacheWrite),
+            market: r4(c.market), avoided: r4(c.avoided),
+          };
+        })(),
       },
       stats: {
         cost_per_minute: Math.round(costPerMinute * 10000) / 10000,

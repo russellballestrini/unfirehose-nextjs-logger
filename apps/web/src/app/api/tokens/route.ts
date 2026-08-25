@@ -3,7 +3,7 @@ import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCostBreakdown } from '@unturf/unfirehose/pricing';
+import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
     }
 
     const modelBreakdown = [...modelMap.entries()].map(([model, t]) => {
-      const c = calcCostBreakdown(model, t.input, t.output, t.cacheRead, t.cacheWrite);
+      const c = costForUsage({ model, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite });
       return {
         model,
         inputTokens: t.input,
@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
 
     const harnessCostMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }>();
     for (const hm of harnessModelBreakdown) {
-      const c = calcCostBreakdown(hm.model, hm.input_tokens, hm.output_tokens, hm.cache_read_tokens, hm.cache_creation_tokens);
+      const c = costForUsage({ model: hm.model, input: hm.input_tokens, output: hm.output_tokens, cacheRead: hm.cache_read_tokens, cacheWrite: hm.cache_creation_tokens, provider: (hm as any).provider, endpoint: (hm as any).endpoint });
       const prev = harnessCostMap.get(hm.harness) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
       prev.input += c.input;
       prev.output += c.output;

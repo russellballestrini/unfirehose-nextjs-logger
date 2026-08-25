@@ -1,5 +1,7 @@
 'use client';
 
+import { DEFAULT_KWH_RATE as PRICING_DEFAULT_KWH_RATE } from '@unturf/unfirehose/pricing';
+
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -716,7 +718,9 @@ function isActiveSameDay(timestamp: string | null): boolean {
   return d.toDateString() === now.toDateString();
 }
 
-const DEFAULT_KWH_RATE = 0.31; // USD per kWh — unsandbox default
+// Re-exported from @unturf/unfirehose/pricing so pages and server cost math
+// cannot drift apart — this file used 0.31 while pricing.ts used 0.33.
+const DEFAULT_KWH_RATE = PRICING_DEFAULT_KWH_RATE;
 
 // No longer estimating power — mesh API provides TDP-based or RAPL watts
 

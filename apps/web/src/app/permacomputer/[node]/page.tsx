@@ -1,5 +1,7 @@
 'use client';
 
+import { DEFAULT_KWH_RATE as PRICING_DEFAULT_KWH_RATE } from '@unturf/unfirehose/pricing';
+
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -22,7 +24,9 @@ import {
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
-const DEFAULT_KWH_RATE = 0.31;
+// Re-exported from @unturf/unfirehose/pricing so pages and server cost math
+// cannot drift apart — this file used 0.31 while pricing.ts used 0.33.
+const DEFAULT_KWH_RATE = PRICING_DEFAULT_KWH_RATE;
 
 // SQLite emits timestamps as "YYYY-MM-DD HH:MM[:SS]" in UTC with no tz marker.
 // Parse as UTC and let the browser format in the user's local timezone.

@@ -3,7 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCost } from '@unturf/unfirehose/pricing';
+import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -73,7 +73,7 @@ export async function GET() {
   let periodCacheWriteTokens = 0;
 
   for (const r of rows) {
-    periodCostUSD += calcCost(r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens);
+    periodCostUSD += costForUsage({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens }).total;
     periodInputTokens     += r.input_tokens;
     periodOutputTokens    += r.output_tokens;
     periodCacheReadTokens += r.cache_read_tokens;
@@ -100,7 +100,7 @@ export async function GET() {
   // Collapse to daily cost totals
   const byDay: Record<string, number> = {};
   for (const r of dailyRows) {
-    const cost = calcCost(r.model, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens);
+    const cost = costForUsage({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens }).total;
     byDay[r.day] = (byDay[r.day] ?? 0) + cost;
   }
   const dailyCost = Object.entries(byDay)

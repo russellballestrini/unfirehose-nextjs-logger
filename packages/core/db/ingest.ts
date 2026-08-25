@@ -1411,7 +1411,20 @@ async function ingestFetch(
     }
     if (files.length === 0) continue;
 
-    const slugCwd = await resolveProjectPath(slug).catch(() => null);
+    // resolveProjectPath falls back to a filesystem DFS that probes every way
+    // the encoded name could split into directories. Running it per project
+    // per cycle did not scale: ~6,400 uncloseai project dirs turned one pass
+    // into minutes, so the single-flight guard kept skipping the next cycle
+    // and native-harness ingest effectively stopped — measured 2026-08-25,
+    // uncloseai ran 80 minutes behind while Claude Code stayed current, and a
+    // brand new project (~/git/contra, 9 sessions) never landed at all.
+    //
+    // A project we already know needs no probing. The DFS stays as the last
+    // resort for a project we have never seen.
+    const knownProj = db
+      .prepare('SELECT COALESCE(path, last_cwd_seen) AS p FROM projects WHERE name = ?')
+      .get(projectName) as { p: string | null } | undefined;
+    const slugCwd = knownProj?.p ?? (await resolveProjectPath(slug).catch(() => null));
     const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
 
     const prevCount = db
@@ -1603,7 +1616,20 @@ async function ingestNativeHarness(
     }
     if (files.length === 0) continue;
 
-    const slugCwd = await resolveProjectPath(slug).catch(() => null);
+    // resolveProjectPath falls back to a filesystem DFS that probes every way
+    // the encoded name could split into directories. Running it per project
+    // per cycle did not scale: ~6,400 uncloseai project dirs turned one pass
+    // into minutes, so the single-flight guard kept skipping the next cycle
+    // and native-harness ingest effectively stopped — measured 2026-08-25,
+    // uncloseai ran 80 minutes behind while Claude Code stayed current, and a
+    // brand new project (~/git/contra, 9 sessions) never landed at all.
+    //
+    // A project we already know needs no probing. The DFS stays as the last
+    // resort for a project we have never seen.
+    const knownProj = db
+      .prepare('SELECT COALESCE(path, last_cwd_seen) AS p FROM projects WHERE name = ?')
+      .get(projectName) as { p: string | null } | undefined;
+    const slugCwd = knownProj?.p ?? (await resolveProjectPath(slug).catch(() => null));
     const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
 
     const prevCount = db
@@ -2347,6 +2373,44 @@ export function getProjectActivity(days = 30) {
   `).all(days);
 }
 
+/**
+ * Per-project, per-model token sums over the same window as getProjectActivity.
+ *
+ * Callers price these with the model catalog rather than a blended average.
+ * A single blended rate reports a project that ran entirely on ox-alpha and a
+ * local Qwen at Opus rates — measured 2026-08-25, riseallships showed $14
+ * against an actual $0.70.
+ */
+export function getProjectModelActivity(days = 30) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT
+      p.name                            AS name,
+      COALESCE(m.model, '')             AS model,
+      m.provider                        AS provider,
+      m.endpoint                        AS endpoint,
+      SUM(m.input_tokens)               AS input,
+      SUM(m.output_tokens)              AS output,
+      SUM(m.cache_read_tokens)          AS cache_read,
+      SUM(m.cache_creation_tokens)      AS cache_write
+    FROM messages m
+    JOIN sessions s ON m.session_id = s.id
+    JOIN projects p ON s.project_id = p.id
+    WHERE m.timestamp > datetime('now', '-' || ? || ' days')
+      AND m.model IS NOT NULL AND m.model != ''
+    GROUP BY p.id, m.model, m.provider, m.endpoint
+  `).all(days) as Array<{
+    name: string;
+    model: string;
+    provider: string | null;
+    endpoint: string | null;
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write: number;
+  }>;
+}
+
 export function getProjectRecentPrompts(projectName: string, limit = 5) {
   const db = getDb();
   return db.prepare(`
@@ -2433,6 +2497,47 @@ export function getAlertById(id: number) {
     details: string | null;
     acknowledged: number;
   } | undefined;
+}
+
+/**
+ * Per-project, per-model usage in a window, straight from `messages`.
+ *
+ * `getUsageByProjectInWindow` reads `usage_minutes`, which is pre-aggregated
+ * and carries no model column — so anything built on it can only apply one
+ * blended rate to every project, which is exactly the defect that made the
+ * same tokens cost $14 on one page and $0.70 on another. Cost callers use
+ * this and price each model against the catalog.
+ */
+export function getProjectModelUsageInWindow(windowStart: string, windowEnd: string) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT p.name                       AS name,
+           p.display_name               AS display_name,
+           COALESCE(m.model, '')        AS model,
+           m.provider                   AS provider,
+           m.endpoint                   AS endpoint,
+           SUM(m.input_tokens)          AS input_tokens,
+           SUM(m.output_tokens)         AS output_tokens,
+           SUM(m.cache_read_tokens)     AS cache_read_tokens,
+           SUM(m.cache_creation_tokens) AS cache_creation_tokens,
+           COUNT(*)                     AS message_count
+    FROM messages m
+    JOIN sessions s ON m.session_id = s.id
+    JOIN projects p ON s.project_id = p.id
+    WHERE m.timestamp >= ? AND m.timestamp <= ?
+    GROUP BY p.id, m.model, m.provider, m.endpoint
+  `).all(windowStart, windowEnd) as Array<{
+    name: string;
+    display_name: string;
+    model: string;
+    provider: string | null;
+    endpoint: string | null;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    message_count: number;
+  }>;
 }
 
 export function getUsageByProjectInWindow(windowStart: string, windowEnd: string) {
