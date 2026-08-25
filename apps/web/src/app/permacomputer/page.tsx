@@ -5,6 +5,8 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
+import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -17,10 +19,9 @@ const SETTINGS_KEYS = {
   unsandboxEnabled: 'unsandbox_enabled',
 };
 
-const HARNESSES = [
-  { value: 'claude', label: 'Claude Code', cmd: 'claude' },
-  { value: 'custom', label: 'Custom Command', cmd: '' },
-];
+// HARNESSES and the model list come from the shared picker — this panel used
+// to offer only Claude Code and Custom, and sent 'claude' regardless of which
+// was picked (see the boot body below).
 
 interface SshHost {
   name: string;
@@ -2577,6 +2578,7 @@ function BootstrapPanel() {
   const { data: settings } = useSWR('/api/settings', fetcher);
   const [host, setHost] = useState('localhost');
   const [harness, setHarness] = useState('claude');
+  const [model, setModel] = useState('');
   const [customCmd, setCustomCmd] = useState('');
   const [selectedProject, setSelectedProject] = useState('');
   const [projectPath, setProjectPath] = useState('');
@@ -2604,13 +2606,13 @@ function BootstrapPanel() {
     try {
       const res = await fetch('/api/boot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath, projectName, host: host === 'localhost' ? undefined : host, yolo: harness === 'claude' ? yolo : false, prompt: prompt.trim() || undefined, harness: harness === 'custom' ? customCmd : 'claude', preferMultiplexer: multiplexer, sudoPassword: sudoPassword || undefined }),
+        body: JSON.stringify({ projectPath, projectName, host: host === 'localhost' ? undefined : host, yolo: harness === 'claude' ? yolo : false, prompt: prompt.trim() || undefined, harness: harnessCommand(harness, customCmd), harnessKey: harness, model: model || undefined, preferMultiplexer: multiplexer, sudoPassword: sudoPassword || undefined }),
       });
       const data = await res.json();
       if (res.ok) setResult(data); else setError(data.error || 'Boot failed');
     } catch (err) { setError(String(err)); }
     finally { setBooting(false); }
-  }, [projectPath, projectName, host, harness, yolo, prompt, customCmd, multiplexer, sudoPassword]);
+  }, [projectPath, projectName, host, harness, yolo, prompt, customCmd, model, multiplexer, sudoPassword]);
 
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-4">
@@ -2628,13 +2630,13 @@ function BootstrapPanel() {
             ))}
           </select>
         </div>
-        <div>
-          <label className="text-base text-[var(--color-muted)] block mb-1">Harness</label>
-          <select value={harness} onChange={e => setHarness(e.target.value)}
-            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base">
-            {HARNESSES.map(h => <option key={h.value} value={h.value}>{h.label}</option>)}
-          </select>
-        </div>
+        <HarnessPicker
+          harness={harness} setHarness={setHarness}
+          customCmd={customCmd} setCustomCmd={setCustomCmd}
+          model={model} setModel={setModel}
+          target={host}
+          layout="stacked"
+        />
         <div>
           <label className="text-base text-[var(--color-muted)] block mb-1">Multiplexer</label>
           <div className="flex gap-2">

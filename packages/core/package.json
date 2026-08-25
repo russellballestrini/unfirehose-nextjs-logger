@@ -60,6 +60,7 @@
     "./project-name": "./project-name.ts",
     "./project-rollup": "./project-rollup.ts",
     "./harness-models": "./harness-models.ts",
+    "./stream-blocks": "./stream-blocks.ts",
     "./agnt-paths": "./agnt-paths.ts",
     "./session-paths": "./session-paths.ts",
     "./claude-code-adapter": "./claude-code-adapter.ts"

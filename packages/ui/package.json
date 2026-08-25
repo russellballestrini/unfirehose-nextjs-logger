@@ -36,7 +36,8 @@
     "./useCurrency": "./components/useCurrency.tsx",
     "./vault": "./components/vault.ts",
     "./VaultProvider": "./components/VaultProvider.tsx",
-    "./VaultGate": "./components/VaultGate.tsx"
+    "./VaultGate": "./components/VaultGate.tsx",
+    "./HarnessPicker": "./components/HarnessPicker.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

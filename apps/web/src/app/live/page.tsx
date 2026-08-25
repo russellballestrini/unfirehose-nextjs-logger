@@ -4,6 +4,18 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+// Dual-shape block extraction lives in core so every viewer reads Claude Code
+// and unfirehose/1.0 the same way. The copies that used to live here handled
+// the Claude shape only, so uncloseai tool calls and results were dropped and
+// the stream rendered as bare `[→ bash]` placeholders.
+import {
+  extractText,
+  extractTools,
+  extractToolResults,
+  extractReasoningInfo,
+  entryRole as effectiveType,
+  summarizeEntry,
+} from '@unturf/unfirehose/stream-blocks';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -49,96 +61,6 @@ function getSessionColor(index: number): string {
 //   - Claude Code:   entry.message.content (string OR ContentBlock[])
 //   - unfirehose/1.0: entry.content        (always ContentBlock[])
 // Both block types use { type: 'text', text: string } for text payload.
-function extractText(entry: any): string {
-  const content = entry?.message?.content ?? entry?.content;
-  if (!content) return '';
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-
-  return content
-    .filter((b: any) => b.type === 'text')
-    .map((b: any) => b.text ?? '')
-    .join('\n')
-    .trim();
-}
-
-// Effective role for an entry, regardless of source shape:
-//   - Claude Code:   entry.type ∈ {user, assistant, system}
-//   - unfirehose/1.0: entry.type === 'message' && entry.role ∈ {user, assistant, system}
-function effectiveType(entry: any): 'user' | 'assistant' | 'system' | 'unknown' {
-  if (entry?.type === 'message' && typeof entry.role === 'string') {
-    return entry.role as 'user' | 'assistant' | 'system';
-  }
-  if (
-    entry?.type === 'user' ||
-    entry?.type === 'assistant' ||
-    entry?.type === 'system'
-  ) {
-    return entry.type;
-  }
-  return 'unknown';
-}
-
-// Reasoning blocks come from two shapes:
-//   - Claude Code raw:   { type: 'thinking', thinking: '...', signature: '...' }
-//   - unfirehose/1.0:    { type: 'reasoning', text: '...', signature: '...' }
-// Either shape may carry an empty text body (opus-4-7 ships sealed reasoning —
-// signature only). We surface "had reasoning blocks" via signal even if the
-// text is sealed; callers use `extractReasoningText` for the readable part.
-function extractReasoningInfo(entry: any): { text: string; sealed: boolean } | null {
-  const role = entry?.type === 'message' ? entry.role : entry?.type;
-  if (role !== 'assistant') return null;
-  const content = entry?.message?.content ?? entry?.content;
-  if (!Array.isArray(content)) return null;
-  const blocks = content.filter((b: any) => b?.type === 'thinking' || b?.type === 'reasoning');
-  if (blocks.length === 0) return null;
-  const text = blocks.map((b: any) => (b.thinking ?? b.text ?? '')).join('\n').trim();
-  return { text, sealed: text.length === 0 };
-}
-
-function extractTools(entry: any): { name: string; id?: string; detail?: string; input?: any }[] {
-  if (entry?.type !== 'assistant' || !Array.isArray(entry?.message?.content)) return [];
-  return entry.message.content
-    .filter((b: any) => b.type === 'tool_use')
-    .map((b: any) => {
-      let detail: string | undefined;
-      if (b.name === 'Bash' && b.input?.command) {
-        detail = b.input.command;
-      } else if ((b.name === 'Read' || b.name === 'Write' || b.name === 'Edit') && b.input?.file_path) {
-        detail = b.input.file_path;
-      } else if (b.name === 'Glob' && b.input?.pattern) {
-        detail = b.input.pattern;
-      } else if (b.name === 'Grep' && b.input?.pattern) {
-        detail = `/${b.input.pattern}/` + (b.input.path ? ` in ${b.input.path}` : '');
-      } else if (b.name === 'Agent' && b.input?.description) {
-        detail = b.input.description;
-      }
-      return { name: b.name, id: b.id, detail, input: b.input };
-    });
-}
-
-function extractToolResults(entry: any): { toolUseId: string; content: string; isError: boolean }[] {
-  if (entry?.type !== 'user' || !Array.isArray(entry?.message?.content)) return [];
-  return entry.message.content
-    .filter((b: any) => b.type === 'tool_result')
-    .map((b: any) => {
-      let content = '';
-      if (typeof b.content === 'string') {
-        content = b.content;
-      } else if (Array.isArray(b.content)) {
-        content = b.content
-          .filter((c: any) => c.type === 'text')
-          .map((c: any) => c.text ?? '')
-          .join('\n');
-      }
-      return {
-        toolUseId: b.tool_use_id ?? '',
-        content,
-        isError: b.is_error === true,
-      };
-    });
-}
-
 function shortModel(model?: string): string {
   if (!model) return '';
   return model.replace('claude-', '').replace(/-\d{8}$/, '');
@@ -355,8 +277,12 @@ export default function LivePage() {
   const mostRecentOutputIdx = useMemo(() => {
     for (let j = entries.length - 1; j >= 0; j--) {
       const le = entries[j].entry;
-      if (le.type === 'assistant') return j;
-      if (le.type === 'user' && Array.isArray(le.message?.content) && le.message.content.some((b: any) => b.type === 'tool_result') && !extractText(le)) return j;
+      // Shape-agnostic: `le.type === 'assistant'` only ever matched Claude
+      // Code, so an uncloseai stream never had a "most recent output" and
+      // never auto-expanded.
+      const role = effectiveType(le);
+      if (role === 'assistant') return j;
+      if (role === 'user' && extractToolResults(le).length > 0 && !extractText(le)) return j;
     }
     return -1;
   }, [entries]);

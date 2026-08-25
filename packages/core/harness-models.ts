@@ -125,6 +125,44 @@ export const CLAUDE_MODELS: HarnessModel[] = [
   { id: 'claude-haiku-4-5', providers: ['anthropic'], active: false, local: false },
 ];
 
+/**
+ * Every harness a dispatch surface can offer, and the command that starts it.
+ *
+ * One list, because there were three: the project page offered twelve, the
+ * permacomputer bootstrap panel offered two, and the todos page offered none
+ * and always ran claude. A harness you cannot pick is a harness you cannot use.
+ *
+ * `cmd` is the installed executable. uncloseai-cli is `unclose` — its console
+ * scripts are `unclose` and `uncloseai-cli`, never `uncloseai`, which is what
+ * the project page used to send and what therefore never started.
+ */
+export interface HarnessChoice {
+  value: string;
+  label: string;
+  cmd: string;
+}
+
+export const HARNESSES: HarnessChoice[] = [
+  { value: 'claude',    label: 'Claude Code',   cmd: 'claude' },
+  { value: 'uncloseai', label: 'uncloseai-cli', cmd: 'unclose' },
+  { value: 'gemini',    label: 'Gemini CLI',    cmd: 'gemini' },
+  { value: 'codex',     label: 'Codex CLI',     cmd: 'codex' },
+  { value: 'open-code', label: 'Open Code',     cmd: 'opencode' },
+  { value: 'aider',     label: 'Aider',         cmd: 'aider' },
+  { value: 'agnt',      label: 'agnt',          cmd: 'agnt' },
+  { value: 'cursor',    label: 'Cursor',        cmd: 'cursor' },
+  { value: 'continue',  label: 'Continue',      cmd: 'continue' },
+  { value: 'ollama',    label: 'Ollama',        cmd: 'ollama' },
+  { value: 'fetch',     label: 'Fetch',         cmd: 'fetch' },
+  { value: 'custom',    label: 'Custom...',     cmd: '' },
+];
+
+/** Executable for a harness key, or the custom command when one is given. */
+export function harnessCommand(harness: string, customCmd?: string): string {
+  if (harness === 'custom') return (customCmd ?? '').trim() || 'claude';
+  return HARNESSES.find((h) => h.value === harness)?.cmd ?? 'claude';
+}
+
 /** Harnesses that accept a model argument, and the flag they use. */
 export const HARNESS_MODEL_FLAGS: Record<string, string> = {
   uncloseai: '--model',

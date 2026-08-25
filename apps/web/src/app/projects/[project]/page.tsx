@@ -6,6 +6,8 @@ import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
 import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
+import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { BootScreen } from '../../BootScreen';
 
@@ -13,20 +15,6 @@ import { BootScreen } from '../../BootScreen';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-const HARNESSES = [
-  { value: 'claude', label: 'Claude Code', cmd: 'claude' },
-  { value: 'gemini', label: 'Gemini CLI', cmd: 'gemini' },
-  { value: 'codex', label: 'Codex CLI', cmd: 'codex' },
-  { value: 'open-code', label: 'Open Code', cmd: 'opencode' },
-  { value: 'aider', label: 'Aider', cmd: 'aider' },
-  { value: 'agnt', label: 'agnt', cmd: 'agnt' },
-  { value: 'cursor', label: 'Cursor', cmd: 'cursor' },
-  { value: 'continue', label: 'Continue', cmd: 'continue' },
-  { value: 'ollama', label: 'Ollama', cmd: 'ollama' },
-  { value: 'fetch', label: 'Fetch', cmd: 'fetch' },
-  { value: 'uncloseai', label: 'uncloseai-cli', cmd: 'unclose' },
-  { value: 'custom', label: 'Custom...', cmd: '' },
-] as const;
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -154,8 +142,7 @@ export default function ProjectPage({
   );
 
   function resolveHarness(): string {
-    if (harness === 'custom') return customCmd.trim() || 'claude';
-    return HARNESSES.find(h => h.value === harness)?.cmd ?? 'claude';
+    return harnessCommand(harness, customCmd);
   }
 
   // Get git remote URL from metadata for unsandbox (no local path needed)
@@ -466,29 +453,16 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
               className="w-full px-3 py-2 text-base bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y"
               disabled={taskSubmitting}
             />
-            {/* Harness + Target selectors */}
+            {/* Harness + Model + Target — HarnessPicker is shared with the
+                permacomputer bootstrap panel and the todos board so all three
+                offer the same harnesses and the same model list. */}
             <div className="flex items-center gap-3 mt-2 flex-wrap">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-[var(--color-muted)]">Harness</span>
-                <select
-                  value={harness}
-                  onChange={(e: any) => setHarness(e.target.value)}
-                  className="text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 focus:outline-none focus:border-[var(--color-accent)]"
-                >
-                  {HARNESSES.map(h => (
-                    <option key={h.value} value={h.value}>{h.label}</option>
-                  ))}
-                </select>
-              </div>
-              {harness === 'custom' && (
-                <input
-                  type="text"
-                  value={customCmd}
-                  onChange={(e: any) => setCustomCmd(e.target.value)}
-                  placeholder="command to run..."
-                  className="text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 font-mono w-48 focus:outline-none focus:border-[var(--color-accent)]"
-                />
-              )}
+              <HarnessPicker
+                harness={harness} setHarness={setHarness}
+                customCmd={customCmd} setCustomCmd={setCustomCmd}
+                model={model} setModel={setModel}
+                target={target}
+              />
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-[var(--color-muted)]">Target</span>
                 <select
@@ -501,54 +475,6 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
                   ))}
                 </select>
               </div>
-              {/* Model. Local models are grouped first and marked ⚡ — they cost
-                  electricity, not dollars, which is the whole point of picking. */}
-              {harnessModels?.selectable && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-[var(--color-muted)]">Model</span>
-                  <select
-                    value={model}
-                    onChange={(e: any) => setModel(e.target.value)}
-                    title={
-                      harnessModels?.error
-                        ? `could not list models: ${harnessModels.error}`
-                        : `${harnessModels?.models?.length ?? 0} models on ${harnessModels?.host ?? 'localhost'}`
-                    }
-                    className="text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 max-w-[22rem] focus:outline-none focus:border-[var(--color-accent)]"
-                  >
-                    <option value="">
-                      {harnessModels?.error
-                        ? 'harness default (list unavailable)'
-                        : `harness default${(harnessModels?.models ?? []).find((m: any) => m.active) ? ` — ${(harnessModels.models).find((m: any) => m.active).id}` : ''}`}
-                    </option>
-                    {(() => {
-                      const all = harnessModels?.models ?? [];
-                      const local = all.filter((m: any) => m.local);
-                      const cloud = all.filter((m: any) => !m.local);
-                      return (
-                        <>
-                          {local.length > 0 && (
-                            <optgroup label={`our hardware (${local.length}) — electricity only`}>
-                              {local.map((m: any) => (
-                                <option key={m.id} value={m.id}>⚡ {m.id}</option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {cloud.length > 0 && (
-                            <optgroup label={`billed (${cloud.length})`}>
-                              {cloud.map((m: any) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.id}{m.providers?.length ? `  [${m.providers.join('+')}]` : ''}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </select>
-                </div>
-              )}
               <span className="text-xs text-[var(--color-muted)] ml-auto">
                 Ctrl+Enter starts now, Shift+Enter queues
               </span>

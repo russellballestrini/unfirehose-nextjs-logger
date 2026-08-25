@@ -5,6 +5,8 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
+import { harnessCommand } from '@unturf/unfirehose/harness-models';
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
 
@@ -180,6 +182,11 @@ export default function TodosPage() {
   });
   const [bootResult, setBootResult] = useState<{ key: string; msg: string } | null>(null);
   const [booting, setBooting] = useState<string | null>(null);
+  // Board-level harness + model. Every card dispatches through bootAgent, which
+  // used to hardcode claude — this board could not run uncloseai-cli at all.
+  const [harness, setHarness] = useState('claude');
+  const [customCmd, setCustomCmd] = useState('');
+  const [model, setModel] = useState('');
   const [megaStatus, setMegaStatus] = useState<any>(null);
   const [megaLoading, setMegaLoading] = useState(false);
   const [megaPanelOpen, setMegaPanelOpen] = useState(false);
@@ -258,7 +265,12 @@ export default function TodosPage() {
     setBooting(key);
     setBootResult(null);
     try {
-      const body: any = { projectPath, yolo: true, prompt };
+      const body: any = {
+        projectPath, yolo: true, prompt,
+        harness: harnessCommand(harness, customCmd),
+        harnessKey: harness,
+        model: model || undefined,
+      };
       if (host && host !== 'localhost') body.host = host;
       if (todoIds?.length) body.todoIds = todoIds;
       if (projectName) body.projectName = projectName;
@@ -438,6 +450,12 @@ export default function TodosPage() {
       {burst && <ParticleBurst x={burst.x} y={burst.y} color={burst.color} targetStatus={burst.targetStatus} />}
 
       <div className="flex items-center gap-4 mb-4 flex-wrap">
+        {/* Which harness and model every card on this board dispatches with. */}
+        <HarnessPicker
+          harness={harness} setHarness={setHarness}
+          customCmd={customCmd} setCustomCmd={setCustomCmd}
+          model={model} setModel={setModel}
+        />
         <h1 className="text-xl font-bold">Todos</h1>
         <div className="flex gap-2 text-sm">
           <span className="px-2 py-0.5 rounded bg-[var(--color-surface-hover)]">{counts.pending} pending</span>
