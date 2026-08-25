@@ -79,11 +79,19 @@ export default function DashboardPage() {
     fullName: m.model,
     tokens: m.totalTokens,
     cost: m.costUSD ?? 0,
-    costSource: m.costSource ?? 'api',
+    // What these tokens are worth at oracle rates, and what our own hardware
+    // saved by serving them. Both zero for ordinary cloud rows.
+    market: m.marketUSD ?? 0,
+    avoided: m.avoidedUSD ?? 0,
+    costSource: m.costSource ?? 'unknown',
+    pricedAgainst: m.pricedAgainst ?? null,
+    selfHosted: !!m.selfHosted,
     host: m.host ?? null,
     provider: m.provider ?? null,
     meshObservedUSD: m.meshObservedUSD,
   }));
+
+  const avoidedTotal = modelData.reduce((s: number, m: any) => s + (m.avoided ?? 0), 0);
 
   // Find sleep center and rotate hour data for bell curve
   const sleepCenter = findSleepCenter(data.hourCounts ?? []);
@@ -317,7 +325,9 @@ export default function DashboardPage() {
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
                   <th className="pb-2 text-right">Tokens</th>
-                  <th className="pb-2 text-right">Cost</th>
+                  <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
+                  <th className="pb-2 text-right" title="What these tokens would cost at OpenRouter / Nous rates, whoever served them.">Market</th>
+                  <th className="pb-2 text-right" title="Market minus cost — what running it ourselves saved.">Saved</th>
                 </tr>
               </thead>
               <tbody>
@@ -329,18 +339,34 @@ export default function DashboardPage() {
                         style={{ background: getModelColor(m.fullName) }}
                       />
                       <span>{m.name}</span>
-                      {(m.host || m.provider === 'local') && (
+                      {m.selfHosted && (
                         <span
                           className="text-xs text-[var(--color-muted)] opacity-70"
                           title={
                             m.host && m.meshObservedUSD != null
-                              ? `self-hosted on ${m.host}. cost = peak-watt × tokens/throughput × $/kWh. mesh-observed during window: $${m.meshObservedUSD.toFixed(4)} (sparse polling under-counts)`
+                              ? `self-hosted on ${m.host}. cost = watts × GPU-seconds × $/kWh, prefill and decode billed at their own rates. mesh-observed during window: $${m.meshObservedUSD.toFixed(4)} (sparse polling under-counts)`
                               : m.host
-                                ? `self-hosted on ${m.host}. cost from peak-watt static estimate.`
-                                : `self-hosted, node unknown — harness logged provider="local" but no endpoint URL. Cost from peak-watt static estimate.`
+                                ? `self-hosted on ${m.host}. cost from peak-watt estimate.`
+                                : `self-hosted, node unknown — no endpoint URL logged. Cost from peak-watt estimate.`
                           }
                         >
                           ⚡{m.host ?? 'local'}
+                        </span>
+                      )}
+                      {m.costSource === 'synthetic' && (
+                        <span
+                          className="text-xs text-[var(--color-muted)] opacity-70"
+                          title="Test fixture, not a real model. $0 by construction."
+                        >
+                          test
+                        </span>
+                      )}
+                      {m.pricedAgainst && m.pricedAgainst.toLowerCase() !== m.fullName.toLowerCase() && (
+                        <span
+                          className="text-xs text-[var(--color-muted)] opacity-70"
+                          title={`No own price — shadow-priced against ${m.pricedAgainst}.`}
+                        >
+                          ≈{m.pricedAgainst}
                         </span>
                       )}
                     </td>
@@ -348,11 +374,37 @@ export default function DashboardPage() {
                       {formatTokens(m.tokens)}
                     </td>
                     <td className="py-1.5 text-right">
-                      ${m.cost.toFixed(2)}
+                      {/* An unpriced model must never render as $0 — that is the
+                          defect this panel had. Show it as unknown instead. */}
+                      {m.costSource === 'unknown'
+                        ? <span className="text-[var(--color-muted)]" title="No price from either oracle. Not free — unknown.">—</span>
+                        : m.costSource === 'synthetic'
+                          ? <span className="text-[var(--color-muted)]" title="Test fixture. $0 by construction, not by measurement.">—</span>
+                          : `$${m.cost.toFixed(2)}`}
+                    </td>
+                    <td className="py-1.5 text-right text-[var(--color-muted)]">
+                      {m.market > 0 ? `$${m.market.toFixed(2)}` : '—'}
+                    </td>
+                    <td className="py-1.5 text-right">
+                      {m.avoided > 0
+                        ? <span className="text-[var(--color-success,#4ade80)]">${m.avoided.toFixed(2)}</span>
+                        : <span className="text-[var(--color-muted)]">—</span>}
                     </td>
                   </tr>
                 ))}
               </tbody>
+              {avoidedTotal > 0 && (
+                <tfoot>
+                  <tr className="border-t border-[var(--color-border)] text-[var(--color-muted)]">
+                    <td className="pt-2" colSpan={4}>
+                      saved by running our own hardware
+                    </td>
+                    <td className="pt-2 text-right text-[var(--color-success,#4ade80)]">
+                      ${avoidedTotal.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

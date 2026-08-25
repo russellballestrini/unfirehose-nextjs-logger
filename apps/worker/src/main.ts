@@ -4,6 +4,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { rollupDrain } from './mesh-rollup';
+import { syncPricing, hydratePricing } from '@unturf/unfirehose/pricing-sync';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -23,6 +24,10 @@ const VACUUM_MIN_FREELIST_BYTES = 256 * 1024 * 1024;
 // Hourly WAL checkpoint so `journal_size_limit` is actually applied — SQLite
 // truncates our -wal on checkpoint, never on write.
 const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000;
+
+// Model prices move on the order of weeks. Daily keeps us current without
+// leaning on either oracle.
+const PRICE_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
@@ -195,6 +200,27 @@ async function main() {
     }
   }, CHECKPOINT_INTERVAL_MS);
 
+  // Model price catalog. Hydrate whatever we already stored first so cost
+  // numbers are right from the first request, then refresh from our oracles
+  // shortly after boot and daily after that. A failed fetch keeps the stored
+  // prices — stale beats zero, and a zero price silently reads as "free".
+  hydratePricing(getDb());
+  const priceKickoff = setTimeout(() => {
+    const runPriceSync = async () => {
+      try {
+        const results = await syncPricing(getDb());
+        for (const r of results) {
+          if (r.ok) console.log(`[worker] price sync: ${r.source} → ${r.models} models`);
+          else console.error(`[worker] price sync failed: ${r.source} — ${r.error}`);
+        }
+      } catch (err) {
+        console.error('[worker] price sync failed:', err);
+      }
+    };
+    void runPriceSync();
+    setInterval(() => { void runPriceSync(); }, PRICE_SYNC_INTERVAL_MS);
+  }, 10_000);
+
   // VACUUM only when there is something to reclaim. This ran unconditionally
   // every day and was our reason our WAL reached 3.6G: VACUUM rewrites every
   // page of our database, and in WAL mode those pages all land in our WAL, so
@@ -237,6 +263,7 @@ async function main() {
       clearInterval(rollupInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
+      clearTimeout(priceKickoff);
       for (const t of meshTimers) {
         clearTimeout(t);
         clearInterval(t);

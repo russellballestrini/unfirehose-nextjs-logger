@@ -4,6 +4,7 @@ import { join } from 'path';
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { calcCost } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,6 +49,9 @@ export async function GET() {
 
   // Compute equivalent API cost for current billing period from DB
   const db = getDb();
+  // Cost math reads an in-memory price catalog; make sure it reflects what
+  // the worker last synced from our oracles.
+  ensurePricingHydrated(db);
   const rows = db.prepare(`
     SELECT m.model,
            SUM(m.input_tokens)          as input_tokens,

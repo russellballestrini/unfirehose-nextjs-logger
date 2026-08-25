@@ -502,17 +502,26 @@ function migrate(db: Database.Database) {
   addColumn('messages', 'endpoint', 'TEXT');
   addColumn('messages', 'provider', 'TEXT');
   // One-time backfill: harness tells us provider with high confidence even when
-  // the message row pre-dates endpoint/provider ingestion. claude-code → anthropic,
-  // uncloseai → local, fetch routes through whatever the user pointed it at.
+  // the message row pre-dates endpoint/provider ingestion.
+  //
+  // claude-code and arborist always call Anthropic, so that inference holds.
+  //
+  // uncloseai does NOT imply local. This backfill used to stamp provider='local'
+  // on every uncloseai message, which confused "our harness served it" with
+  // "our GPU served it" — uncloseai-cli routes to OpenRouter and Nous as well
+  // as to our own boxes. `stealth/ox-alpha` is the proof: 4,206 messages all
+  // marked local, running the whole time on OpenRouter and Nous Portal. Cost
+  // code that trusted the column billed cloud inference as electricity.
+  //
+  // We now leave it NULL — unknown — and decide self-hosting from model
+  // identity and endpoint instead (see pricing.ts `isSelfHosted`). Rows already
+  // stamped by earlier runs stay put; nothing downstream trusts the column
+  // alone any more.
   db.exec(`
     UPDATE messages
        SET provider = 'anthropic'
      WHERE provider IS NULL
        AND session_id IN (SELECT id FROM sessions WHERE harness IN ('claude-code', 'arborist'));
-    UPDATE messages
-       SET provider = 'local'
-     WHERE provider IS NULL
-       AND session_id IN (SELECT id FROM sessions WHERE harness = 'uncloseai');
   `);
   // Index for /api/dashboard's per-endpoint cost grouping.
   db.exec(`
@@ -641,6 +650,31 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_providence_session  ON providence_cache(poly_session_id) WHERE poly_session_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_providence_backend  ON providence_cache(backend) WHERE backend IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_providence_node     ON providence_cache(node_id) WHERE node_id IS NOT NULL;
+  `);
+
+  // Model price catalog, synced from public oracles by apps/worker.
+  //
+  // One row per (source, model_id). We keep every oracle rather than
+  // collapsing to a winner, because the right price depends on where a call
+  // actually went: OpenRouter list price for a direct Anthropic call, Nous
+  // resale price for traffic routed through Nous Portal.
+  //
+  // Prices are stored per MILLION tokens — the unit our cost math uses.
+  // Upstream serves $/token; conversion happens once, at sync.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS model_pricing (
+      source        TEXT NOT NULL,           -- 'openrouter' | 'nous'
+      model_id      TEXT NOT NULL,           -- upstream id, e.g. anthropic/claude-opus-5
+      display_name  TEXT,
+      input         REAL NOT NULL DEFAULT 0, -- $ per 1M prompt tokens
+      output        REAL NOT NULL DEFAULT 0,
+      cache_read    REAL NOT NULL DEFAULT 0,
+      cache_write   REAL NOT NULL DEFAULT 0,
+      context_len   INTEGER,
+      fetched_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (source, model_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_pricing_model ON model_pricing(model_id);
   `);
 
   // UUIDv7 unique index — try/catch since it may already exist

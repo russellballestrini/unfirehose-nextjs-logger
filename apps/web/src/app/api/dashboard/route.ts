@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { calcCostBreakdown, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
+import { calcCostBreakdown, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel, isSelfHosted } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -24,6 +25,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const db = getDb();
+    // Cost math reads an in-memory price catalog; make sure it reflects what
+    // the worker last synced from our oracles.
+    ensurePricingHydrated(db);
     t.mark('db_open');
     const windowStart = minutes > 0
       ? new Date(Date.now() - minutes * 60 * 1000).toISOString()
@@ -177,8 +181,22 @@ export async function GET(request: NextRequest) {
     const kwhRate = getKwhRate();
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
-      const c = calcCostBreakdown(m.model, m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens);
       const { host, provider, endpoint } = attrFor(m.model);
+      // Neither the model-name regex nor provider='local' can decide this on
+      // its own — see isSelfHosted. ox-alpha logs as provider='local' and runs
+      // on OpenRouter.
+      const selfHosted = isSelfHosted(m.model, endpoint, provider);
+      // Traffic that actually went through Nous should price at Nous rates;
+      // everything else prices at list.
+      const prefer = provider === 'nous' ? (['nous', 'openrouter'] as const) : (['openrouter', 'nous'] as const);
+      const c = calcCostBreakdown(
+        m.model,
+        m.input_tokens,
+        m.output_tokens,
+        m.cache_read_tokens,
+        m.cache_creation_tokens,
+        { selfHosted, prefer: [...prefer] },
+      );
       let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
         const hostCost = kwhByHost[host] * kwhRate;
@@ -196,7 +214,13 @@ export async function GET(request: NextRequest) {
         cacheReadCostUSD: c.cacheRead,
         cacheWriteCostUSD: c.cacheWrite,
         costUSD: c.total,
-        costSource: priceForModel(m.model) ? ('api' as const) : ('estimate' as const),
+        // What these tokens would cost at oracle rates whoever served them,
+        // and what running them ourselves saved. Zero for cloud rows.
+        marketUSD: c.market,
+        avoidedUSD: c.avoided,
+        costSource: c.source,
+        pricedAgainst: c.matchedId ?? null,
+        selfHosted: c.selfHosted,
         host,
         provider,
         endpoint,

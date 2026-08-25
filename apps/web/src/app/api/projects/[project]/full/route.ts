@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { calcCost } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -13,6 +14,9 @@ export async function GET(
 
   try {
     const db = getDb();
+    // Cost math reads an in-memory price catalog; make sure it reflects what
+    // the worker last synced from our oracles.
+    ensurePricingHydrated(db);
 
     const proj = db.prepare('SELECT * FROM projects WHERE name = ?').get(projectName) as any;
     if (!proj) {

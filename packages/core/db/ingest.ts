@@ -2199,13 +2199,16 @@ export function getAlertsCount() {
   return (db.prepare('SELECT COUNT(*) as c FROM alerts').get() as { c: number }).c;
 }
 
-export function getUnacknowledgedAlerts() {
+// better-sqlite3's .all() is typed unknown[], so callers that touched a row
+// field failed to compile. Naming the shape here fixes it at the source rather
+// than casting at each call site.
+export function getUnacknowledgedAlerts(): Array<{ id: number; [k: string]: unknown }> {
   const db = getDb();
   return db
     .prepare(
       `SELECT * FROM alerts WHERE acknowledged = 0 ORDER BY triggered_at DESC`
     )
-    .all();
+    .all() as Array<{ id: number; [k: string]: unknown }>;
 }
 
 export function acknowledgeAlert(id: number) {

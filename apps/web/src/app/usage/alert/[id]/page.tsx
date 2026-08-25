@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
 import {
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
 } from 'recharts';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import type { ProjectMetadata } from '@unturf/unfirehose/types';

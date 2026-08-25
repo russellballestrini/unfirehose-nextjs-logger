@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { calcCostBreakdown } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
     }
 
     const db = getDb();
+    // Cost math reads an in-memory price catalog; make sure it reflects what
+    // the worker last synced from our oracles.
+    ensurePricingHydrated(db);
 
     // Sessions lookup: id -> { harness, project }. One pass joins sessions
     // to projects so the JS rollups can also filter by project name.

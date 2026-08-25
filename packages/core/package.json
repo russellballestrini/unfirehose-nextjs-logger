@@ -39,6 +39,7 @@
     "./db/tenant": "./db/tenant.ts",
     "./db/triage": "./db/triage.ts",
     "./pricing": "./pricing.ts",
+    "./pricing-sync": "./pricing-sync.ts",
     "./claude-paths": "./claude-paths.ts",
     "./claude-paths-client": "./claude-paths-client.ts",
     "./fetch-paths": "./fetch-paths.ts",

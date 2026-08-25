@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { calcCost } from '@unturf/unfirehose/pricing';
+import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -18,6 +19,9 @@ export async function GET() {
   const t = new Timing();
   try {
     const db = getDb();
+    // Cost math reads an in-memory price catalog; make sure it reflects what
+    // the worker last synced from our oracles.
+    ensurePricingHydrated(db);
     if (payloadCache && Date.now() - payloadCache.ts < PAYLOAD_TTL_MS) {
       return NextResponse.json(payloadCache.data, {
         headers: { 'Server-Timing': t.header() + ', cache;desc="hit"' },
