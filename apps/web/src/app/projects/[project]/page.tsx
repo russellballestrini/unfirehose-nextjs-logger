@@ -24,7 +24,7 @@ const HARNESSES = [
   { value: 'continue', label: 'Continue', cmd: 'continue' },
   { value: 'ollama', label: 'Ollama', cmd: 'ollama' },
   { value: 'fetch', label: 'Fetch', cmd: 'fetch' },
-  { value: 'uncloseai', label: 'uncloseai-cli', cmd: 'uncloseai' },
+  { value: 'uncloseai', label: 'uncloseai-cli', cmd: 'unclose' },
   { value: 'custom', label: 'Custom...', cmd: '' },
 ] as const;
 
@@ -86,8 +86,21 @@ export default function ProjectPage({
   const [newTask, setNewTask] = useState('');
   const [taskSubmitting, setTaskSubmitting] = useState(false);
   const [harness, setHarness] = useState('claude');
+  const [model, setModel] = useState('');
   const [customCmd, setCustomCmd] = useState('');
   const [target, setTarget] = useState('localhost');
+
+  // A model id is only meaningful for the harness and node it came from.
+  useEffect(() => { setModel(''); }, [harness, target]);
+
+  // What this harness can actually run on this target. uncloseai-cli reaches
+  // 469 models across local GPUs, OpenRouter, Nous and Grok — dispatching
+  // without choosing means taking whatever default it holds.
+  const { data: harnessModels } = useSWR<any>(
+    `/api/harness/models?harness=${encodeURIComponent(harness)}${target !== 'localhost' && target !== 'unsandbox' ? `&host=${encodeURIComponent(target)}` : ''}`,
+    fetcher,
+    { revalidateOnFocus: false, keepPreviousData: false },
+  );
 
   // Mesh nodes for target dropdown
   const { data: mesh } = useSWR('/api/mesh', fetcher, { revalidateOnFocus: false });
@@ -171,6 +184,8 @@ export default function ProjectPage({
           sessionId,
           yolo,
           harness: resolveHarness(),
+          harnessKey: harness,
+          model: model || undefined,
           host: target !== 'localhost' ? target : undefined,
           repoUrl: target === 'unsandbox' ? gitRemoteUrl : undefined,
         }),
@@ -215,6 +230,8 @@ export default function ProjectPage({
             prompt: newTask.trim(),
             todoIds: todoResult.id ? [todoResult.id] : undefined,
             harness: resolveHarness(),
+            harnessKey: harness,
+            model: model || undefined,
             host: target !== 'localhost' ? target : undefined,
             repoUrl: target === 'unsandbox' ? gitRemoteUrl : undefined,
           }),
@@ -376,6 +393,9 @@ export default function ProjectPage({
           taskSubmitting={taskSubmitting}
           harness={harness}
           setHarness={setHarness}
+          model={model}
+          setModel={setModel}
+          harnessModels={harnessModels}
           customCmd={customCmd}
           setCustomCmd={setCustomCmd}
           target={target}
@@ -404,7 +424,7 @@ export default function ProjectPage({
 
 /* ─── OVERVIEW TAB ─── */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets }: any) {
+function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets, model, setModel, harnessModels }: any) {
   return (
     <div className="space-y-6">
       {/* Stats bar */}
@@ -481,6 +501,54 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
                   ))}
                 </select>
               </div>
+              {/* Model. Local models are grouped first and marked ⚡ — they cost
+                  electricity, not dollars, which is the whole point of picking. */}
+              {harnessModels?.selectable && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-[var(--color-muted)]">Model</span>
+                  <select
+                    value={model}
+                    onChange={(e: any) => setModel(e.target.value)}
+                    title={
+                      harnessModels?.error
+                        ? `could not list models: ${harnessModels.error}`
+                        : `${harnessModels?.models?.length ?? 0} models on ${harnessModels?.host ?? 'localhost'}`
+                    }
+                    className="text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 max-w-[22rem] focus:outline-none focus:border-[var(--color-accent)]"
+                  >
+                    <option value="">
+                      {harnessModels?.error
+                        ? 'harness default (list unavailable)'
+                        : `harness default${(harnessModels?.models ?? []).find((m: any) => m.active) ? ` — ${(harnessModels.models).find((m: any) => m.active).id}` : ''}`}
+                    </option>
+                    {(() => {
+                      const all = harnessModels?.models ?? [];
+                      const local = all.filter((m: any) => m.local);
+                      const cloud = all.filter((m: any) => !m.local);
+                      return (
+                        <>
+                          {local.length > 0 && (
+                            <optgroup label={`our hardware (${local.length}) — electricity only`}>
+                              {local.map((m: any) => (
+                                <option key={m.id} value={m.id}>⚡ {m.id}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {cloud.length > 0 && (
+                            <optgroup label={`billed (${cloud.length})`}>
+                              {cloud.map((m: any) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.id}{m.providers?.length ? `  [${m.providers.join('+')}]` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </select>
+                </div>
+              )}
               <span className="text-xs text-[var(--color-muted)] ml-auto">
                 Ctrl+Enter starts now, Shift+Enter queues
               </span>

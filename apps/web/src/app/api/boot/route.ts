@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
+import { withModelArg } from '@unturf/unfirehose/harness-models';
 import { stat } from 'fs/promises';
 import { writeFile, readFile, unlink } from 'fs/promises';
 import path from 'path';
@@ -53,7 +54,7 @@ function resolveBootHost(requestedHost?: string): string {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { projectPath: rawProjectPath, sessionId, yolo, prompt, parentSessionUuid, host: requestedHost, todoIds, projectName, harness, preferMultiplexer, bootstrap, sudoPassword, repoUrl } = body;
+  const { projectPath: rawProjectPath, sessionId, yolo, prompt, parentSessionUuid, host: requestedHost, todoIds, projectName, harness, harnessKey, model, preferMultiplexer, bootstrap, sudoPassword, repoUrl } = body;
 
   // Resolve projectPath — support ~ expansion and bootstrap mode
   const homePath = homedir();
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
     ? prompt.slice(0, 40).replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '-') || ts
     : ts;
 
-  const opts: BootOpts = { projectPath, sessionId, yolo, prompt, sessionName, windowName, parentSessionUuid, harness: harness || 'claude' };
+  const opts: BootOpts = { projectPath, sessionId, yolo, prompt, sessionName, windowName, parentSessionUuid, harness: harness || 'claude', harnessKey, model };
 
   try {
     let response: NextResponse;
@@ -196,6 +197,8 @@ interface BootOpts {
   windowName: string;    // tmux window (per-claude instance)
   parentSessionUuid?: string;
   harness: string;       // 'claude' or custom command string
+  harnessKey?: string;   // stable key ('uncloseai', 'claude', ...) for model flag lookup
+  model?: string;        // model id to pin, when the harness accepts one
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -214,12 +217,17 @@ async function _detectMultiplexer(): Promise<'tmux' | 'screen' | null> {
 }
 
 function buildClaudeCmd(opts: BootOpts): string {
-  if (opts.harness !== 'claude') return opts.harness;
+  if (opts.harness !== 'claude') {
+    return withModelArg([opts.harness], opts.harnessKey ?? opts.harness, opts.model).join(' ');
+  }
 
   const parts = ['claude'];
 
   if (opts.sessionId) {
     parts.push('--resume', opts.sessionId);
+  }
+  if (opts.model) {
+    parts.push('--model', opts.model);
   }
   if (opts.yolo) {
     parts.push('--dangerously-skip-permissions');
@@ -232,13 +240,22 @@ function buildClaudeArgs(opts: BootOpts): { parts: string[]; cleanupFiles: strin
   const cleanupFiles: string[] = [];
 
   if (opts.harness !== 'claude') {
-    return { parts: [opts.harness], cleanupFiles };
+    // A harness that takes a model runs whatever default it holds unless we
+    // pass one. uncloseai-cli reaches 469 models; dispatching without saying
+    // which is how work silently lands on the wrong tier.
+    return {
+      parts: withModelArg([opts.harness], opts.harnessKey ?? opts.harness, opts.model),
+      cleanupFiles,
+    };
   }
 
   const parts = ['claude'];
 
   if (opts.sessionId) {
     parts.push('--resume', opts.sessionId);
+  }
+  if (opts.model) {
+    parts.push('--model', opts.model);
   }
   if (opts.yolo) {
     parts.push('--dangerously-skip-permissions');
