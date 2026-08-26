@@ -233,10 +233,68 @@ export function aliasCandidates(model: string): string[] {
   return out;
 }
 
+/**
+ * Promotional discounts to unwind, so the catalog reports LIST price.
+ *
+ * OpenRouter runs limited-time discounts and its /models endpoint returns the
+ * discounted number with nothing to mark it — no flag, no original, no expiry
+ * that means anything (`expiration_date` reads 2098-12-31). Nous carries an
+ * `original` field, but that is only OpenRouter's current price before Nous's
+ * own resale margin, so it does not recover the pre-promo rate either.
+ *
+ * A promo price is the wrong basis for this dashboard. Cost here informs where
+ * work should run, and a model that is briefly half price is not a model that
+ * is cheap — routing toward it on a discount that expires next month is how a
+ * bill doubles without anything changing. So we record list price and label
+ * the promo, rather than quietly booking the discount as if it were permanent.
+ *
+ * `multiplier` converts catalog price to list: 2 undoes 50% off.
+ *
+ * These are hand-entered because no API exposes them. Each carries who said so
+ * and when, and removing an entry when a promo ends is a one-line change that
+ * makes the price fall rather than silently doubling it.
+ */
+export interface PromoAdjustment {
+  multiplier: number;
+  reason: string;
+  notedOn: string;
+}
+
+export const PROMO_DISCOUNTS: Record<string, PromoAdjustment> = {
+  'z-ai/glm-5.3-flash': {
+    multiplier: 2,
+    reason: '50% launch discount on OpenRouter; list is $0.15/$0.50 per M (fox)',
+    notedOn: '2026-08-26',
+  },
+};
+
+const PROMO_LOOKUP: Record<string, PromoAdjustment> = Object.fromEntries(
+  Object.entries(PROMO_DISCOUNTS).map(([k, v]) => [k.toLowerCase(), v]),
+);
+
+/** List price for a catalog entry, with any known promo unwound. */
+export function undiscount(id: string, price: ModelPrice): {
+  price: ModelPrice; promo: PromoAdjustment | null;
+} {
+  const adj = PROMO_LOOKUP[id.toLowerCase()];
+  if (!adj || !(adj.multiplier > 0)) return { price, promo: null };
+  return {
+    price: {
+      input: price.input * adj.multiplier,
+      output: price.output * adj.multiplier,
+      cacheRead: price.cacheRead * adj.multiplier,
+      cacheWrite: price.cacheWrite * adj.multiplier,
+    },
+    promo: adj,
+  };
+}
+
 export interface ResolvedPrice extends ModelPrice {
   source: PriceSource;
   /** Upstream id we matched, when the price came from a catalog. */
   matchedId?: string;
+  /** Set when a promotional discount was unwound to reach list price. */
+  promo?: PromoAdjustment | null;
 }
 
 /**
@@ -266,13 +324,17 @@ export function resolvePrice(
       const hit = m.get(c);
       if (!hit) continue;
       const isFree = !hit.input && !hit.output && !hit.cacheRead && !hit.cacheWrite;
+      // Report list price, not whatever promo is running today — see
+      // PROMO_DISCOUNTS for why a temporary discount is the wrong basis here.
+      const { price, promo } = undiscount(hit.id, hit);
       return {
-        input: hit.input,
-        output: hit.output,
-        cacheRead: hit.cacheRead,
-        cacheWrite: hit.cacheWrite,
+        input: price.input,
+        output: price.output,
+        cacheRead: price.cacheRead,
+        cacheWrite: price.cacheWrite,
         source: isFree ? 'free' : source,
         matchedId: hit.id,
+        promo,
       };
     }
   }
@@ -507,6 +569,12 @@ export interface CostBreakdown {
   matchedId?: string;
   /** True when this row was served on our own hardware. */
   selfHosted: boolean;
+  /**
+   * Set when a promotional discount was unwound to reach list price. The UI
+   * marks these, because the figure deliberately differs from what the
+   * provider bills today and a reader should be able to see why.
+   */
+  promo?: PromoAdjustment | null;
 }
 
 function applyPrice(
@@ -571,6 +639,7 @@ export function calcCostBreakdown(
       avoided: Math.max(0, market - energy),
       source: 'energy',
       matchedId: resolved?.matchedId,
+      promo: resolved?.promo ?? null,
       selfHosted: true,
     };
   }
@@ -586,6 +655,7 @@ export function calcCostBreakdown(
       avoided: 0,
       source: resolved.source,
       matchedId: resolved.matchedId,
+      promo: resolved.promo ?? null,
       selfHosted: false,
     };
   }

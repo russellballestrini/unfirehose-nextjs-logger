@@ -85,6 +85,7 @@ export default function DashboardPage() {
     avoided: m.avoidedUSD ?? 0,
     costSource: m.costSource ?? 'unknown',
     pricedAgainst: m.pricedAgainst ?? null,
+    promo: m.promo ?? null,
     selfHosted: !!m.selfHosted,
     host: m.host ?? null,
     provider: m.provider ?? null,
@@ -359,6 +360,14 @@ export default function DashboardPage() {
                           title="Test fixture, not a real model. $0 by construction."
                         >
                           test
+                        </span>
+                      )}
+                      {m.promo && (
+                        <span
+                          className="text-xs text-[var(--color-muted)] opacity-70"
+                          title={`List price. ${m.promo.reason} — noted ${m.promo.notedOn}. The provider bills less than this today; a temporary discount is the wrong basis for deciding where work should run.`}
+                        >
+                          list
                         </span>
                       )}
                       {m.pricedAgainst && m.pricedAgainst.toLowerCase() !== m.fullName.toLowerCase() && (

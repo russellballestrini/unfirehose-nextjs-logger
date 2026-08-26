@@ -4,6 +4,7 @@ import {
   resolvePrice,
   priceForModel,
   aliasCandidates,
+  undiscount,
   calcCostBreakdown,
   isSelfHosted,
   selfHostSeconds,
@@ -104,10 +105,13 @@ describe('oracle preference', () => {
 });
 
 describe('ox-alpha pinning', () => {
-  it('prices against the model it de-cloaked as', () => {
+  it('prices against the model it de-cloaked as, at LIST not promo', () => {
     const p = resolvePrice('stealth/ox-alpha');
     expect(p?.matchedId).toBe('z-ai/glm-5.3-flash');
-    expect(p?.input).toBe(0.075);
+    // Catalog says 0.075 — that is a 50% launch discount. List is 0.15.
+    expect(p?.input).toBe(0.15);
+    expect(p?.output).toBe(0.5);
+    expect(p?.promo?.multiplier).toBe(2);
   });
 
   it('still resolves now that the stealth id is gone from the catalog', () => {
@@ -124,8 +128,8 @@ describe('ox-alpha pinning', () => {
     const c = calcCostBreakdown('stealth/ox-alpha', 63_242_450, 1_043_717, 0, 0, {
       selfHosted: false,
     });
-    // 63.24M x $0.075/M + 1.04M x $0.25/M
-    expect(c.total).toBeCloseTo(4.74 + 0.26, 1);
+    // 63.24M x $0.15/M + 1.04M x $0.50/M — list, not the launch discount
+    expect(c.total).toBeCloseTo(9.49 + 0.52, 1);
     expect(c.total).toBeGreaterThan(0);
   });
 
@@ -134,7 +138,7 @@ describe('ox-alpha pinning', () => {
     const real = calcCostBreakdown('stealth/ox-alpha', 63_242_450, 1_043_717, 0, 0,
       { selfHosted: false }).total;
     const qwenGuess = (63_242_450 / 1e6) * 0.32 + (1_043_717 / 1e6) * 3.2;
-    expect(qwenGuess / real).toBeGreaterThan(4);
+    expect(qwenGuess / real).toBeGreaterThan(2);
   });
 });
 
@@ -241,5 +245,38 @@ describe('local weights filenames resolve to the model they build', () => {
     });
     expect(c.market).toBeGreaterThan(0);
     expect(c.source).toBe('energy');
+  });
+});
+
+
+describe('promotional discounts are unwound to list price', () => {
+  it('does not book a limited-time discount as the permanent price', () => {
+    // OpenRouter's /models returns the promo number with nothing to mark it:
+    // no flag, no original, and expiration_date reads 2098-12-31. Left alone,
+    // a model that is briefly half price looks permanently cheap, and routing
+    // toward it is how a bill doubles when the promo ends.
+    const p = resolvePrice('z-ai/glm-5.3-flash')!;
+    expect(p.input).toBe(0.15);        // catalog holds 0.075
+    expect(p.promo).not.toBeNull();
+    expect(p.promo?.notedOn).toBe('2026-08-26');
+  });
+
+  it('leaves a model with no known promo untouched', () => {
+    const p = resolvePrice('claude-opus-5')!;
+    expect(p.input).toBe(5);
+    expect(p.promo ?? null).toBeNull();
+  });
+
+  it('undiscount is a no-op for an unlisted model', () => {
+    const before = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 };
+    const { price, promo } = undiscount('some/model', before);
+    expect(price).toEqual(before);
+    expect(promo).toBeNull();
+  });
+
+  it('scales every token class, not just input', () => {
+    const { price } = undiscount('z-ai/glm-5.3-flash',
+      { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 });
+    expect(price).toEqual({ input: 2, output: 4, cacheRead: 6, cacheWrite: 8 });
   });
 });

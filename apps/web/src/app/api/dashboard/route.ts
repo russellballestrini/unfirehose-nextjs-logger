@@ -216,6 +216,9 @@ export async function GET(request: NextRequest) {
         avoidedUSD: c.avoided,
         costSource: c.source,
         pricedAgainst: c.matchedId ?? null,
+        // Non-null when a promo was unwound: the figure is list price, not
+        // what the provider bills today.
+        promo: c.promo ?? null,
         selfHosted: c.selfHosted,
         host,
         provider,
