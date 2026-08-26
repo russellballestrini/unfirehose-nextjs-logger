@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { formatTokens } from '@unturf/unfirehose/format';
+import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
@@ -294,8 +295,22 @@ export default function TokensPage() {
 
   const totalToolCalls = toolCalls.reduce((s: number, t: any) => s + t.count, 0);
 
-  // Cache efficiency: ratio of cache reads to fresh input
-  const cacheRatio = totalInput > 0 ? totalCacheRead / totalInput : 0;
+  // Cache hit rate: cached tokens as a fraction of TOTAL prompt.
+  //
+  // This was `totalCacheRead / totalInput` rendered as "Nx", which is not a
+  // rate — fresh input in the denominator instead of total prompt makes it
+  // unbounded, so a 100% hit rate printed as "80209x". A reader cannot tell
+  // that from a 900% one, and neither is a thing.
+  const cacheHitPct = usageCacheHitRate(totalInput, totalCacheRead);
+
+  // vLLM measures the real thing for self-hosted models, and our token
+  // accounting cannot see it: a local model reports no cache_read tokens, so
+  // usage-based hit rate reads 0 for a cache that is working. Measured
+  // 2026-08-26 the 4090 was at 5.8% while this page showed nothing.
+  const { data: vllmCache } = useSWR<any>('/api/inference/cache?hours=24', fetcher, {
+    refreshInterval: 60_000,
+  });
+  const vllmModels: any[] = vllmCache?.models ?? [];
 
   // Extra usage (actual card charges) — hoisted so overview + plan tabs can both use it
   const extraSpent   = extraData?.extraSpent   ? parseFloat(extraData.extraSpent)   : null;
@@ -309,7 +324,7 @@ export default function TokensPage() {
     <div className="space-y-6">
       <PageContext
         pageType="token-usage"
-        summary={`Token usage report. ${formatTokens(totalTokens)} total tokens, ${formatCost(totalCost)} equivalent cost at API rates. Cache efficiency: ${cacheRatio.toFixed(0)}x. ${totalToolCalls.toLocaleString()} tool calls across ${toolCalls.length} tool types.`}
+        summary={`Token usage report. ${formatTokens(totalTokens)} total tokens, ${formatCost(totalCost)} equivalent cost at API rates. Cache hit rate: ${cacheHitPct == null ? 'n/a' : (cacheHitPct * 100).toFixed(1) + '%'} of prompt tokens served from cache. ${totalToolCalls.toLocaleString()} tool calls across ${toolCalls.length} tool types.`}
         metrics={{
           total_tokens: totalTokens,
           equivalent_cost_usd: totalCost.toFixed(2),
@@ -321,7 +336,7 @@ export default function TokensPage() {
           output_tokens: totalOutput,
           cache_read_tokens: totalCacheRead,
           cache_write_tokens: totalCacheWrite,
-          cache_efficiency_ratio: `${cacheRatio.toFixed(0)}x`,
+          cache_hit_rate_pct: cacheHitPct == null ? 'n/a' : (cacheHitPct * 100).toFixed(1),
           total_tool_calls: totalToolCalls,
           tool_types: toolCalls.length,
         }}
@@ -392,11 +407,69 @@ export default function TokensPage() {
         <StatCard label="Input" value={formatTokens(totalInput)} color="var(--color-user)" />
         <StatCard label="Output" value={formatTokens(totalOutput)} color="var(--color-thinking)" />
         <StatCard
-          label="Cache Efficiency"
-          value={`${cacheRatio.toFixed(0)}x`}
-          sub={`${formatTokens(totalCacheRead)} reads / ${formatTokens(totalInput)} fresh`}
+          label="Cache Hit Rate"
+          value={cacheHitPct == null ? '—' : `${(cacheHitPct * 100).toFixed(1)}%`}
+          sub={`${formatTokens(totalCacheRead)} cached / ${formatTokens(totalInput + totalCacheRead)} prompt`}
         />
       </div>
+
+      {/* Measured prefix cache — the number our token accounting cannot see.
+          A self-hosted model reports no cache_read tokens, so the stat above
+          reads 0% for it however well the cache is working. vLLM counts the
+          real thing per model. */}
+      {vllmModels.length > 0 && (
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4">
+          <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide mb-1">
+            Prefix cache — measured on our own hardware
+          </h2>
+          <p className="text-xs text-[var(--color-muted)] mb-3">
+            vLLM counts prompt tokens looked up and served from cache. The stat
+            above is computed from billed usage fields, which self-hosted models
+            do not report — this is what actually happened.
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[var(--color-muted)] text-left">
+                <th className="pb-2">Node</th>
+                <th className="pb-2">Model</th>
+                <th className="pb-2 text-right" title="Over the last 24h of samples — whether caching is working now.">24h</th>
+                <th className="pb-2 text-right" title="Since the engine started. Answers a different question: has it ever.">Lifetime</th>
+                <th className="pb-2 text-right" title="Prompt tokens looked up in the cache, lifetime.">Queries</th>
+                <th className="pb-2 text-right" title="KV cache utilization at the last sample — a gauge, not a rate.">KV</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vllmModels.map((m: any, i: number) => (
+                <tr key={i} className="border-t border-[var(--color-border)]">
+                  <td className="py-1.5 font-mono text-[var(--color-muted)]">{m.hostname}</td>
+                  <td className="py-1.5 font-mono">
+                    {m.model}
+                    {m.prefixCachingEnabled === false && (
+                      <span className="ml-2 text-[var(--color-error)]" title="vLLM reports prefix caching is disabled on this engine.">
+                        caching off
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1.5 text-right font-bold">
+                    {m.windowHitRate == null
+                      ? <span className="text-[var(--color-muted)]" title="No prompt tokens queried in this window.">idle</span>
+                      : `${(m.windowHitRate * 100).toFixed(1)}%`}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {m.lifetimeHitRate == null ? '—' : `${(m.lifetimeHitRate * 100).toFixed(1)}%`}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {formatTokens(m.lifetimeQueries)}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {m.kvUsage == null ? '—' : `${(m.kvUsage * 100).toFixed(0)}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Cost split — output usually dominates */}
       <div className="grid grid-cols-4 gap-4">

@@ -724,6 +724,28 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rle_session   ON rate_limit_events(session_id);
   `);
 
+  // vLLM prefix-cache counters, sampled per inference node.
+  //
+  // Stored as the counters vLLM reports rather than as a rate, because a hit
+  // rate is a property of a window: the lifetime ratio says nothing about
+  // whether caching is working now. Rates are computed by differencing two
+  // samples — see vllm-metrics.cacheHitRate.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vllm_cache_samples (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp     TEXT NOT NULL DEFAULT (datetime('now')),
+      hostname      TEXT NOT NULL,
+      model         TEXT NOT NULL,
+      queries       REAL NOT NULL,          -- cumulative prompt tokens looked up
+      hits          REAL NOT NULL,          -- cumulative tokens served from cache
+      kv_usage      REAL,                   -- gauge 0..1, instantaneous
+      kv_size_tokens INTEGER,
+      prefix_caching INTEGER                -- vLLM's own on/off report
+    );
+    CREATE INDEX IF NOT EXISTS idx_vllm_cache_ts    ON vllm_cache_samples(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_vllm_cache_host  ON vllm_cache_samples(hostname, model, timestamp);
+  `);
+
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
 

@@ -29,6 +29,10 @@ const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000;
 // Model prices move on the order of weeks. Daily keeps us current without
 // leaning on either oracle.
 const PRICE_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// vLLM prefix-cache counters move over minutes, and each sample is an SSH
+// round trip to a box that is busy serving inference. Five minutes gives
+// useful windows without pestering the GPUs.
+const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
@@ -234,6 +238,19 @@ async function main() {
     setInterval(() => { void runPriceSync(); }, PRICE_SYNC_INTERVAL_MS);
   }, 10_000);
 
+  // Sample vLLM prefix-cache counters. Goes through the route rather than
+  // duplicating the SSH + port-discovery logic here — one probe, one place.
+  const vllmCacheInterval = setInterval(() => {
+    void fetch(`${NEXT_BASE_URL}/api/inference/cache`, { method: 'POST' })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const d = await r.json() as { nodes?: Array<{ host: string; sampled: number }> };
+        const n = (d.nodes ?? []).reduce((a, x) => a + (x.sampled ?? 0), 0);
+        if (n > 0) console.log(`[worker] vllm cache: sampled ${n} model(s)`);
+      })
+      .catch(() => { /* Next not up yet, or every node down — retry next tick */ });
+  }, VLLM_CACHE_SAMPLE_MS);
+
   // VACUUM only when there is something to reclaim. This ran unconditionally
   // every day and was our reason our WAL reached 3.6G: VACUUM rewrites every
   // page of our database, and in WAL mode those pages all land in our WAL, so
@@ -275,6 +292,7 @@ async function main() {
       clearInterval(watchdog);
       clearInterval(rollupInterval);
       clearInterval(rateLimitInterval);
+      clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);
