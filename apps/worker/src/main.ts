@@ -5,6 +5,7 @@ import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { rollupDrain } from './mesh-rollup';
 import { syncPricing, hydratePricing } from '@unturf/unfirehose/pricing-sync';
+import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -143,6 +144,18 @@ async function main() {
   // Periodic full ingest as safety net (single-flight via runIngestOnce).
   const interval = setInterval(() => { void runIngestOnce('periodic'); }, POLL_INTERVAL_MS);
 
+  // Rate-limit extraction rides the ingest cadence: blocks land, then get
+  // classified. Incremental, so each pass only reads what arrived since the
+  // last one. Without this a 429 stays buried in prose and unqueryable.
+  const rateLimitInterval = setInterval(() => {
+    try {
+      const r = scanRateLimits(getDb());
+      if (r.found > 0) console.log(`[worker] rate limits: ${r.found} event(s) from ${r.scanned} new block(s)`);
+    } catch (err) {
+      console.error('[worker] rate limit scan failed:', err);
+    }
+  }, POLL_INTERVAL_MS);
+
   // Watchdog: if no ingest has completed within INGEST_STALL_MS the loop is
   // wedged — force a recovery run instead of waiting for a restart. A run that
   // is legitimately still in flight is left alone until INGEST_HANG_MS, past
@@ -261,6 +274,7 @@ async function main() {
       clearInterval(interval);
       clearInterval(watchdog);
       clearInterval(rollupInterval);
+      clearInterval(rateLimitInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);

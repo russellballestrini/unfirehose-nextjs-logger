@@ -1,0 +1,206 @@
+// Detecting rate-limit events in harness output.
+//
+// When a provider throttles us the harness prints it, we ingest the text, and
+// then nothing ever looks at it again — 20,053 content blocks in our database
+// mention 429 or rate_limit and not one of them is queryable as an event. So
+// "how often are we throttled, by whom, and when" has no answer, which is the
+// wrong state for a system whose whole cost strategy is routing work between
+// providers.
+//
+// Precision matters more than recall here. Most of those 20,053 blocks are not
+// events at all: they are commit messages about fixing rate limiting, file
+// listings that happen to contain "429", and agents discussing M_LIMIT_EXCEEDED
+// in prose. A detector that counted those would report throttling that never
+// happened. Every pattern below is anchored to something a machine emits.
+
+export type RateLimitKind =
+  | 'rate_limit'      // too many requests per unit time
+  | 'concurrency'     // too many in flight at once
+  | 'quota'           // plan or credit exhausted
+  | 'overloaded';     // provider capacity, not our usage
+
+/**
+ * What was throttling us.
+ *
+ * `inference` is the one that costs money and shapes routing: an LLM provider
+ * refused the call. `web` is a site we crawled returning 429 — real, worth
+ * seeing, and not a signal about our own API budget. Folding them together
+ * buried 57 Anthropic throttles under 3,473 HTML error pages.
+ */
+export type RateLimitTarget = 'inference' | 'web' | 'service';
+
+export interface RateLimitEvent {
+  kind: RateLimitKind;
+  target: RateLimitTarget;
+  /** Provider we were throttled BY, when the text names one. */
+  provider: string | null;
+  /** HTTP status when the text carries one. */
+  status: number | null;
+  /** Seconds to wait, when the provider told us. */
+  retryAfterSeconds: number | null;
+  /** The matched line, trimmed — enough to recognise it, not the whole payload. */
+  detail: string;
+  /** Which pattern fired, so a wrong match can be traced to its rule. */
+  rule: string;
+}
+
+interface Rule {
+  name: string;
+  kind: RateLimitKind;
+  provider: string | null;
+  target: RateLimitTarget;
+  re: RegExp;
+}
+
+/**
+ * Marks of an HTML error page rather than an API error.
+ *
+ * A crawled site returning 429 lands in a tool result as a whole HTML
+ * document. Those are the majority of 429s in our history — 3,473 of 4,059 —
+ * and attributing them to an inference provider would make it look as though
+ * our LLM budget was being throttled constantly when it was not.
+ */
+const HTML_PAGE = /<\/(?:title|head|html|body)>|<!DOCTYPE html|<html[\s>]/i;
+
+// Anchored to machine output. Each was written against a real captured line.
+const RULES: Rule[] = [
+  {
+    // Claude Code, 57 occurrences: the provider is shielding itself, and says
+    // explicitly that this is NOT the account's usage limit.
+    name: 'anthropic-temporary',
+    kind: 'overloaded',
+    provider: 'anthropic',
+    target: 'inference',
+    re: /API Error:\s*Server is temporarily limiting requests[^\n]*/i,
+  },
+  {
+    name: 'anthropic-usage-limit',
+    kind: 'quota',
+    provider: 'anthropic',
+    target: 'inference',
+    re: /(?:Claude )?usage limit reached[^\n]*/i,
+  },
+  {
+    // unsandbox: HTTP 429 with a concurrency_limit_reached body.
+    name: 'concurrency-limit-reached',
+    kind: 'concurrency',
+    provider: null,
+    target: 'service',
+    re: /concurrency_limit_reached|Concurrent execution limit[^\n]*/i,
+  },
+  {
+    // uncloseai-cli: `... failed: LLM unreachable after N attempts
+    // [rate_limit]: HTTP Error 429: ...`
+    name: 'uncloseai-bracket-tag',
+    kind: 'rate_limit',
+    provider: 'uncloseai',
+    target: 'inference',
+    re: /\[rate_limit\][^\n]*/i,
+  },
+  {
+    // Deliberately strict. A loose `\b429\b` matched 3,857 blocks of which
+    // 3,758 were log dumps, numbered file reads and prose that merely
+    // contained the number — "crt.sh is either rate-limiting us (429)" is a
+    // sentence, not an event. The 429 has to look like a response: attached to
+    // HTTP, assigned to a status field, or starting its own line.
+    name: 'http-429',
+    kind: 'rate_limit',
+    provider: null,
+    target: 'inference',
+    re: /(?:^|[\s(])HTTP(?:\/1\.[01])?[\s:]*(?:Error[\s:]*)?429\b[^\n]*|(?:^|[\s"',{])(?:status|status_code|statusCode|code|http_status)["']?\s*[:=]\s*["']?429\b[^\n]*|^[\s>*-]*429\s+(?:Too Many Requests|TOO_MANY_ATTEMPTS)\b[^\n]*|\bHTTPError\b[^\n]{0,20}429[^\n]*/mi,
+  },
+  {
+    // JSON error bodies: {"error": {"type": "rate_limit_error", ...}}
+    name: 'json-rate-limit-error',
+    kind: 'rate_limit',
+    provider: null,
+    target: 'inference',
+    re: /"(?:type|error|code)"\s*:\s*"(?:rate_limit_error|rate_limit_exceeded|too_many_requests)"[^\n]*/i,
+  },
+  {
+    name: 'matrix-limit-exceeded',
+    kind: 'rate_limit',
+    provider: 'matrix',
+    target: 'service',
+    re: /\bM_LIMIT_EXCEEDED\b[^\n]*/,
+  },
+  {
+    name: 'overloaded',
+    kind: 'overloaded',
+    provider: null,
+    target: 'inference',
+    re: /"type"\s*:\s*"overloaded_error"[^\n]*|\bError:\s*Overloaded\b[^\n]*/i,
+  },
+];
+
+/**
+ * Text that mentions a rate limit without being one.
+ *
+ * Commit subjects, code, and agents talking about throttling all trip a naive
+ * match. Checked before the rules so a discussion of M_LIMIT_EXCEEDED does not
+ * become a throttling event.
+ */
+const NEGATIVES: RegExp[] = [
+  /^\s*\[[0-9a-f]+\s+[0-9a-f]{7}\]/i,          // `[main e7f7567] Fix rate limiting`
+  /\bfiles? changed\b/i,                        // git commit summary
+  /^\s*(?:Fix|Retry|Handle|Add|Slow|Prevent)\b[^\n]{0,80}\brate limit/i,
+  /\bretry on\b/i,
+  /<task-notification>/,
+  /\bgrep\b|\brg\b\s|\bripgrep\b/i,
+];
+
+/** Seconds from a retry hint: `retry after 4200ms`, `Retry-After: 30`. */
+export function parseRetryAfter(text: string): number | null {
+  const ms = /retry[ _-]?after[^0-9]{0,8}(\d+)\s*ms\b/i.exec(text);
+  if (ms) return Math.round(Number(ms[1]) / 1000);
+  const s = /retry[ _-]?after[^0-9]{0,8}(\d+)(?:\s*(?:s|sec|seconds?))?\b/i.exec(text);
+  if (s) return Number(s[1]);
+  const inS = /\btry again in\s+(\d+)\s*(?:s|sec|seconds?)\b/i.exec(text);
+  if (inS) return Number(inS[1]);
+  return null;
+}
+
+function parseStatus(text: string): number | null {
+  if (/\b429\b/.test(text)) return 429;
+  if (/\b503\b/.test(text)) return 503;
+  if (/\b529\b/.test(text)) return 529;
+  return null;
+}
+
+/**
+ * Find the rate-limit event in a block of harness output, or null.
+ *
+ * Returns at most one event per block: a single throttle usually prints a
+ * message, a retry line and a stack, and counting those as three would
+ * overstate how often we are actually limited.
+ */
+export function detectRateLimit(text: string | null | undefined): RateLimitEvent | null {
+  if (!text) return null;
+  const t = String(text);
+  if (t.length > 20000) return null;   // whole-file dumps are not events
+  if (NEGATIVES.some((re) => re.test(t))) return null;
+
+  for (const rule of RULES) {
+    const m = rule.re.exec(t);
+    if (!m) continue;
+    const detail = m[0].trim().slice(0, 300);
+    // An HTML body means a crawled page answered 429, whatever the rule
+    // guessed — never an inference provider.
+    const isHtml = HTML_PAGE.test(t);
+    return {
+      kind: rule.kind,
+      target: isHtml ? 'web' : rule.target,
+      provider: isHtml ? 'web' : rule.provider,
+      status: parseStatus(detail) ?? parseStatus(t),
+      retryAfterSeconds: parseRetryAfter(t),
+      detail,
+      rule: rule.name,
+    };
+  }
+  return null;
+}
+
+/** True when a block looks like a throttling event. */
+export function isRateLimited(text: string | null | undefined): boolean {
+  return detectRateLimit(text) !== null;
+}

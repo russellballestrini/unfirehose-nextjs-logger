@@ -677,6 +677,41 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_model_pricing_model ON model_pricing(model_id);
   `);
 
+  // Rate-limit events, extracted from harness output at ingest.
+  //
+  // Providers throttle us constantly and the evidence only ever existed as
+  // prose inside content_blocks — 20,053 blocks mention 429 or rate_limit and
+  // none of them were queryable. "How often are we throttled, by whom, when"
+  // had no answer, which is the wrong state for a system whose cost strategy
+  // is routing work between providers.
+  //
+  // Keyed on the block so re-ingesting a file cannot double-count an event.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rate_limit_events (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      block_id      INTEGER UNIQUE,        -- content_blocks.id, null for synthetic
+      message_id    INTEGER,
+      session_id    INTEGER,
+      project_id    INTEGER,
+      timestamp     TEXT NOT NULL,
+      kind          TEXT NOT NULL,         -- rate_limit | concurrency | quota | overloaded
+      target        TEXT NOT NULL DEFAULT 'inference', -- inference | web | service
+      provider      TEXT,                  -- who throttled us, when known
+      model         TEXT,
+      http_status   INTEGER,
+      retry_after_s INTEGER,
+      rule          TEXT NOT NULL,         -- which detector fired
+      detail        TEXT NOT NULL,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_rle_timestamp ON rate_limit_events(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_rle_provider  ON rate_limit_events(provider);
+    CREATE INDEX IF NOT EXISTS idx_rle_kind      ON rate_limit_events(kind);
+    CREATE INDEX IF NOT EXISTS idx_rle_target    ON rate_limit_events(target);
+    CREATE INDEX IF NOT EXISTS idx_rle_project   ON rate_limit_events(project_id);
+    CREATE INDEX IF NOT EXISTS idx_rle_session   ON rate_limit_events(session_id);
+  `);
+
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
 
