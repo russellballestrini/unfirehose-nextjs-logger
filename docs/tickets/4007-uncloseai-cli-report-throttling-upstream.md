@@ -1,6 +1,6 @@
 # 4007 — uncloseai-cli should name the upstream that throttled it
 
-**Status:** blocked — needs a change in `~/git/uncloseai-cli`, fox's call
+**Status:** done — implemented 2026-08-26 in `~/git/uncloseai-cli` and here
 **Opened:** 2026-08-26
 **Raised by:** fox, on the Rate Limits dashboard — "can we see which upstreams
 are limiting? uncloseai-cli might need adjustments"
@@ -86,3 +86,38 @@ starts reporting; until then it is honest about what it does not know.
 is the most useful thing currently available: 34 of our throttles are vision
 calls, which points at `UNCLOSE_VISION_MODEL` without needing any change
 upstream.
+
+
+## Resolution
+
+Implemented on both sides.
+
+**Spec** — `unfirehose/1.0` gained a first-class `throttle` record
+(`packages/schema/json-schema/throttle.json`, `docs/throttling.md`, schema
+package 1.2.0). Its own type rather than a field on `message`, because a
+throttled call produces no message: the request fails before any content
+exists to attach it to. The doc records the four downstream approaches that
+were tried and why each fails, so nobody retries them.
+
+**uncloseai-cli** — `unfirehose.Session.throttle()` writes the record.
+`llm_transport` emits it at both points a refusal is final:
+
+- retry exhaustion, with `recovered: false`
+- failover, with `recovered: true` and `failoverTo` — recording both ends
+  makes routing pressure visible
+
+`upstream` resolves through the existing `_provider_label` hook, which the
+routing layer already maintained and never logged. `retryAfterSeconds` reads
+the Retry-After header then the error text. `operation` comes from the `label`
+argument callers already pass (`vision`, `planning`), threaded into
+`_unclose_chat_attempts`. ERR_AUTH is deliberately not a throttle kind: a 401
+is a broken key, and folding it in would report throttling that never happened.
+
+**unfirehose** — ingest handles `type: "throttle"` directly, writing to
+`rate_limit_events` with `rule = 'harness-reported'`. The text scanner skips a
+block when a harness-reported event covers the same session within 60 seconds,
+so the record and the error text it also printed are not counted twice. The
+record wins, because it names the upstream and the text never can.
+
+Verified: 3,051 uncloseai-cli tests pass; a written record round-trips to the
+dashboard grouped under `upstream: openrouter`.

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unfirehose.org/schema/1.0/throttle.json",
+  "title": "unfirehose/1.0 Throttle",
+  "description": "A provider refused a call. Its own record type rather than a field on a message, because a throttled call usually produces no message at all — the request failed before any content existed to attach it to. Harnesses that route across several providers MUST set `upstream`: 'we were rate limited' is not actionable when the remedy depends on which of five providers said no.",
+  "type": "object",
+  "properties": {
+    "$schema": { "const": "unfirehose/1.0" },
+    "type": { "const": "throttle" },
+    "id": { "type": "string", "description": "Unique event ID (UUID)" },
+    "sessionId": { "type": "string", "description": "Session the refused call belonged to" },
+    "timestamp": { "type": "string", "format": "date-time" },
+
+    "kind": {
+      "type": "string",
+      "enum": ["rate_limit", "concurrency", "quota", "overloaded"],
+      "description": "These are four different conditions that all get called 'rate limiting', and each calls for a different response. rate_limit: too many requests per unit time — slow down or spread load. concurrency: too many calls in flight — queue them; retrying harder makes it worse. quota: plan or credit exhausted — waiting does not help until it resets. overloaded: the provider ran out of capacity, not caused by our usage."
+    },
+
+    "upstream": {
+      "type": "string",
+      "description": "The provider that actually refused — 'openrouter', 'nous', 'anthropic', 'x-ai', or a self-hosted endpoint key. The single most valuable field here. A harness that omits it records that it was throttled but not by whom, which cannot be recovered downstream: the endpoint is not in the message, and inferring from the session's model is wrong whenever the failing call used a different one (a vision call does not use the chat model)."
+    },
+    "endpoint": {
+      "type": "string",
+      "format": "uri",
+      "description": "Full URL of the API that refused. Lets a self-hosted throttle be attributed to a specific box."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model being requested when refused. MUST be the model of the failing call, not the session default."
+    },
+    "operation": {
+      "type": "string",
+      "description": "Which call was refused — 'chat', 'vision', 'embed', 'rerank'. Narrows the fix even when `upstream` is unknown: a throttled vision endpoint points at the vision model, not the chat model."
+    },
+
+    "httpStatus": { "type": "integer", "description": "HTTP status returned (429, 503, 529)" },
+    "retryAfterSeconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "What the provider asked us to wait, from the Retry-After header or an equivalent field. Recording it lets backoff follow what was actually requested instead of a guess."
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many attempts were made before giving up. One event per failed call, not one per attempt — counting retries as separate throttles overstates how often a provider refused."
+    },
+    "recovered": {
+      "type": "boolean",
+      "description": "True when a later attempt or a failover succeeded. Distinguishes a throttle we absorbed from one that cost the user a turn."
+    },
+    "failoverTo": {
+      "type": "string",
+      "description": "Upstream we fell back to, when the harness rerouted. Makes routing pressure visible: repeated failover away from one provider is a signal about that provider."
+    },
+
+    "message": { "type": "string", "description": "Provider's error text, verbatim and untruncated where practical." },
+
+    "harness": { "type": "string" },
+    "harnessVersion": { "type": "string" },
+    "cwd": { "type": "string" },
+    "projectId": { "type": "string" }
+  },
+  "required": ["type", "kind", "timestamp"],
+  "additionalProperties": true
+}

@@ -331,6 +331,71 @@ export type TrainingRunEvent =
   | TrainingRunEval
   | TrainingRunEnd;
 
+// === Throttle ===
+
+/**
+ * These are four different conditions that all get called "rate limiting",
+ * and each calls for a different response.
+ */
+export type ThrottleKind =
+  /** Too many requests per unit time — slow down or spread load. */
+  | "rate_limit"
+  /** Too many calls in flight — queue them; retrying harder makes it worse. */
+  | "concurrency"
+  /** Plan or credit exhausted — waiting does not help until it resets. */
+  | "quota"
+  /** Provider ran out of capacity — not caused by our usage. */
+  | "overloaded";
+
+/**
+ * A provider refused a call.
+ *
+ * Its own record type rather than a field on a message, because a throttled
+ * call usually produces no message: the request failed before any content
+ * existed to attach it to.
+ *
+ * A harness that routes across providers MUST set `upstream`. Omitting it
+ * records that we were throttled but not by whom, and that cannot be
+ * recovered downstream — the endpoint is not in the message, and inferring
+ * from the session's model is wrong whenever the failing call used a
+ * different one.
+ */
+export interface Throttle {
+  $schema?: "unfirehose/1.0";
+  type: "throttle";
+  id?: string;
+  sessionId?: string;
+  timestamp: string;
+
+  kind: ThrottleKind;
+
+  /** The provider that actually refused. The most valuable field here. */
+  upstream?: string;
+  /** Full URL of the API that refused. */
+  endpoint?: string;
+  /** Model of the FAILING call, not the session default. */
+  model?: string;
+  /** Which call was refused — chat, vision, embed, rerank. */
+  operation?: string;
+
+  httpStatus?: number;
+  /** What the provider asked us to wait, so backoff follows the request. */
+  retryAfterSeconds?: number;
+  /** Attempts before giving up. One event per failed call, not per attempt. */
+  attempts?: number;
+  /** True when a later attempt or failover succeeded. */
+  recovered?: boolean;
+  /** Upstream we fell back to, when the harness rerouted. */
+  failoverTo?: string;
+
+  message?: string;
+
+  harness?: string;
+  harnessVersion?: string;
+  cwd?: string;
+  projectId?: string;
+}
+
 // === Union of all top-level objects ===
 
 export type UnfirehoseObject =
@@ -343,7 +408,8 @@ export type UnfirehoseObject =
   | Project
   | ToolDefinition
   | AlertThreshold
-  | TrainingRunEvent;
+  | TrainingRunEvent
+  | Throttle;
 
 // === Standard Tool Registry ===
 

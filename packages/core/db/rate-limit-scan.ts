@@ -96,6 +96,19 @@ export function scanRateLimits(
     ON CONFLICT(block_id) DO NOTHING
   `);
 
+  // A harness that reports its own throttles still prints the error into a
+  // tool result, so the same refusal would be counted twice — once from the
+  // record, once from the text. The record wins: it names the upstream, which
+  // the text never can. Skip a scanned event when a harness-reported one
+  // already covers that session within a minute either side.
+  const nearbyReported = database.prepare(`
+    SELECT 1 FROM rate_limit_events
+     WHERE rule = 'harness-reported'
+       AND session_id IS ?
+       AND ABS(strftime('%s', timestamp) - strftime('%s', ?)) <= 60
+     LIMIT 1
+  `);
+
   let found = 0;
   let last = cursor;
   const write = database.transaction(() => {
@@ -103,6 +116,7 @@ export function scanRateLimits(
       last = r.block_id;
       const ev = detectRateLimit(r.text_content);
       if (!ev) continue;
+      if (r.timestamp && nearbyReported.get(r.session_id, r.timestamp)) continue;
       insert.run(
         r.block_id,
         r.message_id,

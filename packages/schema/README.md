@@ -33,6 +33,7 @@ import todoSchema from '@unturf/unfirehose-schema/json-schema/todo'
 import projectSchema from '@unturf/unfirehose-schema/json-schema/project'
 import metricSchema from '@unturf/unfirehose-schema/json-schema/metric'
 import toolDefinitionSchema from '@unturf/unfirehose-schema/json-schema/tool-definition'
+import throttleSchema from '@unturf/unfirehose-schema/json-schema/throttle'
 ```
 
 ### Specification docs

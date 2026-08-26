@@ -17,6 +17,7 @@ All objects carry `$schema: "unfirehose/1.0"` for forward compatibility. Consume
 | [Thought Traces](./thought-traces.md) | Extended thinking / chain-of-thought reasoning | Content blocks within messages |
 | [Todos](./todos.md) | Cross-session work items + audit events | Extracted from sessions or manual |
 | [Metrics](./metrics.md) | Token usage, cost, timing rollups + alerts | Per-minute aggregations |
+| [Throttling](./throttling.md) | Provider refusals — who limited us, which call, how long to wait | Standalone `throttle` records |
 | [All Logs](./all-logs.md) | JSONL stream format + ingestion pipeline | How everything fits together |
 
 ## Harness Formats

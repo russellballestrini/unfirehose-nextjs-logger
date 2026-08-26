@@ -1708,6 +1708,40 @@ async function ingestNativeHarness(
               continue;
             }
 
+            // unfirehose/1.0 throttle record — a provider refused a call.
+            // Its own type because a throttled call produces no message, so
+            // there is nothing to hang it off. Recorded directly rather than
+            // waiting for the text scanner: this one already names the
+            // upstream, which is the thing the scanner can never recover from
+            // an error string. See packages/schema/docs/throttling.md.
+            if (entry.type === 'throttle') {
+              try {
+                const sessRow = db.prepare(
+                  'SELECT id, project_id FROM sessions WHERE session_uuid = ?'
+                ).get(sessionUuid) as { id: number; project_id: number } | undefined;
+                db.prepare(`
+                  INSERT INTO rate_limit_events
+                    (block_id, message_id, session_id, project_id, timestamp,
+                     kind, target, provider, upstream, operation, model,
+                     http_status, retry_after_s, rule, detail)
+                  VALUES (NULL, NULL, ?, ?, ?, ?, 'inference', ?, ?, ?, ?, ?, ?, 'harness-reported', ?)
+                `).run(
+                  sessRow?.id ?? null,
+                  sessRow?.project_id ?? null,
+                  typeof entry.timestamp === 'string' ? entry.timestamp : new Date().toISOString(),
+                  typeof entry.kind === 'string' ? entry.kind : 'rate_limit',
+                  typeof entry.harness === 'string' ? entry.harness : harness.name,
+                  typeof entry.upstream === 'string' ? entry.upstream : null,
+                  typeof entry.operation === 'string' ? entry.operation : null,
+                  typeof entry.model === 'string' ? entry.model : null,
+                  typeof entry.httpStatus === 'number' ? entry.httpStatus : null,
+                  typeof entry.retryAfterSeconds === 'number' ? Math.round(entry.retryAfterSeconds) : null,
+                  typeof entry.message === 'string' ? entry.message.slice(0, 300) : '(no message)',
+                );
+              } catch { /* a duplicate or a malformed record must not stop ingest */ }
+              continue;
+            }
+
             if (entry.type !== 'message') continue;
 
             // session_end system message — terminal signal that the
