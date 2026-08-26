@@ -73,6 +73,8 @@ interface MeshRow {
   gpu_mem_total_mb: number | null;
   power_source: string | null;
   claude_processes: number | null;
+  agent_processes: number | null;
+  harness_counts: string | null;
 }
 
 /**
@@ -201,6 +203,27 @@ export function rollupOneBucket(db: Database): boolean {
     if (c > claudePeak) claudePeak = c;
   }
 
+  // agent_processes — same treatment for every harness, and a per-harness peak
+  // so the cold tier can still break the total down. Peak rather than mean
+  // because "how many agents ran at once" is the question a fleet chart is
+  // being asked; a mean hides the moment the box was actually loaded.
+  let agentPeak = 0;
+  const harnessPeak: Record<string, number> = {};
+  for (const s of samples) {
+    const total = s.agent_processes ?? s.claude_processes ?? 0;
+    if (total > agentPeak) agentPeak = total;
+    if (!s.harness_counts) continue;
+    try {
+      const c = JSON.parse(s.harness_counts) as Record<string, number>;
+      for (const [k, v] of Object.entries(c)) {
+        if (typeof v === 'number' && v > (harnessPeak[k] ?? 0)) harnessPeak[k] = v;
+      }
+    } catch { /* a row written by an older build */ }
+  }
+  const harnessCountsJson = Object.keys(harnessPeak).length
+    ? JSON.stringify(harnessPeak)
+    : null;
+
   // Host-static fields — copy from first sample.
   const meta = samples[0];
 
@@ -212,9 +235,10 @@ export function rollupOneBucket(db: Database): boolean {
       power_watts, gpu_power_watts, gpu_util,
       gpu_mem_used_mb, gpu_mem_total_mb,
       power_source, claude_processes,
+      agent_processes, harness_counts,
       sample_count,
       load_avg_1_max, power_watts_max, gpu_util_max, mem_used_gb_max
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const deleteHot = db.prepare(`
     DELETE FROM mesh_snapshots
@@ -229,6 +253,7 @@ export function rollupOneBucket(db: Database): boolean {
       smoothed.power_watts, smoothed.gpu_power_watts, smoothed.gpu_util,
       smoothed.gpu_mem_used_mb, meta.gpu_mem_total_mb,
       meta.power_source, claudePeak,
+      agentPeak, harnessCountsJson,
       samples.length,
       maxVals.load_avg_1_max, maxVals.power_watts_max, maxVals.gpu_util_max, maxVals.mem_used_gb_max,
     );

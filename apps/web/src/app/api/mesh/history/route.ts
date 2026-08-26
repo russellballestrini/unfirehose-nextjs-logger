@@ -33,7 +33,8 @@ export async function GET(req: NextRequest) {
   const needsCold = since < hotBoundary;
   const SELECT_COLS = `timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
        mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util,
-       gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes`;
+       gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes,
+       agent_processes, harness_counts`;
 
   let rows: any[];
   if (!needsCold) {
@@ -100,6 +101,13 @@ export async function GET(req: NextRequest) {
       memUsed: r.mem_used_gb ?? 0,
       memTotal: r.mem_total_gb ?? 0,
       claudes: r.claude_processes ?? 0,
+      // Every harness. Falls back to the claude count for snapshots taken
+      // before agent_processes existed, so old history still plots.
+      agents: r.agent_processes ?? r.claude_processes ?? 0,
+      harnessCounts: (() => {
+        try { return r.harness_counts ? JSON.parse(r.harness_counts) : undefined; }
+        catch { return undefined; }
+      })(),
       gpuUtil: r.gpu_util ?? undefined,
       gpuMemUsedMB: r.gpu_mem_used_mb ?? 0,
       gpuMemTotalMB: r.gpu_mem_total_mb ?? 0,
@@ -163,8 +171,9 @@ export async function POST(req: NextRequest) {
 
   const insert = db.prepare(`
     INSERT INTO mesh_snapshots (hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
-      mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes,
+      agent_processes, harness_counts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const tx = db.transaction(() => {
@@ -185,6 +194,14 @@ export async function POST(req: NextRequest) {
         n.gpuMemTotalMB ?? null,
         n.powerSource ?? 'estimate',
         n.claudeProcesses ?? 0,
+        // Total across harnesses, and the breakdown. A node with five
+        // uncloseai-cli agents and no claude used to persist a zero here.
+        (() => {
+          const c = n.harnessCounts as Record<string, number> | undefined;
+          const total = c ? Object.values(c).reduce((a, b) => a + b, 0) : 0;
+          return total || (n.claudeProcesses ?? 0);
+        })(),
+        n.harnessCounts ? JSON.stringify(n.harnessCounts) : null,
       );
     }
   });

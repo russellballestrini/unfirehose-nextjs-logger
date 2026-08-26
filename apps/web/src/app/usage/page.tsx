@@ -267,7 +267,7 @@ export default function UsageMonitorPage() {
     <div className="space-y-6">
       <PageContext
         pageType="usage-monitor"
-        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages. Mesh: ${mesh?.summary?.reachableNodes ?? '?'} nodes, ${mesh?.summary?.totalClaudes ?? '?'} claudes, ${mesh?.summary?.totalCores ?? '?'} cores, ${mesh?.summary?.totalMemGB ?? '?'}GB.`}
+        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages. Mesh: ${mesh?.summary?.reachableNodes ?? '?'} nodes, ${mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? '?'} agents, ${mesh?.summary?.totalCores ?? '?'} cores, ${mesh?.summary?.totalMemGB ?? '?'}GB.`}
         metrics={{
           window_minutes: window,
           input_5min: currentRate.input,

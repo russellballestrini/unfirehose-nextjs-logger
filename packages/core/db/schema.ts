@@ -492,6 +492,15 @@ function migrate(db: Database.Database) {
   addColumn('mesh_snapshots', 'gpu_util', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_used_mb', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_total_mb', 'REAL');
+  // Agent processes beyond claude. claude_processes stays as it was so older
+  // rows and readers keep their meaning; these carry every harness, because a
+  // node running five uncloseai-cli agents used to graph as a flat zero.
+  //   agent_processes — total across harnesses (what the chart plots)
+  //   harness_counts  — JSON {"claude":2,"uncloseai":5} (what the tooltip breaks down)
+  addColumn('mesh_snapshots', 'agent_processes', 'INTEGER');
+  addColumn('mesh_snapshots', 'harness_counts', 'TEXT');
+  addColumn('mesh_snapshots_15m', 'agent_processes', 'INTEGER');
+  addColumn('mesh_snapshots_15m', 'harness_counts', 'TEXT');
   addColumn('training_runs', 'uuid', 'TEXT');
   addColumn('training_runs', 'deleted_at', 'TEXT');
   addColumn('training_runs', 'source_path', 'TEXT');

@@ -701,6 +701,9 @@ export default function NodeDetailPage() {
           memTotalGB,
           memCapGB,
           claudes: n.claudes ?? 0,
+          // Every harness. Falls back to the claude count for history recorded
+          // before agent_processes existed, so old series still plot.
+          agents: n.agents ?? n.claudes ?? 0,
           gpuUtil: n.gpuUtil ?? 0,
           gpuMemUsedGB: Math.round((n.gpuMemUsedMB ?? 0) / 1024 * 10) / 10,
           gpuMemTotalGB: Math.round((n.gpuMemTotalMB ?? 0) / 1024 * 10) / 10,
@@ -1258,9 +1261,9 @@ export default function NodeDetailPage() {
                   </div>
 
                   <div className={cardCls}>
-                    <h3 className={titleCls}>Active Claudes <span className="text-xs font-normal ml-2">{last.claudes} current</span></h3>
+                    <h3 className={titleCls}>Active Agents <span className="text-xs font-normal ml-2">{last.agents ?? last.claudes} current</span></h3>
                     <UPlotTimeChart data={chartData} height={140} syncKey={SYNC} domain={zoomDomain} onZoom={handleZoom} onCursor={handleCursor}
-                      series={[{ key: 'claudes', label: 'Claudes', stroke: '#d40000', fill: 'rgba(212,0,0,0.20)', step: true }]} />
+                      series={[{ key: 'agents', label: 'Agents', stroke: '#d40000', fill: 'rgba(212,0,0,0.20)', step: true }]} />
                   </div>
                 </div>
               );
@@ -1426,7 +1429,7 @@ export default function NodeDetailPage() {
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
               <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
                 Active Claudes
-                <span className="text-xs font-normal ml-2">{last.claudes} current</span>
+                <span className="text-xs font-normal ml-2">{last.agents ?? last.claudes} current</span>
               </h3>
               <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
               <ResponsiveContainer width="100%" height={140}>
@@ -1434,7 +1437,7 @@ export default function NodeDetailPage() {
                   <XAxis {...xAxisProps} />
                   <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                  <Area type="stepAfter" dataKey="claudes" name="Claudes" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
+                  <Area type="stepAfter" dataKey="agents" name="Agents" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
               </ResponsiveContainer>
               <ChartOverlay />
