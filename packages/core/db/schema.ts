@@ -706,6 +706,8 @@ function migrate(db: Database.Database) {
       kind          TEXT NOT NULL,         -- rate_limit | concurrency | quota | overloaded
       target        TEXT NOT NULL DEFAULT 'inference', -- inference | web | service
       provider      TEXT,                  -- who throttled us, when known
+      upstream      TEXT,                  -- the provider that actually refused; null = harness never said
+      operation     TEXT,                  -- vision | chat | embed, when named
       model         TEXT,
       http_status   INTEGER,
       retry_after_s INTEGER,
@@ -717,6 +719,7 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rle_provider  ON rate_limit_events(provider);
     CREATE INDEX IF NOT EXISTS idx_rle_kind      ON rate_limit_events(kind);
     CREATE INDEX IF NOT EXISTS idx_rle_target    ON rate_limit_events(target);
+    CREATE INDEX IF NOT EXISTS idx_rle_upstream  ON rate_limit_events(upstream);
     CREATE INDEX IF NOT EXISTS idx_rle_project   ON rate_limit_events(project_id);
     CREATE INDEX IF NOT EXISTS idx_rle_session   ON rate_limit_events(session_id);
   `);

@@ -91,8 +91,8 @@ export function scanRateLimits(
   const insert = database.prepare(`
     INSERT INTO rate_limit_events
       (block_id, message_id, session_id, project_id, timestamp, kind, target,
-       provider, model, http_status, retry_after_s, rule, detail)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       provider, upstream, operation, model, http_status, retry_after_s, rule, detail)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(block_id) DO NOTHING
   `);
 
@@ -123,6 +123,8 @@ export function scanRateLimits(
           ?? (r.provider && r.provider !== 'local' ? r.provider : null)
           ?? r.harness
           ?? null,
+        ev.upstream,
+        ev.operation,
         r.model,
         ev.status,
         ev.retryAfterSeconds,

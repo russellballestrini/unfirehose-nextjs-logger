@@ -46,6 +46,9 @@ export default function RateLimitsPage() {
   );
 
   const byProvider: any[] = data?.byProvider ?? [];
+  const byUpstream: any[] = data?.byUpstream ?? [];
+  const attribution = data?.attribution ?? { named: 0, total: 0 };
+  const unnamed = Math.max(0, (attribution.total ?? 0) - (attribution.named ?? 0));
   const byDay: any[] = data?.byDay ?? [];
   const recent: any[] = data?.recent ?? [];
   const targets: any[] = data?.targets ?? [];
@@ -95,10 +98,65 @@ export default function RateLimitsPage() {
         </div>
       )}
 
+      {byUpstream.length > 0 && (
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4">
+          <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide mb-1">
+            Which upstream refused
+          </h2>
+          {unnamed > 0 && (
+            <p className="text-xs text-[var(--color-muted)] mb-3">
+              {unnamed} of {attribution.total} events do not name an upstream — the
+              harness recorded that it was throttled but not by whom. That is a gap
+              in the harness, not in this table.
+            </p>
+          )}
+          <table className="w-full text-sm mb-4">
+            <thead>
+              <tr className="text-[var(--color-muted)] text-left">
+                <th className="pb-2">Upstream</th>
+                <th className="pb-2">Harness</th>
+                <th className="pb-2">Call</th>
+                <th className="pb-2">Kind</th>
+                <th className="pb-2 text-right">Events</th>
+                <th className="pb-2 text-right">Last</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byUpstream.map((r, i) => {
+                const named = r.upstream !== '(not reported)';
+                return (
+                  <tr key={i} className="border-t border-[var(--color-border)]">
+                    <td className="py-1.5 font-mono">
+                      {named ? r.upstream : (
+                        <span
+                          className="text-[var(--color-muted)] italic"
+                          title="The harness logged a throttle without saying which provider refused."
+                        >
+                          not reported
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1.5 font-mono text-[var(--color-muted)]">{r.harness}</td>
+                    <td className="py-1.5 text-[var(--color-muted)]">{r.operation || '—'}</td>
+                    <td className="py-1.5" style={{ color: KIND_COLOR[r.kind] ?? 'inherit' }} title={KIND_HELP[r.kind]}>
+                      {r.kind}
+                    </td>
+                    <td className="py-1.5 text-right font-bold">{r.events}</td>
+                    <td className="py-1.5 text-right text-[var(--color-muted)]">
+                      {formatRelativeTime(r.last_seen)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {byProvider.length > 0 && (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4">
           <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide mb-3">
-            Who throttled us
+            Which harness hit it
           </h2>
           <table className="w-full text-sm">
             <thead>
@@ -179,6 +237,14 @@ export default function RateLimitsPage() {
                     {r.kind}
                   </span>
                   <span className="font-mono text-[var(--color-muted)] shrink-0">{r.provider ?? '—'}</span>
+                  <span className="font-mono shrink-0" title="upstream that refused">
+                    {r.upstream
+                      ? `→ ${r.upstream}`
+                      : <span className="text-[var(--color-muted)] italic opacity-60">→ upstream not reported</span>}
+                  </span>
+                  {r.operation && (
+                    <span className="text-[var(--color-muted)] shrink-0">{r.operation} call</span>
+                  )}
                   {r.http_status && (
                     <span className="text-[var(--color-muted)] shrink-0">HTTP {r.http_status}</span>
                   )}

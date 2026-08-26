@@ -34,6 +34,24 @@ export interface RateLimitEvent {
   target: RateLimitTarget;
   /** Provider we were throttled BY, when the text names one. */
   provider: string | null;
+  /**
+   * The upstream that actually refused — openrouter, nous, x-ai, anthropic.
+   *
+   * Usually null, and that is the finding rather than a bug here: a harness
+   * that routes across providers has to say which one throttled it, and
+   * uncloseai-cli does not. All 31 of its rate-limit events read
+   * "LLM unreachable after 3 attempts [rate_limit]: HTTP Error 429" with the
+   * upstream dropped before it reaches the log. Null is rendered as
+   * "not reported" so the gap is visible instead of looking like no data.
+   */
+  upstream: string | null;
+  /**
+   * Which call was refused — vision, chat, embed. uncloseai-cli names the
+   * operation even when it omits the provider, and it narrows the fix: a
+   * throttled vision endpoint points at UNCLOSE_VISION_MODEL, not at the
+   * chat model.
+   */
+  operation: string | null;
   /** HTTP status when the text carries one. */
   status: number | null;
   /** Seconds to wait, when the provider told us. */
@@ -160,6 +178,45 @@ export function parseRetryAfter(text: string): number | null {
   return null;
 }
 
+/**
+ * Upstream host or provider named in the text, if any.
+ *
+ * Matches hostnames first because an error body that quotes a URL is telling
+ * us exactly who answered, then falls back to provider words that only count
+ * when they sit next to the failure.
+ */
+const UPSTREAM_HOSTS: Array<[RegExp, string]> = [
+  [/\bopenrouter\.ai\b/i, 'openrouter'],
+  [/\binference-api\.nousresearch\.com\b|\bportal\.nousresearch\.com\b/i, 'nous'],
+  [/\bapi\.anthropic\.com\b/i, 'anthropic'],
+  [/\bapi\.x\.ai\b/i, 'x-ai'],
+  [/\bapi\.openai\.com\b/i, 'openai'],
+  [/\bgenerativelanguage\.googleapis\.com\b/i, 'google'],
+  [/\bai\.foxhop\.net\b/i, 'qwen'],
+  [/\b3090-ai\.foxhop\.net\b/i, 'hermes'],
+  [/\bapi\.unsandbox\.com\b/i, 'unsandbox'],
+];
+
+export function parseUpstream(text: string): string | null {
+  for (const [re, name] of UPSTREAM_HOSTS) {
+    if (re.test(text)) return name;
+  }
+  // A structured claim only. `via <word>` was tried and produced nothing but
+  // false positives — "via bash", "via pandoc", and a Claude message quoting a
+  // proposed uncloseai status line all matched. A hostname or a provider field
+  // is evidence; a preposition in prose is not.
+  const named = /"(?:provider|upstream)"\s*:\s*"([a-z0-9_.-]{2,24})"/i.exec(text);
+  if (named) return named[1].toLowerCase();
+  return null;
+}
+
+/** The operation that was refused, when the harness names it. */
+export function parseOperation(text: string): string | null {
+  const m = /\b([a-z_]{2,16})\s+call failed\b/i.exec(text);
+  if (m) return m[1].toLowerCase();
+  return null;
+}
+
 function parseStatus(text: string): number | null {
   if (/\b429\b/.test(text)) return 429;
   if (/\b503\b/.test(text)) return 503;
@@ -191,6 +248,8 @@ export function detectRateLimit(text: string | null | undefined): RateLimitEvent
       kind: rule.kind,
       target: isHtml ? 'web' : rule.target,
       provider: isHtml ? 'web' : rule.provider,
+      upstream: parseUpstream(t),
+      operation: parseOperation(t),
       status: parseStatus(detail) ?? parseStatus(t),
       retryAfterSeconds: parseRetryAfter(t),
       detail,

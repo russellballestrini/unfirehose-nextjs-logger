@@ -27,6 +27,29 @@ export async function GET(req: NextRequest) {
   const targetClause = target === 'all' ? '' : 'AND target = ?';
   const args = target === 'all' ? [since] : [since, target];
 
+  // Grouped by the upstream that refused, not the harness that got refused.
+  // COALESCE to a sentinel rather than dropping nulls: "we do not know" is the
+  // most common answer and hiding it would misrepresent the data as complete.
+  const byUpstream = db.prepare(`
+    SELECT COALESCE(upstream, '(not reported)') AS upstream,
+           COALESCE(provider, '(unknown)')      AS harness,
+           COALESCE(operation, '')              AS operation,
+           kind,
+           COUNT(*)       AS events,
+           MAX(timestamp) AS last_seen
+      FROM rate_limit_events
+     WHERE timestamp >= ? ${targetClause}
+     GROUP BY upstream, provider, operation, kind
+     ORDER BY events DESC
+  `).all(...args);
+
+  const reported = db.prepare(`
+    SELECT SUM(CASE WHEN upstream IS NOT NULL THEN 1 ELSE 0 END) AS named,
+           COUNT(*)                                              AS total
+      FROM rate_limit_events
+     WHERE timestamp >= ? ${targetClause}
+  `).get(...args) as { named: number | null; total: number };
+
   const byProvider = db.prepare(`
     SELECT COALESCE(provider, '(unknown)') AS provider,
            kind,
@@ -49,7 +72,7 @@ export async function GET(req: NextRequest) {
   `).all(...args);
 
   const recent = db.prepare(`
-    SELECT e.timestamp, e.kind, e.target, e.provider, e.model,
+    SELECT e.timestamp, e.kind, e.target, e.provider, e.upstream, e.operation, e.model,
            e.http_status, e.retry_after_s, e.rule, e.detail,
            p.name AS project, s.session_uuid
       FROM rate_limit_events e
@@ -70,7 +93,16 @@ export async function GET(req: NextRequest) {
 
   const total = (byProvider as Array<{ events: number }>).reduce((s, r) => s + r.events, 0);
 
-  return NextResponse.json({ days, target, total, targets, byProvider, byDay, recent });
+  return NextResponse.json({
+    days, target, total, targets, byProvider, byUpstream, byDay, recent,
+    // How much of this window can even name who refused. Surfaced so the page
+    // can say "N of M events do not identify an upstream" rather than showing
+    // a blank column and letting it read as no throttling.
+    attribution: {
+      named: reported?.named ?? 0,
+      total: reported?.total ?? 0,
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
