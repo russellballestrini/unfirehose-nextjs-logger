@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useStickyState } from './useStickyState';
 
 export const TIME_RANGE_OPTIONS = [
   { label: '1 hour', value: '1h', ms: 60 * 60 * 1000 },
@@ -30,18 +30,14 @@ export function getTimeRangeFrom(value: string): string | undefined {
   return new Date(Date.now() - opt.ms).toISOString();
 }
 
+// Kept as the named entry point for time ranges, now backed by the shared
+// sticky-state primitive so every remembered control behaves identically.
+// Legacy keys were written as bare strings rather than JSON, so a value that
+// does not parse is still accepted if it names a known range.
 export function useTimeRange(storageKey: string, defaultValue: TimeRangeValue = '7d') {
-  const [value, _setValue] = useState<string>(() => {
-    if (typeof globalThis.localStorage !== 'undefined') {
-      return localStorage.getItem(storageKey) ?? defaultValue;
-    }
-    return defaultValue;
-  });
-  const setValue = (v: string) => {
-    _setValue(v);
-    localStorage.setItem(storageKey, v);
-  };
-  return [value, setValue] as const;
+  const [value, setValue] = useStickyState<string>(storageKey, defaultValue);
+  const known = TIME_RANGE_OPTIONS.some((o) => o.value === value);
+  return [known ? value : defaultValue, setValue] as const;
 }
 
 export function TimeRangeSelect({

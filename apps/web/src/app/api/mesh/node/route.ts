@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
+import { parseHarnessProcesses, countByHarness } from '@unturf/unfirehose/harness-procs';
 import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle, parseNvidiaClocks, parseCpuTopology } from '@/lib/sensors';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -67,18 +68,14 @@ echo '===SECTION:PS==='
 ps aux --sort=-%cpu 2>/dev/null | grep -v '===SECTION:' | head -50 || echo 'n/a'
 
 # --- claude processes specifically ---
-# Match on the basename of the binary in cmdline column 11, NOT a
-# case-insensitive substring against the whole ps line. The old grep
-# false-matched any process whose cmdline mentioned "CLAUDE.md"
-# (lumbda factory monitors carry docstring references to the SOP shard),
-# inflating the count by ~3x on busy hosts.
+# Every agent harness, not just claude. uncloseai-cli is a Python console
+# script and appears as "python3 .../unclose", so its basename is python3 —
+# matching column 11 alone reported 0 while 5 agents were running. The rule
+# (basename, then script name when the basename is an interpreter) lives in
+# @unturf/unfirehose/harness-procs; we ship the whole table and apply it
+# server-side so adding a harness never means editing an embedded shell string.
 echo '===SECTION:CLAUDE_PS==='
-ps aux 2>/dev/null | awk 'NR>1 {
-  cmd=$11
-  if (cmd == "" || substr(cmd,1,1) == "[") next
-  n=split(cmd, parts, "/")
-  if (parts[n] == "claude") print
-}' | grep -v '===SECTION:' || echo 'none'
+ps aux 2>/dev/null | grep -v '===SECTION:' || echo 'none'
 
 # --- GPU nvidia ---
 echo '===SECTION:NVIDIA==='
@@ -446,7 +443,11 @@ function parseProbeOutput(raw: string, host: string) {
 
   const disk = parseDisk(parseSection(raw, 'DISK'));
   const processes = parseProcesses(parseSection(raw, 'PS'));
-  const claudeProcesses = parseClaudeProcesses(parseSection(raw, 'CLAUDE_PS'));
+  // Named CLAUDE_PS for wire compatibility; it carries every harness now.
+  const harnessProcesses = parseHarnessProcesses(parseSection(raw, 'CLAUDE_PS'));
+  const harnessCounts = countByHarness(harnessProcesses);
+  // claudeProcesses stays claude-only so existing callers keep their meaning.
+  const claudeProcesses = harnessProcesses.filter((p: { harness: string }) => p.harness === 'claude');
   const nvidiaClocks = parseNvidiaClocks(parseSection(raw, 'NVIDIA_CLOCKS'));
   const nvidiaGpus = parseNvidiaGpu(parseSection(raw, 'NVIDIA')).map((g: any) => ({
     ...g,
@@ -482,6 +483,8 @@ function parseProbeOutput(raw: string, host: string) {
     disk,
     processes,
     claudeProcesses,
+    harnessProcesses,
+    harnessCounts,
     gpu: {
       nvidia: nvidiaGpus,
       nvidiaProcesses,

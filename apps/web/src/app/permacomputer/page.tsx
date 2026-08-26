@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
+import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 
@@ -696,8 +697,8 @@ export default function PermacomputerPage() {
     <div className="space-y-6">
       <PageContext
         pageType="permacomputer"
-        summary={`Permacomputer. ${allNodes.length + (unsandboxStatus?.connected ? 1 : 0)} nodes, ${reachable.length + (unsandboxService ? 1 : 0)} reachable, ${mesh?.summary?.totalClaudes ?? 0} claudes.`}
-        metrics={{ nodes: allNodes.length + (unsandboxStatus?.connected ? 1 : 0), reachable: reachable.length + (unsandboxService ? 1 : 0), claudes: mesh?.summary?.totalClaudes ?? 0 }}
+        summary={`Permacomputer. ${allNodes.length + (unsandboxStatus?.connected ? 1 : 0)} nodes, ${reachable.length + (unsandboxService ? 1 : 0)} reachable, ${mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? 0} agents.`}
+        metrics={{ nodes: allNodes.length + (unsandboxStatus?.connected ? 1 : 0), reachable: reachable.length + (unsandboxService ? 1 : 0), agents: mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? 0 }}
       />
 
       <div>
@@ -757,7 +758,7 @@ function MeshSummaryBar({ summary, geoipLoading, geoipCount }: { summary: any; g
             {summary.reachableNodes}/{summary.totalNodes} nodes
           </span>
         </div>
-        <MiniStat label="claudes" value={summary.totalClaudes} accent />
+        <MiniStat label="agents" value={summary.totalAgents ?? summary.totalClaudes} accent />
         <MiniStat label="cores" value={summary.totalCores} />
         <div className="flex items-center gap-2">
           <span className="text-base text-[var(--color-muted)]">mem</span>
@@ -810,7 +811,15 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
   const memPct = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
   const load1 = node?.loadAvg?.[0] ?? 0;
   const loadPct = cpuCores > 0 ? Math.min(100, Math.round((load1 / cpuCores) * 100)) : 0;
-  const claudes = node?.claudeProcesses ?? 0;
+  // Every agent harness. claudeProcesses stays claude-only for older payloads;
+  // harnessCounts carries the rest (uncloseai-cli, aider, codex, …).
+  const harnessCounts: Record<string, number> = node?.harnessCounts ?? {};
+  const harnessTotal = Object.values(harnessCounts).reduce((a: number, b: number) => a + b, 0);
+  const claudes = harnessTotal || (node?.claudeProcesses ?? 0);
+  const harnessLabel = Object.entries(harnessCounts)
+    .filter(([, n]) => (n as number) > 0)
+    .map(([k, n]) => `${n} ${k}`)
+    .join(', ');
   const swap = node?.swapUsedGB ?? 0;
   const probeHost = sshHost?.hostname ?? sshHost?.name ?? node?.hostname ?? name;
   const gpuUtil = node?.gpuUtil;
@@ -837,7 +846,9 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
         )}
         {claudes > 0 && (
           <span className="ml-auto text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
-            {claudes} claude{claudes !== 1 ? 's' : ''}
+            <span title={harnessLabel || undefined}>
+              {claudes} agent{claudes !== 1 ? 's' : ''}
+            </span>
           </span>
         )}
         {onHide && (
@@ -1254,7 +1265,17 @@ function OverviewTab({ detail }: { detail: any }) {
         <StatCard label="CPU" value={sys?.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim() ?? 'n/a'} sub={`${cores} cores${sys?.cpuMhz ? ` @ ${Math.round(sys.cpuMhz)}MHz` : ''}`} />
         <StatCard label="Architecture" value={sys?.arch ?? 'n/a'} sub={sys?.kernel ?? ''} />
         <StatCard label="OS" value={sys?.os ?? 'Linux'} sub={`up ${formatDuration(detail.uptimeSeconds)}`} />
-        <StatCard label="Claudes" value={detail.claudeProcesses?.length ?? 0} sub={detail.claudeProcesses?.length > 0 ? detail.claudeProcesses.map((p: any) => `PID ${p.pid}`).join(', ') : 'none running'} accent />
+        {(() => {
+          // Was "Claudes" and counted only claude, so a node running five
+          // uncloseai-cli agents reported none.
+          const procs: any[] = detail.harnessProcesses ?? detail.claudeProcesses ?? [];
+          const counts: Record<string, number> = detail.harnessCounts
+            ?? (detail.claudeProcesses?.length ? { claude: detail.claudeProcesses.length } : {});
+          const sub = procs.length
+            ? Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ')
+            : 'none running';
+          return <StatCard label="Agents" value={procs.length} sub={sub} accent />;
+        })()}
       </div>
 
       {/* Load & Memory gauges */}
@@ -1332,7 +1353,7 @@ function ProcessesTab({ detail }: { detail: any }) {
   const [showAll, setShowAll] = useState(false);
 
   const allProcesses: any[] = useMemo(() => detail.processes ?? [], [detail.processes]);
-  const claudePs: any[] = detail.claudeProcesses ?? [];
+  const claudePs: any[] = detail.harnessProcesses ?? detail.claudeProcesses ?? [];
 
   const filtered = useMemo(() => {
     let list = allProcesses;
@@ -1678,7 +1699,9 @@ function SessionsTab({ detail }: { detail: any }) {
 const HOST_COLORS = ['#f97316', '#a78bfa', '#60a5fa', '#22c55e', '#f43f5e', '#facc15', '#38bdf8', '#ec4899', '#84cc16', '#fb923c'];
 
 function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
-  const [hours, setHours] = useState(24);
+  // Remembered across refreshes — this was useState(24), so picking 6h and
+  // reloading snapped back to 24h.
+  const [hours, setHours] = useStickyState<number>('fleet_metrics_hours', 24);
   // 30s refresh — matches snapshot sample rate; per-minute aggregation means new
   // points land roughly every minute but the cadence keeps the tail "live".
   const { data } = useSWR(`/api/mesh/history?hours=${hours}&hostname=all`, fetcher, {
@@ -2626,7 +2649,7 @@ function BootstrapPanel() {
             <option value="localhost">localhost</option>
             {unsandboxEnabled && <option value="unsandbox">unsandbox.com (cloud)</option>}
             {reachableNodes.filter((n: any) => n.hostname !== meshNodes[0]?.hostname).map((n: any) => (
-              <option key={n.hostname} value={n.hostname}>{n.hostname} ({n.claudeProcesses ?? 0} claudes)</option>
+              <option key={n.hostname} value={n.hostname}>{n.hostname} ({Object.values(n.harnessCounts ?? {}).reduce((a: any, b: any) => a + b, 0) || (n.claudeProcesses ?? 0)} agents)</option>
             ))}
           </select>
         </div>

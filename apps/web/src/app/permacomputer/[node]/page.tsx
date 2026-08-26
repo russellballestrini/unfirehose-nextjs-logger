@@ -724,7 +724,15 @@ export default function NodeDetailPage() {
         <h1 className="text-2xl font-bold">{host}</h1>
         {node && (
           <span className="text-sm text-[var(--color-muted)]">
-            up {node.uptime} &middot; {node.claudeProcesses} claudes
+            up {node.uptime} &middot;{' '}
+            {(() => {
+              const counts: Record<string, number> = node.harnessCounts ?? {};
+              const total = Object.values(counts).reduce((a, b) => a + b, 0);
+              if (total > 0) {
+                return Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ');
+              }
+              return `${node.claudeProcesses ?? 0} claudes`;
+            })()}
           </span>
         )}
       </div>
@@ -1446,10 +1454,16 @@ export default function NodeDetailPage() {
         const sessions: string[] = tmuxData?.sessions ?? [];
         const tmuxEntries = sessions.map((s: string) => ({ name: s, type: 'tmux' as const }));
 
-        // Bare claude processes (not in tmux) from probe data
-        const claudeProcs: any[] = Array.isArray(probe?.claudeProcesses) ? probe.claudeProcesses : [];
+        // Bare agent processes (not in tmux) from probe data. Was
+        // claudeProcesses only, so a node running five uncloseai-cli agents
+        // showed "Bare Processes (0)" — uncloseai-cli runs as python3 and never
+        // matched. harnessProcesses carries every harness; fall back for probes
+        // captured before it existed.
+        const claudeProcs: any[] = Array.isArray(probe?.harnessProcesses)
+          ? probe.harnessProcesses
+          : Array.isArray(probe?.claudeProcesses) ? probe.claudeProcesses : [];
         const bareEntries = claudeProcs.map((p: any) => ({
-          name: `claude (PID ${p.pid})`,
+          name: `${p.harness ?? 'claude'} (PID ${p.pid})`,
           type: 'process' as const,
           pid: p.pid,
           tty: p.tty,
@@ -1562,7 +1576,7 @@ export default function NodeDetailPage() {
             {allEntries.length > 0 && (
               <p className="text-xs text-[var(--color-muted)]">
                 {tmuxEntries.length > 0 && <>Click a tmux session to preview live output. {isLocal ? 'Full View' : 'Watch'} opens the interactive terminal viewer. </>}
-                {bareEntries.length > 0 && <>Yellow dots indicate claude processes running outside tmux.</>}
+                {bareEntries.length > 0 && <>Yellow dots indicate agent processes running outside tmux.</>}
               </p>
             )}
           </div>
@@ -1589,7 +1603,7 @@ export default function NodeDetailPage() {
           )}
 
           {probe?.processes?.length > 0 ? (
-            <Section title={`Top Processes (${Array.isArray(probe.claudeProcesses) ? probe.claudeProcesses.length : probe.claudeProcesses ?? 0} claudes)`}>
+            <Section title={`Top Processes (${Array.isArray(probe.harnessProcesses) ? probe.harnessProcesses.length : Array.isArray(probe.claudeProcesses) ? probe.claudeProcesses.length : probe.claudeProcesses ?? 0} agents)`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>

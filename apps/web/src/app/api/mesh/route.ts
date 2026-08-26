@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { harnessPsAwk, parseHarnessProcesses, countByHarness } from '@unturf/unfirehose/harness-procs';
 import { execSync, execFile } from 'child_process';
 import { readFileSync, readdirSync } from 'fs';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
@@ -19,6 +20,7 @@ interface MeshNode {
   uptimeSeconds?: number;
   cpuYear?: number;
   claudeProcesses?: number;
+  harnessCounts?: Record<string, number>;
   swapUsedGB?: number;
   swapTotalGB?: number;
   cpuModel?: string;
@@ -508,18 +510,22 @@ function getLocalStats(): MeshNode {
     const uptimeSeconds = parseFloat(readFileSync('/proc/uptime', 'utf-8').split(/\s/)[0]);
     const uptime = formatUptime(uptimeSeconds);
 
-    // Claude processes
+    // Agent harness processes. Counted per harness, not just claude:
+    // uncloseai-cli runs as `python3 .../unclose`, so a basename match on
+    // column 11 reported zero while five agents were running.
     let claudeProcesses = 0;
+    let harnessCounts: Record<string, number> = {};
     try {
-      // Match the basename of cmdline column 11 against exactly 'claude'
-      // — substring grep false-matches any process whose cmdline mentions
-      // 'CLAUDE.md' (e.g. lumbda factory monitors), inflating the count.
       const ps = execSync(
-        `ps aux 2>/dev/null | awk 'NR>1 { cmd=$11; if (cmd == "" || substr(cmd,1,1) == "[") next; n=split(cmd, parts, "/"); if (parts[n] == "claude") c++ } END { print c+0 }'`,
+        `ps aux 2>/dev/null | awk '${harnessPsAwk()}' | sed 's/^/HPROC /'`,
         { encoding: 'utf-8', shell: '/bin/sh' },
       );
-      claudeProcesses = parseInt(ps.trim()) || 0;
-    } catch { /* no claudes */ }
+      const procs = parseHarnessProcesses(
+        ps.split('\n').filter((l) => l.startsWith('HPROC ')).map((l) => l.slice(6)).join('\n'),
+      );
+      harnessCounts = countByHarness(procs);
+      claudeProcesses = harnessCounts.claude ?? 0;
+    } catch { /* no harnesses running */ }
 
     // Disk inventory
     let spinningDisks = 0;
@@ -594,6 +600,7 @@ function getLocalStats(): MeshNode {
       uptimeSeconds,
       cpuYear: cpuModel ? lookupCpuYear(cpuModel) ?? undefined : undefined,
       claudeProcesses,
+      harnessCounts,
       swapTotalGB: round(swapTotal),
       swapUsedGB: round(swapTotal - swapFree),
       powerWatts,
@@ -619,7 +626,7 @@ function getRemoteStatsAsync(host: string): Promise<MeshNode> {
   // Use ; between sections so RAPL/GPU failures don't break the chain
   const remoteScript = [
     // Stats section (&&-chained — all must succeed)
-    `{ hostname -f 2>/dev/null || hostname; } && nproc && grep -m1 "model name" /proc/cpuinfo && uname -m && { lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null; echo "---LSBLK_END---"; } && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux 2>/dev/null | awk 'NR>1 { cmd=$11; if (cmd == "" || substr(cmd,1,1) == "[") next; n=split(cmd, parts, "/"); if (parts[n] == "claude") c++ } END { print c+0 }' && echo "---STATS_END---"`,
+    `{ hostname -f 2>/dev/null || hostname; } && nproc && grep -m1 "model name" /proc/cpuinfo && uname -m && { lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null; echo "---LSBLK_END---"; } && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux 2>/dev/null | awk '${harnessPsAwk()}' | sed 's/^/HPROC /' && echo "---STATS_END---"`,
     // RAPL section (best-effort, semicolon-delimited)
     'R1=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R1B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); sleep 0.1; R2=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R2B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); echo "$R1 $R1B $R2 $R2B"; echo "---RAPL_END---"',
     // GPU section (best-effort)
@@ -684,7 +691,13 @@ function getRemoteStatsAsync(host: string): Promise<MeshNode> {
           const uptimeSeconds = parseFloat(uptimeLine?.split(/\s/)[0] ?? '0');
           const uptime = formatUptime(uptimeSeconds);
 
-          const claudeProcesses = parseInt(lines[lines.length - 1]) || 0;
+          // Harness lines are prefixed HPROC so they survive being mixed into
+          // the single combined stats payload alongside meminfo, loadavg etc.
+          const remoteProcs = parseHarnessProcesses(
+            lines.filter((l: string) => l.startsWith('HPROC ')).map((l: string) => l.slice(6)).join('\n'),
+          );
+          const harnessCounts = countByHarness(remoteProcs);
+          const claudeProcesses = harnessCounts.claude ?? 0;
 
           // Power
           const cpuTdpWatts = cpuModel ? lookupCpuTdp(cpuModel) : null;
@@ -749,6 +762,7 @@ function getRemoteStatsAsync(host: string): Promise<MeshNode> {
             loadAvg, uptime, uptimeSeconds,
             cpuYear: cpuModel ? lookupCpuYear(cpuModel) ?? undefined : undefined,
             claudeProcesses,
+            harnessCounts,
             swapTotalGB: round(swapTotal), swapUsedGB: round(swapTotal - swapFree),
             powerWatts, gpuPowerWatts: gpuPowerWatts ?? undefined,
             gpuModel, gpuMemTotalMB: gpuMemTotalMB ? Math.round(gpuMemTotalMB) : undefined,
@@ -817,6 +831,15 @@ async function probeMesh(timing?: Timing) {
   // Summary stats
   const reachable = results.filter(n => n.reachable);
   const totalClaudes = reachable.reduce((s, n) => s + (n.claudeProcesses ?? 0), 0);
+  // Fleet-wide per-harness totals. totalClaudes stays claude-only so existing
+  // callers keep their meaning; totalAgents is what the pages should show.
+  const totalHarnessCounts: Record<string, number> = {};
+  for (const n of reachable) {
+    for (const [k, v] of Object.entries(n.harnessCounts ?? {})) {
+      totalHarnessCounts[k] = (totalHarnessCounts[k] ?? 0) + (v as number);
+    }
+  }
+  const totalAgents = Object.values(totalHarnessCounts).reduce((a, b) => a + b, 0) || totalClaudes;
   const totalCores = reachable.reduce((s, n) => s + (n.cpuCores ?? 0), 0);
   const totalMemGB = reachable.reduce((s, n) => s + (n.memTotalGB ?? 0), 0);
   const totalMemUsedGB = reachable.reduce((s, n) => s + (n.memUsedGB ?? 0), 0);
@@ -834,6 +857,8 @@ async function probeMesh(timing?: Timing) {
       totalNodes: nodeHosts.length,
       reachableNodes: reachable.length,
       totalClaudes,
+      totalAgents,
+      totalHarnessCounts,
       totalCores,
       totalMemGB: round(totalMemGB),
       totalMemUsedGB: round(totalMemUsedGB),

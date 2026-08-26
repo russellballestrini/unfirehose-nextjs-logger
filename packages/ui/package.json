@@ -37,7 +37,8 @@
     "./vault": "./components/vault.ts",
     "./VaultProvider": "./components/VaultProvider.tsx",
     "./VaultGate": "./components/VaultGate.tsx",
-    "./HarnessPicker": "./components/HarnessPicker.tsx"
+    "./HarnessPicker": "./components/HarnessPicker.tsx",
+    "./useStickyState": "./components/useStickyState.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

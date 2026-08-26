@@ -755,11 +755,19 @@ function MeshNodeCard({ node, kwhRate, onRateChange, ispCost, onIspCostChange, d
         <span className="text-xs text-[var(--color-muted)] ml-auto">up {node.uptime}</span>
       </div>
 
-      {/* Claude count — hero stat */}
-      <div className="flex items-baseline gap-2 mb-3">
-        <span className="text-3xl font-bold text-[var(--color-accent)]">{node.claudeProcesses}</span>
-        <span className="text-sm text-[var(--color-muted)]">claudes</span>
-      </div>
+      {/* Agent count — hero stat. Counts every harness, not just claude. */}
+      {(() => {
+        const counts: Record<string, number> = node.harnessCounts ?? {};
+        const total = Object.values(counts).reduce((a, b) => a + b, 0) || (node.claudeProcesses ?? 0);
+        const label = Object.entries(counts).filter(([, n]) => n > 0)
+          .map(([k, n]) => `${n} ${k}`).join(', ');
+        return (
+          <div className="flex items-baseline gap-2 mb-3" title={label || undefined}>
+            <span className="text-3xl font-bold text-[var(--color-accent)]">{total}</span>
+            <span className="text-sm text-[var(--color-muted)]">{total === 1 ? 'agent' : 'agents'}</span>
+          </div>
+        );
+      })()}
 
       {/* Processor info */}
       <div className="mb-2 text-xs text-[var(--color-muted)] space-y-0.5">
