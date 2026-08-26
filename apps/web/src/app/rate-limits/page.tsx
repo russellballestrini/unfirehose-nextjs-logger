@@ -12,19 +12,37 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // What each bucket means, spelled out — "rate limit" gets used for four
 // different conditions and the difference decides what you do about it.
+// The last four are not throttles at all: a provider can refuse a call
+// without limiting us, and those refusals were invisible here until the
+// harness started reporting them.
 const KIND_HELP: Record<string, string> = {
   rate_limit:  'too many requests per unit time — slow down or spread across providers',
   concurrency: 'too many calls in flight at once — queue them, do not retry harder',
   quota:       'plan or credit exhausted — waiting will not help until it resets',
   overloaded:  'the provider ran out of capacity — not caused by our usage',
+  model_gone:  'this host no longer serves that model (404/410) — route elsewhere, retrying cannot bring it back',
+  server_error: 'the provider returned a 5xx — its problem, not our request',
+  timeout:     'no answer within the deadline',
+  content_policy: 'a safety filter refused the call',
 };
 
+// Throttles share the warm end of the scale; non-throttle refusals sit on
+// the cool end, so the two classes stay separable at a glance even when the
+// kind filter is set to everything.
 const KIND_COLOR: Record<string, string> = {
   rate_limit:  'var(--color-error)',
   concurrency: '#fbbf24',
   quota:       '#f87171',
   overloaded:  '#a78bfa',
+  model_gone:  '#38bdf8',
+  server_error: '#fb923c',
+  timeout:     '#94a3b8',
+  content_policy: '#f472b6',
 };
+
+// Which kinds are the provider limiting us, versus refusing us some other
+// way. Drives the kind filter's two grouped shortcuts.
+const THROTTLE_KINDS = ['rate_limit', 'concurrency', 'quota', 'overloaded'];
 
 const TARGET_HELP: Record<string, string> = {
   inference: 'an LLM provider refused the call — this is the one that shapes cost and routing',
@@ -35,12 +53,14 @@ const TARGET_HELP: Record<string, string> = {
 export default function RateLimitsPage() {
   const [range, setRange] = useTimeRange('rate_limits_range', '28d');
   const [target, setTarget] = useStickyState<string>('rate_limits_target', 'inference');
+  const [kind, setKind] = useStickyState<string>('rate_limits_kind', 'all');
 
   const minutes = getTimeRangeMinutes(range);
   const days = minutes > 0 ? Math.max(1, Math.ceil(minutes / 1440)) : 365;
 
   const { data, error, isLoading } = useSWR<any>(
-    `/api/rate-limits?days=${days}&target=${encodeURIComponent(target)}&limit=200`,
+    `/api/rate-limits?days=${days}&target=${encodeURIComponent(target)}`
+      + `&kind=${encodeURIComponent(kind)}&limit=200`,
     fetcher,
     { refreshInterval: 30_000, keepPreviousData: true },
   );
@@ -52,22 +72,48 @@ export default function RateLimitsPage() {
   const byDay: any[] = data?.byDay ?? [];
   const recent: any[] = data?.recent ?? [];
   const targets: any[] = data?.targets ?? [];
+  const kinds: any[] = data?.kinds ?? [];
   const maxDay = byDay.reduce((m, d) => Math.max(m, d.events), 0);
 
   return (
     <div className="space-y-5">
       <PageContext
         pageType="rate-limits"
-        summary={`Rate limits. ${data?.total ?? 0} ${target} events over ${days}d.`}
-        metrics={{ total: data?.total ?? 0, target, days }}
+        summary={`Refusals. ${data?.total ?? 0} ${target} events over ${days}d`
+          + `${kind === 'all' ? '' : ` (kind: ${kind})`}.`}
+        metrics={{ total: data?.total ?? 0, target, kind, days }}
         details={byProvider.map((r) => `${r.provider} ${r.kind}: ${r.events}`).join('\n')}
       />
 
       <div className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-2xl font-bold">Rate Limits</h1>
+        <h1 className="text-2xl font-bold">Refusals</h1>
         <TimeRangeSelect value={range} onChange={setRange} />
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-[var(--color-muted)]">Throttled by</span>
+          <span className="text-xs text-[var(--color-muted)]">Kind</span>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            title={KIND_HELP[kind] ?? 'Every way a call was refused.'}
+            className="text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1"
+          >
+            <option value="all">all refusals</option>
+            <option value="throttles">throttles only</option>
+            <optgroup label="throttles">
+              {THROTTLE_KINDS.map((k) => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </optgroup>
+            <optgroup label="other refusals">
+              {Object.keys(KIND_HELP)
+                .filter((k) => !THROTTLE_KINDS.includes(k))
+                .map((k) => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+            </optgroup>
+          </select>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-[var(--color-muted)]">Refused by</span>
           <select
             value={target}
             onChange={(e) => setTarget(e.target.value)}
@@ -85,8 +131,39 @@ export default function RateLimitsPage() {
         </span>
       </div>
 
+      {/* Every kind present in this window, whether or not the filter shows
+          it. A kind that exists but is currently hidden should be one click
+          away and visibly there — the whole defect being fixed here was a
+          class of refusal nobody knew we were recording. */}
+      {kinds.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          {kinds.map((k: any) => {
+            const active = kind === k.kind
+              || kind === 'all'
+              || (kind === 'throttles' && THROTTLE_KINDS.includes(k.kind));
+            return (
+              <button
+                key={k.kind}
+                onClick={() => setKind(kind === k.kind ? 'all' : k.kind)}
+                title={KIND_HELP[k.kind] ?? k.kind}
+                className={`px-2 py-0.5 rounded border transition-opacity ${
+                  active ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+                }`}
+                style={{
+                  borderColor: KIND_COLOR[k.kind] ?? 'var(--color-border)',
+                  color: KIND_COLOR[k.kind] ?? 'inherit',
+                }}
+              >
+                {k.kind} <span className="font-bold">{k.events}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <p className="text-sm text-[var(--color-muted)] max-w-3xl">
-        {TARGET_HELP[target] ?? 'Every throttling event we recorded.'}
+        {TARGET_HELP[target] ?? 'Every refusal we recorded.'}
+        {kind === 'all' && ' Throttles and every other way a call was refused — a provider can decline without limiting us, and a model that stops existing 404s rather than throttling.'}
       </p>
 
       {error && <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>}
@@ -94,7 +171,8 @@ export default function RateLimitsPage() {
 
       {data && data.total === 0 && (
         <div className="text-[var(--color-muted)] border border-dashed border-[var(--color-border)] rounded p-6">
-          No {target} throttling in this window. Nothing refused a call.
+          No {target} refusals{kind === 'all' ? '' : ` of kind ${kind}`} in this
+          window. Nothing refused a call.
         </div>
       )}
 
@@ -105,9 +183,12 @@ export default function RateLimitsPage() {
           </h2>
           {unnamed > 0 && (
             <p className="text-xs text-[var(--color-muted)] mb-3">
-              {unnamed} of {attribution.total} events do not name an upstream — the
-              harness recorded that it was throttled but not by whom. That is a gap
-              in the harness, not in this table.
+              {unnamed} of {attribution.total} events do not name an upstream.
+              {' '}Those were recovered by scanning harness output, and an error
+              string does not carry the route it took — the provider is not in
+              the text to find. The {attribution.reported ?? 0} reported directly
+              by a harness know who refused them, because they were written at
+              the moment of failure while the route was still known.
             </p>
           )}
           <table className="w-full text-sm mb-4">

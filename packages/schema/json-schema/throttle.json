@@ -13,8 +13,9 @@
 
     "kind": {
       "type": "string",
-      "enum": ["rate_limit", "concurrency", "quota", "overloaded"],
-      "description": "These are four different conditions that all get called 'rate limiting', and each calls for a different response. rate_limit: too many requests per unit time — slow down or spread load. concurrency: too many calls in flight — queue them; retrying harder makes it worse. quota: plan or credit exhausted — waiting does not help until it resets. overloaded: the provider ran out of capacity, not caused by our usage."
+      "enum": ["rate_limit", "concurrency", "quota", "overloaded",
+               "model_gone", "server_error", "timeout", "content_policy"],
+      "description": "How the provider refused, because each calls for a different response. The four throttle kinds: rate_limit — too many requests per unit time, slow down or spread load. concurrency — too many calls in flight, queue them; retrying harder makes it worse. quota — plan or credit exhausted, waiting does not help until it resets. overloaded — the provider ran out of capacity, not caused by our usage. The four non-throttle refusals, added in 1.0.1 because a harness that only records throttles loses the rest: model_gone — 404/410, this host no longer serves that model, so route elsewhere rather than retry (a deregistered model looks exactly like a working one until it 404s). server_error — 5xx from the provider. timeout — no answer within the deadline. content_policy — a safety filter refused. A refusal caused by OUR request (a malformed body, a bad key, an oversized prompt) is NOT a throttle record: the remedy is the payload, and recording it here reports provider trouble that never happened."
     },
 
     "upstream": {

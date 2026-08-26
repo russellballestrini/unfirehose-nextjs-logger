@@ -52,7 +52,7 @@ The provider is known at the moment of failure and nowhere afterwards.
 is unknown: it narrows the fix without any routing information. In our data 34
 throttles were vision calls, which points at the vision model directly.
 
-## `kind` — four conditions, four responses
+## `kind` — how the refusal happened, and what to do about it
 
 These all get called "rate limiting" and the difference decides what to do.
 Retrying harder fixes none of them and makes `concurrency` actively worse.
@@ -63,6 +63,34 @@ Retrying harder fixes none of them and makes `concurrency` actively worse.
 | `concurrency` | Too many calls in flight at once | Queue them — do not retry harder |
 | `quota` | Plan or credit exhausted | Waiting does not help until it resets |
 | `overloaded` | Provider out of capacity | Not caused by our usage; failover or wait |
+
+### Not every refusal is a throttle (1.0.1)
+
+The four above are the provider *limiting* us. A provider can also refuse
+outright, and a harness that records only throttles loses those — silently,
+because the drop happens before anything is written.
+
+| kind | Means | Response |
+|---|---|---|
+| `model_gone` | 404/410 — this host no longer serves that model | Route to a peer serving the same id; retrying cannot bring it back |
+| `server_error` | 5xx from the provider | Its problem, not our request; failover or wait |
+| `timeout` | No answer within the deadline | Failover; consider a longer deadline for that upstream |
+| `content_policy` | A safety filter refused | Neither retry nor failover helps; the request needs changing |
+
+`model_gone` is the one that motivated the widening. On 2026-08-26 openrouter
+deregistered `stealth/ox-alpha` mid-run: 7,940 calls had succeeded over five
+days, then every call 404'd from 13:53:12Z. A deregistered model is
+indistinguishable from a working one until the first 404, so nothing upstream
+of that record can predict it — and a harness classifying 404 as a malformed
+request will retry into a model that no longer exists and blame its own
+payload.
+
+### What is NOT a refusal record
+
+A failure caused by **our** request — a malformed body, a bad API key, a
+prompt over the context window. The remedy there is the payload, not the
+route. Recording those here reports provider trouble that never happened,
+and `upstream` would be answering a question nobody asked.
 
 ## One event per failed call
 

@@ -14,10 +14,21 @@
 // happened. Every pattern below is anchored to something a machine emits.
 
 export type RateLimitKind =
+  // Throttles proper — the provider is limiting us.
   | 'rate_limit'      // too many requests per unit time
   | 'concurrency'     // too many in flight at once
   | 'quota'           // plan or credit exhausted
-  | 'overloaded';     // provider capacity, not our usage
+  | 'overloaded'      // provider capacity, not our usage
+  // The other ways a call is refused. Detectors here never produce these:
+  // they arrive as harness-reported throttle records, which is the only
+  // place the upstream is known. Kept in one union because they land in
+  // one table and the page filters by kind — splitting them would fracture
+  // the dedupe that keeps a text-scanned event from double-counting a
+  // harness-reported one.
+  | 'model_gone'      // 404/410 — this host no longer serves that model
+  | 'server_error'    // 5xx from the provider
+  | 'timeout'         // no answer within the deadline
+  | 'content_policy'; // a safety filter refused
 
 /**
  * What was throttling us.
@@ -37,12 +48,18 @@ export interface RateLimitEvent {
   /**
    * The upstream that actually refused — openrouter, nous, x-ai, anthropic.
    *
-   * Usually null, and that is the finding rather than a bug here: a harness
-   * that routes across providers has to say which one throttled it, and
-   * uncloseai-cli does not. All 31 of its rate-limit events read
-   * "LLM unreachable after 3 attempts [rate_limit]: HTTP Error 429" with the
-   * upstream dropped before it reaches the log. Null is rendered as
-   * "not reported" so the gap is visible instead of looking like no data.
+   * Null for anything detected HERE, and that is a property of text scanning
+   * rather than a gap: the error string a harness prints does not carry the
+   * route. "LLM unreachable after 3 attempts [rate_limit]: HTTP Error 429"
+   * names no provider, and none of the five it might have been.
+   *
+   * The upstream arrives instead on `type: "throttle"` records, which are
+   * written at the moment of failure where the route is still known — see
+   * packages/schema/docs/throttling.md. uncloseai-cli emits those, and since
+   * 2026-08-26 emits them for every refusal kind rather than only the two
+   * throttle classes it used to map. Null is still rendered as
+   * "not reported" so a text-scanned event is visibly less informative than
+   * a reported one instead of looking like no data.
    */
   upstream: string | null;
   /**

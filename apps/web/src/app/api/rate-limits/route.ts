@@ -5,14 +5,20 @@ import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/rate-limits?days=30&target=inference
+ * GET /api/rate-limits?days=30&target=inference&kind=all
  *
- * When we were throttled, by whom, and how hard.
+ * When a provider refused us, who did it, and how hard.
  *
  * `target=inference` is the default and the one that matters for cost: an LLM
  * provider refused a call. `web` is a crawled site returning 429 and `service`
  * is our own infrastructure (unsandbox concurrency, Matrix); both are real but
  * neither says anything about our API budget.
+ *
+ * `kind` narrows to one refusal condition, or to `throttles` for the four
+ * where a provider is limiting us. Not every refusal is a throttle — a model
+ * deregistered mid-run 404s, which costs a run without ever hitting a limit —
+ * and the default is `all` because filtering that out by default is how it
+ * stayed invisible.
  *
  * POST rescans content blocks for events — `{"fromScratch": true}` re-reads
  * history, which is what a detector change calls for.
@@ -25,7 +31,26 @@ export async function GET(req: NextRequest) {
 
   const since = new Date(Date.now() - days * 86400_000).toISOString();
   const targetClause = target === 'all' ? '' : 'AND target = ?';
-  const args = target === 'all' ? [since] : [since, target];
+
+  // `kind` filters the same rows every panel already reads, so it composes
+  // with `target` instead of replacing it. `throttles` is the grouped
+  // shortcut: the four conditions where a provider is limiting us, as
+  // opposed to refusing us some other way (a 404 is a refusal, not a
+  // throttle, and lumping them together hides both).
+  const kind = req.nextUrl.searchParams.get('kind') ?? 'all';
+  const THROTTLES = ['rate_limit', 'concurrency', 'quota', 'overloaded'];
+  let kindClause = '';
+  let kindArgs: string[] = [];
+  if (kind === 'throttles') {
+    kindClause = `AND kind IN (${THROTTLES.map(() => '?').join(',')})`;
+    kindArgs = THROTTLES;
+  } else if (kind !== 'all') {
+    kindClause = 'AND kind = ?';
+    kindArgs = [kind];
+  }
+
+  const filter = `${targetClause} ${kindClause}`;
+  const args = [since, ...(target === 'all' ? [] : [target]), ...kindArgs];
 
   // Grouped by the upstream that refused, not the harness that got refused.
   // COALESCE to a sentinel rather than dropping nulls: "we do not know" is the
@@ -38,17 +63,34 @@ export async function GET(req: NextRequest) {
            COUNT(*)       AS events,
            MAX(timestamp) AS last_seen
       FROM rate_limit_events
-     WHERE timestamp >= ? ${targetClause}
+     WHERE timestamp >= ? ${filter}
      GROUP BY upstream, provider, operation, kind
      ORDER BY events DESC
   `).all(...args);
 
+  // `named` vs `reported` are different questions and the gap between them
+  // is the actionable one. A harness-reported row knows its route because it
+  // was written at the moment of failure; a text-scanned row never can, since
+  // the error string a harness prints does not carry the provider. So an
+  // unnamed upstream points at which SOURCE the row came from, not at a
+  // harness that forgot to log it.
   const reported = db.prepare(`
-    SELECT SUM(CASE WHEN upstream IS NOT NULL THEN 1 ELSE 0 END) AS named,
-           COUNT(*)                                              AS total
+    SELECT SUM(CASE WHEN upstream IS NOT NULL THEN 1 ELSE 0 END)      AS named,
+           SUM(CASE WHEN rule = 'harness-reported' THEN 1 ELSE 0 END) AS reported,
+           COUNT(*)                                                   AS total
+      FROM rate_limit_events
+     WHERE timestamp >= ? ${filter}
+  `).get(...args) as { named: number | null; reported: number | null; total: number };
+
+  // Every kind in the window regardless of the kind filter, so the UI can
+  // show what it is currently hiding.
+  const kinds = db.prepare(`
+    SELECT kind, COUNT(*) AS events
       FROM rate_limit_events
      WHERE timestamp >= ? ${targetClause}
-  `).get(...args) as { named: number | null; total: number };
+     GROUP BY kind
+     ORDER BY events DESC
+  `).all(...[since, ...(target === 'all' ? [] : [target])]);
 
   const byProvider = db.prepare(`
     SELECT COALESCE(provider, '(unknown)') AS provider,
@@ -57,7 +99,7 @@ export async function GET(req: NextRequest) {
            MAX(timestamp)                  AS last_seen,
            AVG(retry_after_s)              AS avg_retry_after_s
       FROM rate_limit_events
-     WHERE timestamp >= ? ${targetClause}
+     WHERE timestamp >= ? ${filter}
      GROUP BY provider, kind
      ORDER BY events DESC
   `).all(...args);
@@ -66,7 +108,7 @@ export async function GET(req: NextRequest) {
     SELECT substr(timestamp, 1, 10) AS day,
            COUNT(*)                 AS events
       FROM rate_limit_events
-     WHERE timestamp >= ? ${targetClause}
+     WHERE timestamp >= ? ${filter}
      GROUP BY day
      ORDER BY day
   `).all(...args);
@@ -78,7 +120,7 @@ export async function GET(req: NextRequest) {
       FROM rate_limit_events e
       LEFT JOIN projects p ON p.id = e.project_id
       LEFT JOIN sessions s ON s.id = e.session_id
-     WHERE e.timestamp >= ? ${targetClause}
+     WHERE e.timestamp >= ? ${filter}
      ORDER BY e.timestamp DESC
      LIMIT ?
   `).all(...args, limit);
@@ -94,12 +136,13 @@ export async function GET(req: NextRequest) {
   const total = (byProvider as Array<{ events: number }>).reduce((s, r) => s + r.events, 0);
 
   return NextResponse.json({
-    days, target, total, targets, byProvider, byUpstream, byDay, recent,
+    days, target, kind, total, targets, kinds, byProvider, byUpstream, byDay, recent,
     // How much of this window can even name who refused. Surfaced so the page
     // can say "N of M events do not identify an upstream" rather than showing
     // a blank column and letting it read as no throttling.
     attribution: {
       named: reported?.named ?? 0,
+      reported: reported?.reported ?? 0,
       total: reported?.total ?? 0,
     },
   });

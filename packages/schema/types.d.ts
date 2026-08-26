@@ -334,8 +334,19 @@ export type TrainingRunEvent =
 // === Throttle ===
 
 /**
- * These are four different conditions that all get called "rate limiting",
- * and each calls for a different response.
+ * How a provider refused, because each condition calls for a different
+ * response.
+ *
+ * The first four are throttles proper. The rest were added in 1.0.1: a
+ * harness that records only throttles loses every other way a call is
+ * refused, and loses it silently. uncloseai-cli mapped two of its eleven
+ * observed outcomes and dropped the other nine before they were written —
+ * 1,238 failures on disk over five days, 112 of them reachable downstream.
+ *
+ * A refusal caused by OUR request — a malformed body, a bad key, an
+ * oversized prompt — is deliberately absent. The remedy there is the
+ * payload, and recording it as a refusal reports provider trouble that
+ * never happened.
  */
 export type ThrottleKind =
   /** Too many requests per unit time — slow down or spread load. */
@@ -345,7 +356,17 @@ export type ThrottleKind =
   /** Plan or credit exhausted — waiting does not help until it resets. */
   | "quota"
   /** Provider ran out of capacity — not caused by our usage. */
-  | "overloaded";
+  | "overloaded"
+  /** 404/410 — this host no longer serves that model. Route elsewhere;
+   *  retrying cannot bring it back. A deregistered model is
+   *  indistinguishable from a working one until the first 404. */
+  | "model_gone"
+  /** 5xx from the provider. */
+  | "server_error"
+  /** No answer within the deadline. */
+  | "timeout"
+  /** A safety filter refused the call. */
+  | "content_policy";
 
 /**
  * A provider refused a call.
