@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { createTestDb } from '@/test/db-helper';
+
+// The route reaches the database twice over: through db/ingest, mocked
+// below, and through ensurePricingHydrated, which does not announce that it
+// wants one. Unmocked, both landed on the live database.
+const db = createTestDb();
+vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 
 vi.mock('@unturf/unfirehose/db/ingest', () => ({
   getAlertById: vi.fn().mockImplementation((id: number) => {
@@ -11,7 +18,11 @@ vi.mock('@unturf/unfirehose/db/ingest', () => ({
     };
     return undefined;
   }),
-  getUsageByProjectInWindow: vi.fn().mockReturnValue([
+  // Named to match the route's import. It was `getUsageByProjectInWindow`
+  // here long after the route moved to `getProjectModelUsageInWindow`, so
+  // the route destructured `undefined` and threw — a stale mock reporting a
+  // broken route.
+  getProjectModelUsageInWindow: vi.fn().mockReturnValue([
     { name: 'proj', display_name: 'proj', input_tokens: 1000, output_tokens: 500, cache_read_tokens: 0, cache_creation_tokens: 0, message_count: 5 },
   ]),
   getModelBreakdownInWindow: vi.fn().mockReturnValue([

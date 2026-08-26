@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 
+// getDb() refuses to open the live database from a test, which is the point
+// of that guard — every other suite reaching it was a mistake. This one is
+// the exception: getDb() IS the subject here. Declaring a path says so, and
+// the driver mock below makes it in-memory regardless. Set before the
+// dynamic import, since schema.ts reads the variable as it loads.
+process.env.UNFIREHOSE_DB_PATH = ':memory:';
+
 // Mock better-sqlite3 to create in-memory DB instead of file-backed
 vi.mock('better-sqlite3', async () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

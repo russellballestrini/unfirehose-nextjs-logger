@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
+import { NAV_ITEMS, isLink } from './nav-items';
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
@@ -17,23 +18,20 @@ const { Sidebar } = await import('./Sidebar');
 afterEach(() => cleanup());
 
 describe('Sidebar', () => {
-  it('renders all navigation items', () => {
+  // Driven from NAV_ITEMS rather than a hand-copied list of labels. The copy
+  // had drifted: it required a 'Thinking' item this nav has never declared,
+  // so the suite reported a broken sidebar for a link that does not exist,
+  // while genuinely missing items like 'Rate Limits' went unasserted because
+  // nobody remembered to add them. Reading the source means a new link is
+  // covered when it is added and a removed one stops being demanded.
+  it('renders every declared navigation item', () => {
     render(<Sidebar />);
-    expect(screen.getByText('Live')).toBeTruthy();
-    expect(screen.getByText('Active')).toBeTruthy();
-    expect(screen.getByText('Terminals')).toBeTruthy();
-    expect(screen.getByText('Dashboard')).toBeTruthy();
-    expect(screen.getByText('Projects')).toBeTruthy();
-    expect(screen.getByText('Todos')).toBeTruthy();
-    expect(screen.getByText('Thinking')).toBeTruthy();
-    expect(screen.getByText('All Logs')).toBeTruthy();
-    expect(screen.getByText('Tokens')).toBeTruthy();
-    expect(screen.getByText('Usage')).toBeTruthy();
-    expect(screen.getByText('Scrobble')).toBeTruthy();
-    expect(screen.getByText('Permacomputer')).toBeTruthy();
-    expect(screen.getByText('Schema')).toBeTruthy();
-    expect(screen.getByText('Styleguide')).toBeTruthy();
-    expect(screen.getByText('Settings')).toBeTruthy();
+    const labels = NAV_ITEMS.filter(isLink).map((l) => l.label);
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(screen.queryByText(label), `nav item "${label}" did not render`)
+        .toBeTruthy();
+    }
   });
 
   it('renders the app title', () => {

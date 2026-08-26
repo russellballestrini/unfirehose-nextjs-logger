@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from '@/test/db-helper';
 
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(JSON.stringify({
@@ -12,28 +13,34 @@ vi.mock('@unturf/unfirehose/claude-paths', () => ({
   claudePaths: { statsCache: '/mock/.claude/stats-cache.json' },
 }));
 
-const mockAll = vi.fn();
-vi.mock('@unturf/unfirehose/db/schema', () => ({
-  getDb: () => ({
-    prepare: () => ({ all: mockAll, raw: () => ({ all: mockAll }) }),
-  }),
-}));
+// A real in-memory database rather than a stub returning canned rows in a
+// fixed order. That stub answered queries positionally — first call gets the
+// sessions map, second the per-session models, and so on — so it was pinned
+// to the route's query ORDER and COUNT, neither of which the route promises.
+// The route grew to five queries against four canned answers, the fifth read
+// `undefined`, and the failure said "expected 500 to be 200" while pointing
+// at nothing. Seeded rows survive reordering, and a query the test never
+// anticipated returns empty instead of exploding.
+const db = createTestDb();
+vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 
 const { GET } = await import('./route');
 
 describe('GET /api/tokens', () => {
   it('returns model breakdown with cost calculations', async () => {
-    // Query order: sessions-map, perSessionModel (.raw() — arrays!), toolRows, blockTypes
-    // (dailyByHarness is derived in JS from perSessionModel.last_ts — no SQL.)
-    mockAll
-      .mockReturnValueOnce([{ id: 1, harness: 'claude-code' }])
-      // perSessionModel uses .raw() so rows are arrays:
-      // [session_id, model, input, output, cacheRead, cacheCreation, messages, last_ts]
-      .mockReturnValueOnce([
-        [1, 'claude-opus-4-6', 1000000, 500000, 0, 0, 5, '2026-03-10T12:00:00Z'],
-      ])
-      .mockReturnValueOnce([{ tool_name: 'Bash', model: 'claude-opus-4-6', session_id: 1, count: 50 }])
-      .mockReturnValueOnce([{ block_type: 'text', count: 100 }]);
+    const projectId = seedProject(db, 'proj-a');
+    const sessionId = seedSession(db, projectId, 's1');
+    db.prepare('UPDATE sessions SET harness = ? WHERE id = ?')
+      .run('claude-code', sessionId);
+    const messageId = seedMessage(db, sessionId, {
+      model: 'claude-opus-4-6',
+      inputTokens: 1_000_000,
+      outputTokens: 500_000,
+    });
+    seedContentBlock(db, messageId, { blockType: 'text' });
+    seedContentBlock(db, messageId, {
+      position: 1, blockType: 'tool_use', toolName: 'Bash',
+    });
 
     const req = new Request('http://localhost/api/tokens');
     const { NextRequest } = await import('next/server');
@@ -43,6 +50,12 @@ describe('GET /api/tokens', () => {
     expect(data.modelBreakdown).toHaveLength(1);
     expect(data.modelBreakdown[0].costUSD).toBeGreaterThan(0);
     expect(data.toolCalls).toHaveLength(1);
-    expect(data.blockTypes).toHaveLength(1);
+    expect(data.toolCalls[0].tool_name).toBe('Bash');
+    // Two, because the seeded tool call IS a content block and carries its
+    // own block_type. The canned fixtures set tool rows and block types from
+    // separate lists and could hold a shape real rows cannot: one block type
+    // alongside a tool call that belonged to no block.
+    expect(data.blockTypes.map((b: { block_type: string }) => b.block_type).sort())
+      .toEqual(['text', 'tool_use']);
   });
 });

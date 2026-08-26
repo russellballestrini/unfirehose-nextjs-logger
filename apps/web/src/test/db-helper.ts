@@ -1,294 +1,27 @@
 import Database from 'better-sqlite3';
 import { applyBasePragmas } from '@unturf/unfirehose/db/pragmas';
+import { migrate } from '@unturf/unfirehose/db/migrate';
 
 /**
- * Creates a fresh in-memory SQLite DB with the full schema applied.
- * Mirrors the exact migration from src/lib/db/schema.ts.
+ * A fresh in-memory database carrying the real schema.
+ *
+ * This used to be 444 lines of hand-copied DDL claiming to mirror the
+ * migration, and it had drifted: 20 tables against the schema's 30, and a
+ * `projects` table missing `root_commit_hash` and `last_cwd_seen` — two
+ * columns `GET /api/projects` selects. A test running against it got a SQL
+ * error and a 500, which reads as "the route is broken" when the route is
+ * fine and the fixture is stale.
+ *
+ * Drift was the only possible outcome. Two copies of a schema with no
+ * mechanism tying them together diverge on the first migration that only
+ * lands in one. So this calls the migration instead of restating it: a new
+ * column reaches the tests the moment it reaches the schema, and this file
+ * has nothing left to keep in sync.
  */
 export function createTestDb(): Database.Database {
   const db = new Database(':memory:');
   applyBasePragmas(db);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
-      display_name TEXT NOT NULL,
-      path TEXT,
-      first_seen TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_uuid TEXT UNIQUE NOT NULL,
-      project_id INTEGER NOT NULL REFERENCES projects(id),
-      git_branch TEXT,
-      first_prompt TEXT,
-      cli_version TEXT,
-      created_at TEXT,
-      updated_at TEXT,
-      is_sidechain INTEGER DEFAULT 0,
-      display_name TEXT,
-      status TEXT DEFAULT 'active',
-      closed_at TEXT,
-      last_message_at TEXT,
-      delegated_from TEXT,
-      harness TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER NOT NULL REFERENCES sessions(id),
-      message_uuid TEXT,
-      parent_uuid TEXT,
-      type TEXT NOT NULL,
-      subtype TEXT,
-      timestamp TEXT,
-      model TEXT,
-      input_tokens INTEGER DEFAULT 0,
-      output_tokens INTEGER DEFAULT 0,
-      cache_read_tokens INTEGER DEFAULT 0,
-      cache_creation_tokens INTEGER DEFAULT 0,
-      duration_ms INTEGER,
-      is_sidechain INTEGER DEFAULT 0,
-      ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS content_blocks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      message_id INTEGER NOT NULL REFERENCES messages(id),
-      position INTEGER NOT NULL,
-      block_type TEXT NOT NULL,
-      text_content TEXT,
-      tool_name TEXT,
-      tool_input TEXT,
-      tool_use_id TEXT,
-      is_error INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS usage_minutes (
-      minute TEXT NOT NULL,
-      project_id INTEGER REFERENCES projects(id),
-      input_tokens INTEGER DEFAULT 0,
-      output_tokens INTEGER DEFAULT 0,
-      cache_read_tokens INTEGER DEFAULT 0,
-      cache_creation_tokens INTEGER DEFAULT 0,
-      message_count INTEGER DEFAULT 0,
-      PRIMARY KEY (minute, project_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS alerts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
-      alert_type TEXT NOT NULL,
-      window_minutes INTEGER NOT NULL,
-      metric TEXT NOT NULL,
-      threshold_value REAL NOT NULL,
-      actual_value REAL NOT NULL,
-      project_name TEXT,
-      details TEXT,
-      acknowledged INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS ingest_offsets (
-      file_path TEXT PRIMARY KEY,
-      byte_offset INTEGER NOT NULL DEFAULT 0,
-      last_ingested TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS alert_thresholds (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      window_minutes INTEGER NOT NULL,
-      metric TEXT NOT NULL,
-      threshold_value REAL NOT NULL,
-      enabled INTEGER DEFAULT 1,
-      UNIQUE(window_minutes, metric)
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS posts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_uuid TEXT UNIQUE NOT NULL,
-      post_type TEXT NOT NULL DEFAULT 'status',
-      title TEXT,
-      content_text TEXT NOT NULL,
-      tags TEXT,
-      url TEXT,
-      in_reply_to TEXT,
-      published_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS pii_replacements (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      original_hash TEXT NOT NULL,
-      token TEXT NOT NULL,
-      pii_type TEXT NOT NULL,
-      message_id INTEGER REFERENCES messages(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS todos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      uuid TEXT,
-      project_id INTEGER NOT NULL REFERENCES projects(id),
-      session_id INTEGER REFERENCES sessions(id),
-      external_id TEXT,
-      content TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      active_form TEXT,
-      source TEXT NOT NULL DEFAULT 'claude',
-      source_session_uuid TEXT,
-      blocked_by TEXT,
-      estimated_minutes INTEGER,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS todo_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      todo_id INTEGER NOT NULL REFERENCES todos(id),
-      old_status TEXT,
-      new_status TEXT NOT NULL,
-      message_id INTEGER REFERENCES messages(id),
-      event_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS todo_attachments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      todo_id INTEGER NOT NULL REFERENCES todos(id),
-      filename TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      hash TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_todo_attachments_todo ON todo_attachments(todo_id);
-    CREATE INDEX IF NOT EXISTS idx_todo_attachments_hash ON todo_attachments(hash);
-
-    CREATE TABLE IF NOT EXISTS agent_deployments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tmux_session TEXT NOT NULL,
-      tmux_window TEXT,
-      project_id INTEGER NOT NULL REFERENCES projects(id),
-      todo_ids TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'running',
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      stopped_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_deployments_status ON agent_deployments(status);
-
-    CREATE TABLE IF NOT EXISTS agent_actions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_name TEXT NOT NULL,
-      action TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      trigger_type TEXT NOT NULL DEFAULT 'manual',
-      request_context TEXT,
-      result TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS mesh_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-      hostname TEXT NOT NULL,
-      cpu_cores INTEGER,
-      load_avg_1 REAL,
-      load_avg_5 REAL,
-      load_avg_15 REAL,
-      mem_total_gb REAL,
-      mem_used_gb REAL,
-      power_watts REAL,
-      gpu_power_watts REAL,
-      gpu_util REAL,
-      gpu_mem_used_mb REAL,
-      gpu_mem_total_mb REAL,
-      power_source TEXT,
-      claude_processes INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS training_runs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT UNIQUE NOT NULL,
-      model TEXT NOT NULL,
-      config TEXT,
-      status TEXT NOT NULL DEFAULT 'running',
-      started_at TEXT NOT NULL,
-      ended_at TEXT,
-      final_loss REAL,
-      wall_ms INTEGER,
-      source TEXT,
-      uuid TEXT,
-      deleted_at TEXT,
-      source_path TEXT,
-      source_host TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS training_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL REFERENCES training_runs(run_id),
-      event_type TEXT NOT NULL,
-      step INTEGER NOT NULL,
-      loss REAL,
-      lr REAL,
-      text_content TEXT,
-      checkpoint_path TEXT,
-      size_bytes INTEGER,
-      eval_name TEXT,
-      eval_score REAL,
-      ts TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS project_visibility (
-      project_id INTEGER PRIMARY KEY REFERENCES projects(id),
-      visibility TEXT NOT NULL DEFAULT 'private',
-      auto_detected TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
-    CREATE INDEX IF NOT EXISTS idx_messages_model ON messages(model);
-    CREATE INDEX IF NOT EXISTS idx_content_blocks_message ON content_blocks(message_id);
-    CREATE INDEX IF NOT EXISTS idx_content_blocks_type ON content_blocks(block_type);
-    CREATE INDEX IF NOT EXISTS idx_usage_minutes_minute ON usage_minutes(minute);
-    CREATE INDEX IF NOT EXISTS idx_alerts_triggered ON alerts(triggered_at);
-    CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_uuid_unique ON messages(message_uuid) WHERE message_uuid IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at);
-    CREATE INDEX IF NOT EXISTS idx_posts_type ON posts(post_type);
-    CREATE INDEX IF NOT EXISTS idx_pii_message ON pii_replacements(message_id);
-    CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id);
-    CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_todo_events_todo ON todo_events(todo_id);
-  `);
-
-  // Seed default alert thresholds
-  const insert = db.prepare(
-    'INSERT INTO alert_thresholds (window_minutes, metric, threshold_value) VALUES (?, ?, ?)'
-  );
-  const seed = db.transaction(() => {
-    insert.run(1, 'output_tokens', 250000);
-    insert.run(1, 'input_tokens', 2500000);
-    insert.run(5, 'output_tokens', 1000000);
-    insert.run(5, 'input_tokens', 10000000);
-    insert.run(5, 'total_tokens', 12500000);
-    insert.run(15, 'total_tokens', 25000000);
-    insert.run(60, 'total_tokens', 75000000);
-  });
-  seed();
-
+  migrate(db);
   return db;
 }
 
@@ -442,3 +175,4 @@ export function seedTodo(
     opts.completedAt ?? null,
   ).lastInsertRowid as number;
 }
+
