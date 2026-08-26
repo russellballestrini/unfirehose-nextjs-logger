@@ -109,18 +109,23 @@ export function catalogStats(): Record<CatalogSource, { models: number; fetchedA
 /**
  * Explicit pins. Take precedence over every derived rule below.
  *
- * `stealth/ox-alpha` is a cloaked model — both oracles list it at $0 while it
- * is in evaluation, which would let real inference disappear from our cost
- * line. fox pins it to Qwen 3.6 27B, its nearest known-price equivalent, so
- * the tokens carry a defensible number instead of a zero. Repin or drop this
- * when the model de-cloaks and gets a real price.
+ * `stealth/ox-alpha` was a cloaked model, listed at $0 while in evaluation,
+ * which would have let real inference vanish from our cost line. It de-cloaked
+ * on 2026-08-26 as `z-ai/glm-5.3-flash`, and the `stealth/ox-alpha` id was
+ * removed from the catalog outright — so the pin is now MORE necessary, not
+ * less: our history is full of a model id no oracle lists any more.
+ *
+ * The interim pin was Qwen 3.6 27B, picked as a nearest-price guess, and it
+ * was 4.7x too expensive: the same 28-day window costs $5.00 on glm-5.3-flash
+ * against the $23.58 that guess implied. Worth remembering the next time a
+ * cloaked model needs a stand-in — a plausible neighbour is not a price.
  */
 // Keys are the model names exactly as we log them. Matching is
 // case-insensitive — see ALIAS_LOOKUP below — so write them the way they
 // actually appear, not pre-lowercased.
 export const MODEL_ALIASES: Record<string, string> = {
-  'stealth/ox-alpha':  'qwen/qwen3.6-27b',
-  'ox-alpha':          'qwen/qwen3.6-27b',
+  'stealth/ox-alpha':  'z-ai/glm-5.3-flash',
+  'ox-alpha':          'z-ai/glm-5.3-flash',
 
   // Our own build of Qwen 3.6 27B. The quantized artifact is not a separate
   // product and neither oracle lists it, so it prices at the base model's

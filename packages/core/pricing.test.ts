@@ -18,7 +18,10 @@ const OPENROUTER: CatalogEntry[] = [
   { id: 'anthropic/claude-opus-4.8', source: 'openrouter', input: 5,  output: 25, cacheRead: 0.5, cacheWrite: 6.25, fetchedAt: 0 },
   { id: 'anthropic/claude-fable-5', source: 'openrouter', input: 10, output: 50, cacheRead: 1.0, cacheWrite: 12.5, fetchedAt: 0 },
   { id: 'qwen/qwen3.6-27b',         source: 'openrouter', input: 0.32, output: 3.2, cacheRead: 0, cacheWrite: 0, fetchedAt: 0 },
-  { id: 'stealth/ox-alpha',         source: 'openrouter', input: 0,  output: 0,  cacheRead: 0, cacheWrite: 0, fetchedAt: 0 },
+  // ox-alpha de-cloaked as glm-5.3-flash on 2026-08-26 and the stealth id was
+  // dropped from the catalog — deliberately absent here, so the pin is doing
+  // real work rather than papering over a $0 listing that still exists.
+  { id: 'z-ai/glm-5.3-flash',       source: 'openrouter', input: 0.075, output: 0.25, cacheRead: 0.015, cacheWrite: 0, fetchedAt: 0 },
 ];
 
 const NOUS: CatalogEntry[] = [
@@ -50,7 +53,7 @@ describe('alias resolution', () => {
 
   it('puts an explicit pin ahead of the model own id', () => {
     const c = aliasCandidates('stealth/ox-alpha');
-    expect(c[0]).toBe('qwen/qwen3.6-27b');
+    expect(c[0]).toBe('z-ai/glm-5.3-flash');
   });
 });
 
@@ -100,11 +103,17 @@ describe('oracle preference', () => {
   });
 });
 
-describe('ox-alpha shadow pricing', () => {
-  it('prices against qwen3.6-27b rather than its own $0 preview listing', () => {
+describe('ox-alpha pinning', () => {
+  it('prices against the model it de-cloaked as', () => {
     const p = resolvePrice('stealth/ox-alpha');
-    expect(p?.matchedId).toBe('qwen/qwen3.6-27b');
-    expect(p?.input).toBe(0.32);
+    expect(p?.matchedId).toBe('z-ai/glm-5.3-flash');
+    expect(p?.input).toBe(0.075);
+  });
+
+  it('still resolves now that the stealth id is gone from the catalog', () => {
+    // The pin is load-bearing: without it this model has no price at all,
+    // because no oracle lists `stealth/ox-alpha` any more.
+    expect(resolvePrice('stealth/ox-alpha')?.source).toBe('openrouter');
   });
 
   it('is cloud-served, not self-hosted, despite provider=local', () => {
@@ -115,9 +124,17 @@ describe('ox-alpha shadow pricing', () => {
     const c = calcCostBreakdown('stealth/ox-alpha', 63_242_450, 1_043_717, 0, 0, {
       selfHosted: false,
     });
-    // 63.24M x $0.32/M + 1.04M x $3.20/M
-    expect(c.total).toBeCloseTo(20.24 + 3.34, 1);
+    // 63.24M x $0.075/M + 1.04M x $0.25/M
+    expect(c.total).toBeCloseTo(4.74 + 0.26, 1);
     expect(c.total).toBeGreaterThan(0);
+  });
+
+  it('costs far less than the interim Qwen guess implied', () => {
+    // The stand-in was 4.7x too expensive. A plausible neighbour is not a price.
+    const real = calcCostBreakdown('stealth/ox-alpha', 63_242_450, 1_043_717, 0, 0,
+      { selfHosted: false }).total;
+    const qwenGuess = (63_242_450 / 1e6) * 0.32 + (1_043_717 / 1e6) * 3.2;
+    expect(qwenGuess / real).toBeGreaterThan(4);
   });
 });
 

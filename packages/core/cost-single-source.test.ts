@@ -27,7 +27,7 @@ import {
 const OPENROUTER: CatalogEntry[] = [
   { id: 'anthropic/claude-opus-5', source: 'openrouter', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, fetchedAt: 0 },
   { id: 'qwen/qwen3.6-27b',        source: 'openrouter', input: 0.32, output: 3.2, cacheRead: 0, cacheWrite: 0, fetchedAt: 0 },
-  { id: 'stealth/ox-alpha',        source: 'openrouter', input: 0, output: 0, cacheRead: 0, cacheWrite: 0, fetchedAt: 0 },
+  { id: 'z-ai/glm-5.3-flash',      source: 'openrouter', input: 0.075, output: 0.25, cacheRead: 0.015, cacheWrite: 0, fetchedAt: 0 },
 ];
 const NOUS: CatalogEntry[] = [
   { id: 'anthropic/claude-opus-5', source: 'nous', input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5, fetchedAt: 0 },
