@@ -14,7 +14,6 @@ import {
   extractToolResults,
   extractReasoningInfo,
   entryRole as effectiveType,
-  summarizeEntry,
 } from '@unturf/unfirehose/stream-blocks';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 

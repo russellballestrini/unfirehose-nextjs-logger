@@ -204,6 +204,16 @@ export default function TokensPage() {
   const { data, error } = useSWR(`/api/tokens${qs}`, fetcher);
   const { data: planData } = useSWR('/api/usage/plan', fetcher);
   const { data: extraData, mutate: mutateExtra } = useSWR('/api/usage/extra', fetcher);
+  // Must sit with the other hooks, above the early returns below: this one
+  // was declared further down and so was skipped on the loading render,
+  // changing the hook order between renders.
+  //
+  // vLLM measures the real cache hit rate for self-hosted models, which our
+  // token accounting cannot see — a local model reports no cache_read tokens,
+  // so the usage-based figure reads 0 for a cache that is working.
+  const { data: vllmCache } = useSWR<any>('/api/inference/cache?hours=24', fetcher, {
+    refreshInterval: 60_000,
+  });
 
   if (error) {
     return (
@@ -302,15 +312,8 @@ export default function TokensPage() {
   // unbounded, so a 100% hit rate printed as "80209x". A reader cannot tell
   // that from a 900% one, and neither is a thing.
   const cacheHitPct = usageCacheHitRate(totalInput, totalCacheRead);
-
-  // vLLM measures the real thing for self-hosted models, and our token
-  // accounting cannot see it: a local model reports no cache_read tokens, so
-  // usage-based hit rate reads 0 for a cache that is working. Measured
-  // 2026-08-26 the 4090 was at 5.8% while this page showed nothing.
-  const { data: vllmCache } = useSWR<any>('/api/inference/cache?hours=24', fetcher, {
-    refreshInterval: 60_000,
-  });
   const vllmModels: any[] = vllmCache?.models ?? [];
+
 
   // Extra usage (actual card charges) — hoisted so overview + plan tabs can both use it
   const extraSpent   = extraData?.extraSpent   ? parseFloat(extraData.extraSpent)   : null;
