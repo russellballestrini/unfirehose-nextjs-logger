@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
       const selfHosted = isSelfHosted(r.model, r.endpoint, r.provider);
       const c = calcCostBreakdown(
         r.model, r.input, r.output, r.cache_read, r.cache_write,
-        { selfHosted },
+        { selfHosted, at: r.day },
       );
       const acc = costByProject.get(r.name) ?? { cost: 0, market: 0, avoided: 0 };
       acc.cost += c.total;

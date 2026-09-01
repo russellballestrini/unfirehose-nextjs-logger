@@ -40,22 +40,30 @@ export async function GET(
       WHERE s.project_id = ?
     `).get(proj.id) as any;
 
-    // Cost by model
-    const modelBreakdown = db.prepare(`
-      SELECT model, SUM(input_tokens) as input, SUM(output_tokens) as output,
+    // Cost by model. Grouped by day too, so each day books at the price in
+    // force that day; the per-model figure is the sum of those bookings.
+    const modelDayRows = db.prepare(`
+      SELECT model, substr(m.timestamp, 1, 10) as day,
+             SUM(input_tokens) as input, SUM(output_tokens) as output,
              SUM(cache_read_tokens) as cache_read, SUM(cache_creation_tokens) as cache_write,
              COUNT(*) as messages
       FROM messages m
       JOIN sessions s ON m.session_id = s.id
       WHERE s.project_id = ? AND m.model IS NOT NULL
-      GROUP BY model ORDER BY output DESC
+      GROUP BY model, day
     `).all(proj.id) as any[];
 
     let totalCost = 0;
-    for (const m of modelBreakdown) {
-      m.cost = costForUsage({ model: m.model, input: m.input, output: m.output, cacheRead: m.cache_read, cacheWrite: m.cache_write, provider: m.provider, endpoint: m.endpoint }).total;
-      totalCost += m.cost;
+    const byModel = new Map<string, any>();
+    for (const r of modelDayRows) {
+      const cost = costForUsage({ model: r.model, input: r.input, output: r.output, cacheRead: r.cache_read, cacheWrite: r.cache_write, at: r.day }).total;
+      totalCost += cost;
+      const m = byModel.get(r.model) ?? { model: r.model, input: 0, output: 0, cache_read: 0, cache_write: 0, messages: 0, cost: 0 };
+      m.input += r.input; m.output += r.output; m.cache_read += r.cache_read; m.cache_write += r.cache_write;
+      m.messages += r.messages; m.cost += cost;
+      byModel.set(r.model, m);
     }
+    const modelBreakdown = [...byModel.values()].sort((a, b) => b.output - a.output);
 
     // Contributors (from recent commits — extracted from git log via metadata)
     // We store commit author in content_blocks from tool results; use a simpler approach:

@@ -153,6 +153,32 @@ Per-row pricing cost, measured on 34,542 (session, model) rows all-time:
 normalisation; cached by name now. Warm route timings after the change:
 tokens ~1.2–1.4s (saved baseline 1.29s), dashboard 28d ~2s.
 
+## Follow-up, same day
+
+- **Every surface books per day now.** Alerts price at the instant the alert
+  fired (a window is minutes long); project activity and project-full group
+  by day. `cost-single-source.test.ts` walks every route under `apps/web/src/
+  app/api` and fails if any cost call lacks `at`, so the property cannot
+  regress silently.
+- **The book is on the Tokens page.** A Price Book panel reads
+  `/api/pricing?summary=1`: each oracle's row count and age (red past two
+  days), the last sync and its trigger, price moves in the last 30 days with
+  the from→to figures, and any model with real tokens that no book prices.
+- **Volatility is measured, not guessed.** `changesByDay` on `/api/pricing`
+  counts moves per day over 30 days. Decide on a tolerance, a tighter
+  interval, or charts from that number once it has a week of data.
+- **Perf.** The crawl in `scripts/perf-report.py` ran while the dev server
+  was hot-reloading and is not comparable (pages this change never touched
+  came out 70x slower). Measured directly: the day grouping adds ~0.14s to
+  the 30-day activity SQL (0.45s → 0.58s, 6,946 → 7,097 rows) and ~0.02s to
+  the 7-day dashboard SQL (0.14s → 0.16s). The one real cost is scrobble's
+  lifetime-by-model query, 0.65s → 1.65s (31 → 454 rows), behind a 60s
+  payload cache so it is paid at most once a minute. If that matters, group
+  by ledger period instead of by day — a model has one or two price periods,
+  not 450 days — which is a follow-up, not a blocker. Warm sequential route
+  times after the change: activity ~1.0s, dashboard 7d ~0.7–1.0s, alerts
+  ~0.36s (0.01s cached), tokens ~1.2–1.4s.
+
 ## Notes
 
 Not built: a materialised daily `cost_journal`. With an append-only ledger and

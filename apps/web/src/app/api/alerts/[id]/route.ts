@@ -12,6 +12,8 @@ import { costForUsage, costForUsageRows } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 
 // Cost comes from costForUsage — the single entry point in @unturf/unfirehose/pricing.
+// An alert window is minutes long, so every row books at the price in force
+// when the alert fired (windowEnd) rather than at today's rate.
 // This route used to carry its own copy of a blended Opus rate, which priced a
 // project running on local Qwen as if every token were Anthropic's most
 // expensive tier.
@@ -97,6 +99,7 @@ export async function GET(
         cacheWrite: r.cache_creation_tokens,
         provider: r.provider,
         endpoint: r.endpoint,
+        at: windowEnd,
       }).total;
 
       const cur = perProject.get(r.name) ?? {
@@ -138,6 +141,7 @@ export async function GET(
         cacheWrite: m.cache_creation_tokens,
         provider: m.provider,
         endpoint: m.endpoint,
+        at: windowEnd,
       });
       return {
         ...m,
@@ -191,6 +195,7 @@ export async function GET(
             cacheWrite: r.cache_creation_tokens,
             provider: r.provider,
             endpoint: r.endpoint,
+            at: windowEnd,
           })));
           const r4 = (n: number) => Math.round(n * 10000) / 10000;
           return {

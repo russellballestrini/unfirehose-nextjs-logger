@@ -68,6 +68,40 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ modelId: historyId, rows: priceHistory(historyId, db) });
   }
 
+  const stats = catalogStats();
+  const oracles = CATALOG_SOURCES.map((s) => ({
+    source: s,
+    url: ORACLE_URLS[s],
+    listPrice: LIST_PRICE_SOURCES.includes(s),
+    models: stats[s].models,
+    ageSeconds: catalogAge(s, db),
+  }));
+  const register = recentSyncRuns(db, 30);
+  const recentChanges = recentPriceChanges(db, 30 * 86400, 200);
+
+  // Volatility: how many prices moved per day over the last 30 days. This is
+  // the number that decides whether the market is fickle enough to sample
+  // more often and draw charts, or whether daily is plenty.
+  const changesByDay: Record<string, number> = {};
+  for (const c of recentChanges) {
+    const day = new Date(c.effective_from * 1000).toISOString().slice(0, 10);
+    changesByDay[day] = (changesByDay[day] ?? 0) + 1;
+  }
+
+  // The light form the Tokens page reads: the book's state, not the
+  // per-model coverage walk (which touches every logged model).
+  if (q.get('summary')) {
+    const recent28 = unpricedModels(db, 28 * 24);
+    return NextResponse.json({
+      oracles,
+      lastRun: register[0] ?? null,
+      register: register.slice(0, 10),
+      recentChanges: recentChanges.slice(0, 20),
+      changesByDay,
+      unpriced: recent28,
+    });
+  }
+
   // Every model we have actually logged, with the price we would apply today
   // and whether the list-price books agree on it.
   const rows = db
@@ -114,17 +148,11 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const stats = catalogStats();
   return NextResponse.json({
-    oracles: CATALOG_SOURCES.map((s) => ({
-      source: s,
-      url: ORACLE_URLS[s],
-      listPrice: LIST_PRICE_SOURCES.includes(s),
-      models: stats[s].models,
-      ageSeconds: catalogAge(s, db),
-    })),
-    register: recentSyncRuns(db, 30),
-    recentChanges: recentPriceChanges(db, 30 * 86400, 200),
+    oracles,
+    register,
+    recentChanges,
+    changesByDay,
     pins: MODEL_ALIASES,
     promos: PROMO_DISCOUNTS,
     selfHost: {

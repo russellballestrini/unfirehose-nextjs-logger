@@ -2414,6 +2414,8 @@ export function getProjectActivity(days = 30) {
  * A single blended rate reports a project that ran entirely on ox-alpha and a
  * local Qwen at Opus rates — measured 2026-08-25, riseallships showed $14
  * against an actual $0.70.
+ *
+ * Split by day so each day prices at the rate then in force (ticket 4008).
  */
 export function getProjectModelActivity(days = 30) {
   const db = getDb();
@@ -2423,6 +2425,7 @@ export function getProjectModelActivity(days = 30) {
       COALESCE(m.model, '')             AS model,
       m.provider                        AS provider,
       m.endpoint                        AS endpoint,
+      substr(m.timestamp, 1, 10)        AS day,
       SUM(m.input_tokens)               AS input,
       SUM(m.output_tokens)              AS output,
       SUM(m.cache_read_tokens)          AS cache_read,
@@ -2432,12 +2435,14 @@ export function getProjectModelActivity(days = 30) {
     JOIN projects p ON s.project_id = p.id
     WHERE m.timestamp > datetime('now', '-' || ? || ' days')
       AND m.model IS NOT NULL AND m.model != ''
-    GROUP BY p.id, m.model, m.provider, m.endpoint
+    GROUP BY p.id, m.model, m.provider, m.endpoint, day
   `).all(days) as Array<{
     name: string;
     model: string;
     provider: string | null;
     endpoint: string | null;
+    /** YYYY-MM-DD — callers book each day at the price in force that day. */
+    day: string;
     input: number;
     output: number;
     cache_read: number;

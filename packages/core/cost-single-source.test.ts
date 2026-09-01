@@ -10,7 +10,7 @@
 // A test that only checked arithmetic would have passed the whole time.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
 import {
   setPriceCatalog,
@@ -174,4 +174,79 @@ describe('self-host classification is decided in one place', () => {
       expect(costForUsage(r).selfHosted).toBe(isSelfHosted(r.model!, r.endpoint, r.provider));
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Every surface books at the price in force (ticket 4008)
+// ---------------------------------------------------------------------------
+//
+// The ledger keeps every price with the range it held. That is worthless if
+// a route sums a month of tokens and prices the sum at today's rate — the
+// closed month moves the day an oracle changes its number. So every cost
+// call in a route must carry `at`, and the aggregation feeding it must be
+// per day (or narrower). The first test proves the arithmetic; the second
+// walks the routes and refuses a call that dropped `at`.
+
+import { setPriceHistory, clearPriceCatalogs } from './pricing.js';
+
+describe('every surface books at the price in force', () => {
+  const JUNE = Date.UTC(2026, 5, 1) / 1000;
+  const SEPT = Date.UTC(2026, 8, 1) / 1000;
+
+  beforeEach(() => {
+    clearPriceCatalogs();
+    const current = { id: 'anthropic/claude-opus-5', source: 'openrouter' as const, input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, fetchedAt: SEPT, effectiveFrom: SEPT, effectiveTo: null };
+    setPriceCatalog('openrouter', [current]);
+    setPriceHistory('openrouter', [
+      current,
+      { ...current, input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, effectiveFrom: JUNE, effectiveTo: SEPT },
+    ]);
+  });
+
+  it('a closed month does not move when the price does', () => {
+    const june = { model: 'claude-opus-5', input: 1_000_000, at: '2026-06-15' };
+    const sept = { model: 'claude-opus-5', input: 1_000_000, at: '2026-09-15' };
+    // Per-day bookings, however they are summed, give one answer.
+    expect(costForUsage(june).total + costForUsage(sept).total).toBe(15);
+    expect(costForUsageRows([june, sept]).total).toBe(15);
+    // Summed first and priced today gives a different one — the defect.
+    expect(costForUsage({ model: 'claude-opus-5', input: 2_000_000 }).total).toBe(20);
+  });
+
+  it('no route calls the cost function without `at`', () => {
+    const root = path.resolve(__dirname, '..', '..');
+    const apiDir = path.join(root, 'apps', 'web', 'src', 'app', 'api');
+    const files = walk(apiDir).filter((f) => !f.endsWith('.test.ts'));
+    const CALL = /\b(costForUsage|costForUsageRows|calcCostBreakdown|calcCost)\s*\(/g;
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(f, 'utf-8');
+      let m: RegExpExecArray | null;
+      while ((m = CALL.exec(src))) {
+        // The call's argument text: from the paren to its matching close.
+        let depth = 0, i = m.index + m[0].length - 1;
+        for (; i < src.length; i++) {
+          if (src[i] === '(') depth++;
+          else if (src[i] === ')' && --depth === 0) break;
+        }
+        const args = src.slice(m.index, i + 1);
+        if (!/\bat\s*:/.test(args)) {
+          const line = src.slice(0, m.index).split('\n').length;
+          offenders.push(`${path.relative(root, f)}:${line} ${m[1]}(…) has no \`at\``);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  function walk(dir: string): string[] {
+    if (!existsSync(dir)) return [];
+    const out: string[] = [];
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...walk(p));
+      else if (/\.tsx?$/.test(e.name)) out.push(p);
+    }
+    return out;
+  }
 });
