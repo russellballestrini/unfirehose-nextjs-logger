@@ -4,7 +4,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { rollupDrain } from './mesh-rollup';
-import { syncPricing, hydratePricing } from '@unturf/unfirehose/pricing-sync';
+import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -26,9 +26,19 @@ const VACUUM_MIN_FREELIST_BYTES = 256 * 1024 * 1024;
 // truncates our -wal on checkpoint, never on write.
 const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000;
 
-// Model prices move on the order of weeks. Daily keeps us current without
-// leaning on either oracle.
-const PRICE_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Model prices move on the order of weeks — as far as we know. Daily keeps us
+// current without leaning on any oracle. The ledger only opens a row when a
+// price actually moves, so a tighter cadence costs fetches, not storage; if
+// pricing_sync_runs.changed shows the market is more fickle than that, lower
+// this via UNFIREHOSE_PRICE_SYNC_MINUTES and start drawing the charts.
+const PRICE_SYNC_INTERVAL_MS = (() => {
+  const m = parseInt(process.env.UNFIREHOSE_PRICE_SYNC_MINUTES ?? '', 10);
+  return Number.isFinite(m) && m >= 5 ? m * 60_000 : 24 * 60 * 60 * 1000;
+})();
+// How often to look for a logged model no oracle prices yet, and the least
+// time between the syncs that check triggers.
+const UNPRICED_CHECK_INTERVAL_MS = 5 * 60_000;
+const UNPRICED_SYNC_MIN_INTERVAL_MS = 60 * 60_000;
 // vLLM prefix-cache counters move over minutes, and each sample is an SSH
 // round trip to a box that is busy serving inference. Five minutes gives
 // useful windows without pestering the GPUs.
@@ -222,21 +232,51 @@ async function main() {
   // shortly after boot and daily after that. A failed fetch keeps the stored
   // prices — stale beats zero, and a zero price silently reads as "free".
   hydratePricing(getDb());
+  const logPriceSync = (results: Awaited<ReturnType<typeof syncPricing>>) => {
+    for (const r of results) {
+      if (r.ok) {
+        console.log(`[worker] price sync: ${r.source} → ${r.models} models, +${r.added} new, ~${r.changed} changed, -${r.delisted} delisted (run#${r.runId})`);
+        for (const c of r.changes) {
+          if (!c.from) continue;
+          console.log(`[worker]   ${r.source} ${c.modelId}: $${c.from.input}/$${c.from.output} → $${c.to.input}/$${c.to.output} per M`);
+        }
+      } else {
+        console.error(`[worker] price sync failed: ${r.source} — ${r.error} (run#${r.runId})`);
+      }
+    }
+  };
   const priceKickoff = setTimeout(() => {
     const runPriceSync = async () => {
       try {
-        const results = await syncPricing(getDb());
-        for (const r of results) {
-          if (r.ok) console.log(`[worker] price sync: ${r.source} → ${r.models} models`);
-          else console.error(`[worker] price sync failed: ${r.source} — ${r.error}`);
-        }
+        logPriceSync(await syncPricing(getDb(), { trigger: 'worker' }));
       } catch (err) {
         console.error('[worker] price sync failed:', err);
       }
     };
-    void runPriceSync();
+    // On boot, only fetch if the book is actually stale. Under `tsx watch`
+    // this process restarts on every file save, and five full catalog pulls
+    // per save is both wasteful and how `make pricing` ends up contending
+    // for the write lock with a worker that just came back up.
+    void syncPricingIfStale(PRICE_SYNC_INTERVAL_MS / 1000 / 4, getDb(), { trigger: 'worker' })
+      .then((r) => { if (r) logPriceSync(r); })
+      .catch((err) => console.error('[worker] price sync failed:', err));
     setInterval(() => { void runPriceSync(); }, PRICE_SYNC_INTERVAL_MS);
   }, 10_000);
+
+  // The clock is not the only reason to check the book. A model that shipped
+  // this afternoon has tokens in the log now and a price on the oracles now;
+  // waiting for tomorrow's tick prices every one of them as `unknown` until
+  // then. After each ingest, if anything recent is unpriced, sync — throttled
+  // to once an hour so a model no oracle carries cannot become a fetch storm.
+  const unpricedInterval = setInterval(() => {
+    void syncIfUnpriced(getDb(), UNPRICED_SYNC_MIN_INTERVAL_MS)
+      .then((r) => {
+        if (!r) return;
+        console.log(`[worker] unpriced models seen: ${r.unpriced.map((u) => u.model).join(', ')} — synced`);
+        logPriceSync(r.results);
+      })
+      .catch((err) => console.error('[worker] unpriced price sync failed:', err));
+  }, UNPRICED_CHECK_INTERVAL_MS);
 
   // Sample vLLM prefix-cache counters. Goes through the route rather than
   // duplicating the SSH + port-discovery logic here — one probe, one place.
@@ -296,6 +336,7 @@ async function main() {
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);
+      clearInterval(unpricedInterval);
       for (const t of meshTimers) {
         clearTimeout(t);
         clearInterval(t);

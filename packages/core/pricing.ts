@@ -1,18 +1,28 @@
 // Model pricing — per million tokens.
 // Single source of truth. Imported by every route that computes cost.
 //
-// Prices come from a catalog synced off two public oracles (see pricing-sync.ts):
+// Prices come from a ledger synced off five public oracles (see pricing-sync.ts):
 //
 //   openrouter — openrouter.ai/api/v1/models. List price. What Anthropic,
 //                Qwen, xAI et al. actually bill when we call them direct.
+//   modelsdev  — models.dev/api.json. Community catalog, 190 providers,
+//                carries release dates. Fastest to list a launch-day model.
+//   litellm    — LiteLLM's model_prices_and_context_window.json. 2,400+ chat
+//                rows keyed by the bare vendor name we actually log.
+//   llmprices  — llm-prices.com. Small, hand-curated, no cache-write column.
 //   nous       — inference-api.nousresearch.com/v1/models. Same catalog,
 //                resold cheaper (~0.8x on frontier, deeper on their own
 //                Hermes line). What we pay when we route through Nous.
 //
+// Five books instead of one is the point, not redundancy for its own sake: a
+// price that only one feed reports is a claim, a price four feeds agree on is
+// a fact, and priceConsensus() below tells the two apart.
+//
 // This module stays PURE — no DB, no network. It is a published npm export and
-// reachable from client components. The catalog is injected via
-// setPriceCatalog(); PRICING below is the cold-start fallback, used before the
-// first sync lands and whenever both oracles are unreachable.
+// reachable from client components. The current catalog is injected via
+// setPriceCatalog() and the full history via setPriceHistory(); PRICING below
+// is the cold-start fallback, used only on a database that has never synced.
+// It is deliberately not extended for new models — the ledger is the book.
 
 export interface ModelPrice {
   input: number;
@@ -24,6 +34,9 @@ export interface ModelPrice {
 /** Where a price came from. Surfaced to the UI so a number is never anonymous. */
 export type PriceSource =
   | 'openrouter'  // openrouter.ai list price
+  | 'modelsdev'   // models.dev community catalog
+  | 'litellm'     // LiteLLM price json
+  | 'llmprices'   // llm-prices.com
   | 'nous'        // Nous Portal resale price
   | 'table'       // built-in fallback below
   | 'energy'      // self-hosted; electricity, not an invoice
@@ -31,9 +44,28 @@ export type PriceSource =
   | 'free'        // real model, real tokens, priced at $0 by its provider
   | 'unknown';    // we could not price this — never silently render as $0
 
-/** Oracles we sync, in the order we prefer them when no source is requested. */
-export type CatalogSource = 'openrouter' | 'nous';
-export const CATALOG_SOURCES: CatalogSource[] = ['openrouter', 'nous'];
+/**
+ * Oracles we sync, in the order we prefer them when no source is requested.
+ *
+ * This is LIST-price order: what a direct call to the vendor bills. Nous is
+ * last because it is a reseller quoting its own margin, not the vendor's
+ * price — it only comes first for traffic that actually routed through Nous
+ * (see NOUS_PREFERENCE).
+ */
+export type CatalogSource = 'openrouter' | 'modelsdev' | 'litellm' | 'llmprices' | 'nous';
+export const CATALOG_SOURCES: CatalogSource[] = ['openrouter', 'modelsdev', 'litellm', 'llmprices', 'nous'];
+
+/** Sources that quote the vendor's list price. Consensus is measured over these. */
+export const LIST_PRICE_SOURCES: CatalogSource[] = ['openrouter', 'modelsdev', 'litellm', 'llmprices'];
+
+/** Preference for traffic that routed through Nous: their price first, list after. */
+export const NOUS_PREFERENCE: CatalogSource[] = ['nous', ...LIST_PRICE_SOURCES];
+
+function emptyBySource<T>(make: () => T): Record<CatalogSource, T> {
+  const out = {} as Record<CatalogSource, T>;
+  for (const s of CATALOG_SOURCES) out[s] = make();
+  return out;
+}
 
 // Cold-start fallback. Anthropic list price per million tokens.
 // Deliberately small — the catalog supersedes this within a minute of boot.
@@ -69,15 +101,22 @@ export interface CatalogEntry extends ModelPrice {
   /** Upstream id, e.g. `anthropic/claude-opus-5`. */
   id: string;
   source: CatalogSource;
-  /** Unix seconds the row was fetched. */
+  /** Unix seconds the row was fetched (last confirmed, for a ledger row). */
   fetchedAt: number;
+  /** Unix seconds this price was first observed. Ledger rows carry it. */
+  effectiveFrom?: number;
+  /** Unix seconds a later observation superseded it; null/undefined = current. */
+  effectiveTo?: number | null;
+  /** Upstream release date (YYYY-MM-DD) when the feed reports one. */
+  releasedOn?: string | null;
 }
 
 // source -> upstream id -> price. Module-level so a pure function can read it.
-const catalog: Record<CatalogSource, Map<string, CatalogEntry>> = {
-  openrouter: new Map(),
-  nous: new Map(),
-};
+let catalog: Record<CatalogSource, Map<string, CatalogEntry>> = emptyBySource(() => new Map());
+
+// source -> upstream id -> every price ever observed, oldest first. This is
+// the book that lets a June token be billed at June's price.
+let history: Record<CatalogSource, Map<string, CatalogEntry[]>> = emptyBySource(() => new Map());
 
 /** Replace the in-memory catalog for one oracle. Called after sync/hydrate. */
 export function setPriceCatalog(source: CatalogSource, entries: CatalogEntry[]): void {
@@ -86,8 +125,82 @@ export function setPriceCatalog(source: CatalogSource, entries: CatalogEntry[]):
   catalog[source] = m;
 }
 
+/**
+ * Replace the in-memory price history for one oracle. Entries may arrive in
+ * any order; they are grouped by id and sorted by effectiveFrom. An entry
+ * without effectiveFrom is treated as effective since its fetchedAt.
+ */
+export function setPriceHistory(source: CatalogSource, entries: CatalogEntry[]): void {
+  const m = new Map<string, CatalogEntry[]>();
+  for (const e of entries) {
+    const key = e.id.toLowerCase();
+    const row = { ...e, effectiveFrom: e.effectiveFrom ?? e.fetchedAt };
+    const list = m.get(key);
+    if (list) list.push(row); else m.set(key, [row]);
+  }
+  for (const list of m.values()) list.sort((a, b) => (a.effectiveFrom! - b.effectiveFrom!));
+  history[source] = m;
+}
+
+/** Drop every injected price — tests use this to prove the fallbacks. */
+export function clearPriceCatalogs(): void {
+  catalog = emptyBySource(() => new Map());
+  history = emptyBySource(() => new Map());
+}
+
 export function catalogSize(source: CatalogSource): number {
   return catalog[source].size;
+}
+
+export function historySize(source: CatalogSource): number {
+  let n = 0;
+  for (const list of history[source].values()) n += list.length;
+  return n;
+}
+
+/**
+ * Accept a timestamp as ISO-8601, unix seconds, or unix milliseconds and
+ * return unix seconds. Undefined/invalid means "now" to every caller.
+ */
+export function toUnixSeconds(at: number | string | Date | null | undefined): number | undefined {
+  if (at === null || at === undefined || at === '') return undefined;
+  if (at instanceof Date) return Number.isFinite(at.getTime()) ? Math.floor(at.getTime() / 1000) : undefined;
+  if (typeof at === 'string') {
+    const n = Number(at);
+    if (Number.isFinite(n) && /^\d+(\.\d+)?$/.test(at.trim())) return toUnixSeconds(n);
+    const ms = Date.parse(at);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) : undefined;
+  }
+  if (!Number.isFinite(at)) return undefined;
+  // Anything past year 2286 in seconds is really milliseconds.
+  return at > 1e11 ? Math.floor(at / 1000) : Math.floor(at);
+}
+
+/**
+ * The price in force for one catalog id at one instant, from the history
+ * book. Returns the row whose [effectiveFrom, effectiveTo) covers `at`. When
+ * `at` predates our first observation there is no evidence of any other
+ * price, so the earliest row is returned and flagged `backdated` — the caller
+ * decides whether to trust it. Undefined when we hold no history for the id.
+ */
+export function priceAt(
+  source: CatalogSource,
+  id: string,
+  at: number,
+): { entry: CatalogEntry; backdated: boolean } | undefined {
+  const rows = history[source].get(id.toLowerCase());
+  if (!rows?.length) return undefined;
+  for (const r of rows) {
+    const from = r.effectiveFrom ?? r.fetchedAt;
+    const to = r.effectiveTo ?? null;
+    if (from <= at && (to === null || to > at)) return { entry: r, backdated: false };
+  }
+  const first = rows[0];
+  if (at < (first.effectiveFrom ?? first.fetchedAt)) return { entry: first, backdated: true };
+  // Inside a gap between a closed row and the next open one — should not
+  // happen with a well-formed ledger, but fall back to the latest row rather
+  // than to nothing.
+  return { entry: rows[rows.length - 1], backdated: true };
 }
 
 export function catalogStats(): Record<CatalogSource, { models: number; fetchedAt: number | null }> {
@@ -170,6 +283,23 @@ const HF_HOST_PREFIX = /^hf\.co\//i;
  *   solidrust/Hermes-3-Llama-3.1-8B-AWQ   -> nousresearch/hermes-3-llama-3.1-8b
  */
 export function aliasCandidates(model: string): string[] {
+  const hit = aliasMemo.get(model);
+  if (hit) return hit;
+  const out = computeAliasCandidates(model);
+  // Bounded: we log a few dozen distinct model names, not thousands. A
+  // runaway set of names (a fuzzing harness, say) must not grow this forever.
+  if (aliasMemo.size >= ALIAS_MEMO_MAX) aliasMemo.clear();
+  aliasMemo.set(model, out);
+  return out;
+}
+
+// Routes price tens of thousands of (session, model, day) rows per request
+// now that cost is booked per day; the dozen regexes below were most of that
+// time. The result depends only on the name, so it is cached by name.
+const ALIAS_MEMO_MAX = 4096;
+const aliasMemo = new Map<string, string[]>();
+
+function computeAliasCandidates(model: string): string[] {
   const out: string[] = [];
   const push = (s: string) => {
     const v = s.toLowerCase().trim();
@@ -219,10 +349,12 @@ export function aliasCandidates(model: string): string[] {
     if (!stem) continue;
     push(stem);
 
-    // Anthropic names log as `claude-opus-4-8`; upstream uses `claude-opus-4.8`.
+    // Anthropic names log as `claude-opus-4-8`; OpenRouter uses
+    // `claude-opus-4.8`, while models.dev and LiteLLM keep our dashed form.
     const dotted = stem.replace(/^(claude-[a-z]+)-(\d+)-(\d+)/i, '$1-$2.$3');
     push(dotted);
     push(`anthropic/${dotted}`);
+    if (/^claude-/i.test(stem)) push(`anthropic/${stem}`);
 
     // Qwen / Hermes families carry a known vendor namespace upstream.
     if (/^qwen/i.test(stem)) push(`qwen/${stem}`);
@@ -295,14 +427,47 @@ export interface ResolvedPrice extends ModelPrice {
   matchedId?: string;
   /** Set when a promotional discount was unwound to reach list price. */
   promo?: PromoAdjustment | null;
+  /** Unix seconds this price took effect, when resolved from the ledger. */
+  effectiveFrom?: number;
+  /** Unix seconds it was superseded; null while current. */
+  effectiveTo?: number | null;
+  /**
+   * True when `at` predates every price we hold for this model and we used
+   * the earliest one. The number is our best evidence, not a record.
+   */
+  backdated?: boolean;
+}
+
+function fromEntry(hit: CatalogEntry, source: CatalogSource, backdated: boolean): ResolvedPrice {
+  const isFree = !hit.input && !hit.output && !hit.cacheRead && !hit.cacheWrite;
+  // Report list price, not whatever promo is running today — see
+  // PROMO_DISCOUNTS for why a temporary discount is the wrong basis here.
+  const { price, promo } = undiscount(hit.id, hit);
+  return {
+    input: price.input,
+    output: price.output,
+    cacheRead: price.cacheRead,
+    cacheWrite: price.cacheWrite,
+    source: isFree ? 'free' : source,
+    matchedId: hit.id,
+    promo,
+    effectiveFrom: hit.effectiveFrom ?? hit.fetchedAt,
+    effectiveTo: hit.effectiveTo ?? null,
+    backdated,
+  };
 }
 
 /**
  * Resolve a price for one of our model names.
  *
- * `prefer` orders the oracles. Default is OpenRouter-first: it is list price,
- * which is what we actually pay on a direct Anthropic call. Pass
- * `['nous','openrouter']` for traffic that genuinely routed through Nous.
+ * `prefer` orders the oracles. Default is list-price order (OpenRouter first):
+ * what we actually pay on a direct Anthropic call. Pass NOUS_PREFERENCE for
+ * traffic that genuinely routed through Nous.
+ *
+ * `at` — a timestamp (ISO, unix s or ms). When given, the price in force at
+ * that instant is returned from the history book, so a token spent in June is
+ * billed at June's price whatever the catalog says today. Without it, or when
+ * no history has been loaded, the current catalog answers.
  *
  * Falls back to the built-in table, then gives up — and says so, rather than
  * returning zeros that render as "free".
@@ -310,6 +475,7 @@ export interface ResolvedPrice extends ModelPrice {
 export function resolvePrice(
   model: string,
   prefer: CatalogSource[] = CATALOG_SOURCES,
+  at?: number | string | Date | null,
 ): ResolvedPrice | undefined {
   if (!model) return undefined;
   if (SYNTHETIC_MODELS.has(model.toLowerCase())) {
@@ -317,25 +483,22 @@ export function resolvePrice(
   }
 
   const candidates = aliasCandidates(model);
+  const atSec = toUnixSeconds(at);
+
   for (const source of prefer) {
+    // History first when a time was asked for. A source with no history
+    // loaded falls through to its current catalog rather than to nothing.
+    if (atSec !== undefined && history[source].size) {
+      for (const c of candidates) {
+        const found = priceAt(source, c, atSec);
+        if (found) return fromEntry(found.entry, source, found.backdated);
+      }
+    }
     const m = catalog[source];
     if (!m.size) continue;
     for (const c of candidates) {
       const hit = m.get(c);
-      if (!hit) continue;
-      const isFree = !hit.input && !hit.output && !hit.cacheRead && !hit.cacheWrite;
-      // Report list price, not whatever promo is running today — see
-      // PROMO_DISCOUNTS for why a temporary discount is the wrong basis here.
-      const { price, promo } = undiscount(hit.id, hit);
-      return {
-        input: price.input,
-        output: price.output,
-        cacheRead: price.cacheRead,
-        cacheWrite: price.cacheWrite,
-        source: isFree ? 'free' : source,
-        matchedId: hit.id,
-        promo,
-      };
+      if (hit) return fromEntry(hit, source, false);
     }
   }
 
@@ -344,6 +507,82 @@ export function resolvePrice(
   if (t) return { ...t, source: 'table' };
 
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Consensus — do the books agree?
+// ---------------------------------------------------------------------------
+
+export interface ConsensusQuote {
+  source: CatalogSource;
+  matchedId: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export interface PriceConsensus {
+  model: string;
+  /** Every list-price oracle that could price this model. */
+  quotes: ConsensusQuote[];
+  /** Nous, reported separately — it is a resale price and expected to differ. */
+  resale: ConsensusQuote | null;
+  /** How many independent list-price books agree with the preferred one. */
+  corroborated: number;
+  /** Largest relative gap on input or output across the quotes. 0 = unanimous. */
+  spread: number;
+  /** True when every list-price quote sits within `tolerance` of the others. */
+  agree: boolean;
+}
+
+/** Relative spread within which two quotes count as the same price. */
+export const CONSENSUS_TOLERANCE = 0.01;
+
+/**
+ * Ask every list-price oracle for the same model and say whether they agree.
+ *
+ * This is the double-entry check. With one oracle, a wrong price wins by
+ * default. With several, a disagreement is visible and gets a human look
+ * before it becomes a number on a dashboard. Only input and output are
+ * compared: cache tiers are reported inconsistently across feeds (llm-prices
+ * carries no cache-write at all) and a missing column is not a disagreement.
+ */
+export function priceConsensus(
+  model: string,
+  at?: number | string | Date | null,
+): PriceConsensus {
+  const quotes: ConsensusQuote[] = [];
+  let resale: ConsensusQuote | null = null;
+  for (const source of CATALOG_SOURCES) {
+    const r = resolvePrice(model, [source], at);
+    if (!r || r.source === 'table' || r.source === 'synthetic' || !r.matchedId) continue;
+    const q: ConsensusQuote = {
+      source, matchedId: r.matchedId,
+      input: r.input, output: r.output, cacheRead: r.cacheRead, cacheWrite: r.cacheWrite,
+    };
+    if (source === 'nous') resale = q; else quotes.push(q);
+  }
+
+  let spread = 0;
+  for (const field of ['input', 'output'] as const) {
+    const vals = quotes.map((q) => q[field]);
+    const max = Math.max(...vals, 0);
+    const min = Math.min(...vals, max);
+    if (max > 0) spread = Math.max(spread, (max - min) / max);
+  }
+
+  const preferred = quotes[0];
+  const corroborated = preferred
+    ? quotes.filter((q) => q !== preferred && close(q, preferred)).length
+    : 0;
+
+  return { model, quotes, resale, corroborated, spread, agree: spread <= CONSENSUS_TOLERANCE };
+}
+
+function close(a: ConsensusQuote, b: ConsensusQuote): boolean {
+  const rel = (x: number, y: number) => (Math.max(x, y) === 0 ? 0 : Math.abs(x - y) / Math.max(x, y));
+  return rel(a.input, b.input) <= CONSENSUS_TOLERANCE && rel(a.output, b.output) <= CONSENSUS_TOLERANCE;
 }
 
 /**
@@ -575,6 +814,8 @@ export interface CostBreakdown {
    * provider bills today and a reader should be able to see why.
    */
   promo?: PromoAdjustment | null;
+  /** See ResolvedPrice.backdated — the price predates our ledger. */
+  backdated?: boolean;
 }
 
 function applyPrice(
@@ -600,6 +841,12 @@ export interface CostOptions {
    * dashboard knows the provider and should pass this explicitly.
    */
   selfHosted?: boolean;
+  /**
+   * When the tokens were spent. Prices are looked up as of this instant so a
+   * closed day's cost does not move when an oracle changes its number later.
+   * Omit for "price at today's rate".
+   */
+  at?: number | string | Date | null;
 }
 
 /**
@@ -620,7 +867,7 @@ export function calcCostBreakdown(
   opts: CostOptions = {},
 ): CostBreakdown {
   const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  const resolved = resolvePrice(model, opts.prefer ?? CATALOG_SOURCES);
+  const resolved = resolvePrice(model, opts.prefer ?? CATALOG_SOURCES, opts.at);
   const selfHosted = opts.selfHosted ?? hardwareForModel(model) !== null;
 
   if (resolved?.source === 'synthetic') {
@@ -640,6 +887,7 @@ export function calcCostBreakdown(
       source: 'energy',
       matchedId: resolved?.matchedId,
       promo: resolved?.promo ?? null,
+      backdated: resolved?.backdated ?? false,
       selfHosted: true,
     };
   }
@@ -656,6 +904,7 @@ export function calcCostBreakdown(
       source: resolved.source,
       matchedId: resolved.matchedId,
       promo: resolved.promo ?? null,
+      backdated: resolved.backdated ?? false,
       selfHosted: false,
     };
   }
@@ -692,6 +941,13 @@ export interface UsageRow {
   cacheWrite?: number | null;
   provider?: string | null;
   endpoint?: string | null;
+  /**
+   * When the tokens were spent — a message timestamp, a day (`2026-06-01`),
+   * unix seconds or ms. Prices are booked as of this instant. Callers that
+   * aggregate over a window should aggregate per day and pass the day, or
+   * the sum silently reprices old tokens at today's rate.
+   */
+  at?: number | string | Date | null;
 }
 
 /**
@@ -728,7 +984,8 @@ export function costForUsage(row: UsageRow): CostBreakdown {
       selfHosted: isSelfHosted(model, row.endpoint, row.provider),
       // Traffic that actually routed through Nous prices at Nous rates;
       // everything else prices at list.
-      prefer: row.provider === 'nous' ? ['nous', 'openrouter'] : ['openrouter', 'nous'],
+      prefer: row.provider === 'nous' ? NOUS_PREFERENCE : CATALOG_SOURCES,
+      at: row.at,
     },
   );
 }
@@ -750,8 +1007,15 @@ export function costForUsageRows(rows: Iterable<UsageRow>): CostBreakdown {
     acc.market += c.market;
     acc.avoided += c.avoided;
     acc.selfHosted = acc.selfHosted || c.selfHosted;
-    // A mixed set has no single source; report the first real one we saw.
-    if (!any && c.source !== 'unknown') { acc.source = c.source; any = true; }
+    acc.backdated = acc.backdated || !!c.backdated;
+    // A mixed set has no single source; report the first real one we saw,
+    // and the id and promo it was priced against.
+    if (!any && c.source !== 'unknown') {
+      acc.source = c.source;
+      acc.matchedId = c.matchedId;
+      acc.promo = c.promo ?? null;
+      any = true;
+    }
   }
   return acc;
 }

@@ -1,4 +1,22 @@
-.PHONY: dev fix-watches persist-watches rescue-tool-results
+.PHONY: dev fix-watches persist-watches rescue-tool-results pricing pricing-report
+
+# Refresh the model price ledger from every public oracle and print what
+# changed. Same function apps/worker runs daily (and whenever an unpriced
+# model shows up in the logs); this is the on-demand form for the morning a
+# model ships. Append-only: a price that moved opens a new ledger row and
+# closes the old one, an unchanged price is stamped "still true today", and
+# the attempt itself is written to pricing_sync_runs whether or not it worked.
+# No credentials involved — every feed is public.
+#
+# To also run it from cron, this line is the whole job:
+#   17 6 * * *  cd $(CURDIR) && make -s pricing >> ~/.unfirehose/pricing.log 2>&1
+pricing:
+	npx tsx scripts/sync-pricing.ts
+
+# Print the book without touching the network: books, register, recent
+# changes, per-model price + whether the oracles agree, unpriced models.
+pricing-report:
+	npx tsx scripts/sync-pricing.ts --report
 
 # Raise inotify watch ceiling for the current boot.
 # Fails with "permission denied" if not root — re-run with `sudo make fix-watches`.

@@ -32,6 +32,13 @@ export function applyBasePragmas(db: Database.Database): void {
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
   db.pragma(`journal_size_limit = ${WAL_SIZE_LIMIT_BYTES}`);
+  // Web, worker and `make pricing` are three processes writing one file.
+  // Without a busy handler a second writer gets SQLITE_BUSY the instant the
+  // first holds the lock — the price ledger's first `make pricing` collided
+  // with a worker sync and logged "database is locked" for one oracle. WAL
+  // write transactions here are short (a few thousand rows), so waiting up
+  // to five seconds turns that into a queue rather than a failure.
+  db.pragma('busy_timeout = 5000');
 }
 
 export interface CheckpointResult {

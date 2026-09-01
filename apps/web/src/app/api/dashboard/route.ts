@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { costForUsage, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
+import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
 
@@ -50,8 +50,11 @@ export async function GET(request: NextRequest) {
     // provider) gives us both per-model token sums and the per-endpoint
     // breakdown we need to pick the dominant attribution. Saves a full
     // pass over messages compared to the two-query version.
+    // Grouped by day as well, so each day's tokens book at that day's price
+    // (see the price ledger, ticket 4008). The per-model sums below are sums
+    // of daily bookings, not window totals priced at today's rate.
     const dbModelEndpoints = db.prepare(`
-      SELECT model, endpoint, provider,
+      SELECT model, endpoint, provider, substr(timestamp, 1, 10) AS day,
              SUM(input_tokens) AS input_tokens,
              SUM(output_tokens) AS output_tokens,
              SUM(cache_read_tokens) AS cache_read_tokens,
@@ -60,11 +63,12 @@ export async function GET(request: NextRequest) {
       FROM messages
       WHERE model IS NOT NULL
         AND timestamp >= ?
-      GROUP BY model, endpoint, provider
+      GROUP BY model, endpoint, provider, day
     `).all(windowStart) as Array<{
       model: string;
       endpoint: string | null;
       provider: string | null;
+      day: string;
       input_tokens: number;
       output_tokens: number;
       cache_read_tokens: number;
@@ -73,9 +77,11 @@ export async function GET(request: NextRequest) {
     }>;
     t.mark('models_attribution');
 
-    // Roll up per-(model, endpoint, provider) rows into per-model rows, while
-    // tracking the dominant (endpoint, provider) by total tokens — replaces
-    // both the standalone `models` GROUP-BY and the dominantAttr loop.
+    // Roll up per-(model, endpoint, provider, day) rows into per-model rows,
+    // keeping the per-day token split for pricing, while tracking the
+    // dominant (endpoint, provider) by total tokens across the whole window.
+    type DayTokens = { day: string; input: number; output: number; cacheRead: number; cacheWrite: number };
+    const attrTotals: Record<string, Record<string, { endpoint: string | null; provider: string | null; tot: number }>> = {};
     const dominantAttr: Record<string, { endpoint: string | null; provider: string | null; _tot: number }> = {};
     const dbModelsMap: Record<string, {
       model: string;
@@ -84,20 +90,30 @@ export async function GET(request: NextRequest) {
       cache_read_tokens: number;
       cache_creation_tokens: number;
       last_seen: string | null;
+      days: DayTokens[];
     }> = {};
     for (const r of dbModelEndpoints) {
       if (r.model === '<synthetic>') continue;
       const tot = r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens;
+      const attrKey = `${r.endpoint ?? ''}\x00${r.provider ?? ''}`;
+      const byAttr = (attrTotals[r.model] ??= {});
+      const a = (byAttr[attrKey] ??= { endpoint: r.endpoint, provider: r.provider, tot: 0 });
+      a.tot += tot;
       const prevAttr = dominantAttr[r.model];
-      if (!prevAttr || tot > prevAttr._tot) {
-        dominantAttr[r.model] = { endpoint: r.endpoint, provider: r.provider, _tot: tot };
+      if (!prevAttr || a.tot > prevAttr._tot) {
+        dominantAttr[r.model] = { endpoint: a.endpoint, provider: a.provider, _tot: a.tot };
       }
+      const day: DayTokens = {
+        day: r.day, input: r.input_tokens, output: r.output_tokens,
+        cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens,
+      };
       const prev = dbModelsMap[r.model];
       if (prev) {
         prev.input_tokens += r.input_tokens;
         prev.output_tokens += r.output_tokens;
         prev.cache_read_tokens += r.cache_read_tokens;
         prev.cache_creation_tokens += r.cache_creation_tokens;
+        prev.days.push(day);
         if (r.last_seen && (!prev.last_seen || r.last_seen > prev.last_seen)) {
           prev.last_seen = r.last_seen;
         }
@@ -109,6 +125,7 @@ export async function GET(request: NextRequest) {
           cache_read_tokens: r.cache_read_tokens,
           cache_creation_tokens: r.cache_creation_tokens,
           last_seen: r.last_seen,
+          days: [day],
         };
       }
     }
@@ -183,16 +200,18 @@ export async function GET(request: NextRequest) {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
       const { host, provider, endpoint } = attrFor(m.model);
       // selfHosted and oracle preference are decided inside costForUsage, so
-      // this route cannot disagree with any other page about either.
-      const c = costForUsage({
+      // this route cannot disagree with any other page about either. One
+      // booking per day, at that day's price, summed.
+      const c = costForUsageRows(m.days.map((d) => ({
         model: m.model,
-        input: m.input_tokens,
-        output: m.output_tokens,
-        cacheRead: m.cache_read_tokens,
-        cacheWrite: m.cache_creation_tokens,
+        input: d.input,
+        output: d.output,
+        cacheRead: d.cacheRead,
+        cacheWrite: d.cacheWrite,
         provider,
         endpoint,
-      });
+        at: d.day,
+      })));
       let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
         const hostCost = kwhByHost[host] * kwhRate;

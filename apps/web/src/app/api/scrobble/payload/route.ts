@@ -36,28 +36,36 @@ export async function GET() {
     const twelveWeeksAgo = new Date(Date.now() - 84 * 86400000).toISOString();
 
     // --- Combined lifetime + model breakdown in one query ---
-    const modelRows = db.prepare(`
-      SELECT model,
+    // Per (model, day) so each day's tokens book at that day's price; the
+    // lifetime figure is the sum of those bookings, not lifetime tokens at
+    // today's rate.
+    const modelDayRows = db.prepare(`
+      SELECT model, substr(timestamp, 1, 10) as date,
              COUNT(*) as messages,
              SUM(input_tokens) as inp, SUM(output_tokens) as out,
              SUM(cache_read_tokens) as cr, SUM(cache_creation_tokens) as cw
       FROM messages
       WHERE model IS NOT NULL AND model != '<synthetic>'
-      GROUP BY model ORDER BY messages DESC
+      GROUP BY model, date
     `).all() as any[];
     t.mark('models');
 
     // Derive lifetime totals from model rows
     let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalCost = 0;
-    const models = modelRows.map((m: any) => {
+    const modelAgg = new Map<string, { model: string; messages: number; inputTokens: number; outputTokens: number }>();
+    for (const m of modelDayRows) {
       totalInput += m.inp ?? 0;
       totalOutput += m.out ?? 0;
       totalCacheRead += m.cr ?? 0;
       totalCacheWrite += m.cw ?? 0;
-      const cost = costForUsage({ model: m.model, input: m.inp, output: m.out, cacheRead: m.cr, cacheWrite: m.cw }).total;
-      totalCost += cost;
-      return { model: m.model, messages: m.messages, inputTokens: m.inp, outputTokens: m.out };
-    });
+      totalCost += costForUsage({ model: m.model, input: m.inp, output: m.out, cacheRead: m.cr, cacheWrite: m.cw, at: m.date }).total;
+      const prev = modelAgg.get(m.model) ?? { model: m.model, messages: 0, inputTokens: 0, outputTokens: 0 };
+      prev.messages += m.messages ?? 0;
+      prev.inputTokens += m.inp ?? 0;
+      prev.outputTokens += m.out ?? 0;
+      modelAgg.set(m.model, prev);
+    }
+    const models = [...modelAgg.values()].sort((a, b) => b.messages - a.messages);
 
     // --- Lifetime counts (sessions, active days, date range) ---
     // session_id is already on every message row, so we can derive distinct
@@ -121,7 +129,7 @@ export async function GET() {
     const dailyAgg: Record<string, { cost: number; count: number }> = {};
     for (const r of dailyRows) {
       if (!dailyAgg[r.date]) dailyAgg[r.date] = { cost: 0, count: 0 };
-      dailyAgg[r.date].cost += costForUsage({ model: r.model, input: r.inp, output: r.out, cacheRead: r.cr, cacheWrite: r.cw }).total;
+      dailyAgg[r.date].cost += costForUsage({ model: r.model, input: r.inp, output: r.out, cacheRead: r.cr, cacheWrite: r.cw, at: r.date }).total;
       dailyAgg[r.date].count += r.msg_count;
     }
     const dailyCostSeries = Object.entries(dailyAgg)

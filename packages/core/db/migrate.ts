@@ -632,29 +632,100 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_providence_node     ON providence_cache(node_id) WHERE node_id IS NOT NULL;
   `);
 
-  // Model price catalog, synced from public oracles by apps/worker.
+  // Model price ledger, synced from public oracles by apps/worker and by
+  // `make pricing`. Append-only: a price is never updated in place.
   //
-  // One row per (source, model_id). We keep every oracle rather than
-  // collapsing to a winner, because the right price depends on where a call
-  // actually went: OpenRouter list price for a direct Anthropic call, Nous
-  // resale price for traffic routed through Nous Portal.
+  // One OPEN row (effective_to IS NULL) per (source, model_id) is the current
+  // price. When a sync sees a different number it closes that row and opens a
+  // new one, so the price in force at any past instant is a range lookup and a
+  // June token is billed at June's price. An unchanged price gets last_seen_at
+  // bumped — "still true on this date" — which is how a gap in observation
+  // stays distinguishable from a price that held. A model that vanishes
+  // upstream is stamped delisted_at; its last price stays in force for history.
+  //
+  // We keep every oracle rather than collapsing to a winner, because the
+  // right price depends on where a call actually went: OpenRouter list price
+  // for a direct Anthropic call, Nous resale price for traffic routed through
+  // Nous Portal — and because several books agreeing is the only check we
+  // have that any one of them is right.
   //
   // Prices are stored per MILLION tokens — the unit our cost math uses.
-  // Upstream serves $/token; conversion happens once, at sync.
+  // Upstream serves $/token or $/M depending on the feed; conversion happens
+  // once, at sync.
   db.exec(`
-    CREATE TABLE IF NOT EXISTS model_pricing (
-      source        TEXT NOT NULL,           -- 'openrouter' | 'nous'
-      model_id      TEXT NOT NULL,           -- upstream id, e.g. anthropic/claude-opus-5
-      display_name  TEXT,
-      input         REAL NOT NULL DEFAULT 0, -- $ per 1M prompt tokens
-      output        REAL NOT NULL DEFAULT 0,
-      cache_read    REAL NOT NULL DEFAULT 0,
-      cache_write   REAL NOT NULL DEFAULT 0,
-      context_len   INTEGER,
-      fetched_at    INTEGER NOT NULL DEFAULT (unixepoch()),
-      PRIMARY KEY (source, model_id)
+    CREATE TABLE IF NOT EXISTS model_price_ledger (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      source         TEXT NOT NULL,           -- openrouter | modelsdev | litellm | llmprices | nous
+      model_id       TEXT NOT NULL,           -- upstream id, e.g. anthropic/claude-opus-5
+      display_name   TEXT,
+      input          REAL NOT NULL DEFAULT 0, -- $ per 1M prompt tokens
+      output         REAL NOT NULL DEFAULT 0,
+      cache_read     REAL NOT NULL DEFAULT 0,
+      cache_write    REAL NOT NULL DEFAULT 0,
+      context_len    INTEGER,
+      released_on    TEXT,                    -- YYYY-MM-DD when the feed reports it
+      effective_from INTEGER NOT NULL,        -- unix s, first observed at this price
+      effective_to   INTEGER,                 -- unix s, superseded; NULL = current
+      last_seen_at   INTEGER NOT NULL,        -- unix s, newest sync that confirmed it
+      delisted_at    INTEGER,                 -- unix s, upstream stopped listing it
+      run_id         INTEGER                  -- pricing_sync_runs.id that opened the row
     );
-    CREATE INDEX IF NOT EXISTS idx_model_pricing_model ON model_pricing(model_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_price_ledger_open
+      ON model_price_ledger(source, model_id) WHERE effective_to IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_price_ledger_model
+      ON model_price_ledger(model_id, source, effective_from);
+
+    -- The register. One row per sync attempt per source, success or not.
+    -- A day with no row is a day the book was not checked.
+    CREATE TABLE IF NOT EXISTS pricing_sync_runs (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      source      TEXT NOT NULL,
+      trigger     TEXT NOT NULL,              -- worker | make | api | unpriced | bootstrap
+      started_at  INTEGER NOT NULL,           -- unix s
+      finished_at INTEGER,
+      ok          INTEGER NOT NULL DEFAULT 0,
+      models      INTEGER NOT NULL DEFAULT 0, -- rows the feed returned
+      added       INTEGER NOT NULL DEFAULT 0, -- ids seen for the first time
+      changed     INTEGER NOT NULL DEFAULT 0, -- rows closed and reopened at a new price
+      unchanged   INTEGER NOT NULL DEFAULT 0,
+      delisted    INTEGER NOT NULL DEFAULT 0,
+      error       TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_pricing_sync_runs_started ON pricing_sync_runs(started_at);
+  `);
+
+  // 4006 created model_pricing as a plain table with one mutable row per
+  // (source, model_id). Fold it into the ledger — each row becomes an open
+  // ledger row first observed at its fetched_at, which is the only date we
+  // have — then replace the table with a view over the ledger's open rows so
+  // every existing reader keeps working against one source of truth.
+  const priceTable = db
+    .prepare("SELECT type FROM sqlite_master WHERE name = 'model_pricing'")
+    .get() as { type: string } | undefined;
+  if (priceTable?.type === 'table') {
+    db.transaction(() => {
+      db.exec(`
+        INSERT INTO model_price_ledger
+          (source, model_id, display_name, input, output, cache_read, cache_write,
+           context_len, effective_from, effective_to, last_seen_at)
+        SELECT p.source, p.model_id, p.display_name, p.input, p.output, p.cache_read,
+               p.cache_write, p.context_len, p.fetched_at, NULL, p.fetched_at
+          FROM model_pricing p
+         WHERE NOT EXISTS (
+           SELECT 1 FROM model_price_ledger l
+            WHERE l.source = p.source AND l.model_id = p.model_id AND l.effective_to IS NULL
+         );
+        DROP TABLE model_pricing;
+      `);
+    })();
+  }
+  db.exec(`
+    CREATE VIEW IF NOT EXISTS model_pricing AS
+      SELECT source, model_id, display_name, input, output, cache_read, cache_write,
+             context_len, released_on, effective_from, last_seen_at AS fetched_at,
+             delisted_at, id AS ledger_id
+        FROM model_price_ledger
+       WHERE effective_to IS NULL;
   `);
 
   // Rate-limit events, extracted from harness output at ingest.

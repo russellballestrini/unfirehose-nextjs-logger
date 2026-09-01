@@ -280,3 +280,126 @@ describe('promotional discounts are unwound to list price', () => {
     expect(price).toEqual({ input: 2, output: 4, cacheRead: 6, cacheWrite: 8 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// The history book — pure, no DB. The ledger tests in pricing-sync.test.ts
+// prove the same properties end to end.
+// ---------------------------------------------------------------------------
+
+import {
+  setPriceHistory,
+  clearPriceCatalogs,
+  priceAt,
+  toUnixSeconds,
+  priceConsensus,
+  costForUsage,
+  costForUsageRows,
+  CATALOG_SOURCES,
+  LIST_PRICE_SOURCES,
+  NOUS_PREFERENCE,
+  type UsageRow,
+} from './pricing.js';
+
+describe('price history', () => {
+  const JUNE = Date.UTC(2026, 5, 1) / 1000;
+  const SEPT = Date.UTC(2026, 8, 1) / 1000;
+  const OPUS_HISTORY: CatalogEntry[] = [
+    // Deliberately out of order — setPriceHistory sorts.
+    { id: 'anthropic/claude-opus-5', source: 'openrouter', input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, fetchedAt: SEPT, effectiveFrom: SEPT, effectiveTo: null },
+    { id: 'anthropic/claude-opus-5', source: 'openrouter', input: 5,  output: 25, cacheRead: 0.5, cacheWrite: 6.25, fetchedAt: SEPT, effectiveFrom: JUNE, effectiveTo: SEPT },
+  ];
+
+  beforeEach(() => {
+    clearPriceCatalogs();
+    setPriceCatalog('openrouter', [OPUS_HISTORY[0]]);
+    setPriceHistory('openrouter', OPUS_HISTORY);
+  });
+
+  it('accepts ISO, unix seconds and unix milliseconds', () => {
+    expect(toUnixSeconds('2026-06-01T00:00:00Z')).toBe(JUNE);
+    expect(toUnixSeconds('2026-06-01')).toBe(JUNE);
+    expect(toUnixSeconds(JUNE)).toBe(JUNE);
+    expect(toUnixSeconds(JUNE * 1000)).toBe(JUNE);
+    expect(toUnixSeconds(String(JUNE))).toBe(JUNE);
+    expect(toUnixSeconds(new Date(JUNE * 1000))).toBe(JUNE);
+    expect(toUnixSeconds(undefined)).toBeUndefined();
+    expect(toUnixSeconds('not a date')).toBeUndefined();
+  });
+
+  it('returns the row whose range covers the instant', () => {
+    expect(priceAt('openrouter', 'anthropic/claude-opus-5', JUNE + 86400)!.entry.input).toBe(5);
+    expect(priceAt('openrouter', 'anthropic/claude-opus-5', SEPT)!.entry.input).toBe(10);
+    // Range end is exclusive: the last second of the old price is still old.
+    expect(priceAt('openrouter', 'anthropic/claude-opus-5', SEPT - 1)!.entry.input).toBe(5);
+  });
+
+  it('backdates to the earliest row before the book opened, and says so', () => {
+    const r = priceAt('openrouter', 'anthropic/claude-opus-5', JUNE - 86400)!;
+    expect(r.entry.input).toBe(5);
+    expect(r.backdated).toBe(true);
+  });
+
+  it('resolvePrice with `at` reads history; without it reads the catalog', () => {
+    expect(resolvePrice('claude-opus-5', undefined, '2026-07-01')).toMatchObject({ input: 5, effectiveFrom: JUNE, effectiveTo: SEPT, backdated: false });
+    expect(resolvePrice('claude-opus-5')).toMatchObject({ input: 10, source: 'openrouter' });
+  });
+
+  it('falls through to the current catalog for a source with no history', () => {
+    setPriceCatalog('nous', [{ id: 'anthropic/claude-opus-5', source: 'nous', input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5, fetchedAt: 0 }]);
+    expect(resolvePrice('claude-opus-5', ['nous'], '2026-07-01')).toMatchObject({ input: 4, source: 'nous' });
+  });
+
+  it('a window summed per day does not move when today\'s price does', () => {
+    const rows: UsageRow[] = [
+      { model: 'claude-opus-5', input: 1_000_000, at: '2026-06-10' },
+      { model: 'claude-opus-5', input: 1_000_000, at: '2026-09-10' },
+    ];
+    const booked = costForUsageRows(rows);
+    expect(booked.total).toBe(15);              // 5 + 10
+    expect(booked.backdated).toBe(false);
+    // The same tokens, summed first and priced today, would say 20.
+    expect(costForUsage({ model: 'claude-opus-5', input: 2_000_000 }).total).toBe(20);
+  });
+});
+
+describe('consensus', () => {
+  beforeEach(() => {
+    clearPriceCatalogs();
+    setPriceCatalog('openrouter', [{ id: 'anthropic/claude-fable-5.1', source: 'openrouter', input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5, fetchedAt: 0 }]);
+    setPriceCatalog('modelsdev',  [{ id: 'anthropic/claude-fable-5-1', source: 'modelsdev',  input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5, fetchedAt: 0 }]);
+    setPriceCatalog('litellm',    [{ id: 'claude-fable-5-1',           source: 'litellm',    input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5, fetchedAt: 0 }]);
+    setPriceCatalog('llmprices',  [{ id: 'anthropic/claude-fable-5-1', source: 'llmprices',  input: 10, output: 50, cacheRead: 0.25, cacheWrite: 0,    fetchedAt: 0 }]);
+    setPriceCatalog('nous',       [{ id: 'anthropic/claude-fable-5.1', source: 'nous',       input: 8,  output: 40, cacheRead: 0.2,  cacheWrite: 10,   fetchedAt: 0 }]);
+  });
+
+  it('preference order is list price first and Nous last', () => {
+    expect(CATALOG_SOURCES[0]).toBe('openrouter');
+    expect(CATALOG_SOURCES[CATALOG_SOURCES.length - 1]).toBe('nous');
+    expect(LIST_PRICE_SOURCES).not.toContain('nous');
+    expect(NOUS_PREFERENCE[0]).toBe('nous');
+  });
+
+  it('a missing cache-write column is not a disagreement', () => {
+    const c = priceConsensus('claude-fable-5-1');
+    expect(c.quotes).toHaveLength(4);
+    expect(c.agree).toBe(true);
+    expect(c.spread).toBe(0);
+    expect(c.corroborated).toBe(3);
+    expect(c.resale?.source).toBe('nous');
+  });
+
+  it('a one-cent rounding difference still agrees; a 3x does not', () => {
+    setPriceCatalog('litellm', [{ id: 'claude-fable-5-1', source: 'litellm', input: 10.05, output: 50, cacheRead: 0, cacheWrite: 0, fetchedAt: 0 }]);
+    expect(priceConsensus('claude-fable-5-1').agree).toBe(true);
+    setPriceCatalog('litellm', [{ id: 'claude-fable-5-1', source: 'litellm', input: 30, output: 150, cacheRead: 0, cacheWrite: 0, fetchedAt: 0 }]);
+    const c = priceConsensus('claude-fable-5-1');
+    expect(c.agree).toBe(false);
+    expect(c.corroborated).toBe(2);
+  });
+
+  it('a synthetic model has no quotes and nothing to agree on', () => {
+    const c = priceConsensus('mock-1m');
+    expect(c.quotes).toEqual([]);
+    expect(c.agree).toBe(true);
+  });
+});

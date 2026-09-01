@@ -82,12 +82,23 @@ export async function GET(request: NextRequest) {
 
     // Roll up per-session-model rows into our breakdowns in JS.
     // 19k rows is trivial to traverse.
-    const modelMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
+    // Cost is booked per session-model row at that row's last_ts, then summed
+    // — not summed first and priced at today's rate. A price change on the
+    // oracles moves today's number, not last month's. Same day-pinning
+    // approximation as dailyByHarness below.
+    type Booked = { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+    const zeroBooked = (): Booked => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 });
+    const book = (into: Booked, c: Booked) => {
+      into.input += c.input; into.output += c.output;
+      into.cacheRead += c.cacheRead; into.cacheWrite += c.cacheWrite; into.total += c.total;
+    };
+    const modelMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; cost: Booked }>();
     const harnessModelKeyed = new Map<string, {
       harness: string; model: string;
       input_tokens: number; output_tokens: number;
       cache_read_tokens: number; cache_creation_tokens: number;
       sessions: Set<number>;
+      cost: Booked;
     }>();
     const harnessMap = new Map<string, {
       input: number; output: number; cacheRead: number; cacheWrite: number;
@@ -112,11 +123,18 @@ export async function GET(request: NextRequest) {
       const last_ts = r[7];
       const harness = harnessById.get(session_id) ?? 'unknown';
 
-      const mm = modelMap.get(model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      const rowCost = costForUsage({
+        model, input: input_tokens, output: output_tokens,
+        cacheRead: cache_read_tokens, cacheWrite: cache_creation_tokens,
+        at: last_ts,
+      });
+
+      const mm = modelMap.get(model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: zeroBooked() };
       mm.input += input_tokens;
       mm.output += output_tokens;
       mm.cacheRead += cache_read_tokens;
       mm.cacheWrite += cache_creation_tokens;
+      book(mm.cost, rowCost);
       modelMap.set(model, mm);
 
       const hmKey = harness + '\x00' + model;
@@ -127,6 +145,7 @@ export async function GET(request: NextRequest) {
           input_tokens: 0, output_tokens: 0,
           cache_read_tokens: 0, cache_creation_tokens: 0,
           sessions: new Set(),
+          cost: zeroBooked(),
         };
         harnessModelKeyed.set(hmKey, hm);
       }
@@ -135,6 +154,7 @@ export async function GET(request: NextRequest) {
       hm.cache_read_tokens += cache_read_tokens;
       hm.cache_creation_tokens += cache_creation_tokens;
       hm.sessions.add(session_id);
+      book(hm.cost, rowCost);
 
       let hMap = harnessMap.get(harness);
       if (!hMap) {
@@ -166,7 +186,7 @@ export async function GET(request: NextRequest) {
     }
 
     const modelBreakdown = [...modelMap.entries()].map(([model, t]) => {
-      const c = costForUsage({ model, input: t.input, output: t.output, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite });
+      const c = t.cost;
       return {
         model,
         inputTokens: t.input,
@@ -201,17 +221,13 @@ export async function GET(request: NextRequest) {
       cache_read_tokens: hm.cache_read_tokens,
       cache_creation_tokens: hm.cache_creation_tokens,
       sessions: hm.sessions.size,
+      costUSD: hm.cost.total,
     }));
 
-    const harnessCostMap = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }>();
-    for (const hm of harnessModelBreakdown) {
-      const c = costForUsage({ model: hm.model, input: hm.input_tokens, output: hm.output_tokens, cacheRead: hm.cache_read_tokens, cacheWrite: hm.cache_creation_tokens, provider: (hm as any).provider, endpoint: (hm as any).endpoint });
-      const prev = harnessCostMap.get(hm.harness) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-      prev.input += c.input;
-      prev.output += c.output;
-      prev.cacheRead += c.cacheRead;
-      prev.cacheWrite += c.cacheWrite;
-      prev.total += c.total;
+    const harnessCostMap = new Map<string, Booked>();
+    for (const hm of harnessModelKeyed.values()) {
+      const prev = harnessCostMap.get(hm.harness) ?? zeroBooked();
+      book(prev, hm.cost);
       harnessCostMap.set(hm.harness, prev);
     }
 

@@ -52,8 +52,11 @@ export async function GET() {
   // Cost math reads an in-memory price catalog; make sure it reflects what
   // the worker last synced from our oracles.
   ensurePricingHydrated(db);
+  // Per (day, model): each day books at the price in force that day.
+  // substr beats date() on an ISO string by ~3x per row (see dashboard).
   const rows = db.prepare(`
-    SELECT m.model,
+    SELECT substr(m.timestamp, 1, 10) as day,
+           m.model,
            SUM(m.input_tokens)          as input_tokens,
            SUM(m.output_tokens)         as output_tokens,
            SUM(m.cache_read_tokens)     as cache_read_tokens,
@@ -63,7 +66,7 @@ export async function GET() {
       AND m.model != '<synthetic>'
       AND m.timestamp >= ?
       AND m.timestamp <  ?
-    GROUP BY m.model
+    GROUP BY day, m.model
   `).all(periodStartStr, periodEndStr) as any[];
 
   let periodCostUSD = 0;
@@ -73,7 +76,7 @@ export async function GET() {
   let periodCacheWriteTokens = 0;
 
   for (const r of rows) {
-    periodCostUSD += costForUsage({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens }).total;
+    periodCostUSD += costForUsage({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens, at: r.day }).total;
     periodInputTokens     += r.input_tokens;
     periodOutputTokens    += r.output_tokens;
     periodCacheReadTokens += r.cache_read_tokens;
@@ -100,7 +103,7 @@ export async function GET() {
   // Collapse to daily cost totals
   const byDay: Record<string, number> = {};
   for (const r of dailyRows) {
-    const cost = costForUsage({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens }).total;
+    const cost = costForUsage({ model: r.model, input: r.input_tokens, output: r.output_tokens, cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens, at: r.day }).total;
     byDay[r.day] = (byDay[r.day] ?? 0) + cost;
   }
   const dailyCost = Object.entries(byDay)

@@ -227,15 +227,48 @@ Deduplication via `UNIQUE INDEX ON messages(message_uuid) WHERE NOT NULL` and `I
 
 ## Pricing Model
 
-Shows equivalent API cost even on a Max plan ($200/mo). Uses 2026 Anthropic API rates:
+Shows equivalent API cost even on a Max plan ($200/mo). Nothing is hardcoded:
+prices come from five public, unauthenticated feeds, booked into an
+append-only ledger (`model_price_ledger`) that keeps every price ever
+observed with the range it was in force.
 
-| Model | Input | Output | Cache Read | Cache Write |
-|-------|-------|--------|------------|-------------|
-| Opus 4.7 / 4.6 / 4.5 | $5/MTok | $25/MTok | $0.50/MTok | $6.25/MTok |
-| Sonnet 4.6 / 4.5 / 4.0 | $3/MTok | $15/MTok | $0.30/MTok | $3.75/MTok |
-| Haiku 4.5 | $1/MTok | $5/MTok | $0.10/MTok | $1.25/MTok |
+| Book | Feed | Role |
+|------|------|------|
+| openrouter | `openrouter.ai/api/v1/models` | list price — preferred |
+| modelsdev | `models.dev/api.json` | list price, 190 providers, release dates |
+| litellm | LiteLLM `model_prices_and_context_window.json` | list price, keyed by the bare names we log |
+| llmprices | `llm-prices.com/current-v1.json` | list price, curated, no cache-write |
+| nous | `inference-api.nousresearch.com/v1/models` | resale price — used for traffic that routed through Nous |
 
-Models without an Anthropic price entry (e.g. self-hosted Hermes / Qwen) fall back to an energy-cost estimate based on watts × throughput × $/kWh.
+**Checkbook rules.** A sync never overwrites a price. An unchanged price gets
+stamped "still true today"; a changed price closes the old row and opens a
+new one; a model that vanishes upstream is marked delisted but its last price
+stays in force. Every sync attempt — including a failed fetch — is written to
+`pricing_sync_runs`, so a day the book was not checked is visible.
+
+**Cost is booked at the price in force when the tokens were spent.** Pages sum
+per-day bookings, so a closed month does not move when an oracle changes its
+number later. Where several list-price books quote the same model,
+`GET /api/pricing` reports whether they agree; a disagreement is listed, never
+averaged away.
+
+```bash
+make pricing          # sync every book now, print what changed — same code the worker runs daily
+make pricing-report   # print the book without touching the network
+curl -s localhost:3000/api/pricing | python3 -m json.tool          # books, register, changes, coverage, disagreements
+curl -s 'localhost:3000/api/pricing?model=claude-fable-5-1&at=2026-06-01'   # how one name resolves, as of a date
+curl -s 'localhost:3000/api/pricing?history=anthropic/claude-opus-5'        # step series for a chart
+```
+
+The worker syncs daily (`UNFIREHOSE_PRICE_SYNC_MINUTES` to tighten) and
+additionally whenever a model with real tokens in the last 24h has no price
+in any book, throttled to once an hour — so a model that ships this afternoon
+is priced this afternoon.
+
+Self-hosted models (quantized artifacts served from our own boxes) book
+electricity — watts × GPU-seconds × $/kWh, with prefill and decode at their
+own rates — and report alongside it what the same tokens would have cost at
+market, so the dashboard shows what running them ourselves saved.
 
 ## API Routes
 
