@@ -30,6 +30,18 @@ describe('formatTokens', () => {
     expect(formatTokens(1_000_000)).toBe('1.0M');
     expect(formatTokens(2_500_000)).toBe('2.5M');
     expect(formatTokens(15_000_000)).toBe('15.0M');
+    expect(formatTokens(999_999_999)).toBe('1000.0M');
+  });
+
+  it('formats billions with B suffix — a week of cache read lands here', () => {
+    expect(formatTokens(1_000_000_000)).toBe('1.0B');
+    expect(formatTokens(9_484_921_369)).toBe('9.5B');
+    expect(formatTokens(10_406_776_723)).toBe('10.4B');
+  });
+
+  it('formats trillions with T suffix', () => {
+    expect(formatTokens(1_000_000_000_000)).toBe('1.0T');
+    expect(formatTokens(2_750_000_000_000)).toBe('2.8T');
   });
 });
 

@@ -32,6 +32,15 @@ export interface TokenSplitCosts {
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
+  /**
+   * Authoritative total, when the caller has one. Self-hosted rows book
+   * electricity into the total and leave every per-type field at zero —
+   * energy does not separate cleanly by input vs output — so a total derived
+   * by adding the four columns is short by exactly the self-hosted spend.
+   * Pass the real total here and the tile stops disagreeing with the cost
+   * figure printed beside it.
+   */
+  total?: number;
 }
 
 type CostFn = (usd: number) => string;
@@ -50,7 +59,10 @@ export function cacheShareOf(t: TokenSplitValues): number | null {
   return total > 0 ? cacheOf(t) / total : null;
 }
 
-const TOKEN_FIELD: Record<keyof TokenSplitCosts, keyof TokenSplitValues> = {
+/** Per-type cost fields only — `total` has no matching token column. */
+type CostTypeKey = 'input' | 'output' | 'cacheRead' | 'cacheWrite';
+
+const TOKEN_FIELD: Record<CostTypeKey, keyof TokenSplitValues> = {
   input: 'input',
   output: 'output',
   cacheRead: 'cacheRead',
@@ -69,7 +81,7 @@ const TOKEN_FIELD: Record<keyof TokenSplitCosts, keyof TokenSplitValues> = {
 function sumCosts(
   c: TokenSplitCosts | undefined,
   tokens: TokenSplitValues,
-  keys: (keyof TokenSplitCosts)[],
+  keys: CostTypeKey[],
 ): number | null {
   if (!c) return null;
   let sum = 0;
@@ -135,7 +147,13 @@ export function TokenSplitCards({
   const cache = cacheOf(tokens);
   const share = cacheShareOf(tokens);
 
-  const totalCost = sumCosts(costs, tokens, ['input', 'output', 'cacheRead', 'cacheWrite']);
+  const partsCost = sumCosts(costs, tokens, ['input', 'output', 'cacheRead', 'cacheWrite']);
+  const totalCost = costs?.total ?? partsCost;
+  // What the columns cannot account for: energy booked whole, priced per node
+  // rather than per token type.
+  const unsplit = costs?.total != null && partsCost != null
+    ? costs.total - partsCost
+    : null;
   const cacheCost = sumCosts(costs, tokens, ['cacheRead', 'cacheWrite']);
   const inputCost = costs?.input;
   const outputCost = costs?.output;
@@ -150,7 +168,10 @@ export function TokenSplitCards({
           sub={totalCost != null ? formatCost(totalCost) : undefined}
           title={
             `input ${formatTokens(tokens.input)} · cache ${formatTokens(cache)} · output ${formatTokens(tokens.output)}` +
-            (share != null ? `\n${(share * 100).toFixed(1)}% of every token moved was cache.` : '')
+            (share != null ? `\n${(share * 100).toFixed(1)}% of every token moved was cache.` : '') +
+            (unsplit != null && Math.abs(unsplit) >= 0.005
+              ? `\n\n${formatCost(unsplit)} of this is self-hosted electricity, booked whole. Energy does not split by token type, so it appears in the total and in none of the columns.`
+              : '')
           }
         />
       )}

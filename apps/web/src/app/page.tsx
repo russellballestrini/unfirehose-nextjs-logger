@@ -201,7 +201,7 @@ export default function DashboardPage() {
           cacheRead: data.summary.cacheReadTokens ?? 0,
           cacheWrite: data.summary.cacheWriteTokens ?? 0,
         }}
-        costs={data.summary.costSplit}
+        costs={data.summary.costSplit && { ...data.summary.costSplit, total: data.summary.totalCost }}
       />
 
       {/* Charts row: activity + hour distribution */}

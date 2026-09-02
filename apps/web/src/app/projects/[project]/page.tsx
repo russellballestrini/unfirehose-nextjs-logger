@@ -433,7 +433,7 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
               cacheRead: full.stats.totalCacheRead ?? 0,
               cacheWrite: full.stats.totalCacheWrite ?? 0,
             }}
-            costs={full.stats.costSplit}
+            costs={full.stats.costSplit && { ...full.stats.costSplit, total: full.stats.totalCost }}
           />
           <div className="text-right">
             <Link

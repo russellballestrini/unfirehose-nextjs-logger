@@ -416,6 +416,7 @@ export default function TokensPage() {
           output: totalOutputCost,
           cacheRead: totalCacheReadCost,
           cacheWrite: totalCacheWriteCost,
+          total: totalCost,
         }}
         formatCost={formatCost}
       />

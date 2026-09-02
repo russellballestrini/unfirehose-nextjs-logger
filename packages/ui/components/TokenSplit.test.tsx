@@ -39,7 +39,7 @@ describe('TokenSplitCards', () => {
     expect(screen.getByText('Cache')).toBeTruthy();
     expect(screen.getByText('Output')).toBeTruthy();
     // Cache read + cache write, not cache read alone.
-    expect(screen.getByText('9594.0M')).toBeTruthy();
+    expect(screen.getByText('9.6B')).toBeTruthy();
   });
 
   it('prices each type when costs are supplied', () => {
@@ -85,6 +85,36 @@ describe('TokenSplitCards', () => {
     render(<TokenSplitCards tokens={CLAUDE_SHAPED} showTotal={false} />);
     expect(screen.queryByText('Total Tokens')).toBeNull();
     expect(screen.getByText('Cache')).toBeTruthy();
+  });
+});
+
+describe('total that the columns cannot account for', () => {
+  it('prefers an authoritative total over the sum of the columns', () => {
+    // Self-hosted electricity books whole: $16.61 lands in the total and in
+    // none of the four columns. Adding the columns understates the page's own
+    // cost figure sitting right above this tile.
+    render(
+      <TokenSplitCards
+        tokens={CLAUDE_SHAPED}
+        costs={{ input: 14.29, output: 618.44, cacheRead: 4908.52, cacheWrite: 386.50, total: 5944.36 }}
+      />
+    );
+    expect(screen.getByText('$5944.36')).toBeTruthy();
+  });
+
+  it('still prices the total when only the authoritative figure is known', () => {
+    render(<TokenSplitCards tokens={CLAUDE_SHAPED} costs={{ total: 16.61 }} />);
+    expect(screen.getByText('$16.61')).toBeTruthy();
+  });
+
+  it('falls back to the column sum when no total is given', () => {
+    render(
+      <TokenSplitCards
+        tokens={CLAUDE_SHAPED}
+        costs={{ input: 1, output: 2, cacheRead: 3, cacheWrite: 4 }}
+      />
+    );
+    expect(screen.getByText('$10.00')).toBeTruthy();
   });
 });
 

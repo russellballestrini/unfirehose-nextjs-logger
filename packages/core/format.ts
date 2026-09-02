@@ -1,6 +1,10 @@
 import { formatDistanceToNow, format, parseISO } from 'date-fns';
 
 export function formatTokens(n: number): string {
+  // Cache read alone runs into the billions on a coding-agent workload, and
+  // "10188.0M" is a number nobody reads as ten billion. Carry the scale up.
+  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
