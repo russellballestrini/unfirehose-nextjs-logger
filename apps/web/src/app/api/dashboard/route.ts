@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
-import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
+import { usageCacheHitRate, cacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -196,6 +196,44 @@ export async function GET(request: NextRequest) {
       tokensByHost[host] = (tokensByHost[host] ?? 0) + tot;
     }
 
+    // Measured prefix cache, for the models we serve ourselves.
+    //
+    // A self-hosted model reports no cache_read tokens, so usage-based cache
+    // math reads 0% for it however well the cache is working. vLLM counts the
+    // real thing and we already sample it every minute into
+    // vllm_cache_samples — it was simply stranded on one table on the Tokens
+    // page and never reached the model rows anyone actually reads.
+    //
+    // Counters, differenced across the window, per (host, model), then summed
+    // across hosts: the same model on two nodes is one model's cache.
+    const vllmStart = windowStart.replace('T', ' ').slice(0, 19);
+    const vllmRows = db.prepare(`
+      SELECT hostname, model, queries, hits
+        FROM vllm_cache_samples
+       WHERE timestamp >= ?
+       ORDER BY hostname, model, timestamp
+    `).all(vllmStart) as Array<{ hostname: string; model: string; queries: number; hits: number }>;
+
+    const perHost = new Map<string, { first: typeof vllmRows[0]; last: typeof vllmRows[0] }>();
+    for (const r of vllmRows) {
+      const k = `${r.hostname}\u0000${r.model}`;
+      const cur = perHost.get(k);
+      if (cur) cur.last = r;
+      else perHost.set(k, { first: r, last: r });
+    }
+    const measuredByModel = new Map<string, { queries: number; hits: number; hosts: Set<string> }>();
+    for (const [k, { first, last }] of perHost) {
+      const [hostname, model] = k.split('\u0000');
+      // One sample is not a window; a lone reading has no delta to report.
+      const before = first === last ? undefined : { model, queries: first.queries, hits: first.hits };
+      const w = cacheHitRate(before, { model, queries: last.queries, hits: last.hits });
+      const acc = measuredByModel.get(model) ?? { queries: 0, hits: 0, hosts: new Set<string>() };
+      acc.queries += w.queries;
+      acc.hits += w.hits;
+      acc.hosts.add(hostname);
+      measuredByModel.set(model, acc);
+    }
+
     const kwhRate = getKwhRate();
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
@@ -218,8 +256,18 @@ export async function GET(request: NextRequest) {
         const hostCost = kwhByHost[host] * kwhRate;
         meshObservedUSD = hostCost * (totalTokens / tokensByHost[host]);
       }
+      const measured = measuredByModel.get(m.model);
       return {
         model: m.model,
+        // What vLLM measured, when we serve this model ourselves. Null for a
+        // cloud model, which reports its cache in the usage fields instead.
+        measuredCacheHitRate:
+          measured && measured.queries > 0
+            ? Math.min(1, measured.hits / measured.queries)
+            : null,
+        measuredCacheQueries: measured?.queries ?? null,
+        measuredCacheHits: measured?.hits ?? null,
+        measuredCacheNodes: measured ? [...measured.hosts].sort() : null,
         inputTokens: m.input_tokens,
         outputTokens: m.output_tokens,
         cacheReadTokens: m.cache_read_tokens,

@@ -88,6 +88,12 @@ export default function DashboardPage() {
     inputCost: m.selfHosted ? null : m.inputCostUSD,
     outputCost: m.selfHosted ? null : m.outputCostUSD,
     cacheCost: m.selfHosted ? null : (m.cacheReadCostUSD ?? 0) + (m.cacheWriteCostUSD ?? 0),
+    // vLLM's own count, for models we serve. A self-hosted model reports no
+    // cache_read tokens, so without this our own cache reads as nonexistent.
+    measuredCacheHitRate: m.measuredCacheHitRate ?? null,
+    measuredCacheQueries: m.measuredCacheQueries ?? null,
+    measuredCacheHits: m.measuredCacheHits ?? null,
+    measuredCacheNodes: m.measuredCacheNodes ?? null,
     cost: m.costUSD ?? 0,
     // What these tokens are worth at oracle rates, and what our own hardware
     // saved by serving them. Both zero for ordinary cloud rows.
@@ -366,7 +372,7 @@ export default function DashboardPage() {
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }} title="Fresh prompt tokens the provider read for the first time.">Input</th>
-                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }} title="Cache read + cache write. Hover a cell for the two halves.">Cache</th>
+                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }} title="Cache read + cache write. A model we serve ourselves reports no cache tokens at all, so its cell shows the hit rate vLLM measured instead. Hover a cell either way.">Cache</th>
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }} title="Tokens the model generated.">Output</th>
                   <th className="pb-2 text-right" title="Input + output + cache read + cache write.">Tokens</th>
                   <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
@@ -428,12 +434,20 @@ export default function DashboardPage() {
                     <td
                       className="py-1.5 text-right"
                       title={
-                        `cache read ${formatTokens(m.cacheReadTokens)} · ` +
-                        `cache write ${formatTokens(m.cacheWriteTokens)}` +
-                        (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
+                        m.cacheReadTokens + m.cacheWriteTokens === 0 && m.measuredCacheHitRate != null
+                          ? `${formatTokens(m.measuredCacheHits ?? 0)} of ${formatTokens(m.measuredCacheQueries ?? 0)} prompt tokens served from vLLM's prefix cache` +
+                            `\non ${(m.measuredCacheNodes ?? []).join(', ')}.` +
+                            `\n\nA model we serve ourselves reports no cache_read tokens, so token accounting cannot see this. vLLM counts it; we sample the counters and difference them over the window.`
+                          : `cache read ${formatTokens(m.cacheReadTokens)} · ` +
+                            `cache write ${formatTokens(m.cacheWriteTokens)}` +
+                            (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
                       }
                     >
-                      {formatTokens(m.cacheReadTokens + m.cacheWriteTokens)}
+                      {m.cacheReadTokens + m.cacheWriteTokens === 0 && m.measuredCacheHitRate != null
+                        ? <span style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                            {(m.measuredCacheHitRate * 100).toFixed(1)}% hit
+                          </span>
+                        : formatTokens(m.cacheReadTokens + m.cacheWriteTokens)}
                     </td>
                     <td className="py-1.5 text-right" title={m.outputCost != null ? `${formatCost(m.outputCost)} at API rates` : undefined}>
                       {formatTokens(m.outputTokens)}
