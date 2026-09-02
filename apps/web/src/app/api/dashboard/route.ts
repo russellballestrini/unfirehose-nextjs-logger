@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
+import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -253,6 +254,17 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.totalTokens - a.totalTokens);
 
     const totalCost = modelBreakdown.reduce((s, m) => s + m.costUSD, 0);
+    // Token totals sum the same filtered breakdown the table renders, so the
+    // headline card and the table below it always reconcile. Cache read and
+    // cache write are counted — on a Claude Code workload they are ~92% of
+    // every token moved, and a total that omits them is not a total.
+    const totalInput = modelBreakdown.reduce((s, m) => s + m.inputTokens, 0);
+    const totalOutput = modelBreakdown.reduce((s, m) => s + m.outputTokens, 0);
+    const totalCacheRead = modelBreakdown.reduce((s, m) => s + m.cacheReadTokens, 0);
+    const totalCacheWrite = modelBreakdown.reduce((s, m) => s + m.cacheCreationTokens, 0);
+    const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheWrite;
+    const totalCacheCost = modelBreakdown.reduce(
+      (s, m) => s + m.cacheReadCostUSD + m.cacheWriteCostUSD, 0);
     t.mark('cost_attribute');
 
     // Combined date+hour activity: substr is much cheaper than strftime+DATE
@@ -319,6 +331,13 @@ export async function GET(request: NextRequest) {
         messages: summary?.messages ?? 0,
         models: summary?.models ?? 0,
         totalCost: Math.round(totalCost * 100) / 100,
+        totalTokens,
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        cacheReadTokens: totalCacheRead,
+        cacheWriteTokens: totalCacheWrite,
+        cacheHitRate: usageCacheHitRate(totalInput, totalCacheRead),
+        cacheCost: Math.round(totalCacheCost * 100) / 100,
         since: firstSession?.first?.split('T')[0] ?? null,
       },
       modelBreakdown,

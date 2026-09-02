@@ -78,6 +78,10 @@ export default function DashboardPage() {
     name: shortModel(m.model),
     fullName: m.model,
     tokens: m.totalTokens,
+    inputTokens: m.inputTokens ?? 0,
+    outputTokens: m.outputTokens ?? 0,
+    cacheReadTokens: m.cacheReadTokens ?? 0,
+    cacheWriteTokens: m.cacheCreationTokens ?? 0,
     cost: m.costUSD ?? 0,
     // What these tokens are worth at oracle rates, and what our own hardware
     // saved by serving them. Both zero for ordinary cloud rows.
@@ -93,6 +97,13 @@ export default function DashboardPage() {
   }));
 
   const avoidedTotal = modelData.reduce((s: number, m: any) => s + (m.avoided ?? 0), 0);
+
+  // How much of every token we moved was cache. On a coding-agent workload
+  // this runs above 90%, which is exactly why the headline has to say it.
+  const summaryTokens = data.summary.totalTokens ?? 0;
+  const cacheShare = summaryTokens > 0
+    ? ((data.summary.cacheReadTokens ?? 0) + (data.summary.cacheWriteTokens ?? 0)) / summaryTokens
+    : null;
 
   // Find sleep center and rotate hour data for bell curve
   const sleepCenter = findSleepCenter(data.hourCounts ?? []);
@@ -149,7 +160,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <PageContext
         pageType="dashboard"
-        summary={`Dashboard (${range}). ${data.summary.sessions} sessions, ${data.summary.messages} messages, $${data.summary.totalCost} equiv cost.`}
+        summary={`Dashboard (${range}). ${data.summary.sessions} sessions, ${data.summary.messages} messages, ${formatTokens(data.summary.totalTokens ?? 0)} tokens (${cacheShare == null ? 'n/a' : (cacheShare * 100).toFixed(0) + '%'} cache), $${data.summary.totalCost} equiv cost.`}
         metrics={data.summary}
       />
 
@@ -160,14 +171,31 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-6 gap-4">
         <StatCard label="Sessions" value={String(data.summary.sessions)} />
         <StatCard label="Messages" value={formatTokens(data.summary.messages)} />
         <StatCard label="Models" value={String(data.summary.models)} />
         <StatCard
+          label="Tokens"
+          value={formatTokens(data.summary.totalTokens ?? 0)}
+          sub={cacheShare == null ? undefined : `${(cacheShare * 100).toFixed(0)}% cache`}
+          title={
+            `input ${formatTokens(data.summary.inputTokens ?? 0)} · ` +
+            `output ${formatTokens(data.summary.outputTokens ?? 0)} · ` +
+            `cache read ${formatTokens(data.summary.cacheReadTokens ?? 0)} · ` +
+            `cache write ${formatTokens(data.summary.cacheWriteTokens ?? 0)}. ` +
+            `Cache read and cache write are counted — they are most of what a coding agent moves.`
+          }
+        />
+        <StatCard
           label="Equiv Cost"
           value={`$${data.summary.totalCost.toLocaleString()}`}
-          sub="at API rates"
+          sub={
+            data.summary.cacheCost > 0 && data.summary.totalCost > 0
+              ? `$${data.summary.cacheCost.toLocaleString()} of it cache`
+              : 'at API rates'
+          }
+          title="At API rates, cache read and cache write billed at their own rates — not free, and not folded into input."
         />
         <StatCard
           label="Since"
@@ -316,7 +344,13 @@ export default function DashboardPage() {
                   color: '#fafafa',
                   fontSize: 16,
                 }}
-                formatter={(value: any) => formatTokens(Number(value ?? 0))}
+                formatter={(value: any, _n: any, entry: any) => {
+                  const p = entry?.payload ?? {};
+                  return [
+                    `${formatTokens(Number(value ?? 0))} (in ${formatTokens(p.inputTokens ?? 0)} · out ${formatTokens(p.outputTokens ?? 0)} · cache ${formatTokens((p.cacheReadTokens ?? 0) + (p.cacheWriteTokens ?? 0))})`,
+                    'tokens',
+                  ];
+                }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -325,7 +359,7 @@ export default function DashboardPage() {
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
-                  <th className="pb-2 text-right">Tokens</th>
+                  <th className="pb-2 text-right" title="Input + output + cache read + cache write. Hover a row for the split.">Tokens</th>
                   <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
                   <th className="pb-2 text-right" title="What these tokens would cost at OpenRouter / Nous rates, whoever served them.">Market</th>
                   <th className="pb-2 text-right" title="Market minus cost — what running it ourselves saved.">Saved</th>
@@ -379,7 +413,15 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-1.5 text-right">
+                    <td
+                      className="py-1.5 text-right"
+                      title={
+                        `in ${formatTokens(m.inputTokens)} · ` +
+                        `out ${formatTokens(m.outputTokens)} · ` +
+                        `cache read ${formatTokens(m.cacheReadTokens)} · ` +
+                        `cache write ${formatTokens(m.cacheWriteTokens)}`
+                      }
+                    >
                       {formatTokens(m.tokens)}
                     </td>
                     <td className="py-1.5 text-right">
@@ -506,9 +548,9 @@ function DualHourTick({ x, y, payload, offset }: any) {
   );
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function StatCard({ label, value, sub, title }: { label: string; value: string; sub?: string; title?: string }) {
   return (
-    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4" title={title}>
       <div className="text-base text-[var(--color-muted)] mb-1">{label}</div>
       <div className="text-2xl font-bold">{value}</div>
       {sub && <div className="text-base text-[var(--color-muted)] mt-1">{sub}</div>}
