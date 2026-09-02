@@ -372,7 +372,7 @@ export default function DashboardPage() {
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }} title="Fresh prompt tokens the provider read for the first time.">Input</th>
-                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }} title="Cache read + cache write. A model we serve ourselves reports no cache tokens at all, so its cell shows the hit rate vLLM measured instead. Hover a cell either way.">Cache</th>
+                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }} title="Cache read + cache write. A model we serve ourselves reports no cache tokens, so its cell shows what vLLM measured, marked ~. A dash means the provider told us nothing — unknown, not zero.">Cache</th>
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }} title="Tokens the model generated.">Output</th>
                   <th className="pb-2 text-right" title="Input + output + cache read + cache write.">Tokens</th>
                   <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
@@ -434,20 +434,25 @@ export default function DashboardPage() {
                     <td
                       className="py-1.5 text-right"
                       title={
-                        m.cacheReadTokens + m.cacheWriteTokens === 0 && m.measuredCacheHitRate != null
-                          ? `${formatTokens(m.measuredCacheHits ?? 0)} of ${formatTokens(m.measuredCacheQueries ?? 0)} prompt tokens served from vLLM's prefix cache` +
-                            `\non ${(m.measuredCacheNodes ?? []).join(', ')}.` +
-                            `\n\nA model we serve ourselves reports no cache_read tokens, so token accounting cannot see this. vLLM counts it; we sample the counters and difference them over the window.`
-                          : `cache read ${formatTokens(m.cacheReadTokens)} · ` +
+                        m.cacheReadTokens + m.cacheWriteTokens > 0
+                          ? `cache read ${formatTokens(m.cacheReadTokens)} · ` +
                             `cache write ${formatTokens(m.cacheWriteTokens)}` +
                             (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
+                          : m.measuredCacheHits != null
+                            ? `${formatTokens(m.measuredCacheHits)} of ${formatTokens(m.measuredCacheQueries ?? 0)} prompt tokens served from vLLM's prefix cache` +
+                              ` — a ${((m.measuredCacheHitRate ?? 0) * 100).toFixed(1)}% hit rate` +
+                              `\non ${(m.measuredCacheNodes ?? []).join(', ')}.` +
+                              `\n\nMeasured, not billed — the ~ marks it. A model we serve ourselves reports no cache_read tokens, so token accounting cannot see this. vLLM counts it; we sample the counters and difference them over the window.`
+                            : 'This provider reported no cache detail for these tokens. Not zero — unknown. An aggregator often returns it only when the request asks for detailed usage accounting.'
                       }
                     >
-                      {m.cacheReadTokens + m.cacheWriteTokens === 0 && m.measuredCacheHitRate != null
-                        ? <span style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
-                            {(m.measuredCacheHitRate * 100).toFixed(1)}% hit
-                          </span>
-                        : formatTokens(m.cacheReadTokens + m.cacheWriteTokens)}
+                      {m.cacheReadTokens + m.cacheWriteTokens > 0
+                        ? formatTokens(m.cacheReadTokens + m.cacheWriteTokens)
+                        : m.measuredCacheHits != null
+                          ? <span className="text-[var(--color-muted)]">
+                              ~{formatTokens(m.measuredCacheHits)}
+                            </span>
+                          : <span className="text-[var(--color-muted)]">—</span>}
                     </td>
                     <td className="py-1.5 text-right" title={m.outputCost != null ? `${formatCost(m.outputCost)} at API rates` : undefined}>
                       {formatTokens(m.outputTokens)}
