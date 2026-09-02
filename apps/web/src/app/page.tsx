@@ -2,10 +2,10 @@
 
 import useSWR from 'swr';
 import { BootScreen } from './BootScreen';
-import { formatTokens } from '@unturf/unfirehose/format';
+import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { TokenSplitCards } from '@unturf/unfirehose-ui/TokenSplit';
+import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
 import {
   BarChart,
   Bar,
@@ -83,6 +83,11 @@ export default function DashboardPage() {
     outputTokens: m.outputTokens ?? 0,
     cacheReadTokens: m.cacheReadTokens ?? 0,
     cacheWriteTokens: m.cacheCreationTokens ?? 0,
+    // Self-hosted rows book energy into the total and leave these at zero, so
+    // an absent per-type price stays absent rather than reading as free.
+    inputCost: m.selfHosted ? null : m.inputCostUSD,
+    outputCost: m.selfHosted ? null : m.outputCostUSD,
+    cacheCost: m.selfHosted ? null : (m.cacheReadCostUSD ?? 0) + (m.cacheWriteCostUSD ?? 0),
     cost: m.costUSD ?? 0,
     // What these tokens are worth at oracle rates, and what our own hardware
     // saved by serving them. Both zero for ordinary cloud rows.
@@ -360,7 +365,10 @@ export default function DashboardPage() {
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
-                  <th className="pb-2 text-right" title="Input + output + cache read + cache write. Hover a row for the split.">Tokens</th>
+                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }} title="Fresh prompt tokens the provider read for the first time.">Input</th>
+                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }} title="Cache read + cache write. Hover a cell for the two halves.">Cache</th>
+                  <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }} title="Tokens the model generated.">Output</th>
+                  <th className="pb-2 text-right" title="Input + output + cache read + cache write.">Tokens</th>
                   <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
                   <th className="pb-2 text-right" title="What these tokens would cost at OpenRouter / Nous rates, whoever served them.">Market</th>
                   <th className="pb-2 text-right" title="Market minus cost — what running it ourselves saved.">Saved</th>
@@ -414,15 +422,23 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </td>
+                    <td className="py-1.5 text-right" title={m.inputCost != null ? `${formatCost(m.inputCost)} at API rates` : undefined}>
+                      {formatTokens(m.inputTokens)}
+                    </td>
                     <td
                       className="py-1.5 text-right"
                       title={
-                        `in ${formatTokens(m.inputTokens)} · ` +
-                        `out ${formatTokens(m.outputTokens)} · ` +
                         `cache read ${formatTokens(m.cacheReadTokens)} · ` +
-                        `cache write ${formatTokens(m.cacheWriteTokens)}`
+                        `cache write ${formatTokens(m.cacheWriteTokens)}` +
+                        (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
                       }
                     >
+                      {formatTokens(m.cacheReadTokens + m.cacheWriteTokens)}
+                    </td>
+                    <td className="py-1.5 text-right" title={m.outputCost != null ? `${formatCost(m.outputCost)} at API rates` : undefined}>
+                      {formatTokens(m.outputTokens)}
+                    </td>
+                    <td className="py-1.5 text-right">
                       {formatTokens(m.tokens)}
                     </td>
                     <td className="py-1.5 text-right">
@@ -448,7 +464,7 @@ export default function DashboardPage() {
               {avoidedTotal > 0 && (
                 <tfoot>
                   <tr className="border-t border-[var(--color-border)] text-[var(--color-muted)]">
-                    <td className="pt-2" colSpan={4}>
+                    <td className="pt-2" colSpan={7}>
                       saved by running our own hardware
                     </td>
                     <td className="pt-2 text-right text-[var(--color-success,#4ade80)]">
