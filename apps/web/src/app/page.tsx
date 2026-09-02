@@ -96,7 +96,9 @@ export default function DashboardPage() {
     measuredCacheNodes: m.measuredCacheNodes ?? null,
     cost: m.costUSD ?? 0,
     // What these tokens are worth at oracle rates, and what our own hardware
-    // saved by serving them. Both zero for ordinary cloud rows.
+    // saved by serving them. On a cloud row market EQUALS cost — the oracle
+    // rate is the invoice — and avoided is zero; only self-hosted rows put a
+    // real spread between the two. The table renders market accordingly.
     market: m.marketUSD ?? 0,
     avoided: m.avoidedUSD ?? 0,
     costSource: m.costSource ?? 'unknown',
@@ -376,7 +378,7 @@ export default function DashboardPage() {
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }} title="Tokens the model generated.">Output</th>
                   <th className="pb-2 text-right" title="Input + output + cache read + cache write.">Tokens</th>
                   <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
-                  <th className="pb-2 text-right" title="What these tokens would cost at OpenRouter / Nous rates, whoever served them.">Market</th>
+                  <th className="pb-2 text-right" title="What these tokens would cost at OpenRouter / Nous rates, whoever served them. Dashed on a provider row, where that rate is already the invoice under Cost.">Market</th>
                   <th className="pb-2 text-right" title="Market minus cost — what running it ourselves saved.">Saved</th>
                 </tr>
               </thead>
@@ -470,7 +472,13 @@ export default function DashboardPage() {
                           : `$${m.cost.toFixed(2)}`}
                     </td>
                     <td className="py-1.5 text-right text-[var(--color-muted)]">
-                      {m.market > 0 ? `$${m.market.toFixed(2)}` : '—'}
+                      {/* A cloud row's market price IS its invoice, so printing
+                          both puts the same figure in adjacent columns and the
+                          pair reads as a double charge. Market earns its ink
+                          only where it differs from what we paid. */}
+                      {m.market > 0 && m.market.toFixed(2) !== m.cost.toFixed(2)
+                        ? `$${m.market.toFixed(2)}`
+                        : <span title="Served by a provider — the market price is the invoice, shown under Cost.">—</span>}
                     </td>
                     <td className="py-1.5 text-right">
                       {m.avoided > 0
