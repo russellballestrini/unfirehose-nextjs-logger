@@ -34,7 +34,15 @@ export async function GET(request: NextRequest) {
         p.display_name as project_display,
         p.path as project_path,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count,
-        (SELECT SUM(m.input_tokens + m.output_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_tokens,
+        -- Recent tokens counted every type, not just input+output. Cache read
+        -- is ~90% of what a coding agent moves; a "recent tokens" figure that
+        -- drops it reports a tenth of the traffic and calls it the total.
+        (SELECT SUM(m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens)
+           FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_tokens,
+        (SELECT SUM(m.input_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_input,
+        (SELECT SUM(m.output_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_output,
+        (SELECT SUM(m.cache_read_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_cache_read,
+        (SELECT SUM(m.cache_creation_tokens) FROM messages m WHERE m.session_id = s.id AND m.timestamp >= ?) as recent_cache_write,
         (SELECT m.model FROM messages m WHERE m.session_id = s.id AND m.model IS NOT NULL ORDER BY m.timestamp DESC LIMIT 1) as last_model,
         -- Total reasoning blocks (includes opus-4-7 sealed thinking that has only
         -- a signature and no readable text).
@@ -52,7 +60,7 @@ export async function GET(request: NextRequest) {
         AND (s.status IS NULL OR s.status = 'active')
         ${sidechainFilter}
       ORDER BY updated_at DESC
-    `).all(cutoff, cutoff, cutoff, cutoff) as any[];
+    `).all(cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff) as any[];
 
     return NextResponse.json({
       sessions: sessions.map(s => ({
@@ -70,6 +78,10 @@ export async function GET(request: NextRequest) {
         projectPath: s.project_path,
         messageCount: s.message_count ?? 0,
         recentTokens: s.recent_tokens ?? 0,
+        recentInput: s.recent_input ?? 0,
+        recentOutput: s.recent_output ?? 0,
+        recentCacheRead: s.recent_cache_read ?? 0,
+        recentCacheWrite: s.recent_cache_write ?? 0,
         lastModel: s.last_model,
         reasoningCount: s.reasoning_count ?? 0,
         readableReasoningCount: s.readable_reasoning_count ?? 0,

@@ -244,6 +244,8 @@ export default function UsageMonitorPage() {
   const currentRate = {
     input: recentMinutes.reduce((s: number, m: any) => s + (m.input_tokens ?? 0), 0),
     output: recentMinutes.reduce((s: number, m: any) => s + (m.output_tokens ?? 0), 0),
+    cacheRead: recentMinutes.reduce((s: number, m: any) => s + (m.cache_read_tokens ?? 0), 0),
+    cacheWrite: recentMinutes.reduce((s: number, m: any) => s + (m.cache_creation_tokens ?? 0), 0),
     messages: recentMinutes.reduce((s: number, m: any) => s + (m.message_count ?? 0), 0),
   };
 
@@ -260,17 +262,19 @@ export default function UsageMonitorPage() {
 
   // Project bar chart scaling
   const projectMaxTotal = byProject
-    ? Math.max(...byProject.map((p: any) => (p.input_tokens ?? 0) + (p.output_tokens ?? 0)), 1)
+    ? Math.max(...byProject.map((p: any) => (p.input_tokens ?? 0) + (p.output_tokens ?? 0) + (p.cache_read_tokens ?? 0) + (p.cache_creation_tokens ?? 0)), 1)
     : 1;
 
   return (
     <div className="space-y-6">
       <PageContext
         pageType="usage-monitor"
-        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages. Mesh: ${mesh?.summary?.reachableNodes ?? '?'} nodes, ${mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? '?'} agents, ${mesh?.summary?.totalCores ?? '?'} cores, ${mesh?.summary?.totalMemGB ?? '?'}GB.`}
+        summary={`Usage monitor. Window: ${window === 0 ? 'Lifetime' : `${window}min`}. Input (5min): ${formatTokens(currentRate.input)}, Cache (5min): ${formatTokens(currentRate.cacheRead + currentRate.cacheWrite)}, Output (5min): ${formatTokens(currentRate.output)}, Messages (5min): ${currentRate.messages}. ${alerts?.length ?? 0} unacknowledged alerts. DB: ${dbStats ? formatTokens(dbStats.messages) : '?'} messages. Mesh: ${mesh?.summary?.reachableNodes ?? '?'} nodes, ${mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? '?'} agents, ${mesh?.summary?.totalCores ?? '?'} cores, ${mesh?.summary?.totalMemGB ?? '?'}GB.`}
         metrics={{
           window_minutes: window,
           input_5min: currentRate.input,
+          cache_read_5min: currentRate.cacheRead,
+          cache_write_5min: currentRate.cacheWrite,
           output_5min: currentRate.output,
           messages_5min: currentRate.messages,
           unacknowledged_alerts: alerts?.length ?? 0,

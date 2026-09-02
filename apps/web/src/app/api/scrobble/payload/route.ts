@@ -52,13 +52,21 @@ export async function GET() {
 
     // Derive lifetime totals from model rows
     let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalCost = 0;
+    // Each token type carries its own price, so the scrobble cards can say
+    // what input, cache and output each cost rather than one lump total.
+    const costSplit = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     const modelAgg = new Map<string, { model: string; messages: number; inputTokens: number; outputTokens: number }>();
     for (const m of modelDayRows) {
       totalInput += m.inp ?? 0;
       totalOutput += m.out ?? 0;
       totalCacheRead += m.cr ?? 0;
       totalCacheWrite += m.cw ?? 0;
-      totalCost += costForUsage({ model: m.model, input: m.inp, output: m.out, cacheRead: m.cr, cacheWrite: m.cw, at: m.date }).total;
+      const c = costForUsage({ model: m.model, input: m.inp, output: m.out, cacheRead: m.cr, cacheWrite: m.cw, at: m.date });
+      totalCost += c.total;
+      costSplit.input += c.input;
+      costSplit.output += c.output;
+      costSplit.cacheRead += c.cacheRead;
+      costSplit.cacheWrite += c.cacheWrite;
       const prev = modelAgg.get(m.model) ?? { model: m.model, messages: 0, inputTokens: 0, outputTokens: 0 };
       prev.messages += m.messages ?? 0;
       prev.inputTokens += m.inp ?? 0;
@@ -230,6 +238,7 @@ export async function GET() {
         totalCacheRead: totalCacheRead,
         totalCacheWrite: totalCacheWrite,
         totalCostUSD: Math.round(totalCost * 100) / 100,
+        costSplit,
       },
       streaks: { current: currentStreak, longest: longestStreak },
       badges,

@@ -54,10 +54,18 @@ export async function GET(
     `).all(proj.id) as any[];
 
     let totalCost = 0;
+    // Cost split per token type, so a project page can price input, cache and
+    // output separately instead of reporting one opaque total.
+    const costSplit = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     const byModel = new Map<string, any>();
     for (const r of modelDayRows) {
-      const cost = costForUsage({ model: r.model, input: r.input, output: r.output, cacheRead: r.cache_read, cacheWrite: r.cache_write, at: r.day }).total;
+      const c = costForUsage({ model: r.model, input: r.input, output: r.output, cacheRead: r.cache_read, cacheWrite: r.cache_write, at: r.day });
+      const cost = c.total;
       totalCost += cost;
+      costSplit.input += c.input;
+      costSplit.output += c.output;
+      costSplit.cacheRead += c.cacheRead;
+      costSplit.cacheWrite += c.cacheWrite;
       const m = byModel.get(r.model) ?? { model: r.model, input: 0, output: 0, cache_read: 0, cache_write: 0, messages: 0, cost: 0 };
       m.input += r.input; m.output += r.output; m.cache_read += r.cache_read; m.cache_write += r.cache_write;
       m.messages += r.messages; m.cost += cost;
@@ -132,6 +140,7 @@ export async function GET(
         totalCacheRead: stats.total_cache_read ?? 0,
         totalCacheWrite: stats.total_cache_write ?? 0,
         totalCost,
+        costSplit,
         firstActivity: stats.first_activity,
         lastActivity: stats.last_activity,
         activeDays: stats.active_days ?? 0,

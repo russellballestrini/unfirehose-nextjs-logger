@@ -7,6 +7,7 @@ import type { ProjectInfo } from '@unturf/unfirehose/types';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
+import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -331,6 +332,11 @@ function ProjectCard({
           <span>{activity.active_days}d active / {rangeDays}d</span>
         )}
       </div>
+      {project.tokens && (
+        <div className="mt-1 text-sm text-[var(--color-muted)]">
+          <TokenSplitInline tokens={project.tokens} />
+        </div>
+      )}
       <div className="flex items-center justify-between mt-2">
         {activity && activity.cost_estimate > 0 ? (
           <span className="text-base text-[var(--color-accent)] font-bold">

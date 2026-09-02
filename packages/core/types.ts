@@ -192,6 +192,20 @@ export interface ProjectInfo {
   harnesses?: string[];
   /** Ephemeral project rows folded into this one (agent scratch workspaces). */
   foldedCount?: number;
+  /**
+   * Tokens this project moved, by type. Cache is carried separately because
+   * it is the majority of any coding-agent workload — a project list that
+   * reports only input and output describes a fraction of the traffic.
+   * Absent for rows built from the filesystem index alone.
+   */
+  tokens?: ProjectTokenTotals;
+}
+
+export interface ProjectTokenTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
 }
 
 // === Project Metadata (git) ===

@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
   BarChart,
@@ -52,13 +53,6 @@ const MODEL_COLORS: Record<string, string> = {
   'claude-sonnet-4-20250514':   '#22c55e',
   // Haiku tier — amber shades
   'claude-haiku-4-5-20251001':  '#fbbf24',
-};
-
-const TOKEN_TYPE_COLORS = {
-  input: '#60a5fa',
-  output: '#a78bfa',
-  cacheRead: '#10b981',
-  cacheWrite: '#f472b6',
 };
 
 const TOOL_COLORS = [
@@ -410,11 +404,23 @@ export default function TokensPage() {
       {activeTab === 'overview' && (<>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-5 gap-4">
-        <StatCard label="Total Tokens" value={formatTokens(totalTokens)} />
+      <TokenSplitCards
+        tokens={{
+          input: totalInput,
+          output: totalOutput,
+          cacheRead: totalCacheRead,
+          cacheWrite: totalCacheWrite,
+        }}
+        costs={{
+          input: totalInputCost,
+          output: totalOutputCost,
+          cacheRead: totalCacheReadCost,
+          cacheWrite: totalCacheWriteCost,
+        }}
+        formatCost={formatCost}
+      />
+      <div className="grid grid-cols-2 gap-4">
         <StatCard label="Equivalent Cost" value={formatCost(totalCost)} sub="at API rates" />
-        <StatCard label="Input" value={formatTokens(totalInput)} color="var(--color-user)" />
-        <StatCard label="Output" value={formatTokens(totalOutput)} color="var(--color-thinking)" />
         <StatCard
           label="Cache Hit Rate"
           value={cacheHitPct == null ? '—' : `${(cacheHitPct * 100).toFixed(1)}%`}

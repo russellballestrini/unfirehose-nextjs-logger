@@ -81,8 +81,33 @@ interface DbRow {
   is_repo: number;
   sessions: number;
   messages: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   latest: string | null;
   harnesses: string | null;
+}
+
+type TokenTotals = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+const zeroTokens = (): TokenTotals => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+
+const tokensOf = (r: DbRow): TokenTotals => ({
+  input: r.input_tokens ?? 0,
+  output: r.output_tokens ?? 0,
+  cacheRead: r.cache_read_tokens ?? 0,
+  cacheWrite: r.cache_write_tokens ?? 0,
+});
+
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+function addTokens(target: any, r: DbRow) {
+  target.tokens = target.tokens ?? zeroTokens();
+  const t = tokensOf(r);
+  target.tokens.input += t.input;
+  target.tokens.output += t.output;
+  target.tokens.cacheRead += t.cacheRead;
+  target.tokens.cacheWrite += t.cacheWrite;
 }
 
 export async function GET() {
@@ -121,6 +146,12 @@ export async function GET() {
             -- messages keep arriving.
             SELECT s.project_id,
                    COUNT(*)          AS messages,
+                   -- Free on a scan we already pay for. Cache is counted
+                   -- because it is most of what any project moves.
+                   SUM(m.input_tokens)          AS input_tokens,
+                   SUM(m.output_tokens)         AS output_tokens,
+                   SUM(m.cache_read_tokens)     AS cache_read_tokens,
+                   SUM(m.cache_creation_tokens) AS cache_write_tokens,
                    MAX(m.timestamp)  AS latest_msg
               FROM messages m
               JOIN sessions s ON s.id = m.session_id
@@ -136,6 +167,10 @@ export async function GET() {
                       THEN 1 ELSE 0 END            AS is_repo,
                  sess.sessions                     AS sessions,
                  COALESCE(msg.messages, 0)         AS messages,
+                 COALESCE(msg.input_tokens, 0)     AS input_tokens,
+                 COALESCE(msg.output_tokens, 0)    AS output_tokens,
+                 COALESCE(msg.cache_read_tokens, 0)  AS cache_read_tokens,
+                 COALESCE(msg.cache_write_tokens, 0) AS cache_write_tokens,
                  MAX(COALESCE(msg.latest_msg, ''), COALESCE(sess.latest, '')) AS latest,
                  sess.harnesses                    AS harnesses
             FROM projects p
@@ -266,9 +301,12 @@ export async function GET() {
         if (dbSeen.has(key)) {
           existing.sessionCount += r.sessions;
           existing.totalMessages += r.messages;
+          addTokens(existing, r);
         } else {
           existing.sessionCount = r.sessions;
           existing.totalMessages = r.messages;
+          existing.tokens = zeroTokens();
+          addTokens(existing, r);
           dbSeen.add(key);
         }
         existing.latestActivity = newerOf(existing.latestActivity, r.latest ?? '');
@@ -282,6 +320,7 @@ export async function GET() {
           path: r.path ?? '',
           sessionCount: r.sessions,
           totalMessages: r.messages,
+          tokens: tokensOf(r),
           latestActivity: r.latest ?? '',
           hasMemory: false,
           harnesses,
@@ -299,6 +338,13 @@ export async function GET() {
       repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
       repo.sessionCount += child.sessionCount;
       repo.totalMessages += child.totalMessages;
+      if (child.tokens) {
+        repo.tokens = repo.tokens ?? zeroTokens();
+        repo.tokens.input += child.tokens.input;
+        repo.tokens.output += child.tokens.output;
+        repo.tokens.cacheRead += child.tokens.cacheRead;
+        repo.tokens.cacheWrite += child.tokens.cacheWrite;
+      }
       repo.foldedCount = (repo.foldedCount ?? 0) + 1 + (child.foldedCount ?? 0);
       repo.harnesses = Array.from(new Set([...(repo.harnesses ?? []), ...(child.harnesses ?? [])]));
     }, { unmatched: 'drop', foldTargets });

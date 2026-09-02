@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import useSWR from 'swr';
-import { formatTokens } from '@unturf/unfirehose/format';
+import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -60,6 +60,12 @@ export default function ScrobblePage() {
   // Defensive: API contract guarantees these shapes but a partial / cached / older
   // response shouldn't deref-crash.
   const lt = payload.lifetime ?? { totalSessions: 0, totalMessages: 0, activeDays: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheRead: 0, totalCacheWrite: 0, totalCostUSD: 0 };
+  // Price per token type when the payload carries one. An older payload has
+  // no split — those cards keep their plain-language sub and no price, which
+  // is honest; a missing price must never render as $0.
+  const cs = lt.costSplit;
+  const priced = (usd: number | undefined, tail: string) =>
+    usd == null ? tail : `${formatCost(usd)} · ${tail}`;
   const streaks = payload.streaks ?? { current: 0, longest: 0 };
   const activity = payload.activity ?? { hourOfDay: [], dayOfWeek: [], heatmap: [] };
   const timeSeries = payload.timeSeries ?? { dailyMessages: [], dailyCost: [], weeklyVelocity: [] };
@@ -169,10 +175,10 @@ export default function ScrobblePage() {
 
           {/* Token breakdown */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Input Tokens" value={formatTokens(lt.totalInputTokens)} sub="prompts → model" />
-            <StatCard label="Output Tokens" value={formatTokens(lt.totalOutputTokens)} sub="model → you" />
-            <StatCard label="Cache Read" value={formatTokens(lt.totalCacheRead)} sub="saved compute" />
-            <StatCard label="Cache Write" value={formatTokens(lt.totalCacheWrite)} sub="new cache" />
+            <StatCard label="Input Tokens" value={formatTokens(lt.totalInputTokens)} sub={priced(cs?.input, 'prompts → model')} />
+            <StatCard label="Output Tokens" value={formatTokens(lt.totalOutputTokens)} sub={priced(cs?.output, 'model → you')} />
+            <StatCard label="Cache Read" value={formatTokens(lt.totalCacheRead)} sub={priced(cs?.cacheRead, 'replayed prompt')} />
+            <StatCard label="Cache Write" value={formatTokens(lt.totalCacheWrite)} sub={priced(cs?.cacheWrite, 'new cache')} />
           </div>
 
           {/* Activity heatmap — sleep schedule proxy */}

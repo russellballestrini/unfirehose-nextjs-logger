@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
 import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
+import { TokenSplitCards } from '@unturf/unfirehose-ui/TokenSplit';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
@@ -417,14 +418,23 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
       {/* Stats bar */}
       {full?.stats && (
         <div className="space-y-2">
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard label="Sessions" value={full.stats.sessionCount} />
             <StatCard label="Messages" value={full.stats.messageCount.toLocaleString()} />
-            <StatCard label="Input" value={formatTokens(full.stats.totalInput)} />
-            <StatCard label="Output" value={formatTokens(full.stats.totalOutput)} />
             <StatCard label="Active Days" value={full.stats.activeDays} sub={full.stats.firstActivity ? `since ${formatRelativeTime(full.stats.firstActivity)}` : undefined} />
             <StatCard label="Equiv Cost" value={`$${full.stats.totalCost.toFixed(2)}`} />
           </div>
+          {/* This project's tokens by type, each priced. Input and output
+              alone described about 8% of what this project actually moved. */}
+          <TokenSplitCards
+            tokens={{
+              input: full.stats.totalInput ?? 0,
+              output: full.stats.totalOutput ?? 0,
+              cacheRead: full.stats.totalCacheRead ?? 0,
+              cacheWrite: full.stats.totalCacheWrite ?? 0,
+            }}
+            costs={full.stats.costSplit}
+          />
           <div className="text-right">
             <Link
               href={`/tokens?project=${encodeURIComponent(project)}`}

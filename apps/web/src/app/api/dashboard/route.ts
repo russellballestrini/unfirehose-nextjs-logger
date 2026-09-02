@@ -263,8 +263,13 @@ export async function GET(request: NextRequest) {
     const totalCacheRead = modelBreakdown.reduce((s, m) => s + m.cacheReadTokens, 0);
     const totalCacheWrite = modelBreakdown.reduce((s, m) => s + m.cacheCreationTokens, 0);
     const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheWrite;
-    const totalCacheCost = modelBreakdown.reduce(
-      (s, m) => s + m.cacheReadCostUSD + m.cacheWriteCostUSD, 0);
+    const costSplit = {
+      input: modelBreakdown.reduce((s, m) => s + m.inputCostUSD, 0),
+      output: modelBreakdown.reduce((s, m) => s + m.outputCostUSD, 0),
+      cacheRead: modelBreakdown.reduce((s, m) => s + m.cacheReadCostUSD, 0),
+      cacheWrite: modelBreakdown.reduce((s, m) => s + m.cacheWriteCostUSD, 0),
+    };
+    const totalCacheCost = costSplit.cacheRead + costSplit.cacheWrite;
     t.mark('cost_attribute');
 
     // Combined date+hour activity: substr is much cheaper than strftime+DATE
@@ -338,6 +343,7 @@ export async function GET(request: NextRequest) {
         cacheWriteTokens: totalCacheWrite,
         cacheHitRate: usageCacheHitRate(totalInput, totalCacheRead),
         cacheCost: Math.round(totalCacheCost * 100) / 100,
+        costSplit,
         since: firstSession?.first?.split('T')[0] ?? null,
       },
       modelBreakdown,

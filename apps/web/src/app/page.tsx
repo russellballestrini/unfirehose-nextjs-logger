@@ -5,6 +5,7 @@ import { BootScreen } from './BootScreen';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
+import { TokenSplitCards } from '@unturf/unfirehose-ui/TokenSplit';
 import {
   BarChart,
   Bar,
@@ -171,22 +172,10 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-6 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <StatCard label="Sessions" value={String(data.summary.sessions)} />
         <StatCard label="Messages" value={formatTokens(data.summary.messages)} />
         <StatCard label="Models" value={String(data.summary.models)} />
-        <StatCard
-          label="Tokens"
-          value={formatTokens(data.summary.totalTokens ?? 0)}
-          sub={cacheShare == null ? undefined : `${(cacheShare * 100).toFixed(0)}% cache`}
-          title={
-            `input ${formatTokens(data.summary.inputTokens ?? 0)} · ` +
-            `output ${formatTokens(data.summary.outputTokens ?? 0)} · ` +
-            `cache read ${formatTokens(data.summary.cacheReadTokens ?? 0)} · ` +
-            `cache write ${formatTokens(data.summary.cacheWriteTokens ?? 0)}. ` +
-            `Cache read and cache write are counted — they are most of what a coding agent moves.`
-          }
-        />
         <StatCard
           label="Equiv Cost"
           value={`$${data.summary.totalCost.toLocaleString()}`}
@@ -202,6 +191,18 @@ export default function DashboardPage() {
           value={data.summary.since ?? '?'}
         />
       </div>
+
+      {/* Every token we moved, split by type and priced. Cache is the pile
+          that matters — hiding it inside a single total hides the workload. */}
+      <TokenSplitCards
+        tokens={{
+          input: data.summary.inputTokens ?? 0,
+          output: data.summary.outputTokens ?? 0,
+          cacheRead: data.summary.cacheReadTokens ?? 0,
+          cacheWrite: data.summary.cacheWriteTokens ?? 0,
+        }}
+        costs={data.summary.costSplit}
+      />
 
       {/* Charts row: activity + hour distribution */}
       <div className="grid grid-cols-2 gap-4">

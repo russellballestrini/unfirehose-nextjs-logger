@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
+import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
@@ -20,6 +21,10 @@ interface ActiveSession {
   projectPath: string;
   messageCount: number;
   recentTokens: number;
+  recentInput: number;
+  recentOutput: number;
+  recentCacheRead: number;
+  recentCacheWrite: number;
   lastModel: string | null;
   harness: string | null;
   isSidechain: boolean;
@@ -194,9 +199,22 @@ export default function ActivePage() {
                 <div>
                   {session.messageCount} msgs
                 </div>
-                <div>
+                <div title="Every token type this session moved in the window, cache included.">
                   {formatTokens(session.recentTokens)} recent
                 </div>
+              </div>
+
+              {/* What those recent tokens actually were. A session's cache read
+                  dwarfs its input; a lump sum hides which one is growing. */}
+              <div className="mt-2 text-xs text-[var(--color-muted)]">
+                <TokenSplitInline
+                  tokens={{
+                    input: session.recentInput ?? 0,
+                    output: session.recentOutput ?? 0,
+                    cacheRead: session.recentCacheRead ?? 0,
+                    cacheWrite: session.recentCacheWrite ?? 0,
+                  }}
+                />
               </div>
 
               <div className="mt-3 flex items-center gap-2 text-xs text-[var(--color-muted)]">

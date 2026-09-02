@@ -358,10 +358,10 @@ export default function AlertDetailPage() {
           {/* Costs come from totals.cost_split_usd, priced per model by the API.
               These used to be Opus rates multiplied inline here, so this panel
               disagreed with every other page for anything not running on Opus. */}
-          <StatCard label="Input Tokens" value={formatTokens(totals.input_tokens)} sub={formatCost(totals.cost_split_usd?.input ?? 0)} />
-          <StatCard label="Output Tokens" value={formatTokens(totals.output_tokens)} sub={formatCost(totals.cost_split_usd?.output ?? 0)} warn={stats.output_share_pct > 40} />
-          <StatCard label="Cache Read" value={formatTokens(totals.cache_read_tokens)} sub={formatCost(totals.cost_split_usd?.cache_read ?? 0)} />
-          <StatCard label="Cache Write" value={formatTokens(totals.cache_creation_tokens)} sub={formatCost(totals.cost_split_usd?.cache_write ?? 0)} />
+          <StatCard label="Input Tokens" value={formatTokens(totals.input_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.input ?? 0) : undefined} />
+          <StatCard label="Output Tokens" value={formatTokens(totals.output_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.output ?? 0) : undefined} warn={stats.output_share_pct > 40} />
+          <StatCard label="Cache Read" value={formatTokens(totals.cache_read_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.cache_read ?? 0) : undefined} />
+          <StatCard label="Cache Write" value={formatTokens(totals.cache_creation_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.cache_write ?? 0) : undefined} />
           <StatCard label="I/O Ratio" value={`${stats.input_output_ratio}:1`} sub={`${stats.unique_models} model${stats.unique_models !== 1 ? 's' : ''}`} />
         </div>
 
