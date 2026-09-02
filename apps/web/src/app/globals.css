@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Tailwind v4 auto-detects sources from this app only. Our shared
+   components live outside it, so a utility used solely in packages/ui
+   would generate no CSS and the component would render unstyled. Every
+   class they use today happens to appear in apps/web too, which makes
+   this the kind of breakage that waits for the next new class. */
+@source "../../../../packages/ui/components";
+
 @theme inline {
   --color-background: #09090b;
   --color-foreground: #fafafa;
