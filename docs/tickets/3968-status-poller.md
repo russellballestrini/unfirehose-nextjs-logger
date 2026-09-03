@@ -103,6 +103,6 @@ measures language models, not our fleet.
 - xAI: fox pointed at status.x.ai; its <head> advertises `/feed.xml` (RSS,
   custom Next.js site, robots absent). Only the root is Cloudflare-walled.
   Parser learned RSS items with `Status:` / `Severity:`; the vendor's own
-  severity word decides major. OpenRouter (not Statuspage) still reads
-  `unreachable` with a note.
+  severity word decides major. OpenRouter: fox found `/incidents.rss` — Statuspage after all, at a
+  non-default path; robots allows it. All four defaults now read.
 - Option 1 from the robots decision (feeds only) is what shipped.

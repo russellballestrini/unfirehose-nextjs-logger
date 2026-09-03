@@ -106,6 +106,40 @@ describe('parseStatuspageFeed on RSS (status.x.ai)', () => {
   });
 });
 
+// Trimmed from status.openrouter.ai/incidents.rss (Statuspage RSS), 2026-09-03 16:10Z.
+const OPENROUTER_FEED = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>OpenRouter Status - Incident History</title>
+    <description>Statuspage</description>
+    <item>
+      <title>Web application degraded</title>
+      <description><![CDATA[<p><small>Aug 28, 10:33 PM UTC</small><br/><strong>RESOLVED</strong> - <p>This incident has been resolved.</p></p>]]></description>
+      <pubDate>Fri, 28 Aug 2026 19:50:46 GMT</pubDate>
+      <link>status.openrouter.ai/incidents/l4Gmz6NbAW1o</link>
+    </item>
+    <item>
+      <title>Elevated 429s on Anthropic and OpenAI</title>
+      <description><![CDATA[<p><small>Aug 28, 2:15 AM UTC</small><br/><strong>INVESTIGATING</strong> - <p>Looking into it.</p></p>]]></description>
+      <pubDate>Fri, 28 Aug 2026 02:15:31 GMT</pubDate>
+      <link>status.openrouter.ai/incidents/n8d-Ze48m14W</link>
+    </item>
+  </channel>
+</rss>`;
+
+describe('parseStatuspageFeed on Statuspage RSS (openrouter)', () => {
+  it('reads the strong tag as status and gives links a scheme', () => {
+    const inc = parseStatuspageFeed(OPENROUTER_FEED);
+    expect(inc).toHaveLength(2);
+    expect(inc[0]).toMatchObject({ title: 'Web application degraded', status: 'Resolved', open: false, link: 'https://status.openrouter.ai/incidents/l4Gmz6NbAW1o' });
+    expect(inc[1]).toMatchObject({ status: 'Investigating', open: true });
+    expect(inferIndicator(inc)).toEqual({ indicator: 'minor', description: 'Investigating: Elevated 429s on Anthropic and OpenAI' });
+  });
+  it('all resolved reads as operational', () => {
+    expect(inferIndicator(parseStatuspageFeed(OPENROUTER_FEED).slice(0, 1)).indicator).toBe('none');
+  });
+});
+
 describe('inferIndicator', () => {
   it('is none with nothing open', () => {
     expect(inferIndicator(parseStatuspageFeed(FEED).slice(1))).toEqual({ indicator: 'none', description: 'No open incidents' });

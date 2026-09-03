@@ -66,9 +66,7 @@ export interface StatusPoll {
 }
 
 /**
- * Feeds verified 2026-09-03. OpenRouter is listed so its absence is visible
- * rather than silent: status.openrouter.ai is not a Statuspage host and
- * reads `unreachable` until someone finds a machine path.
+ * Feeds verified 2026-09-03 against live captures (see the tests).
  */
 export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   { id: 'anthropic',  name: 'Anthropic',  url: 'https://status.claude.com',      kind: 'statuspage-feed', feed: 'https://status.claude.com/history.atom' },
@@ -76,8 +74,9 @@ export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   // Custom Next.js site; the root is Cloudflare-walled but the RSS the page
   // advertises in its <head> is open. One item per affected component.
   { id: 'x-ai',       name: 'xAI / Grok', url: 'https://status.x.ai',            kind: 'statuspage-feed', feed: 'https://status.x.ai/feed.xml' },
-  { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'statuspage-feed', feed: 'https://status.openrouter.ai/history.atom',
-    note: 'Not an Atlassian Statuspage host; feed path unknown.' },
+  // Statuspage under the hood after all — its RSS lives at a non-default
+  // path. robots.txt disallows /incidents$ and /incidents?, not this.
+  { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'statuspage-feed', feed: 'https://status.openrouter.ai/incidents.rss' },
 ];
 
 export const STATUS_TARGETS_SETTING = 'status_targets';
@@ -199,18 +198,24 @@ export function parseStatuspageFeed(xml: string): StatusIncident[] {
       ?? 'Unknown';
     out.push({ title, status, updatedAt, link, open: !RESOLVED.test(status) });
   }
-  // RSS 2.0 (status.x.ai, a custom site): one <item> per affected component,
-  // `<h3>Status: ACTIVE</h3>` and `<p>Severity: outage</p>` in the
-  // description, the state repeated as <category> tags.
+  // RSS 2.0, two shapes: status.x.ai (custom site — one <item> per affected
+  // component, `<h3>Status: ACTIVE</h3>`, `<p>Severity: outage</p>`, state
+  // repeated as <category> tags) and Statuspage's own RSS
+  // (status.openrouter.ai/incidents.rss — `<strong>RESOLVED</strong>` at the
+  // top of the description like its Atom, scheme-less links).
   const items = xml.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi) ?? [];
   for (const it of items) {
     const title = decodeEntities(tag(it, 'title') ?? '').replace(/<[^>]+>/g, '').trim();
     const pub = tag(it, 'pubDate') ?? '';
     const ms = Date.parse(pub);
     const updatedAt = Number.isNaN(ms) ? pub : new Date(ms).toISOString();
-    const link = tag(it, 'link');
+    const rawLink = tag(it, 'link');
+    const link = rawLink ? (/^https?:\/\//i.test(rawLink) ? rawLink : `https://${rawLink}`) : null;
     const desc = decodeEntities(tag(it, 'description') ?? '');
-    const status = /Status:\s*([A-Za-z_ -]{1,40}?)\s*</i.exec(desc)?.[1]?.trim() ?? 'Unknown';
+    const status =
+      /Status:\s*([A-Za-z_ -]{1,40}?)\s*</i.exec(desc)?.[1]?.trim()
+      ?? /<strong>\s*([^<]{1,40}?)\s*<\/strong>/i.exec(desc)?.[1]?.trim()
+      ?? 'Unknown';
     const severity = /Severity:\s*([A-Za-z_ -]{1,40}?)\s*</i.exec(desc)?.[1]?.trim().toLowerCase();
     const cats = [...it.matchAll(/<category>([^<]+)<\/category>/gi)].map((m) => m[1].trim().toLowerCase());
     const open = cats.includes('resolved') ? false : cats.includes('active') ? true : !RESOLVED.test(status);
