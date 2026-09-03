@@ -5,6 +5,7 @@ import { getProjectActivity, getProjectModelActivity, getProjectRecentPrompts } 
 import { calcCostBreakdown, isSelfHosted } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
+import { isWorkspacePath, isEphemeralPath } from '@unturf/unfirehose/project-rollup';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
 import { Timing } from '@/lib/timing';
 
@@ -152,6 +153,14 @@ export async function GET(request: NextRequest) {
         })();
     t.mark(fromCache ? 'activity_cache' : 'activity_query');
 
+    // A fleet worker is the most recently active thing on this box almost
+    // every minute of a run, so an unfiltered list puts 2,455 of them above
+    // every real repo — including in the sidebar, which takes the top five.
+    // Asking for one by name still returns it; only the list is filtered.
+    const listed = project
+      ? activity
+      : activity.filter((r: any) => !isWorkspacePath(r.path) && !isEphemeralPath(r.path));
+
     // Per-project cost, summed over each model that actually ran there.
     ensurePricingHydrated();
     const costByProject = new Map<string, { cost: number; market: number; avoided: number }>();
@@ -169,7 +178,7 @@ export async function GET(request: NextRequest) {
     }
     t.mark('cost');
 
-    const enriched = activity.map((p: any) => {
+    const enriched = listed.map((p: any) => {
       const c = costByProject.get(p.name) ?? { cost: 0, market: 0, avoided: 0 };
       return {
         ...p,

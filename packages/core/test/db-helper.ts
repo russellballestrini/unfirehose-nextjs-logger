@@ -15,6 +15,9 @@ export function createTestDb(): Database.Database {
       name TEXT UNIQUE NOT NULL,
       display_name TEXT NOT NULL,
       path TEXT,
+      last_cwd_seen TEXT,
+      root_commit_hash TEXT,
+      origin_url TEXT,
       first_seen TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

@@ -2414,6 +2414,7 @@ export function getProjectActivity(days = 30) {
     SELECT
       p.name,
       p.display_name,
+      COALESCE(p.path, p.last_cwd_seen) as path,
       COUNT(CASE WHEN m.type = 'user' THEN 1 END) as user_messages,
       COUNT(CASE WHEN m.type = 'assistant' THEN 1 END) as assistant_messages,
       COUNT(DISTINCT s.session_uuid) as session_count,
