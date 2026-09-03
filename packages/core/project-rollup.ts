@@ -171,6 +171,69 @@ export const EPHEMERAL_PATH_ROOTS = [
   '/run',
 ];
 
+/**
+ * Path segments that mark an agent's scratch workspace rather than a project.
+ *
+ * A fleet run gives every worker its own directory
+ * (`<run>/fleet/workers/worker_003/workspace/agent_...`), each of which
+ * becomes a `projects` row on first ingest. On 2026-09-03 that was 2,558 of
+ * 9,033 rows, and they arrived at the head of the project list because they
+ * are always the most recently active thing on the box. They are not
+ * projects: they are where one run of one agent happened.
+ */
+export const WORKSPACE_PATH_SEGMENTS = ['/fleet/workers/', '/workers/worker_'];
+
+export function isWorkspacePath(p: string | null | undefined): boolean {
+  if (!p) return false;
+  return WORKSPACE_PATH_SEGMENTS.some((seg) => p.includes(seg));
+}
+
+/**
+ * Longest row whose path is an ancestor directory of `path`.
+ *
+ * Name-prefix matching cannot place a fleet worker: its encoded name carries
+ * a run id and a uuid the repo's name never contains. Its path does say where
+ * it lives, so a workspace folds into whatever project owns the directory
+ * above it.
+ */
+export function ancestorByPath(
+  path: string,
+  candidates: Iterable<{ name: string; path: string }>,
+): string | null {
+  const self = path.replace(/\/+$/, '');
+  let best: string | null = null;
+  let bestLen = -1;
+  for (const c of candidates) {
+    const q = c.path.replace(/\/+$/, '');
+    if (q.length >= self.length || !self.startsWith(`${q}/`)) continue;
+    if (q.length > bestLen) { bestLen = q.length; best = c.name; }
+  }
+  return best;
+}
+
+/**
+ * How many tracked paths sit under each tracked path.
+ *
+ * Was a nested loop over every pair, which on 2,558 pathed rows is 6.5M
+ * string comparisons and 2.5s of a 7.6s response. Walking each path's own
+ * ancestors instead is O(rows x depth) and answers the same question.
+ */
+export function countPathChildren(paths: Iterable<string>): Map<string, number> {
+  const all = new Set<string>();
+  for (const p of paths) all.add(p.replace(/\/+$/, ''));
+  const counts = new Map<string, number>();
+  for (const p of all) {
+    let cur = p;
+    for (;;) {
+      const slash = cur.lastIndexOf('/');
+      if (slash <= 0) break;
+      cur = cur.slice(0, slash);
+      if (all.has(cur)) counts.set(cur, (counts.get(cur) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 export function isEphemeralPath(p: string | null | undefined): boolean {
   if (!p) return false;
   const s = p.replace(/\/+$/, '');

@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { decodeProjectName, resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { rollupProjects, rollupTarget, newerOf, isEphemeralPath } from '@unturf/unfirehose/project-rollup';
+import { rollupProjects, rollupTarget, newerOf, isEphemeralPath, isWorkspacePath, ancestorByPath, countPathChildren } from '@unturf/unfirehose/project-rollup';
 import { NextResponse } from 'next/server';
 import type { ProjectInfo, SessionsIndex } from '@unturf/unfirehose/types';
 import { Timing } from '@/lib/timing';
@@ -207,19 +207,16 @@ export async function GET() {
     const clean = (s: string) => s.replace(/\/+$/, '');
     const pathed = dbRows.filter((r) => r.path);
     const allPaths = pathed.map((r) => clean(r.path as string));
-    const childCount = new Map<string, number>();
-    for (const p of allPaths) {
-      for (const q of allPaths) {
-        if (q.length < p.length && p.startsWith(`${q}/`)) {
-          childCount.set(q, (childCount.get(q) ?? 0) + 1);
-        }
-      }
-    }
+    const childCount = countPathChildren(allPaths);
     // Scratch space: never a project, never a parent of one, and never kept as
     // a row. It folds into the repo its name identifies, or it is dropped.
     const ephemeral = new Set<string>();
     for (const r of dbRows) {
-      if (isEphemeralPath(r.path)) ephemeral.add(r.name);
+      // A fleet worker's directory is where one run of one agent happened, not
+      // a project. Treated exactly like /tmp: it folds into whatever owns the
+      // directory above it, or it is left off the list. Its sessions and
+      // messages are untouched and still queryable everywhere else.
+      if (isEphemeralPath(r.path) || isWorkspacePath(r.path)) ephemeral.add(r.name);
     }
     for (const n of ephemeral) repoNames.delete(n);
 
@@ -329,12 +326,52 @@ export async function GET() {
       }
     }
 
+    // Path fold, before the name fold. A fleet worker's encoded name carries a
+    // run id and a uuid that its repo's name never contains, so `rollupTarget`
+    // can never place it; its path can. Folding here keeps a worker's sessions
+    // and tokens on the repo that owns the directory, instead of dropping them
+    // with the row.
+    const foldablePaths = dbRows
+      .filter((r) => r.path && !ephemeral.has(r.name) && repoNames.has(canonicalName(r)))
+      .map((r) => ({ name: canonicalName(r), path: clean(r.path as string) }));
+    const pathFold = new Map<string, string>();
+    for (const r of dbRows) {
+      if (!ephemeral.has(r.name) || !r.path) continue;
+      const parent = ancestorByPath(clean(r.path), foldablePaths);
+      if (parent && parent !== r.name) pathFold.set(r.name, parent);
+    }
+
     const merged = Array.from(byName.values());
     // unmatched:'drop' — a row that is neither a git root nor inside one is an
     // ephemeral container (unsandbox `sandbox-*`, `uncloseai:tmp-*`), not a
     // project. Keeping them turned this list into 2,166 entries where ~100 are
     // real. Their sessions are untouched and still queryable everywhere else.
-    const { rows, orphans } = rollupProjects(merged, repoNames, (repo, child) => {
+    const mergeInto = (repo: ProjectInfo, child: ProjectInfo) => {
+      repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
+      repo.sessionCount += child.sessionCount;
+      repo.totalMessages += child.totalMessages;
+      if (child.tokens) {
+        repo.tokens = repo.tokens ?? zeroTokens();
+        repo.tokens.input += child.tokens.input;
+        repo.tokens.output += child.tokens.output;
+        repo.tokens.cacheRead += child.tokens.cacheRead;
+        repo.tokens.cacheWrite += child.tokens.cacheWrite;
+      }
+      repo.foldedCount = (repo.foldedCount ?? 0) + 1 + (child.foldedCount ?? 0);
+      repo.harnesses = Array.from(new Set([...(repo.harnesses ?? []), ...(child.harnesses ?? [])]));
+    };
+
+    let pathFolded = 0;
+    const afterPathFold: ProjectInfo[] = [];
+    for (const row of merged) {
+      const parentName = pathFold.get(row.name);
+      const parent = parentName ? byName.get(parentName) : undefined;
+      if (parent && parent !== row) { mergeInto(parent, row); pathFolded++; continue; }
+      afterPathFold.push(row);
+    }
+    t.mark('path_fold');
+
+    const { rows, orphans } = rollupProjects(afterPathFold, repoNames, (repo, child) => {
       repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
       repo.sessionCount += child.sessionCount;
       repo.totalMessages += child.totalMessages;
@@ -350,8 +387,8 @@ export async function GET() {
     }, { unmatched: 'drop', foldTargets });
     t.mark('rollup');
 
-    if (orphans.length) {
-      console.log(`[projects] ${orphans.length} ephemeral project row(s) dropped (no containing repo)`);
+    if (orphans.length || pathFolded) {
+      console.log(`[projects] ${pathFolded} workspace row(s) folded by path, ${orphans.length} ephemeral row(s) dropped (no containing repo)`);
     }
 
     rows.sort((a, b) => b.latestActivity.localeCompare(a.latestActivity));

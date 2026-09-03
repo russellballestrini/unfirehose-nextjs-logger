@@ -4,6 +4,9 @@ import {
   rollupTarget,
   rollupProjects,
   newerOf,
+  isWorkspacePath,
+  ancestorByPath,
+  countPathChildren,
   type RollupInput,
 } from './project-rollup.js';
 
@@ -181,5 +184,59 @@ describe('unmatched: drop', () => {
     const all = [mk('sandbox-abc', '2026-08-25T00:00:00Z')];
     const { rows } = rollupProjects(all, REPOS, merge, { unmatched: 'keep' });
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('isWorkspacePath', () => {
+  it('marks a fleet worker directory, not the run or the repo that holds it', () => {
+    expect(isWorkspacePath('/home/fox/fox-mission/results/2026-09-03_be707b2/fleet/workers/worker_000/work')).toBe(true);
+    expect(isWorkspacePath('/home/fox/git/arborist/bench/missions/m/results/r/fleet/workers/worker_003/workspace/agent_x')).toBe(true);
+    expect(isWorkspacePath('/home/fox/git/arborist')).toBe(false);
+    expect(isWorkspacePath('/home/fox/fox-mission/results/2026-09-03_be707b2')).toBe(false);
+    expect(isWorkspacePath(null)).toBe(false);
+  });
+});
+
+describe('ancestorByPath', () => {
+  const rows = [
+    { name: 'arborist', path: '/home/fox/git/arborist' },
+    { name: 'git', path: '/home/fox/git' },
+    { name: 'other', path: '/home/fox/git/other' },
+  ];
+  it('picks the longest ancestor, not the first', () => {
+    expect(ancestorByPath('/home/fox/git/arborist/bench/x/fleet/workers/worker_000/work', rows)).toBe('arborist');
+  });
+  it('is null when nothing contains it', () => {
+    expect(ancestorByPath('/srv/elsewhere/deep', rows)).toBeNull();
+  });
+  it('does not match a path against itself or a sibling prefix', () => {
+    expect(ancestorByPath('/home/fox/git/arborist', rows)).toBe('git');
+    expect(ancestorByPath('/home/fox/git/arborist-viz', rows)).toBe('git');
+  });
+});
+
+describe('countPathChildren', () => {
+  it('counts every tracked descendant, at any depth', () => {
+    const c = countPathChildren([
+      '/home/fox/git',
+      '/home/fox/git/a',
+      '/home/fox/git/a/deep/nested',
+      '/home/fox/git/b',
+      '/tmp/x',
+    ]);
+    expect(c.get('/home/fox/git')).toBe(3);
+    expect(c.get('/home/fox/git/a')).toBe(1);
+    expect(c.get('/home/fox/git/b')).toBeUndefined();
+    expect(c.get('/tmp/x')).toBeUndefined();
+  });
+  it('matches the pairwise definition it replaced', () => {
+    const paths = ['/a', '/a/b', '/a/b/c', '/a/d', '/e', '/e/f/', '/a/'];
+    const clean = (s: string) => s.replace(/\/+$/, '');
+    const uniq = [...new Set(paths.map(clean))];
+    const naive = new Map<string, number>();
+    for (const p of uniq) for (const q of uniq) {
+      if (q.length < p.length && p.startsWith(`${q}/`)) naive.set(q, (naive.get(q) ?? 0) + 1);
+    }
+    expect(Object.fromEntries(countPathChildren(paths))).toEqual(Object.fromEntries(naive));
   });
 });
