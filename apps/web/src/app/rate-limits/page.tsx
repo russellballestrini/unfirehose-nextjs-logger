@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
@@ -69,6 +70,11 @@ export default function RateLimitsPage() {
   // answer, the provider falling over and the provider refusing us are the
   // same event.
   const [tab, setTab] = useStickyState<'refusals' | 'status'>('rate_limits_tab', 'refusals');
+  // `?tab=status` deep-links the vendor tab (and wins over the sticky value).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'status' || t === 'refusals') setTab(t);
+  }, [setTab]);
 
   const minutes = getTimeRangeMinutes(range);
 
