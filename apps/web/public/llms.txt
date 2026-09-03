@@ -258,7 +258,7 @@ Manage alerts (dismiss, acknowledge).
 
 ### GET /api/rate-limits
 Refusals — every way a provider declined a call (throttles, quota, overloaded, 5xx, model gone), from harness-reported records and scanned output.
-- `?days=7&target=inference|service|web&kind=all|throttles|<kind>&limit=200`
+- `?minutes=60&target=inference|service|web&kind=all|throttles|<kind>&limit=200` (`minutes=0` lifetime; `days=N` still accepted)
 → `{ total, byUpstream, byProvider, byDay, recent, attribution }` — every row carries `http_status`
 
 ### POST /api/rate-limits

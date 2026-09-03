@@ -74,7 +74,7 @@ export default function RateLimitsPage() {
   const days = minutes > 0 ? Math.max(1, Math.ceil(minutes / 1440)) : 365;
 
   const { data, error, isLoading } = useSWR<any>(
-    `/api/rate-limits?days=${days}&target=${encodeURIComponent(target)}`
+    `/api/rate-limits?minutes=${minutes}&target=${encodeURIComponent(target)}`
       + `&kind=${encodeURIComponent(kind)}&limit=200`,
     fetcher,
     { refreshInterval: 30_000, keepPreviousData: true },
@@ -94,9 +94,9 @@ export default function RateLimitsPage() {
     <div className="space-y-5">
       <PageContext
         pageType="rate-limits"
-        summary={`Refusals. ${data?.total ?? 0} ${target} events over ${days}d`
+        summary={`Refusals. ${data?.total ?? 0} ${target} events over ${range === 'all' ? 'lifetime' : range}`
           + `${kind === 'all' ? '' : ` (kind: ${kind})`}.`}
-        metrics={{ total: data?.total ?? 0, target, kind, days }}
+        metrics={{ total: data?.total ?? 0, target, kind, range, minutes }}
         details={byProvider.map((r) => `${r.provider} ${r.kind}: ${r.events}`).join('\n')}
       />
 

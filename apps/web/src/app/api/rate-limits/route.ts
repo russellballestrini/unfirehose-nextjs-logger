@@ -5,7 +5,7 @@ import { scanRateLimits, scanRateLimitsFully, backfillReportedRefusals } from '@
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/rate-limits?days=30&target=inference&kind=all
+ * GET /api/rate-limits?minutes=1440&target=inference&kind=all   (or days=30)
  *
  * When a provider refused us, who did it, and how hard.
  *
@@ -25,11 +25,18 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   const db = getDb();
-  const days = Math.max(1, Math.min(365, Number(req.nextUrl.searchParams.get('days') ?? 30)));
+  // `minutes` is the window the page's range picker speaks (0 = lifetime);
+  // `days` stays for callers that predate it. Quantising to whole days made
+  // every sub-day choice return the same 24h.
+  const minutesParam = req.nextUrl.searchParams.get('minutes');
+  const minutes = minutesParam !== null
+    ? (Number(minutesParam) > 0 ? Math.min(Number(minutesParam), 365 * 1440) : 365 * 1440)
+    : Math.max(1, Math.min(365, Number(req.nextUrl.searchParams.get('days') ?? 30))) * 1440;
+  const days = Math.max(1, Math.ceil(minutes / 1440));
   const target = req.nextUrl.searchParams.get('target') ?? 'inference';
   const limit = Math.max(1, Math.min(500, Number(req.nextUrl.searchParams.get('limit') ?? 100)));
 
-  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const since = new Date(Date.now() - minutes * 60_000).toISOString();
   const targetClause = target === 'all' ? '' : 'AND target = ?';
 
   // `kind` filters the same rows every panel already reads, so it composes
@@ -140,7 +147,7 @@ export async function GET(req: NextRequest) {
   const total = (byProvider as Array<{ events: number }>).reduce((s, r) => s + r.events, 0);
 
   return NextResponse.json({
-    days, target, kind, total, targets, kinds, byProvider, byUpstream, byDay, recent,
+    days, minutes, target, kind, total, targets, kinds, byProvider, byUpstream, byDay, recent,
     // How much of this window can even name who refused. Surfaced so the page
     // can say "N of M events do not identify an upstream" rather than showing
     // a blank column and letting it read as no throttling.
