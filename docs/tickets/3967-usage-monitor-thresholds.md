@@ -1,6 +1,6 @@
 # 3967: Usage Monitor — thresholds that mean something
 
-**Status:** open
+**Status:** done
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 90m
 **Todo IDs:** 3967
@@ -57,3 +57,18 @@ scale:
   it, but pricing lives in the price book on /tokens and would need to be
   joined per minute per model. Worth a follow-up ticket if uncached tokens
   prove too coarse.
+
+## Done — 2026-09-03
+
+- `calibrateAlertThresholds(days, factor)` in core: dense per-minute series,
+  prefix sums, p95 per rolling window, 1.5×, two significant figures. Stores
+  its run in settings `alert_calibration`; rules with no tokens are skipped.
+- 11 rules seeded (4 windows × 3 metrics, minus 1m total). One-time
+  migration `alert_defaults_v2` flips existing installs: input/output at
+  15m and 60m on, everything else off.
+- Threshold edits and calibration acknowledge open alerts on the moved rule.
+- `/api/alerts?filter=daily&days=N` per-day breach counts; page shows days,
+  raw list behind a disclosure. Page went 1066 → 384 lines; four unrendered
+  components, seven unused fetches and the range selector are gone.
+- Live run: 751 open alerts acknowledged. Enabled rules now 15m 4.6M in /
+  210K out, 60m 16M in / 780K out.

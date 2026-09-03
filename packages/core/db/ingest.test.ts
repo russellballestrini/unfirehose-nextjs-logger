@@ -27,6 +27,9 @@ const {
   getProjectRecentPrompts,
   getAlertThresholds,
   updateAlertThreshold,
+  calibrateAlertThresholds,
+  acknowledgeAlertsForThreshold,
+  getAlertDailyCounts,
   getAlertById,
   getUsageByProjectInWindow,
   getModelBreakdownInWindow,
@@ -255,9 +258,9 @@ describe('getProjectRecentPrompts', () => {
 // === getAlertThresholds ===
 
 describe('getAlertThresholds', () => {
-  it('returns the 7 seeded default thresholds', () => {
+  it('returns the 11 seeded default thresholds', () => {
     const thresholds = getAlertThresholds();
-    expect(thresholds).toHaveLength(7);
+    expect(thresholds).toHaveLength(11);
   });
 
   it('orders by window_minutes then metric', () => {
@@ -286,6 +289,82 @@ describe('updateAlertThreshold', () => {
 
     const updated = testDb.prepare('SELECT enabled FROM alert_thresholds WHERE id = ?').get(thresholds[0].id) as { enabled: number };
     expect(updated.enabled).toBe(0);
+  });
+});
+
+// === calibrateAlertThresholds ===
+
+describe('calibrateAlertThresholds', () => {
+  const now = new Date('2026-09-03T12:00:00Z');
+
+  it('sets each rule to 1.5x its own p95, rounded to two significant figures', () => {
+    const pid = seedProject(testDb, 'cal');
+    // 7 days of steady 1000 output tokens/min, one 1-hour burst at 100k/min.
+    for (let i = 0; i < 7 * 1440; i++) {
+      const minute = new Date(now.getTime() - (7 * 1440 - i) * 60000).toISOString().slice(0, 16);
+      const burst = i >= 5000 && i < 5060;
+      seedUsageMinute(testDb, pid, minute, { output: burst ? 100000 : 1000, input: 0 });
+    }
+    const results = calibrateAlertThresholds(7, 1.5, now);
+    const out60 = results.find(r => r.metric === 'output_tokens' && r.window_minutes === 60)!;
+    // A one-hour burst is <1% of hourly windows, so p95 stays at the steady rate.
+    expect(out60.p95).toBe(60000);
+    expect(out60.threshold).toBe(90000);
+    expect(out60.samples).toBe(7 * 1440 - 60 + 1);
+    const row = testDb.prepare("SELECT threshold_value FROM alert_thresholds WHERE window_minutes = 60 AND metric = 'output_tokens'").get() as { threshold_value: number };
+    expect(row.threshold_value).toBe(90000);
+  });
+
+  it('leaves rules alone when their metric saw no tokens', () => {
+    const pid = seedProject(testDb, 'cal');
+    seedUsageMinute(testDb, pid, now.toISOString().slice(0, 16), { output: 500, input: 0 });
+    const before = testDb.prepare("SELECT threshold_value FROM alert_thresholds WHERE metric = 'input_tokens' AND window_minutes = 60").get() as { threshold_value: number };
+    const results = calibrateAlertThresholds(7, 1.5, now);
+    expect(results.some(r => r.metric === 'input_tokens')).toBe(false);
+    const after = testDb.prepare("SELECT threshold_value FROM alert_thresholds WHERE metric = 'input_tokens' AND window_minutes = 60").get() as { threshold_value: number };
+    expect(after.threshold_value).toBe(before.threshold_value);
+  });
+
+  it('acknowledges open alerts on every rule it moves', () => {
+    const pid = seedProject(testDb, 'cal');
+    for (let i = 0; i < 1440; i++) {
+      const minute = new Date(now.getTime() - (1440 - i) * 60000).toISOString().slice(0, 16);
+      seedUsageMinute(testDb, pid, minute, { output: 1000, input: 0 });
+    }
+    seedAlert(testDb, { metric: 'output_tokens', windowMinutes: 60, acknowledged: 0 });
+    seedAlert(testDb, { metric: 'output_tokens', windowMinutes: 60, acknowledged: 0 });
+    seedAlert(testDb, { metric: 'total_tokens', windowMinutes: 15, acknowledged: 0 });
+    const results = calibrateAlertThresholds(1, 1.5, now);
+    const out60 = results.find(r => r.metric === 'output_tokens' && r.window_minutes === 60)!;
+    expect(out60.acknowledged).toBe(2);
+    const open = testDb.prepare('SELECT metric FROM alerts WHERE acknowledged = 0').all() as { metric: string }[];
+    // total_tokens moved too (output counts toward total), so nothing stays open
+    expect(open.filter(a => a.metric === 'output_tokens')).toHaveLength(0);
+  });
+});
+
+describe('acknowledgeAlertsForThreshold', () => {
+  it('acknowledges only the matching rule and reports the count', () => {
+    seedAlert(testDb, { metric: 'total_tokens', windowMinutes: 15, acknowledged: 0 });
+    seedAlert(testDb, { metric: 'total_tokens', windowMinutes: 15, acknowledged: 0 });
+    seedAlert(testDb, { metric: 'total_tokens', windowMinutes: 60, acknowledged: 0 });
+    expect(acknowledgeAlertsForThreshold(15, 'total_tokens')).toBe(2);
+    const open = testDb.prepare('SELECT window_minutes FROM alerts WHERE acknowledged = 0').all() as { window_minutes: number }[];
+    expect(open).toEqual([{ window_minutes: 60 }]);
+  });
+});
+
+describe('getAlertDailyCounts', () => {
+  it('groups breaches by day and rule with open count and peak', () => {
+    seedAlert(testDb, { metric: 'total_tokens', windowMinutes: 15, actualValue: 30, acknowledged: 0 });
+    seedAlert(testDb, { metric: 'total_tokens', windowMinutes: 15, actualValue: 45, acknowledged: 1 });
+    seedAlert(testDb, { metric: 'output_tokens', windowMinutes: 60, actualValue: 9, acknowledged: 0 });
+    const rows = getAlertDailyCounts(14);
+    expect(rows).toHaveLength(2);
+    const t15 = rows.find(r => r.metric === 'total_tokens')!;
+    expect(t15.count).toBe(2);
+    expect(t15.unacknowledged).toBe(1);
+    expect(t15.peak).toBe(45);
   });
 });
 

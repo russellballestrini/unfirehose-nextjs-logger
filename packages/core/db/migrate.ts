@@ -800,27 +800,37 @@ export function migrate(db: Database.Database) {
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
 
-  // Seed default alert thresholds if empty
+  // Seed default alert thresholds.
+  //
+  // Rows exist for every (window, metric) pair we know how to check. Only
+  // billable tokens (uncached input, output) at 15 and 60 minutes start
+  // enabled: total_tokens is ~90% cache reads at 10% price, so a total_tokens
+  // alert tracks context churn rather than spend and fires every window.
+  // Values here are plan-tier guesses; calibrateAlertThresholds() replaces
+  // them with 1.5x our own observed p95 once there is history to read.
   const count = db.prepare('SELECT COUNT(*) as c FROM alert_thresholds').get() as { c: number };
-  if (count.c === 0) {
-    const insert = db.prepare(
-      'INSERT INTO alert_thresholds (window_minutes, metric, threshold_value) VALUES (?, ?, ?)'
-    );
-    const defaults = db.transaction(() => {
-      // Per-minute thresholds (tuned for Max plan, ~$6-8k/mo equivalent, 20+ agents)
-      insert.run(1, 'output_tokens', 250000);        // 250K output/min = truly burning
-      insert.run(1, 'input_tokens', 2500000);         // 2.5M input/min = massive context load
-      // 5-minute windows
-      insert.run(5, 'output_tokens', 1000000);        // 1M output in 5 min
-      insert.run(5, 'input_tokens', 10000000);         // 10M input in 5 min
-      insert.run(5, 'total_tokens', 12500000);         // 12.5M total in 5 min
-      // 15-minute windows
-      insert.run(15, 'total_tokens', 25000000);        // 25M total in 15 min
-      // Hourly
-      insert.run(60, 'total_tokens', 75000000);       // 75M total per hour
-    });
-    defaults();
-  } else {
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO alert_thresholds (window_minutes, metric, threshold_value, enabled) VALUES (?, ?, ?, ?)'
+  );
+  const seedRows = db.transaction(() => {
+    // Per-minute (tuned for Max plan, ~$6-8k/mo equivalent, 20+ agents)
+    insert.run(1,  'output_tokens', 250000,    0);
+    insert.run(1,  'input_tokens',  2500000,   0);
+    // 5-minute windows
+    insert.run(5,  'output_tokens', 1000000,   0);
+    insert.run(5,  'input_tokens',  10000000,  0);
+    insert.run(5,  'total_tokens',  12500000,  0);
+    // 15-minute windows
+    insert.run(15, 'output_tokens', 2500000,   1);
+    insert.run(15, 'input_tokens',  25000000,  1);
+    insert.run(15, 'total_tokens',  25000000,  0);
+    // Hourly
+    insert.run(60, 'output_tokens', 7500000,   1);
+    insert.run(60, 'input_tokens',  75000000,  1);
+    insert.run(60, 'total_tokens',  75000000,  0);
+  });
+  seedRows();
+  if (count.c > 0) {
     // Migration: bump thresholds from v1 defaults (too aggressive for Max plan)
     const v1Bump = db.transaction(() => {
       const bump = (win: number, metric: string, oldVal: number, newVal: number) => {
@@ -837,5 +847,20 @@ export function migrate(db: Database.Database) {
       bump(60, 'total_tokens', 15000000, 75000000);
     });
     v1Bump();
+  }
+
+  // One-time: move existing installs onto the billable-metrics default. A
+  // settings flag guards it so a human who later re-enables total_tokens is
+  // not overruled on every boot.
+  const flag = db.prepare("SELECT value FROM settings WHERE key = 'alert_defaults_v2'").get();
+  if (!flag) {
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE alert_thresholds SET enabled = CASE
+           WHEN metric IN ('input_tokens', 'output_tokens') AND window_minutes IN (15, 60) THEN 1
+           ELSE 0 END`
+      ).run();
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('alert_defaults_v2', '1')").run();
+    })();
   }
 }

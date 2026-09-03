@@ -40,10 +40,10 @@ describe('schema migration', () => {
     db.close();
   });
 
-  it('seeds 7 default alert thresholds', () => {
+  it('seeds 11 default alert thresholds', () => {
     const db = createTestDb();
     const count = db.prepare('SELECT COUNT(*) as c FROM alert_thresholds').get() as { c: number };
-    expect(count.c).toBe(7);
+    expect(count.c).toBe(11);
     db.close();
   });
 

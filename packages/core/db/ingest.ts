@@ -2528,6 +2528,146 @@ export function updateAlertThreshold(
   ).run(value, enabled ? 1 : 0, id);
 }
 
+/** Acknowledge every open alert measured against a (window, metric) rule.
+ *  Called when that rule's threshold changes — those alerts compared usage to
+ *  a number we have just declared wrong, so they carry no signal. Returns
+ *  how many were acknowledged. */
+export function acknowledgeAlertsForThreshold(windowMinutes: number, metric: string): number {
+  const db = getDb();
+  return db.prepare(
+    `UPDATE alerts SET acknowledged = 1
+     WHERE acknowledged = 0 AND alert_type = 'threshold_breach'
+       AND window_minutes = ? AND metric = ?`
+  ).run(windowMinutes, metric).changes;
+}
+
+export interface ThresholdCalibration {
+  id: number;
+  window_minutes: number;
+  metric: string;
+  previous: number;
+  p95: number;
+  threshold: number;
+  /** Rolling-window samples the percentile was read from. */
+  samples: number;
+  /** Open alerts acknowledged because the rule moved. */
+  acknowledged: number;
+}
+
+/** Round to two significant figures so a threshold reads as a number a
+ *  human would have typed (1.8e8 → 180,000,000, not 183,838,739). */
+function roundToTwoSig(x: number): number {
+  if (x <= 0) return 0;
+  const unit = 10 ** (Math.floor(Math.log10(x)) - 1);
+  return Math.round(x / unit) * unit;
+}
+
+/**
+ * Set every alert threshold to `factor` × the p95 of its own rolling window
+ * over the last `days` of usage_minutes. Hand-guessed plan-tier defaults
+ * either never fire or fire every window; our own history says what
+ * "unusual" means here. Rules whose window never saw a token are left alone
+ * — there is nothing to calibrate against. Alerts open against a moved rule
+ * are acknowledged.
+ */
+export function calibrateAlertThresholds(days = 7, factor = 1.5, now = new Date()): ThresholdCalibration[] {
+  const db = getDb();
+  const totalMinutes = Math.max(1, Math.round(days * 1440));
+  const endMs = Math.floor(now.getTime() / 60000) * 60000;
+  const startMs = endMs - totalMinutes * 60000;
+  const startStr = new Date(startMs).toISOString().slice(0, 16);
+
+  const rows = db.prepare(
+    `SELECT minute,
+            SUM(input_tokens) AS input,
+            SUM(output_tokens) AS output,
+            SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS total
+     FROM usage_minutes WHERE minute >= ? GROUP BY minute`
+  ).all(startStr) as Array<{ minute: string; input: number; output: number; total: number }>;
+
+  // Dense per-minute series with zeros for idle minutes, so a quiet night
+  // counts against the percentile the way it counts against our bill.
+  const n = totalMinutes + 1;
+  const series: Record<string, Float64Array> = {
+    input_tokens: new Float64Array(n),
+    output_tokens: new Float64Array(n),
+    total_tokens: new Float64Array(n),
+  };
+  for (const r of rows) {
+    const idx = Math.round((Date.parse(r.minute + ':00Z') - startMs) / 60000);
+    if (idx < 0 || idx >= n) continue;
+    series.input_tokens[idx] += r.input;
+    series.output_tokens[idx] += r.output;
+    series.total_tokens[idx] += r.total;
+  }
+
+  const prefix = (arr: Float64Array) => {
+    const p = new Float64Array(arr.length + 1);
+    for (let i = 0; i < arr.length; i++) p[i + 1] = p[i] + arr[i];
+    return p;
+  };
+  const prefixes: Record<string, Float64Array> = Object.fromEntries(
+    Object.entries(series).map(([k, v]) => [k, prefix(v)])
+  );
+
+  const thresholds = db.prepare('SELECT * FROM alert_thresholds ORDER BY window_minutes, metric')
+    .all() as Array<{ id: number; window_minutes: number; metric: string; threshold_value: number }>;
+  const update = db.prepare('UPDATE alert_thresholds SET threshold_value = ? WHERE id = ?');
+
+  const results: ThresholdCalibration[] = [];
+  db.transaction(() => {
+    for (const t of thresholds) {
+      const pre = prefixes[t.metric];
+      const w = t.window_minutes;
+      if (!pre || w <= 0 || w >= n) continue;
+      const sums: number[] = [];
+      for (let i = w; i < n; i++) sums.push(pre[i] - pre[i - w]);
+      sums.sort((a, b) => a - b);
+      const p95 = sums[Math.floor(0.95 * (sums.length - 1))];
+      if (!(p95 > 0)) continue;
+      const threshold = roundToTwoSig(p95 * factor);
+      let acknowledged = 0;
+      if (threshold !== t.threshold_value) {
+        update.run(threshold, t.id);
+        acknowledged = acknowledgeAlertsForThreshold(w, t.metric);
+      }
+      results.push({
+        id: t.id, window_minutes: w, metric: t.metric,
+        previous: t.threshold_value, p95, threshold, samples: sums.length, acknowledged,
+      });
+    }
+  })();
+
+  setSetting('alert_calibration', JSON.stringify({ at: now.toISOString(), days, factor, results }));
+  return results;
+}
+
+export interface AlertDailyCount {
+  day: string;
+  window_minutes: number;
+  metric: string;
+  count: number;
+  unacknowledged: number;
+  peak: number;
+}
+
+/** Breaches per day per rule — a page can say "3 today" instead of listing
+ *  every row. Newest day first. */
+export function getAlertDailyCounts(days = 14): AlertDailyCount[] {
+  const db = getDb();
+  return db.prepare(
+    `SELECT substr(triggered_at, 1, 10) AS day, window_minutes, metric,
+            COUNT(*) AS count,
+            SUM(CASE WHEN acknowledged = 0 THEN 1 ELSE 0 END) AS unacknowledged,
+            MAX(actual_value) AS peak
+     FROM alerts
+     WHERE alert_type = 'threshold_breach'
+       AND triggered_at >= datetime('now', '-' || ? || ' days')
+     GROUP BY day, window_minutes, metric
+     ORDER BY day DESC, window_minutes DESC, metric`
+  ).all(days) as AlertDailyCount[];
+}
+
 // === Alert Detail Queries ===
 
 export function getAlertById(id: number) {
@@ -2742,15 +2882,15 @@ export function deleteSetting(key: string) {
 // Plan-based threshold multipliers
 const PLAN_THRESHOLDS: Record<string, Record<string, number>> = {
   // Free: conservative, single-agent light usage
-  free:    { '1:output_tokens': 50000,  '1:input_tokens': 500000,   '5:output_tokens': 200000,  '5:input_tokens': 2000000,   '5:total_tokens': 2500000,   '15:total_tokens': 5000000,   '60:total_tokens': 15000000  },
+  free:    { '15:output_tokens': 500000,  '15:input_tokens': 5000000,   '60:output_tokens': 1500000,  '60:input_tokens': 15000000, '1:output_tokens': 50000,  '1:input_tokens': 500000,   '5:output_tokens': 200000,  '5:input_tokens': 2000000,   '5:total_tokens': 2500000,   '15:total_tokens': 5000000,   '60:total_tokens': 15000000  },
   // Starter $14/mo: individual, a few agents
-  starter: { '1:output_tokens': 100000, '1:input_tokens': 1000000,  '5:output_tokens': 400000,  '5:input_tokens': 4000000,   '5:total_tokens': 5000000,   '15:total_tokens': 10000000,  '60:total_tokens': 30000000  },
+  starter: { '15:output_tokens': 1000000, '15:input_tokens': 10000000,  '60:output_tokens': 3000000,  '60:input_tokens': 30000000, '1:output_tokens': 100000, '1:input_tokens': 1000000,  '5:output_tokens': 400000,  '5:input_tokens': 4000000,   '5:total_tokens': 5000000,   '15:total_tokens': 10000000,  '60:total_tokens': 30000000  },
   // Pro $69/mo: power user, multiple concurrent agents
-  pro:     { '1:output_tokens': 175000, '1:input_tokens': 1750000,  '5:output_tokens': 700000,  '5:input_tokens': 7000000,   '5:total_tokens': 8750000,   '15:total_tokens': 17500000,  '60:total_tokens': 52500000  },
+  pro:     { '15:output_tokens': 1750000, '15:input_tokens': 17500000,  '60:output_tokens': 5250000,  '60:input_tokens': 52500000, '1:output_tokens': 175000, '1:input_tokens': 1750000,  '5:output_tokens': 700000,  '5:input_tokens': 7000000,   '5:total_tokens': 8750000,   '15:total_tokens': 17500000,  '60:total_tokens': 52500000  },
   // Max $200/mo: heavy multi-agent, 20+ concurrent
-  max:     { '1:output_tokens': 250000, '1:input_tokens': 2500000,  '5:output_tokens': 1000000, '5:input_tokens': 10000000,  '5:total_tokens': 12500000,  '15:total_tokens': 25000000,  '60:total_tokens': 75000000  },
+  max:     { '15:output_tokens': 2500000, '15:input_tokens': 25000000,  '60:output_tokens': 7500000,  '60:input_tokens': 75000000, '1:output_tokens': 250000, '1:input_tokens': 2500000,  '5:output_tokens': 1000000, '5:input_tokens': 10000000,  '5:total_tokens': 12500000,  '15:total_tokens': 25000000,  '60:total_tokens': 75000000  },
   // Ultra $420/mo: maximum capacity, fleet operations
-  ultra:   { '1:output_tokens': 500000, '1:input_tokens': 5000000,  '5:output_tokens': 2000000, '5:input_tokens': 20000000,  '5:total_tokens': 25000000,  '15:total_tokens': 50000000,  '60:total_tokens': 150000000 },
+  ultra:   { '15:output_tokens': 5000000, '15:input_tokens': 50000000,  '60:output_tokens': 15000000, '60:input_tokens': 150000000, '1:output_tokens': 500000, '1:input_tokens': 5000000,  '5:output_tokens': 2000000, '5:input_tokens': 20000000,  '5:total_tokens': 25000000,  '15:total_tokens': 50000000,  '60:total_tokens': 150000000 },
 };
 
 export function applyPlanThresholds(plan: string) {

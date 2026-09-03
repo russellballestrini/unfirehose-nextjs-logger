@@ -274,18 +274,22 @@ export function createTestDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_todo_events_todo ON todo_events(todo_id);
   `);
 
-  // Seed default alert thresholds
+  // Seed default alert thresholds — mirrors migrate.ts
   const insert = db.prepare(
-    'INSERT INTO alert_thresholds (window_minutes, metric, threshold_value) VALUES (?, ?, ?)'
+    'INSERT INTO alert_thresholds (window_minutes, metric, threshold_value, enabled) VALUES (?, ?, ?, ?)'
   );
   const seed = db.transaction(() => {
-    insert.run(1, 'output_tokens', 250000);
-    insert.run(1, 'input_tokens', 2500000);
-    insert.run(5, 'output_tokens', 1000000);
-    insert.run(5, 'input_tokens', 10000000);
-    insert.run(5, 'total_tokens', 12500000);
-    insert.run(15, 'total_tokens', 25000000);
-    insert.run(60, 'total_tokens', 75000000);
+    insert.run(1,  'output_tokens', 250000,   0);
+    insert.run(1,  'input_tokens',  2500000,  0);
+    insert.run(5,  'output_tokens', 1000000,  0);
+    insert.run(5,  'input_tokens',  10000000, 0);
+    insert.run(5,  'total_tokens',  12500000, 0);
+    insert.run(15, 'output_tokens', 2500000,  1);
+    insert.run(15, 'input_tokens',  25000000, 1);
+    insert.run(15, 'total_tokens',  25000000, 0);
+    insert.run(60, 'output_tokens', 7500000,  1);
+    insert.run(60, 'input_tokens',  75000000, 1);
+    insert.run(60, 'total_tokens',  75000000, 0);
   });
   seed();
 
