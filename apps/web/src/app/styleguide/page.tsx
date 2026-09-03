@@ -502,7 +502,7 @@ export default function StyleguidePage() {
                                     ['/permacomputer/[node]', 'Node Detail', 'Individual mesh node metrics + SSH host editor'],
                                     ['/permacomputer/unsandbox', 'Unsandbox', 'Unsandbox harness / service / session manager'],
                                   ] },
-              '/schema':        { desc: 'Markdown viewer for docs/schema/* + harness specs' },
+              '/schema':        { desc: 'Markdown viewer for packages/schema/docs/* + harness specs' },
               '/settings':      { desc: 'Profile / plan / mesh defaults / vault / LLM providers' },
               '/db':            { desc: 'SQLite meta: tables, indexes, PRAGMA, size breakdown (dev)' },
               '/styleguide':    { desc: 'This page — design system + nav + sitemap (dev)' },

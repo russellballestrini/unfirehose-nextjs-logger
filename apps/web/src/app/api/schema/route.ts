@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile, readdir } from 'fs/promises';
 import path from 'path';
 
-const SCHEMA_DIR = path.resolve(process.cwd(), '../../docs/schema');
+// The published spec is the only copy. A second tree under docs/schema drifted
+// for four months (no throttling, stale harness list) before it was retired.
+const SCHEMA_DIR = path.resolve(process.cwd(), '../../packages/schema/docs');
 
 export async function GET(request: NextRequest) {
   const file = request.nextUrl.searchParams.get('file');

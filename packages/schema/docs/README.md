@@ -27,6 +27,7 @@ Native format documentation and field mapping for each harness:
 | Harness | Provider | Status | File |
 |---------|----------|--------|------|
 | [Claude Code](./harnesses/claude-code.md) | Anthropic | Reference impl | Adapter: identity |
+| [Arborist](./harnesses/arborist.md) | Local (Hermes / multi-provider) | Native unfirehose/1.0 | Adapter: none needed |
 | [Fetch](./harnesses/fetch.md) | Anthropic | Supported | Adapter: identity |
 | [Gemini CLI](./harnesses/gemini-cli.md) | Google | Documented | Adapter: planned |
 | [uncloseai-cli](./harnesses/uncloseai-cli.md) | Local (Hermes) | Supported | Adapter: live |
