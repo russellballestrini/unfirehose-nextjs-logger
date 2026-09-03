@@ -100,6 +100,9 @@ measures language models, not our fleet.
 - Worker polls every 60s; `POST /api/rate-limits/status {action: poll}` on
   demand. `GET` current + `?history=<id>&hours=24`.
 - Refusals tab shows a one-line strip per vendor that appears in the view.
-- xAI (Cloudflare challenge) and OpenRouter (not Statuspage) read
-  `unreachable` with a note; add a feed when one is found.
+- xAI: fox pointed at status.x.ai; its <head> advertises `/feed.xml` (RSS,
+  custom Next.js site, robots absent). Only the root is Cloudflare-walled.
+  Parser learned RSS items with `Status:` / `Severity:`; the vendor's own
+  severity word decides major. OpenRouter (not Statuspage) still reads
+  `unreachable` with a note.
 - Option 1 from the robots decision (feeds only) is what shipped.

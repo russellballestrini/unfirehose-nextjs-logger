@@ -47,10 +47,12 @@ export interface StatusTarget {
 
 export interface StatusIncident {
   title: string;
-  status: string;      // Investigating | Identified | Monitoring | Update | Resolved | …
+  status: string;      // Investigating | Identified | Monitoring | Update | Resolved | ACTIVE | …
   updatedAt: string;
   link: string | null;
   open: boolean;
+  /** The vendor's own severity word when the feed carries one (xAI: outage | degraded). */
+  severity?: string;
 }
 
 export interface StatusPoll {
@@ -64,16 +66,16 @@ export interface StatusPoll {
 }
 
 /**
- * Feeds verified 2026-09-03. xAI and OpenRouter are listed so their absence
- * is visible rather than silent: status.x.ai answers every path with a
- * Cloudflare challenge, and status.openrouter.ai is not a Statuspage host.
- * Both read `unreachable` until someone finds a machine path.
+ * Feeds verified 2026-09-03. OpenRouter is listed so its absence is visible
+ * rather than silent: status.openrouter.ai is not a Statuspage host and
+ * reads `unreachable` until someone finds a machine path.
  */
 export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   { id: 'anthropic',  name: 'Anthropic',  url: 'https://status.claude.com',      kind: 'statuspage-feed', feed: 'https://status.claude.com/history.atom' },
   { id: 'openai',     name: 'OpenAI',     url: 'https://status.openai.com',      kind: 'statuspage-feed', feed: 'https://status.openai.com/history.atom' },
-  { id: 'x-ai',       name: 'xAI / Grok', url: 'https://status.x.ai',            kind: 'statuspage-feed', feed: 'https://status.x.ai/history.atom',
-    note: 'status.x.ai sits behind a Cloudflare challenge; no machine-readable path found.' },
+  // Custom Next.js site; the root is Cloudflare-walled but the RSS the page
+  // advertises in its <head> is open. One item per affected component.
+  { id: 'x-ai',       name: 'xAI / Grok', url: 'https://status.x.ai',            kind: 'statuspage-feed', feed: 'https://status.x.ai/feed.xml' },
   { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'statuspage-feed', feed: 'https://status.openrouter.ai/history.atom',
     note: 'Not an Atlassian Statuspage host; feed path unknown.' },
 ];
@@ -197,6 +199,23 @@ export function parseStatuspageFeed(xml: string): StatusIncident[] {
       ?? 'Unknown';
     out.push({ title, status, updatedAt, link, open: !RESOLVED.test(status) });
   }
+  // RSS 2.0 (status.x.ai, a custom site): one <item> per affected component,
+  // `<h3>Status: ACTIVE</h3>` and `<p>Severity: outage</p>` in the
+  // description, the state repeated as <category> tags.
+  const items = xml.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi) ?? [];
+  for (const it of items) {
+    const title = decodeEntities(tag(it, 'title') ?? '').replace(/<[^>]+>/g, '').trim();
+    const pub = tag(it, 'pubDate') ?? '';
+    const ms = Date.parse(pub);
+    const updatedAt = Number.isNaN(ms) ? pub : new Date(ms).toISOString();
+    const link = tag(it, 'link');
+    const desc = decodeEntities(tag(it, 'description') ?? '');
+    const status = /Status:\s*([A-Za-z_ -]{1,40}?)\s*</i.exec(desc)?.[1]?.trim() ?? 'Unknown';
+    const severity = /Severity:\s*([A-Za-z_ -]{1,40}?)\s*</i.exec(desc)?.[1]?.trim().toLowerCase();
+    const cats = [...it.matchAll(/<category>([^<]+)<\/category>/gi)].map((m) => m[1].trim().toLowerCase());
+    const open = cats.includes('resolved') ? false : cats.includes('active') ? true : !RESOLVED.test(status);
+    out.push({ title, status: status.charAt(0).toUpperCase() + status.slice(1).toLowerCase(), updatedAt, link, open, severity });
+  }
   return out;
 }
 
@@ -204,7 +223,7 @@ export function parseStatuspageFeed(xml: string): StatusIncident[] {
 export function inferIndicator(incidents: StatusIncident[]): { indicator: StatusIndicator; description: string } {
   const open = incidents.filter((i) => i.open);
   if (open.length === 0) return { indicator: 'none', description: 'No open incidents' };
-  const major = open.some((i) => MAJOR_WORDS.test(i.title));
+  const major = open.some((i) => i.severity ? /outage|major|critical/.test(i.severity) : MAJOR_WORDS.test(i.title));
   const lead = open[0];
   const more = open.length > 1 ? ` (+${open.length - 1} more)` : '';
   return { indicator: major ? 'major' : 'minor', description: `${lead.status}: ${lead.title}${more}` };
@@ -238,8 +257,8 @@ export async function pollStatusTarget(
       return { ...base, indicator: 'unreachable', description: `HTTP ${res.status}`, httpStatus: res.status, latencyMs };
     }
     const body = await res.text();
-    if (!/<feed[\s>]/i.test(body)) {
-      return { ...base, indicator: 'unknown', description: 'Response is not an Atom feed', httpStatus: res.status, latencyMs };
+    if (!/<(?:feed|rss)[\s>]/i.test(body)) {
+      return { ...base, indicator: 'unknown', description: 'Response is not an Atom or RSS feed', httpStatus: res.status, latencyMs };
     }
     const incidents = parseStatuspageFeed(body).slice(0, 20);
     const { indicator, description } = inferIndicator(incidents);

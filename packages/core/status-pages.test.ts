@@ -65,6 +65,47 @@ describe('parseStatuspageFeed on incident.io', () => {
   });
 });
 
+// Trimmed from status.x.ai/feed.xml, 2026-09-03 14:50Z.
+const XAI_FEED = `<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>SpaceXAI System Status</title>
+    <item>
+      <title>[Grok (Web)] Models outage</title>
+      <link>https://status.x.ai/grok-com/INC25664c15</link>
+      <description><![CDATA[
+           <h3>Status: ACTIVE</h3>
+           <p>Severity: outage</p>
+           <hr />
+           <div><p><strong>Thu, 03 Sep 2026 13:30:00 GMT</strong></p><h3>Investigating outage</h3></div>
+      ]]></description>
+      <pubDate>Thu, 03 Sep 2026 13:30:00 GMT</pubDate>
+      <category>outage</category>
+      <category>active</category>
+    </item>
+    <item>
+      <title>[API] Elevated latency</title>
+      <link>https://status.x.ai/api/INC0</link>
+      <description><![CDATA[<h3>Status: RESOLVED</h3><p>Severity: degraded</p>]]></description>
+      <pubDate>Mon, 01 Sep 2026 10:00:00 GMT</pubDate>
+      <category>degraded</category>
+      <category>resolved</category>
+    </item>
+  </channel>
+</rss>`;
+
+describe('parseStatuspageFeed on RSS (status.x.ai)', () => {
+  it('reads items with status, severity and an ISO time', () => {
+    const inc = parseStatuspageFeed(XAI_FEED);
+    expect(inc).toHaveLength(2);
+    expect(inc[0]).toMatchObject({ title: '[Grok (Web)] Models outage', status: 'Active', severity: 'outage', open: true, updatedAt: '2026-09-03T13:30:00.000Z', link: 'https://status.x.ai/grok-com/INC25664c15' });
+    expect(inc[1]).toMatchObject({ status: 'Resolved', open: false });
+  });
+  it('the vendor\'s own severity decides major', () => {
+    expect(inferIndicator(parseStatuspageFeed(XAI_FEED))).toEqual({ indicator: 'major', description: 'Active: [Grok (Web)] Models outage' });
+  });
+});
+
 describe('inferIndicator', () => {
   it('is none with nothing open', () => {
     expect(inferIndicator(parseStatuspageFeed(FEED).slice(1))).toEqual({ indicator: 'none', description: 'No open incidents' });
