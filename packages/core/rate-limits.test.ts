@@ -49,6 +49,36 @@ describe('real throttling events', () => {
     expect(detectRateLimit('{"type":"overloaded_error"}')!.kind).toBe('overloaded');
   });
 
+  it('Claude Code 2026-09-03 outage: the status sits between Error: and Overloaded', () => {
+    const e = detectRateLimit(
+      'API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.',
+    )!;
+    expect(e.kind).toBe('overloaded');
+    expect(e.provider).toBe('anthropic');
+    expect(e.status).toBe(529);
+    expect(e.rule).toBe('anthropic-overloaded');
+  });
+
+  it('Claude Code cannot reach the API at all — an outage with no status', () => {
+    const e = detectRateLimit('API Error: Unable to connect to API (ENOTIMP)')!;
+    expect(e.kind).toBe('server_error');
+    expect(e.provider).toBe('anthropic');
+    expect(e.status).toBeNull();
+  });
+
+  it('Claude Code 500 is a server error, not an overload', () => {
+    const e = detectRateLimit('API Error: 500 Internal server error')!;
+    expect(e.kind).toBe('server_error');
+    expect(e.status).toBe(500);
+  });
+
+  it('Claude Code session window exhausted is quota, like the older wording', () => {
+    const e = detectRateLimit("You've hit your session limit · resets 11:30am (America/New_York)")!;
+    expect(e.kind).toBe('quota');
+    expect(e.provider).toBe('anthropic');
+    expect(detectRateLimit("You've reached your Fable 5 limit. Run /usage-credits to continue")!.kind).toBe('quota');
+  });
+
   it('a quota exhaustion is not the same as a rate limit', () => {
     const e = detectRateLimit('Claude usage limit reached. Your limit will reset at 3pm.')!;
     expect(e.kind).toBe('quota');

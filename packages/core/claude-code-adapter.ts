@@ -16,6 +16,56 @@
  */
 
 /**
+ * A refusal Claude Code reported on its own message.
+ *
+ * When the API refuses a call Claude Code still writes an assistant row — a
+ * synthetic one (`model: "<synthetic>"`, zero usage) carrying the error as
+ * its text, stamped `isApiErrorMessage: true` with `error` and
+ * `apiErrorStatus`. That is a harness-reported refusal in everything but
+ * name, and it is the only Claude Code signal that names the status. The
+ * text scanner is a fallback for it, not the source: "API Error: 529
+ * Overloaded" went unmatched for a whole outage because a rule wanted
+ * "Error: Overloaded" with nothing between.
+ */
+export interface ClaudeApiRefusal {
+  kind: 'rate_limit' | 'quota' | 'overloaded' | 'server_error';
+  status: number | null;
+  detail: string;
+}
+
+/**
+ * Classify Claude Code's `error` + `apiErrorStatus` into a refusal kind, or
+ * null when the failure was ours. `authentication_failed` is a dead login
+ * and `invalid_request` is our payload — a provider that answered and
+ * rejected THE REQUEST did not refuse to serve, and counting those would
+ * report an outage that never happened. Same policy as uncloseai-cli's
+ * `_THROTTLE_KINDS`.
+ */
+export function classifyClaudeApiError(entry: any): ClaudeApiRefusal | null {
+  if (entry?.isApiErrorMessage !== true) return null;
+  const error = typeof entry.error === 'string' ? entry.error : '';
+  const status = typeof entry.apiErrorStatus === 'number' ? entry.apiErrorStatus : null;
+  const raw = entry.message?.content;
+  const text = Array.isArray(raw)
+    ? raw.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join(' ')
+    : typeof raw === 'string' ? raw : '';
+  const detail = text.trim().slice(0, 300) || `${error || 'api_error'}${status ? ` ${status}` : ''}`;
+
+  if (error === 'authentication_failed' || error === 'invalid_request') return null;
+  if (error === 'rate_limit') {
+    // "You've hit your session limit" / "reached your Fable 5 limit" is the
+    // plan window running dry, not a per-second throttle: the remedy is
+    // wait for the reset, not back off.
+    const quota = /\b(?:session|usage|weekly|monthly)\s+limit\b|\breached your\b|\blimit reached\b/i.test(text);
+    return { kind: quota ? 'quota' : 'rate_limit', status: status ?? 429, detail };
+  }
+  if (status === 529 || status === 503 || /\boverloaded\b/i.test(text)) {
+    return { kind: 'overloaded', status, detail };
+  }
+  return { kind: 'server_error', status, detail };
+}
+
+/**
  * Normalize a Claude Code native JSONL entry to unfirehose/1.0 format.
  * Returns null for entries that aren't messages (summary, etc.).
  */
@@ -55,9 +105,12 @@ export function normalizeClaudeCodeEntry(entry: any): any | null {
     subtype: entry.subtype ?? null,
     durationMs: entry.durationMs ?? null,
     sidechain: entry.isSidechain ?? false,
-    model: entry.message?.model ?? null,
+    // A synthetic error row names no real model; null reads as "unknown"
+    // downstream where "<synthetic>" would read as a model we never priced.
+    model: entry.message?.model === '<synthetic>' ? null : (entry.message?.model ?? null),
     content,
     usage,
+    refusal: classifyClaudeApiError(entry),
   };
 }
 

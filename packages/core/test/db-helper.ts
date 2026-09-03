@@ -51,6 +51,9 @@ export function createTestDb(): Database.Database {
       cache_creation_tokens INTEGER DEFAULT 0,
       duration_ms INTEGER,
       is_sidechain INTEGER DEFAULT 0,
+      endpoint TEXT,
+      provider TEXT,
+      observed_cost_usd REAL,
       ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -103,6 +106,26 @@ export function createTestDb(): Database.Database {
       threshold_value REAL NOT NULL,
       enabled INTEGER DEFAULT 1,
       UNIQUE(window_minutes, metric)
+    );
+
+    CREATE TABLE IF NOT EXISTS rate_limit_events (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      block_id      INTEGER UNIQUE,
+      message_id    INTEGER,
+      session_id    INTEGER,
+      project_id    INTEGER,
+      timestamp     TEXT NOT NULL,
+      kind          TEXT NOT NULL,
+      target        TEXT NOT NULL DEFAULT 'inference',
+      provider      TEXT,
+      upstream      TEXT,
+      operation     TEXT,
+      model         TEXT,
+      http_status   INTEGER,
+      retry_after_s INTEGER,
+      rule          TEXT NOT NULL,
+      detail        TEXT NOT NULL,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS settings (

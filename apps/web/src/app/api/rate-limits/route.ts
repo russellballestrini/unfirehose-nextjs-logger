@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
+import { scanRateLimits, scanRateLimitsFully, backfillReportedRefusals } from '@unturf/unfirehose/db/rate-limit-scan';
 
 export const dynamic = 'force-dynamic';
 
@@ -150,9 +150,19 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const result = scanRateLimits(getDb(), {
+  // Rebuild harness-reported rows from the JSONL on disk — the one source a
+  // text rescan can never recover.
+  if (body?.backfillReported === true) {
+    return NextResponse.json(backfillReportedRefusals(getDb()));
+  }
+  const opts = {
     fromScratch: body?.fromScratch === true,
     batch: typeof body?.batch === 'number' ? body.batch : undefined,
-  });
+  };
+  // `drain` runs batches until the cursor reaches the newest block; the
+  // default single batch is what the worker's periodic tick uses.
+  const result = body?.drain === true
+    ? scanRateLimitsFully(getDb(), opts)
+    : scanRateLimits(getDb(), opts);
   return NextResponse.json(result);
 }

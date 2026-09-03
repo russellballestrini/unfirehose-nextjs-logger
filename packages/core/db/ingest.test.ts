@@ -38,6 +38,7 @@ const {
   getTimelineInWindow,
   getUserPromptsInWindow,
   getDbStats,
+  recordHarnessRefusal,
 } = await import('./ingest');
 
 beforeEach(() => {
@@ -365,6 +366,37 @@ describe('getAlertDailyCounts', () => {
     expect(t15.count).toBe(2);
     expect(t15.unacknowledged).toBe(1);
     expect(t15.peak).toBe(45);
+  });
+});
+
+// === recordHarnessRefusal ===
+
+describe('recordHarnessRefusal', () => {
+  it('writes a harness-reported event that inherits the session project', () => {
+    const pid = seedProject(testDb, 'ref');
+    const sid = seedSession(testDb, pid);
+    const ok = recordHarnessRefusal(testDb, {
+      sessionId: sid, messageId: null, timestamp: '2026-09-03T13:40:25.031Z',
+      kind: 'overloaded', provider: 'anthropic', upstream: 'anthropic',
+      model: null, httpStatus: 529, detail: 'API Error: 529 Overloaded.',
+    });
+    expect(ok).toBe(true);
+    const row = testDb.prepare('SELECT * FROM rate_limit_events').get() as any;
+    expect(row.rule).toBe('harness-reported');
+    expect(row.target).toBe('inference');
+    expect(row.project_id).toBe(pid);
+    expect(row.http_status).toBe(529);
+    expect(row.upstream).toBe('anthropic');
+  });
+
+  it('survives a session it cannot resolve', () => {
+    expect(recordHarnessRefusal(testDb, {
+      sessionId: null, timestamp: null, kind: 'timeout', provider: 'uncloseai',
+      upstream: 'grok', model: 'grok-4', httpStatus: null, detail: null,
+    })).toBe(true);
+    const row = testDb.prepare('SELECT detail, project_id FROM rate_limit_events').get() as any;
+    expect(row.detail).toBe('(no message)');
+    expect(row.project_id).toBeNull();
   });
 });
 

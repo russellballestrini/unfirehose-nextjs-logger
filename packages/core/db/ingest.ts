@@ -11,6 +11,10 @@ import { claudePaths, decodeProjectName, resolveProjectPath } from '../claude-pa
 import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
 // agnt-paths no longer needed — auto-discovered via ~/.agnt/unfirehose/
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
+import type { ClaudeApiRefusal } from '../claude-code-adapter';
+import { recordHarnessRefusal } from './refusals';
+export { recordHarnessRefusal } from './refusals';
+export type { HarnessRefusal } from './refusals';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
@@ -747,8 +751,30 @@ function insertMessage(
 
   // changes === 0 means the row was ignored (duplicate uuid)
   if (result.changes === 0) return null;
-  return result.lastInsertRowid as number;
+  const messageId = result.lastInsertRowid as number;
+
+  // Claude Code reports a refused call on the message itself (see
+  // classifyClaudeApiError). Record it here, at the one place every Claude
+  // Code path inserts through, so a subagent's 529 counts the same as the
+  // parent's. Anthropic is both provider and upstream: Claude Code calls
+  // one API, so the route is known without the harness saying so.
+  const refusal: ClaudeApiRefusal | null | undefined = entry.refusal;
+  if (refusal) {
+    recordHarnessRefusal(db, {
+      sessionId,
+      messageId,
+      timestamp: entry.timestamp ?? null,
+      kind: refusal.kind,
+      provider: 'anthropic',
+      upstream: 'anthropic',
+      model: entry.model ?? null,
+      httpStatus: refusal.status,
+      detail: refusal.detail,
+    });
+  }
+  return messageId;
 }
+
 
 /**
  * Insert content blocks from unfirehose/1.0 format.
@@ -1723,30 +1749,21 @@ async function ingestNativeHarness(
             // upstream, which is the thing the scanner can never recover from
             // an error string. See packages/schema/docs/throttling.md.
             if (entry.type === 'throttle') {
-              try {
-                const sessRow = db.prepare(
-                  'SELECT id, project_id FROM sessions WHERE session_uuid = ?'
-                ).get(sessionUuid) as { id: number; project_id: number } | undefined;
-                db.prepare(`
-                  INSERT INTO rate_limit_events
-                    (block_id, message_id, session_id, project_id, timestamp,
-                     kind, target, provider, upstream, operation, model,
-                     http_status, retry_after_s, rule, detail)
-                  VALUES (NULL, NULL, ?, ?, ?, ?, 'inference', ?, ?, ?, ?, ?, ?, 'harness-reported', ?)
-                `).run(
-                  sessRow?.id ?? null,
-                  sessRow?.project_id ?? null,
-                  typeof entry.timestamp === 'string' ? entry.timestamp : new Date().toISOString(),
-                  typeof entry.kind === 'string' ? entry.kind : 'rate_limit',
-                  typeof entry.harness === 'string' ? entry.harness : harness.name,
-                  typeof entry.upstream === 'string' ? entry.upstream : null,
-                  typeof entry.operation === 'string' ? entry.operation : null,
-                  typeof entry.model === 'string' ? entry.model : null,
-                  typeof entry.httpStatus === 'number' ? entry.httpStatus : null,
-                  typeof entry.retryAfterSeconds === 'number' ? Math.round(entry.retryAfterSeconds) : null,
-                  typeof entry.message === 'string' ? entry.message.slice(0, 300) : '(no message)',
-                );
-              } catch { /* a duplicate or a malformed record must not stop ingest */ }
+              const sessRow = db.prepare(
+                'SELECT id FROM sessions WHERE session_uuid = ?'
+              ).get(sessionUuid) as { id: number } | undefined;
+              recordHarnessRefusal(db, {
+                sessionId: sessRow?.id ?? null,
+                timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : null,
+                kind: typeof entry.kind === 'string' ? entry.kind : 'rate_limit',
+                provider: typeof entry.harness === 'string' ? entry.harness : harness.name,
+                upstream: typeof entry.upstream === 'string' ? entry.upstream : null,
+                operation: typeof entry.operation === 'string' ? entry.operation : null,
+                model: typeof entry.model === 'string' ? entry.model : null,
+                httpStatus: typeof entry.httpStatus === 'number' ? entry.httpStatus : null,
+                retryAfterSeconds: typeof entry.retryAfterSeconds === 'number' ? entry.retryAfterSeconds : null,
+                detail: typeof entry.message === 'string' ? entry.message : null,
+              });
               continue;
             }
 

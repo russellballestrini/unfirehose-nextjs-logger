@@ -6,8 +6,14 @@
 // the highest block id already considered.
 
 import type Database from 'better-sqlite3';
+import { readdirSync, statSync, readFileSync } from 'fs';
+import path from 'path';
 import { getDb } from './schema';
 import { detectRateLimit } from '../rate-limits';
+import { recordHarnessRefusal } from './refusals';
+import { classifyClaudeApiError } from '../claude-code-adapter';
+import { claudePaths } from '../claude-paths';
+import { uncloseaiPaths } from '../uncloseai-paths';
 
 const CURSOR_KEY = 'rate_limit_scan_block_id';
 
@@ -49,7 +55,10 @@ export function scanRateLimits(
   const batch = opts.batch ?? 50_000;
 
   if (opts.fromScratch) {
-    database.exec('DELETE FROM rate_limit_events');
+    // Only what this scanner wrote. Harness-reported rows came from JSONL
+    // records already ingested past their file offsets — a rescan cannot
+    // rebuild them, and on 2026-09-03 one deleted 173 of them.
+    database.exec("DELETE FROM rate_limit_events WHERE rule != 'harness-reported'");
     setCursor(database, 0);
   }
 
@@ -175,4 +184,120 @@ export function scanRateLimitsFully(
     if (r.scanned === 0) break;
   }
   return { scanned, found, lastBlockId };
+}
+
+export interface RefusalBackfillResult {
+  files: number;
+  throttleRecords: number;
+  claudeApiErrors: number;
+  inserted: number;
+  skipped: number;
+}
+
+function walkJsonl(dir: string, out: string[] = [], depth = 0): string[] {
+  if (depth > 4) return out;
+  let names: string[];
+  try { names = readdirSync(dir); } catch { return out; }
+  for (const n of names) {
+    const p = path.join(dir, n);
+    let st;
+    try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) walkJsonl(p, out, depth + 1);
+    else if (n.endsWith('.jsonl')) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Rebuild harness-reported refusals from the JSONL still on disk.
+ *
+ * Ingest records these as it reads each line, so they are lost to any
+ * event-table wipe and never re-created by the incremental pass. This walks
+ * the uncloseai unfirehose tree for `type: "throttle"` records and the Claude
+ * Code projects tree for `isApiErrorMessage` rows, and inserts whichever are
+ * not already present. Idempotent: a row is skipped when one with the same
+ * session, timestamp and kind (or the same message) already exists.
+ */
+export function backfillReportedRefusals(
+  db?: Database.Database,
+  opts: { uncloseaiDir?: string; claudeProjectsDir?: string } = {},
+): RefusalBackfillResult {
+  const database = db ?? getDb();
+  const res: RefusalBackfillResult = { files: 0, throttleRecords: 0, claudeApiErrors: 0, inserted: 0, skipped: 0 };
+
+  const sessionByUuid = database.prepare('SELECT id FROM sessions WHERE session_uuid = ?');
+  const messageByUuid = database.prepare('SELECT id, session_id FROM messages WHERE message_uuid = ?');
+  const existsByTime = database.prepare(
+    `SELECT 1 FROM rate_limit_events WHERE rule = 'harness-reported'
+       AND session_id IS ? AND timestamp = ? AND kind = ? LIMIT 1`,
+  );
+  const existsByMessage = database.prepare(
+    `SELECT 1 FROM rate_limit_events WHERE rule = 'harness-reported' AND message_id = ? LIMIT 1`,
+  );
+
+  const uncloseaiFiles = walkJsonl(opts.uncloseaiDir ?? uncloseaiPaths.unfirehose);
+  const claudeFiles = walkJsonl(opts.claudeProjectsDir ?? claudePaths.projects);
+  res.files = uncloseaiFiles.length + claudeFiles.length;
+
+  database.transaction(() => {
+    for (const file of uncloseaiFiles) {
+      let text: string;
+      try { text = readFileSync(file, 'utf-8'); } catch { continue; }
+      if (!text.includes('"throttle"')) continue;
+      const sessionUuid = path.basename(file, '.jsonl');
+      const sessionId = (sessionByUuid.get(sessionUuid) as { id: number } | undefined)?.id ?? null;
+      for (const line of text.split('\n')) {
+        if (!line.includes('"throttle"')) continue;
+        let e: any;
+        try { e = JSON.parse(line); } catch { continue; }
+        if (e?.type !== 'throttle') continue;
+        res.throttleRecords++;
+        const ts = typeof e.timestamp === 'string' ? e.timestamp : null;
+        const kind = typeof e.kind === 'string' ? e.kind : 'rate_limit';
+        if (ts && existsByTime.get(sessionId, ts, kind)) { res.skipped++; continue; }
+        const ok = recordHarnessRefusal(database, {
+          sessionId, timestamp: ts, kind,
+          provider: typeof e.harness === 'string' ? e.harness : 'uncloseai',
+          upstream: typeof e.upstream === 'string' ? e.upstream : null,
+          operation: typeof e.operation === 'string' ? e.operation : null,
+          model: typeof e.model === 'string' ? e.model : null,
+          httpStatus: typeof e.httpStatus === 'number' ? e.httpStatus : null,
+          retryAfterSeconds: typeof e.retryAfterSeconds === 'number' ? e.retryAfterSeconds : null,
+          detail: typeof e.message === 'string' ? e.message : null,
+        });
+        if (ok) res.inserted++; else res.skipped++;
+      }
+    }
+
+    for (const file of claudeFiles) {
+      let text: string;
+      try { text = readFileSync(file, 'utf-8'); } catch { continue; }
+      if (!text.includes('"isApiErrorMessage":true')) continue;
+      for (const line of text.split('\n')) {
+        if (!line.includes('"isApiErrorMessage":true')) continue;
+        let e: any;
+        try { e = JSON.parse(line); } catch { continue; }
+        const refusal = classifyClaudeApiError(e);
+        if (!refusal) continue;
+        res.claudeApiErrors++;
+        const msg = typeof e.uuid === 'string'
+          ? (messageByUuid.get(e.uuid) as { id: number; session_id: number } | undefined)
+          : undefined;
+        if (msg && existsByMessage.get(msg.id)) { res.skipped++; continue; }
+        const sessionId = msg?.session_id
+          ?? (typeof e.sessionId === 'string' ? (sessionByUuid.get(e.sessionId) as { id: number } | undefined)?.id : undefined)
+          ?? null;
+        const ts = typeof e.timestamp === 'string' ? e.timestamp : null;
+        if (!msg && ts && existsByTime.get(sessionId, ts, refusal.kind)) { res.skipped++; continue; }
+        const ok = recordHarnessRefusal(database, {
+          sessionId, messageId: msg?.id ?? null, timestamp: ts, kind: refusal.kind,
+          provider: 'anthropic', upstream: 'anthropic', model: null,
+          httpStatus: refusal.status, detail: refusal.detail,
+        });
+        if (ok) res.inserted++; else res.skipped++;
+      }
+    }
+  })();
+
+  return res;
 }

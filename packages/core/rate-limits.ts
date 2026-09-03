@@ -113,7 +113,27 @@ const RULES: Rule[] = [
     kind: 'quota',
     provider: 'anthropic',
     target: 'inference',
-    re: /(?:Claude )?usage limit reached[^\n]*/i,
+    re: /(?:Claude )?usage limit reached[^\n]*|You(?:'|’)ve (?:hit|reached) your [^\n]{0,40}\blimit\b[^\n]*/i,
+  },
+  {
+    // Claude Code during the 2026-09-03 outage, 12 rows: the harness prints
+    // the status between "Error:" and the word, so the generic overloaded
+    // rule below never saw it. Anchored to Claude Code's exact prefix.
+    name: 'anthropic-overloaded',
+    kind: 'overloaded',
+    provider: 'anthropic',
+    target: 'inference',
+    re: /API Error:\s*(?:529|503)?\s*Overloaded\b[^\n]*/i,
+  },
+  {
+    // Any other 5xx Claude Code reports, plus the transport-level failure it
+    // prints when the API cannot be reached at all — which is what a full
+    // outage looks like from here, no status attached.
+    name: 'anthropic-server-error',
+    kind: 'server_error',
+    provider: 'anthropic',
+    target: 'inference',
+    re: /API Error:\s*5\d\d\b[^\n]*|API Error:\s*Unable to connect to API[^\n]*/i,
   },
   {
     // unsandbox: HTTP 429 with a concurrency_limit_reached body.
@@ -235,10 +255,8 @@ export function parseOperation(text: string): string | null {
 }
 
 function parseStatus(text: string): number | null {
-  if (/\b429\b/.test(text)) return 429;
-  if (/\b503\b/.test(text)) return 503;
-  if (/\b529\b/.test(text)) return 529;
-  return null;
+  const m = /\b(429|500|502|503|504|529)\b/.exec(text);
+  return m ? Number(m[1]) : null;
 }
 
 /**
