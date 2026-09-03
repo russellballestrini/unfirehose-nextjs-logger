@@ -26,26 +26,114 @@ function Light({ indicator, size = 10 }: { indicator: string | undefined; size?:
   );
 }
 
+const HARD_KINDS = new Set(['server_error', 'overloaded', 'timeout', 'model_gone']);
+
+export interface NowRow {
+  provider: string; upstream: string | null; kind: string; http_status: number | null;
+  m60: number; m15: number; last_seen: string; first_seen: string; sample: string;
+}
+
 /**
- * One line per vendor whose name appears in the refusals view — the vendor's
- * own word beside our count. Nothing shown for vendors we do not poll.
+ * The first thing on "What we hit": what is being refused right now. The
+ * tables below answer "how much, over the range"; this answers "is it
+ * happening", in the last quarter-hour and hour, with the vendor's own
+ * light beside each line so "us or them" is one glance. Hard refusals
+ * (5xx, overloaded, timeout, model gone) paint it red — the provider did
+ * not serve. Throttles alone paint it amber — it served and said slow down.
  */
-export function VendorStatusStrip({ providers }: { providers: string[] }) {
+export function NowBanner({ rows, at }: { rows: NowRow[]; at?: string }) {
   const { data } = useSWR<any>('/api/rate-limits/status', fetcher, { refreshInterval: 60_000 });
-  const rows: any[] = (data?.current ?? []).filter((c: any) => providers.includes(c.id) && c.poll);
-  if (rows.length === 0) return null;
+  const vendors: any[] = data?.current ?? [];
+  const vendorFor = (r: NowRow) => vendors.find((v) => v.id === r.upstream || v.id === r.provider);
+
+  const live = rows.filter((r) => r.m15 > 0);
+  const hardLive = live.some((r) => HARD_KINDS.has(r.kind));
+  const level: 'outage' | 'throttled' | 'recent' | 'quiet' =
+    live.length === 0 ? (rows.length === 0 ? 'quiet' : 'recent') : hardLive ? 'outage' : 'throttled';
+  const total15 = rows.reduce((s, r) => s + r.m15, 0);
+  const total60 = rows.reduce((s, r) => s + r.m60, 0);
+
+  const frame = {
+    outage:    'bg-red-950/60 border-red-800',
+    throttled: 'bg-amber-950/50 border-amber-800',
+    recent:    'bg-[var(--color-surface)] border-[var(--color-border)]',
+    quiet:     'bg-[var(--color-surface)] border-[var(--color-border)]',
+  }[level];
+  const headline = {
+    outage:    `REFUSED NOW — ${total15} hard refusal${total15 === 1 ? '' : 's'} in the last 15 min`,
+    throttled: `THROTTLED NOW — ${total15} refusal${total15 === 1 ? '' : 's'} in the last 15 min`,
+    recent:    `Quiet for 15 min — ${total60} refusal${total60 === 1 ? '' : 's'} earlier this hour`,
+    quiet:     'No refusals in the last hour',
+  }[level];
+  const headColor = level === 'outage' ? 'text-red-300' : level === 'throttled' ? 'text-amber-300' : level === 'recent' ? 'text-[var(--color-foreground)]' : 'text-green-400';
+
+  const degradedVendors = vendors.filter((v) => v.poll && v.poll.indicator !== 'none' && v.poll.indicator !== 'unknown' && v.poll.indicator !== 'blocked_by_robots');
+
   return (
-    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-4 py-2 text-sm flex flex-wrap gap-x-6 gap-y-1">
-      {rows.map((c) => (
-        <a key={c.id} href={c.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline" title={c.poll.description}>
-          <Light indicator={c.poll.indicator} />
-          <span className="font-mono">{c.id}</span>
-          <span className="text-[var(--color-muted)]">
-            {INDICATOR_LABEL[c.poll.indicator]}
-            {c.poll.indicator !== 'none' && c.since ? ` since ${formatRelativeTime(c.since)}` : ''}
-          </span>
-        </a>
-      ))}
+    <div className={`border rounded p-4 space-y-3 ${frame}`}>
+      <div className="flex items-center gap-3 flex-wrap">
+        <Light indicator={level === 'outage' ? 'major' : level === 'throttled' ? 'minor' : level === 'recent' ? 'unknown' : 'none'} size={12} />
+        <span className={`font-bold tracking-wide ${headColor}`}>{headline}</span>
+        {at && <span className="ml-auto text-xs text-[var(--color-muted)]">as of {formatRelativeTime(at)}</span>}
+      </div>
+
+      {rows.length > 0 && (
+        <table className="w-full text-sm [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
+          <thead>
+            <tr className="text-[var(--color-muted)] text-left">
+              <th className="pb-1">Harness → upstream</th>
+              <th className="pb-1">Kind</th>
+              <th className="pb-1 text-right">Status</th>
+              <th className="pb-1 text-right">15 min</th>
+              <th className="pb-1 text-right">60 min</th>
+              <th className="pb-1">Last</th>
+              <th className="pb-1">Vendor says</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const v = vendorFor(r);
+              const hard = HARD_KINDS.has(r.kind);
+              const dim = r.m15 === 0;
+              return (
+                <tr key={i} className={`border-t border-[var(--color-border)]/60 ${dim ? 'text-[var(--color-muted)]' : ''}`} title={r.sample}>
+                  <td className="py-1 font-mono whitespace-nowrap">
+                    {r.provider}
+                    {r.upstream ? <span className="text-[var(--color-muted)]"> → </span> : null}
+                    {r.upstream ?? <span className="text-[var(--color-muted)] italic"> (upstream not reported)</span>}
+                  </td>
+                  <td className="py-1 font-bold whitespace-nowrap" style={{ color: dim ? undefined : hard ? '#ef4444' : '#f59e0b' }}>{r.kind}</td>
+                  <td className="py-1 text-right font-mono">{r.http_status ?? '—'}</td>
+                  <td className={`py-1 text-right font-mono ${r.m15 > 0 ? 'font-bold' : ''}`}>{r.m15 || '—'}</td>
+                  <td className="py-1 text-right font-mono">{r.m60}</td>
+                  <td className="py-1 whitespace-nowrap">{formatRelativeTime(r.last_seen)}</td>
+                  <td className="py-1">
+                    {v?.poll ? (
+                      <a href={v.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline" title={v.poll.description}>
+                        <Light indicator={v.poll.indicator} />
+                        <span>{INDICATOR_LABEL[v.poll.indicator]}</span>
+                      </a>
+                    ) : <span className="text-[var(--color-muted)]">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {degradedVendors.length > 0 && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm pt-1 border-t border-[var(--color-border)]/60">
+          <span className="text-[var(--color-muted)]">Vendors reporting trouble:</span>
+          {degradedVendors.map((v) => (
+            <a key={v.id} href={v.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline" title={v.poll.description}>
+              <Light indicator={v.poll.indicator} />
+              <span className="font-mono">{v.id}</span>
+              <span className="text-[var(--color-muted)]">{INDICATOR_LABEL[v.poll.indicator]}{v.since ? ` since ${formatRelativeTime(v.since)}` : ''}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

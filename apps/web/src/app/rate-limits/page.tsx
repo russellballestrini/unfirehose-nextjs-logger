@@ -5,7 +5,7 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 import { formatRelativeTime } from '@unturf/unfirehose/format';
-import { VendorStatusTab, VendorStatusStrip } from './VendorStatus';
+import { VendorStatusTab, NowBanner } from './VendorStatus';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -93,9 +93,10 @@ export default function RateLimitsPage() {
     <div className="space-y-5">
       <PageContext
         pageType="rate-limits"
-        summary={`Refusals. ${data?.total ?? 0} ${target} events over ${range === 'all' ? 'lifetime' : range}`
+        summary={`Refusals. Now: ${(data?.now?.rows ?? []).reduce((s: number, r: any) => s + r.m15, 0)} in the last 15 min, ${(data?.now?.rows ?? []).reduce((s: number, r: any) => s + r.m60, 0)} in the last hour. `
+          + `${data?.total ?? 0} ${target} events over ${range === 'all' ? 'lifetime' : range}`
           + `${kind === 'all' ? '' : ` (kind: ${kind})`}.`}
-        metrics={{ total: data?.total ?? 0, target, kind, range, minutes }}
+        metrics={{ total: data?.total ?? 0, now_15m: (data?.now?.rows ?? []).reduce((s: number, r: any) => s + r.m15, 0), now_60m: (data?.now?.rows ?? []).reduce((s: number, r: any) => s + r.m60, 0), target, kind, range, minutes }}
         details={byProvider.map((r) => `${r.provider} ${r.kind}: ${r.events}`).join('\n')}
       />
 
@@ -161,7 +162,7 @@ export default function RateLimitsPage() {
       {tab === 'status' && <VendorStatusTab />}
 
       {tab === 'refusals' && (<>
-      <VendorStatusStrip providers={[...new Set(byProvider.map((r: any) => r.provider).concat(byUpstream.map((r: any) => r.upstream)))]} />
+      <NowBanner rows={data?.now?.rows ?? []} at={data?.now?.at} />
 
       {/* Every kind present in this window, whether or not the filter shows
           it. A kind that exists but is currently hidden should be one click

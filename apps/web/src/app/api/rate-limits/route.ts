@@ -146,8 +146,26 @@ export async function GET(req: NextRequest) {
 
   const total = (byProvider as Array<{ events: number }>).reduce((s, r) => s + r.events, 0);
 
+  // What is happening NOW, regardless of the range or filters the tables
+  // use: inference refusals in the last hour, with the last quarter-hour
+  // counted separately so the page can tell "still going" from "was going".
+  const nowRows = db.prepare(`
+    SELECT COALESCE(provider, '(unknown)') AS provider,
+           upstream, kind, http_status,
+           COUNT(*) AS m60,
+           SUM(CASE WHEN timestamp >= ? THEN 1 ELSE 0 END) AS m15,
+           MAX(timestamp) AS last_seen,
+           MIN(timestamp) AS first_seen,
+           MAX(detail) AS sample
+      FROM rate_limit_events
+     WHERE timestamp >= ? AND target = 'inference'
+     GROUP BY provider, upstream, kind, http_status
+     ORDER BY m15 DESC, m60 DESC
+  `).all(new Date(Date.now() - 15 * 60_000).toISOString(), new Date(Date.now() - 60 * 60_000).toISOString());
+
   return NextResponse.json({
     days, minutes, target, kind, total, targets, kinds, byProvider, byUpstream, byDay, recent,
+    now: { rows: nowRows, at: new Date().toISOString() },
     // How much of this window can even name who refused. Surfaced so the page
     // can say "N of M events do not identify an upstream" rather than showing
     // a blank column and letting it read as no throttling.
