@@ -1,6 +1,6 @@
 # 3969: unfirehose.com landing pages — say what ships
 
-**Status:** open
+**Status:** done
 **Project:** unfirehose-nextjs-logger (content lives in ~/git/unsandbox.com — fox approval required to edit)
 **Estimated:** 150m
 **Todo IDs:** 3969
@@ -64,3 +64,22 @@ npm has `@unturf/unfirehose-schema` and `-ui` at 1.1.2; the repo is at
 
 - Nothing here changes routes; the 410 for /blog stays.
 - Terms, privacy, styleguide untouched.
+
+## Done — 2026-09-03 (portal 71de1e21)
+
+- Home: 18 harnesses lead; Refusals + Token Cost cards; Repo Archival gone;
+  dashboard preview shows Refusals, Tokens, Live, Permacomputer.
+- Clients: TypeScript + Go SDKs only; planned Python/Rust/Elixir/C cards
+  removed; fake `api.unfirehose.org` curl replaced with the on-disk JSONL
+  contract; uncloseai-cli URL corrected to git.unturf.com.
+- Screenshots: 13 reshot headless from today's dashboard (CDP script in the
+  session scratchpad drives past the vault gate). Refusals and What Vendors
+  Admit added; Training, Thinking, Infrastructure and Projects removed —
+  Projects because it lists every repo on the box by name.
+- Pricing: fox — no paid tier exists. `/pricing` → 410, unsandbox-host
+  route removed, template and action deleted. App side: the Settings Plan
+  panel with Starter/Team Stripe links removed (51b87be).
+- Copy: "AI" → "machine learning" on the vault gate and welcome panel.
+- Schema page now reads packages/schema/docs; stale docs/schema retired.
+
+Follow-ups filed separately (perf, fleet projects, npm publish).
