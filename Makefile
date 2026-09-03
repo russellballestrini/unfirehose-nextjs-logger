@@ -13,6 +13,18 @@
 pricing:
 	npx tsx scripts/sync-pricing.ts
 
+# Restate a day we were billed for but never captured a per-call price on.
+# Dry run by default; add --commit to write. The total must be a figure the
+# provider stated — OpenRouter reports usage_daily / usage_weekly on
+# /api/v1/key, and a closed day is (weekly - daily) when only two days carry
+# traffic. Never invent the number.
+#
+#   make backfill-cost MODEL=google/gemini-3.8-flash DAY=2026-09-02 TOTAL=7.095105
+#   make backfill-cost MODEL=... DAY=... TOTAL=... ARGS=--commit
+backfill-cost:
+	python3 scripts/backfill-observed-cost.py \
+	  --model "$(MODEL)" --day "$(DAY)" --total "$(TOTAL)" $(ARGS)
+
 # Print the book without touching the network: books, register, recent
 # changes, per-model price + whether the oracles agree, unpriced models.
 pricing-report:
