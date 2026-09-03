@@ -20,11 +20,13 @@ unfirehose does all of that, on your laptop, no API keys required.
 
 ## What's new
 
-- **Cost split everywhere** — every model + harness row breaks equivalent cost into input / output / cache-read / cache-write. See which token type is actually costing you on opus-4-7 (spoiler: cache reads).
-- **Reasoning visibility** — Reasoning filter on `/live`, `/active`, `/logs`, and the session viewer. opus-4-7 ships sealed reasoning (signatures, no readable text); we surface that fact honestly with a `·sealed` badge so it isn't mistaken for "no reasoning happened."
-- **Multi-harness** — agnt, uncloseai, fetch, arborist all ingested into the same database as Claude Code. One session viewer, one project list, one token analysis.
-- **Single-source nav** — every page is registered in `packages/ui/components/layout/nav-items.ts`. Sidebar, sitemap, and styleguide derive from the same list, so they can't drift apart.
-- **`?project=` URL filter** — `/tokens` and `/todos` both pre-filter to a single project when the URL carries `?project=<name>`. Project detail pages link straight in.
+- **Refusals** — every throttle, quota hit, overload, timeout and dead model in one page, attributed to the upstream that actually refused. A second tab polls each vendor's own incident feed every minute and probes the ones with no status page, so "is it me or them" stops being six browser tabs.
+- **Alert rules that mean something** — one click calibrates every threshold to 1.5x the p95 of its own window over your last seven days. Billable tokens alert by default; `total_tokens` does not, because cache reads are ~90% of volume at a tenth of the price.
+- **A price book with provenance** — every dollar on every page is booked at the price in force the day the tokens were spent, from five public feeds kept in an append-only ledger.
+- **Cost split everywhere** — every model + harness row breaks equivalent cost into input / output / cache-read / cache-write. See which token type is actually costing you (spoiler: cache reads).
+- **Reasoning visibility** — Reasoning filter on `/live`, `/active`, `/logs`, and the session viewer. Models that ship sealed reasoning (signatures, no readable text) get a `·sealed` badge, so it is never mistaken for "no reasoning happened."
+- **19 harnesses** — Claude Code, uncloseai-cli, agnt, arborist, aider, Cursor, Continue, Gemini CLI, Codex, OpenCode, Pi, Ollama, vLLM, llama.cpp, Open WebUI, text-generation-webui, Fetch and more, all in one database. One session viewer, one project list, one token ledger.
+- **Rename-resilient projects** — identity comes from the git root commit and origin, not the encoded path, so renaming a repo on disk keeps its whole history.
 
 ## Screenshots
 
@@ -49,19 +51,25 @@ Currently running agent sessions across every harness. Each card carries a harne
 ### Live Tailing
 SSE-powered real-time view across every active session. Doom-scrollable feed. Show / hide reasoning. Reasoning-only filter for when you want to focus on what your agents are thinking. Sealed counts surfaced so opus-4-7 sessions don't look broken.
 
+### Refusals
+Every way a provider said no, in one place — and whether the provider admits it.
+- Throttles proper (rate limit, concurrency, quota, overloaded) separated from the other refusals (5xx, timeout, model gone, content policy), because retrying harder fixes none of them and makes concurrency worse
+- A live banner: hard refusals in the last 15 and 60 minutes, regardless of the range the tables below are showing
+- Attributed to the **upstream that actually refused**, not just the harness that got refused — recorded at the moment of failure by harnesses that route across providers, since no downstream text scan can recover it
+- Every row carries its HTTP status; a 529 and a 503 under one kind stay apart
+- A second tab polls each vendor's own incident feed every minute (Anthropic, OpenAI, xAI, OpenRouter) and probes the ones with no status page, so "is it me or them" is one glance
+
 ### Usage Monitor
-Plan billing and alerts:
-- Per-minute token timeline (auto-buckets: minute / hour / day based on window)
-- Per-project usage breakdown with stacked bars
-- Agent Standup — 30-day activity summary per project with recent prompts
-- Prompts correlated with git commits (green badge = committed, yellow = uncommitted, orange = unpushed)
-- Configurable alert thresholds (per-minute, 5min, 15min, hourly windows)
-- Alert history with forensic drill-down detail pages — project + model breakdown, sealed-reasoning surfacing
+Alert rules on the tokens you actually pay for.
+- One click calibrates every threshold to 1.5x the p95 of its own rolling window over your last seven days — hand-guessed plan-tier numbers either never fire or fire every window
+- Billable metrics (uncached input, output) enabled by default; `total_tokens` is off, because cache reads are ~90% of volume at a tenth of the price and alerting on them measures context churn, not spend
+- Moving a threshold acknowledges the alerts that were measured against the old one
+- Breach history per day, with the raw list behind a disclosure
 
 ### Projects
 - Project cards with session count, message volume, and 30-day cost
 - Expandable project detail with git info, remotes, recent commits, CLAUDE.md preview
-- Commit SHAs linked to all upstream remotes (multi-remote mirrors across Gitea, GitHub, GitLab)
+- Commit SHAs linked to all upstream remotes (multi-remote mirrors, whatever you host on)
 - Per-project session browser with git branch context
 - Full session viewer with message timeline, tool calls, reasoning blocks (sealed or readable), and token usage
 - "Token detail →" link drops you into `/tokens?project=…` for the deep breakdown
@@ -111,7 +119,7 @@ This is a Turborepo monorepo. Four packages are published to npm under the [`@un
 | Package | npm | Description |
 |---------|-----|-------------|
 | [`@unturf/unfirehose`](packages/core) | [![npm](https://img.shields.io/npm/v/@unturf/unfirehose)](https://www.npmjs.com/package/@unturf/unfirehose) | Core data layer — ingestion, SQLite schema, types, PII detection, formatters |
-| [`@unturf/unfirehose-schema`](packages/schema) | [![npm](https://img.shields.io/npm/v/@unturf/unfirehose-schema)](https://www.npmjs.com/package/@unturf/unfirehose-schema) | [unfirehose/1.0](packages/schema/docs/README.md) spec — JSON Schema, TypeScript types, 16 harness adapter docs |
+| [`@unturf/unfirehose-schema`](packages/schema) | [![npm](https://img.shields.io/npm/v/@unturf/unfirehose-schema)](https://www.npmjs.com/package/@unturf/unfirehose-schema) | [unfirehose/1.0](packages/schema/docs/README.md) spec — JSON Schema, TypeScript types, 19 harness adapter docs |
 | [`@unturf/unfirehose-router`](packages/router) | [![npm](https://img.shields.io/npm/v/@unturf/unfirehose-router)](https://www.npmjs.com/package/@unturf/unfirehose-router) | CLI daemon — watches JSONL and forwards to cloud |
 | [`@unturf/unfirehose-ui`](packages/ui) | [![npm](https://img.shields.io/npm/v/@unturf/unfirehose-ui)](https://www.npmjs.com/package/@unturf/unfirehose-ui) | Shared React components for dashboard UI |
 
@@ -347,57 +355,95 @@ Built by humans and agents working together. From the first `create-next-app` to
 
 ## Gallery
 
+Every shot is this dashboard running on one developer's machine, taken the day
+it was committed.
+
+### Refusals
+Every way a provider said no, in one place: throttles, quota, overloads, 5xx,
+and models that stopped existing. A banner answers "is it happening right now"
+before any table loads, and each row names the harness, the upstream that
+actually refused, the call, and the status.
+
+![Refusals](docs/screenshots/refusals.png)
+
+### What Vendors Admit
+The second half of the same question. Each provider's own incident feed,
+polled every minute, beside our own counts, so "is it me or them" is one glance
+rather than six browser tabs. A vendor with no status page gets probed directly
+and the card says that is what happened.
+
+![Vendor status](docs/screenshots/vendor-status.png)
+
 ### Dashboard
-Time-range filtered overview: session count, message volume, model distribution, equivalent API cost. Activity charts by day and hour with automatic timezone detection. Model usage donut with per-model cost breakdown.
+Time-range filtered overview: session count, message volume, model
+distribution, equivalent API cost. Activity by day and hour with automatic
+timezone detection, and a day-by-hour hotspot overlay showing when agents run
+hottest.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
 ### Live Feed
-Real-time SSE stream of all active sessions. Watch agents work as they stream responses, make tool calls, and reason. Color-coded by harness (Claude Code, Fetch, uncloseai, agnt). Reasoning-only filter to focus on the thinking part.
+Real-time SSE stream across every active session. Watch agents work as they
+stream responses, call tools, and reason. Colour-coded by harness, with a
+reasoning-only filter for when the thinking is the point.
 
 ![Live Feed](docs/screenshots/live-feed.png)
 
-### Active Sessions
-Grid of currently running agent sessions. Each card shows harness type, project, model, message count, elapsed time, and a reasoning indicator (with sealed-by-Anthropic disclosure for opus-4-7).
+### Tokens
+Per-model and per-harness breakdown with the **full cost split** — input,
+output, cache-read, cache-write — booked at the price in force on the day the
+tokens were spent, from public price books kept in an append-only ledger. Cache
+hit rate expressed as a rate, and prefix-cache counters measured on our own
+inference nodes.
 
-![Active Sessions](docs/screenshots/active-sessions.png)
-
-### Projects
-All discovered projects with session count, message volume, and 30-day cost. Dynamic commit badges show git activity. Distinguishes "no projects yet" from "all clean across N projects" — fresh installers get a Get Started panel.
-
-![Projects](docs/screenshots/projects.png)
+![Tokens](docs/screenshots/token-usage.png)
 
 ### Project Detail
-Single project deep-dive: agent prompt dispatch, open tasks, recent sessions, in-day usage share. "Token detail →" link drops you into `/tokens?project=…` for the full cost-split breakdown. Boot agents directly from the card.
+Single project deep-dive: sessions, commits, open todos, cost by model, top
+tools, 30-day usage share, and a prompt box to boot an agent on it. Rename the
+repo on disk and its history follows — identity comes from the git root commit,
+not the path.
 
 ![Project Detail](docs/screenshots/project-detail.png)
 
+### Todo Kanban
+Cross-session todos extracted from every agent conversation across every
+harness. Pending, in-progress and completed lanes, with time estimates,
+dependency graphs and file attachments.
+
+![Todo Kanban](docs/screenshots/kanban-board.png)
+
 ### Scrobble
-GitHub-style activity heatmap (rows = days, columns = hours), hour-of-day distribution, daily cost chart, streak tracking. Your coding pattern at a glance. Opt-in; per-project visibility (public / unlisted / private).
+Activity heatmap (rows = days, columns = hours), hour-of-day distribution,
+daily cost, streak tracking. Your coding pattern at a glance. Opt-in, with
+per-project visibility.
 
 ![Scrobble](docs/screenshots/scrobble.png)
 
-### Token Usage
-Per-model and per-harness token breakdown with **full cost split** — input / output / cache-read / cache-write. Equivalent API cost at current rates. Cache efficiency shown in context. `?project=<name>` URL filter for project-scoped analysis.
-
-![Token Usage](docs/screenshots/token-usage.png)
-
-### Usage Monitor
-Plan billing and alerts: per-minute token timeline, configurable alert thresholds, agent standup with per-project bars. Red banner when usage spikes exceed limits.
-
-![Usage Monitor](docs/screenshots/usage-monitor.png)
-
 ### Permacomputer Mesh
-Mesh overview: node economics (cost / mo, $ / core), power consumption, resource allocation bars. Bootstrap panel for deploying harnesses to SSH nodes via tmux.
+Mesh overview: node economics, power draw and electricity cost, resource
+allocation, fleet metrics over time. Bootstrap panel for deploying harnesses to
+SSH nodes via tmux.
 
 ![Permacomputer](docs/screenshots/permacomputer.png)
 
+### Node Detail
+Every sensor a machine will admit to: package temperature, fan duty, clock
+against rated speed, and throttle events counted since boot. A laptop cooking
+at 82°C is doing your work badly, and this is the page that says so.
+
+![Node Detail](docs/screenshots/node-detail.png)
+
 ### Schema Browser
-Browse the unfirehose/1.0 spec directly in the dashboard. Object types, harness adapter docs, field mapping tables. Published as `@unturf/unfirehose-schema` on npm.
+Browse the unfirehose/1.0 spec in the dashboard: object types, field mapping
+tables, and an adapter doc for each supported harness. Published as
+`@unturf/unfirehose-schema` on npm.
 
 ![Schema](docs/screenshots/schema.png)
 
-### Settings
-Profile, plan tiers, local data paths, git auto-push config, vault for BYO LLM keys. Self-hosted AGPL-3.0 — your data stays on your machine.
+### Make It Yours
+Any accent colour you like, with a tonal scale derived from it, and forty
+display currencies to read costs in. No account, no telemetry, nothing leaves
+the machine.
 
-![Settings](docs/screenshots/settings.png)
+![Appearance](docs/screenshots/settings.png)
