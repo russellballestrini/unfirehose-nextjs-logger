@@ -150,7 +150,7 @@ export default function DashboardPage() {
           <div>
             <h3 className="text-2xl font-bold mb-2">Welcome to unfirehose</h3>
             <p className="text-base text-[var(--color-muted)]">
-              A local-first observability dashboard for AI coding agents. Watch your sessions,
+              A local-first observability dashboard for machine learning coding agents. Watch your sessions,
               tokens, reasoning, and cost across every harness you run — Claude Code, agnt,
               uncloseai, fetch, and more — without sending a byte to the cloud.
             </p>

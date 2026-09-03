@@ -163,7 +163,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
             <span className="text-[var(--color-foreground)]">un</span>
             <span className="text-[var(--color-accent)]">firehose</span>
           </h1>
-          <p className="text-sm text-[var(--color-muted)] tracking-widest uppercase">Local observability for AI coding agents</p>
+          <p className="text-sm text-[var(--color-muted)] tracking-widest uppercase">Local observability for machine learning coding agents</p>
           <p className="text-base text-[var(--color-muted)] max-w-md mx-auto">
             Watch your Claude Code (and other harness) sessions, tokens, reasoning, and cost — all locally, no telemetry.
             The vault below only matters if you want the in-app agent helpers to use your own LLM keys; skip it and you can still browse everything.
