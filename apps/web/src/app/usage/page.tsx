@@ -272,7 +272,7 @@ export default function UsageMonitorPage() {
         </div>
 
         {thresholds && (
-          <table className="w-full text-base">
+          <table className="w-full text-base [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
             <thead>
               <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
                 <th className="pb-2 w-16">Window</th>
