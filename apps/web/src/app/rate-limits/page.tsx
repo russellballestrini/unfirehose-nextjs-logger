@@ -200,10 +200,6 @@ export default function RateLimitsPage() {
         </div>
       )}
 
-      <p className="text-sm text-[var(--color-muted)] max-w-3xl">
-        {TARGET_HELP[target] ?? 'Every refusal we recorded.'}
-        {kind === 'all' && ' Throttles and every other way a call was refused — a provider can decline without limiting us, and a model that stops existing 404s rather than throttling.'}
-      </p>
 
       {error && <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>}
       {isLoading && !data && <div className="text-[var(--color-muted)]">Loading…</div>}
