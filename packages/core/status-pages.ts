@@ -43,7 +43,10 @@ export interface StatusTarget {
    * `statuspage-feed`: an incident feed (Atlassian Statuspage / incident.io
    * Atom, or RSS). `http-probe`: the vendor publishes no status page, so we
    * ask its API directly — a cheap unauthenticated GET (a model list) once
-   * a minute, judged on status code and latency.
+   * a minute, judged on status code and latency. That is the network edge
+   * (CDN, gateway, catalog), not inference; whether a model answers is a
+   * paid, authenticated question and belongs to a harness canary, whose
+   * failures arrive on the refusals tab as throttle records.
    */
   kind: 'statuspage-feed' | 'http-probe';
   /** Feed URL for `statuspage-feed`; the probe URL for `http-probe`. */
@@ -90,7 +93,7 @@ export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   // so we ask it directly — the same host our calls go to.
   { id: 'nous',       name: 'Nous Portal', url: 'https://portal.nousresearch.com', kind: 'http-probe',
     feed: 'https://inference-api.nousresearch.com/v1/models',
-    note: 'No public status page. We probe their inference gateway\'s model list once a minute.' },
+    note: 'No public status page. Edge only: we GET their inference gateway\'s model list once a minute, which proves the gateway answers, not that a model will.' },
 ];
 
 /** A probe slower than this is answering, but not well. */

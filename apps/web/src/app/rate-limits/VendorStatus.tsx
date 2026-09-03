@@ -110,7 +110,7 @@ export function VendorStatusTab() {
                 <span className="font-mono text-xs text-[var(--color-muted)]">{c.id}</span>
                 {c.kind === 'http-probe' && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-muted)]" title={c.note}>
-                    probed
+                    edge probe
                   </span>
                 )}
                 <span className="ml-auto text-sm" style={{ color: INDICATOR_COLOR[p?.indicator ?? 'unknown'] }}>
