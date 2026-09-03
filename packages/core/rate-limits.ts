@@ -231,6 +231,10 @@ const NEGATIVES: RegExp[] = [
   /\bretry on\b/i,
   /<task-notification>/,
   /\bgrep\b|\brg\b\s|\bripgrep\b/i,
+  // Our own vocabulary. A block that names this detector, its table or its
+  // rules is a session working on refusals — DB dumps, test files, prose —
+  // and every quoted error in it is an example, not an event.
+  /\brate_limit_events\b|\bdetectRateLimit\b|\bisRateLimited\b|\bharness-reported\b|\banthropic-(?:usage-limit|overloaded|server-error|temporary)\b|\buncloseai-bracket-tag\b|\bstatus-pages\b|\bsqlite3\b/i,
 ];
 
 /** Seconds from a retry hint: `retry after 4200ms`, `Retry-After: 30`. */

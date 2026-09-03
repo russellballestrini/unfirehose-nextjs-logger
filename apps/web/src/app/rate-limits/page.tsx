@@ -224,7 +224,7 @@ export default function RateLimitsPage() {
               the moment of failure while the route was still known.
             </p>
           )}
-          <table className="w-full text-sm mb-4">
+          <table className="w-full text-sm mb-4 [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
             <thead>
               <tr className="text-[var(--color-muted)] text-left">
                 <th className="pb-2">Upstream</th>
@@ -276,7 +276,7 @@ export default function RateLimitsPage() {
           <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide mb-3">
             Which harness hit it
           </h2>
-          <table className="w-full text-sm">
+          <table className="w-full text-sm [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
             <thead>
               <tr className="text-[var(--color-muted)] text-left">
                 <th className="pb-2">Provider</th>
@@ -321,21 +321,24 @@ export default function RateLimitsPage() {
           <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide mb-3">
             By day
           </h2>
-          <div className="flex items-end gap-0.5 h-24">
-            {byDay.map((d) => (
-              <div
-                key={d.day}
-                title={`${d.day}: ${d.events} event${d.events === 1 ? '' : 's'}`}
-                className="flex-1 min-w-[2px] bg-[var(--color-error)] rounded-t opacity-80 hover:opacity-100"
-                style={{ height: `${maxDay > 0 ? Math.max(2, (d.events / maxDay) * 100) : 0}%` }}
-              />
+          <div className="space-y-1">
+            {byDay.slice(-28).map((d) => (
+              <div key={d.day} className="grid grid-cols-[6.5rem_1fr_3.5rem] items-center gap-3 text-sm">
+                <span className="font-mono text-[var(--color-muted)]">{d.day}</span>
+                <div className="h-3 rounded bg-[var(--color-border)]/40 overflow-hidden">
+                  <div
+                    className="h-full rounded bg-[var(--color-error)] opacity-80"
+                    style={{ width: `${maxDay > 0 ? Math.max(1, (d.events / maxDay) * 100) : 0}%` }}
+                    title={`${d.day}: ${d.events} event${d.events === 1 ? '' : 's'}`}
+                  />
+                </div>
+                <span className="font-mono text-right">{d.events}</span>
+              </div>
             ))}
           </div>
-          <div className="flex justify-between text-xs text-[var(--color-muted)] mt-1">
-            <span>{byDay[0]?.day}</span>
-            <span>peak {maxDay}/day</span>
-            <span>{byDay[byDay.length - 1]?.day}</span>
-          </div>
+          {byDay.length > 28 && (
+            <div className="text-xs text-[var(--color-muted)] mt-2">last 28 of {byDay.length} days shown</div>
+          )}
         </div>
       )}
 
@@ -345,7 +348,7 @@ export default function RateLimitsPage() {
             Most recent ({recent.length})
           </h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">When</th>

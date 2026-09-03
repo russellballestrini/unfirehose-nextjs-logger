@@ -133,11 +133,12 @@ export function scanRateLimits(
       // recorded at ingest). So prose that quotes an error — a session
       // about this very page said "API Error: 529 Overloaded" and named
       // api.x.ai in one breath — is not an event, whatever the text says.
-      // Tool results stay in: a subprocess's stderr is machine output.
+      // Reasoning is the model talking to itself. Tool results stay in: a
+      // subprocess's stderr is machine output.
       if (
         r.harness === 'claude-code' &&
         r.message_type === 'assistant' &&
-        r.block_type === 'text' &&
+        (r.block_type === 'text' || r.block_type === 'reasoning') &&
         r.model && r.model !== '<synthetic>'
       ) continue;
       const ev = detectRateLimit(r.text_content);

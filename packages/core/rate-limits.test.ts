@@ -55,6 +55,12 @@ describe('real throttling events', () => {
     expect(e.status).toBe(502);
   });
 
+  it('a block that names this detector is about refusals, not one of them', () => {
+    expect(isRateLimited("select rule, detail from rate_limit_events where detail like 'API Error: 529 Overloaded%'")).toBe(false);
+    expect(isRateLimited("expect(detectRateLimit('Claude usage limit reached. Your limit will reset at 3pm.')!.kind).toBe('quota')")).toBe(false);
+    expect(isRateLimited("anthropic-usage-limit|claude-code|text|assistant|You've hit your org's monthly usage limit")).toBe(false);
+  });
+
   it('the bench prompt describing the vault limit is an instruction, not a refusal', () => {
     expect(isRateLimited('The vault answers bursts with 429 TOO_MANY_ATTEMPTS with a Retry-After header. Brute forcing is not viable — reason about the code.')).toBe(false);
     expect(isRateLimited('429\nTOO_MANY_ATTEMPTS with a Retry-After header. Brute forcing is not viable')).toBe(false);

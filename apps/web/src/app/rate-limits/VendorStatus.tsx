@@ -53,23 +53,36 @@ export function VendorStatusStrip({ providers }: { providers: string[] }) {
 function HistoryStrip({ targetId }: { targetId: string }) {
   const { data } = useSWR<any>(`/api/rate-limits/status?history=${encodeURIComponent(targetId)}&hours=24`, fetcher, { refreshInterval: 60_000 });
   const polls: any[] = data?.history ?? [];
-  if (polls.length === 0) return <div className="h-2 rounded bg-[var(--color-border)]" title="no polls yet" />;
-  // 96 slots of 15 minutes; each shows the worst light in its window. The
-  // newest poll anchors the axis so render stays pure.
+  if (polls.length === 0) return null;
+  // 96 slots of 15 minutes ending at the newest poll; each shows the worst
+  // light in its window. Slots from before our first poll are left blank
+  // rather than drawn as an empty track — no data is not the same as green.
   const now = new Date(polls[polls.length - 1].timestamp).getTime();
+  const first = new Date(polls[0].timestamp).getTime();
+  const firstSlot = Math.max(0, 95 - Math.floor((now - first) / 900_000));
   const slots: (string | null)[] = Array(96).fill(null);
   const rank: Record<string, number> = { none: 0, unknown: 1, blocked_by_robots: 1, unreachable: 2, minor: 2, major: 3 };
   for (const p of polls) {
-    const age = now - new Date(p.timestamp).getTime();
-    const i = 95 - Math.floor(age / 900_000);
+    const i = 95 - Math.floor((now - new Date(p.timestamp).getTime()) / 900_000);
     if (i < 0 || i > 95) continue;
     if (slots[i] === null || rank[p.indicator] > rank[slots[i]!]) slots[i] = p.indicator;
   }
+  const coveredH = Math.max(1, Math.round((96 - firstSlot) / 4));
   return (
-    <div className="flex gap-px h-2" title="last 24h, 15-minute slots, worst light per slot">
-      {slots.map((ind, i) => (
-        <span key={i} className="flex-1 rounded-[1px]" style={{ background: ind ? INDICATOR_COLOR[ind] : 'var(--color-border)' }} />
-      ))}
+    <div className="space-y-1">
+      <div className="flex gap-px h-2">
+        {slots.map((ind, i) => (
+          <span
+            key={i}
+            className="flex-1 rounded-[1px]"
+            style={{ background: ind ? INDICATOR_COLOR[ind] : i < firstSlot ? 'transparent' : 'var(--color-border)' }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-[var(--color-muted)]">
+        <span>{firstSlot > 0 ? `history since ${new Date(first).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${coveredH}h of 24h` : 'last 24h'}</span>
+        <span>15-min slots, worst light</span>
+      </div>
     </div>
   );
 }
@@ -80,10 +93,8 @@ export function VendorStatusTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[var(--color-muted)] max-w-3xl">
-        Each vendor&apos;s incident feed, polled once a minute by our worker. The light is inferred from open
-        incidents — degraded for elevated errors, outage when the title says so — because the feed is the one
-        path every host&apos;s robots.txt allows. Language-model vendors only.
+      <p className="text-sm text-[var(--color-muted)]">
+        Each vendor&apos;s own incident feed, polled every minute. The light is what their open incidents say.
       </p>
       {error && <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>}
       {isLoading && !data && <div className="text-[var(--color-muted)]">Loading…</div>}
@@ -103,11 +114,9 @@ export function VendorStatusTab() {
               </div>
               <div className="text-sm">{p?.description ?? c.note ?? '—'}</div>
               <HistoryStrip targetId={c.id} />
-              <div className="flex gap-4 text-xs text-[var(--color-muted)]">
-                {p && <span>polled {formatRelativeTime(p.timestamp)}</span>}
-                {p?.indicator !== 'none' && c.since && <span>in this state since {formatRelativeTime(c.since)}</span>}
-                {p?.latencyMs != null && <span>{p.latencyMs}ms</span>}
-                {p?.httpStatus != null && <span>HTTP {p.httpStatus}</span>}
+              <div className="flex justify-between text-xs text-[var(--color-muted)]">
+                <span>{p?.indicator !== 'none' && c.since ? `${INDICATOR_LABEL[p.indicator]} since ${formatRelativeTime(c.since)}` : ''}</span>
+                <span>{p ? [`polled ${formatRelativeTime(p.timestamp)}`, p.latencyMs != null ? `${p.latencyMs}ms` : null, p.httpStatus != null ? `HTTP ${p.httpStatus}` : null].filter(Boolean).join(' · ') : ''}</span>
               </div>
               {c.note && p?.indicator !== 'none' && <div className="text-xs text-[var(--color-muted)] italic">{c.note}</div>}
               {open.length > 0 && (
