@@ -3,7 +3,7 @@
 **Status:** blocked
 **Project:** unfirehose-nextjs-logger (SDK lives in ~/git/unfirehose-sdks)
 **Estimated:** 30m
-**Blocked by:** fox — creating the public repo is an outward-facing decision
+**Blocked by:** fox — two clicks in GitLab (visibility, and deleting a stray project)
 **Todo IDs:** 3971
 
 ## Audit, 2026-09-03
@@ -31,7 +31,36 @@ refusals page with `upstream=nous, 502`.
 pointing at that same unread path. Worth deleting so nobody implements
 against it again.
 
-## Blocked: the repo is not published
+## Home: our own GitLab (2026-09-03)
+
+Repo lives at `git.unturf.com/engineering/unturf/unfirehose/unfirehose-sdks`,
+inside the unfirehose group beside the dashboard. Module path follows it:
+`git.unturf.com/engineering/unturf/unfirehose/unfirehose-sdks/go`. Tagged
+`go/v0.1.0` — the module sits in a `go/` subdirectory, so Go requires the
+subdirectory as a tag prefix and a bare `v0.1.0` would be invisible.
+
+Verified before committing to this path: GitLab serves the `go-import` meta
+tag for public projects, **including for a subdirectory module** — a request
+for `/group/project/helpers?go-get=1` returns the project root. So no vanity
+domain is needed and the SSH port is irrelevant; Go clones over HTTPS 443.
+
+### Two things only fox can do
+
+1. **Set the project to Public.** While private, `?go-get=1` returns a
+   *wrong* meta tag — it falls back to the deepest publicly resolvable path
+   and answers `git.unturf.com/engineering/unturf`, which would send Go to
+   clone the group. `go get` cannot work until visibility flips.
+2. **Delete the stray project** at
+   `git.unturf.com/engineering/unturf/unfirehose-sdks` (no group). I created
+   it by push-to-create before you said where it belonged; it holds the same
+   two commits and nothing else. Deleting needs the web UI or an API token,
+   neither of which this session touched.
+
+Then: proxy.golang.org must be able to reach git.unturf.com to cache and
+checksum the module. It is internet-facing with valid TLS, so it should —
+if it cannot, consumers need `GOPRIVATE=git.unturf.com`.
+
+## Superseded: the github path
 
 - `~/git/unfirehose-sdks` has **zero git remotes**; the work is local only.
 - `github.com/russellballestrini/unfirehose-sdks` does not resolve;
