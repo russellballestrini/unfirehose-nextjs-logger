@@ -155,7 +155,7 @@ const RULES: Rule[] = [
     // TOO_MANY_ATTEMPTS with a Retry-After header. Brute forcing is not
     // viable" once per session — 3,769 sessions' worth of instruction that
     // a looser pattern counted as refusals.
-    re: /HTTP\s+429\s+TOO_MANY_ATTEMPTS\b[^\n]*|429\s+TOO_MANY_ATTEMPTS\s+[—-]+\s+vault is rate-limited[^\n]*/,
+    re: /HTTP[ \t]+429[ \t]+TOO_MANY_ATTEMPTS\b[^\n]*|429[ \t]+TOO_MANY_ATTEMPTS[ \t]+[—-]+[ \t]+vault is rate-limited[^\n]*/,
   },
   {
     // uncloseai-cli, three shapes it actually prints: the final give-up

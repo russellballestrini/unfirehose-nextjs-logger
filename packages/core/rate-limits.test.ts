@@ -57,6 +57,7 @@ describe('real throttling events', () => {
 
   it('the bench prompt describing the vault limit is an instruction, not a refusal', () => {
     expect(isRateLimited('The vault answers bursts with 429 TOO_MANY_ATTEMPTS with a Retry-After header. Brute forcing is not viable — reason about the code.')).toBe(false);
+    expect(isRateLimited('429\nTOO_MANY_ATTEMPTS with a Retry-After header. Brute forcing is not viable')).toBe(false);
   });
 
   it('the bracket tag in code or prose is not a refusal', () => {
