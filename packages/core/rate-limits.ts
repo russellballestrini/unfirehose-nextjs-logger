@@ -191,7 +191,7 @@ const RULES: Rule[] = [
     kind: 'rate_limit',
     provider: null,
     target: 'inference',
-    re: /(?:^|[\s(])HTTP(?:\/1\.[01])?[\s:]*(?:Error[\s:]*)?429\b[^\n]*|(?:^|[\s"',{])(?:status|status_code|statusCode|code|http_status)["']?\s*[:=]\s*["']?429\b[^\n]*|^[\s>*-]*429\s+(?:Too Many Requests|TOO_MANY_ATTEMPTS)\b[^\n]*|\bHTTPError\b[^\n]{0,20}429[^\n]*/mi,
+    re: /(?:^|[\s(])HTTP(?:\/1\.[01])?[\s:]*(?:Error[\s:]*)?429\b[^\n]*|(?:^|[\s"',{])(?:status|status_code|statusCode|code|http_status)["']?\s*[:=]\s*["']?429\b[^\n]*|^[ \t>*-]*429[ \t]+(?:Too Many Requests|TOO_MANY_ATTEMPTS)\b[^\n]*|\bHTTPError\b[^\n]{0,20}429[^\n]*/mi,
   },
   {
     // JSON error bodies: {"error": {"type": "rate_limit_error", ...}}
