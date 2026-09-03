@@ -68,6 +68,8 @@ export function scanRateLimits(
       `SELECT cb.id       AS block_id,
               cb.message_id,
               cb.text_content,
+              cb.block_type,
+              m.type      AS message_type,
               m.session_id,
               m.timestamp,
               m.model,
@@ -87,6 +89,8 @@ export function scanRateLimits(
       block_id: number;
       message_id: number;
       text_content: string;
+      block_type: string | null;
+      message_type: string | null;
       session_id: number | null;
       timestamp: string | null;
       model: string | null;
@@ -123,6 +127,19 @@ export function scanRateLimits(
   const write = database.transaction(() => {
     for (const r of rows) {
       last = r.block_id;
+      // A Claude Code assistant text block from a real model is the model
+      // talking. A refused call never gets that far: Claude Code writes it
+      // as a synthetic row (model "<synthetic>", stamped isApiErrorMessage,
+      // recorded at ingest). So prose that quotes an error — a session
+      // about this very page said "API Error: 529 Overloaded" and named
+      // api.x.ai in one breath — is not an event, whatever the text says.
+      // Tool results stay in: a subprocess's stderr is machine output.
+      if (
+        r.harness === 'claude-code' &&
+        r.message_type === 'assistant' &&
+        r.block_type === 'text' &&
+        r.model && r.model !== '<synthetic>'
+      ) continue;
       const ev = detectRateLimit(r.text_content);
       if (!ev) continue;
       if (r.timestamp && nearbyReported.get(r.session_id, r.timestamp)) continue;

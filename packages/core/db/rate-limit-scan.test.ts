@@ -53,6 +53,28 @@ describe('scanRateLimits fromScratch', () => {
   });
 });
 
+describe('scanRateLimits and prose', () => {
+  it('ignores a real model quoting an error in a Claude Code session', () => {
+    const pid = seedProject(db, 'p');
+    const sid = seedSession(db, pid);
+    db.prepare("UPDATE sessions SET harness = 'claude-code' WHERE id = ?").run(sid);
+    const prose = seedMessage(db, sid, { type: 'assistant', model: 'claude-fable-5-1', timestamp: '2026-09-03T14:28:01.961Z' });
+    seedContentBlock(db, prose, { textContent: 'our rule missed `API Error: 529 Overloaded` and api.x.ai routes as grok' });
+    const synthetic = seedMessage(db, sid, { type: 'assistant', model: '<synthetic>', timestamp: '2026-09-03T14:30:00.000Z' });
+    seedContentBlock(db, synthetic, { textContent: 'API Error: 529 Overloaded. This is a server-side issue.' });
+    const tool = seedMessage(db, sid, { type: 'user', timestamp: '2026-09-03T14:31:00.000Z' });
+    seedContentBlock(db, tool, { blockType: 'tool-result', textContent: 'chat call failed: LLM unreachable after 3 attempts [rate_limit]: HTTP Error 429' });
+
+    const r = scanRateLimits(db);
+    expect(r.found).toBe(2);
+    const rows = db.prepare('SELECT rule, upstream FROM rate_limit_events ORDER BY timestamp').all();
+    expect(rows).toEqual([
+      { rule: 'anthropic-overloaded', upstream: null },
+      { rule: 'uncloseai-bracket-tag', upstream: null },
+    ]);
+  });
+});
+
 describe('backfillReportedRefusals', () => {
   it('rebuilds throttle records and Claude api errors from disk, once', () => {
     const pid = seedProject(db, 'p');

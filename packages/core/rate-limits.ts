@@ -144,13 +144,38 @@ const RULES: Rule[] = [
     re: /concurrency_limit_reached|Concurrent execution limit[^\n]*/i,
   },
   {
-    // uncloseai-cli: `... failed: LLM unreachable after N attempts
-    // [rate_limit]: HTTP Error 429: ...`
+    // arborist's vault answers a burst of opens with 429 TOO_MANY_ATTEMPTS. A
+    // service we run, not a model — before http-429 so it is not filed as
+    // inference against whichever harness happened to be driving.
+    name: 'vault-too-many-attempts',
+    kind: 'rate_limit',
+    provider: 'vault',
+    target: 'service',
+    re: /(?:HTTP\s+)?429\s+TOO_MANY_ATTEMPTS\b[^\n]*/,
+  },
+  {
+    // uncloseai-cli, three shapes it actually prints: the final give-up
+    // (`LLM unreachable after 3 attempts [rate_limit]: HTTP Error 429`), the
+    // failover line (`[rate_limit] on https://openrouter.ai/api/v1 — retrying
+    // on nous`) and the retry line (`[rate_limit]: 429 too many requests,
+    // retrying in 1.2s`). A bare `\[rate_limit\]` matched 34 blocks of
+    // `[rate_limit] error` from test files and every backticked mention of the
+    // tag in prose about this very detector.
     name: 'uncloseai-bracket-tag',
     kind: 'rate_limit',
     provider: 'uncloseai',
     target: 'inference',
-    re: /\[rate_limit\][^\n]*/i,
+    re: /(?:LLM unreachable after \d+ attempts? \[rate_limit\]|\[rate_limit\] on https?:\/\/\S+ [—-]+ retrying|\[rate_limit\]:\s*(?:HTTP Error )?429\b)[^\n]*/i,
+  },
+  {
+    // Same harness giving up on a 5xx. 116 such lines sit in sessions from
+    // before uncloseai-cli reported its own refusals (2026-08-26); after that
+    // the harness-reported row wins and this is skipped by the dedupe.
+    name: 'uncloseai-bracket-server-error',
+    kind: 'server_error',
+    provider: 'uncloseai',
+    target: 'inference',
+    re: /(?:LLM unreachable after \d+ attempts? \[(?:server_error|overloaded)\]|\[(?:server_error|overloaded)\] on https?:\/\/\S+ [—-]+ retrying)[^\n]*/i,
   },
   {
     // Deliberately strict. A loose `\b429\b` matched 3,857 blocks of which

@@ -34,10 +34,32 @@ describe('real throttling events', () => {
     expect(e.status).toBe(429);
   });
 
-  it('arborist vault: 429 TOO_MANY_ATTEMPTS', () => {
+  it('arborist vault: 429 TOO_MANY_ATTEMPTS is a service we run, not a model', () => {
     const e = detectRateLimit('429 TOO_MANY_ATTEMPTS — vault refused')!;
     expect(e.kind).toBe('rate_limit');
     expect(e.status).toBe(429);
+    expect(e.target).toBe('service');
+    expect(e.provider).toBe('vault');
+    expect(detectRateLimit('(HTTP 429 TOO_MANY_ATTEMPTS) on POST /open/__PHONE_1__. Prior attempts (0000000000)')!.target).toBe('service');
+  });
+
+  it('uncloseai-cli: failover and retry lines', () => {
+    expect(detectRateLimit('[rate_limit] on https://openrouter.ai/api/v1 — retrying on nous, same model)')!.upstream).toBe('openrouter');
+    expect(detectRateLimit('[rate_limit]: 429 too many requests, retrying in 1.2s...')!.kind).toBe('rate_limit');
+  });
+
+  it('uncloseai-cli: giving up on a 5xx before it reported its own refusals', () => {
+    const e = detectRateLimit('chat call failed: LLM unreachable after 3 attempts [server_error]: HTTP Error 502: Bad Gateway')!;
+    expect(e.kind).toBe('server_error');
+    expect(e.provider).toBe('uncloseai');
+    expect(e.status).toBe(502);
+  });
+
+  it('the bracket tag in code or prose is not a refusal', () => {
+    expect(isRateLimited('[rate_limit] error')).toBe(false);
+    expect(isRateLimited('`[rate_limit]`. Re-check after a run that actually hits a provider')).toBe(false);
+    expect(isRateLimited('`[rate_limit]`, `[server_error]`, etc.')).toBe(false);
+    expect(isRateLimited('LLM unreachable after 3 attempts [unknown]: empty response from LLM')).toBe(false);
   });
 
   it('a JSON error body', () => {

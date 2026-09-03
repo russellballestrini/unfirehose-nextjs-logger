@@ -50,6 +50,16 @@ const TARGET_HELP: Record<string, string> = {
   web:       'a site we crawled answered 429 — real, but says nothing about our API budget',
 };
 
+/**
+ * The HTTP status a refusal carried, always rendered: a dash says the harness
+ * reported no code, which is itself information about that harness.
+ */
+function StatusCell({ status }: { status: number | null | undefined }) {
+  if (status == null) return <span className="text-[var(--color-muted)]">—</span>;
+  const color = status === 429 ? '#f59e0b' : status >= 500 ? '#ef4444' : 'inherit';
+  return <span style={{ color }}>{status}</span>;
+}
+
 export default function RateLimitsPage() {
   const [range, setRange] = useTimeRange('rate_limits_range', '28d');
   const [target, setTarget] = useStickyState<string>('rate_limits_target', 'inference');
@@ -198,6 +208,7 @@ export default function RateLimitsPage() {
                 <th className="pb-2">Harness</th>
                 <th className="pb-2">Call</th>
                 <th className="pb-2">Kind</th>
+                <th className="pb-2 text-right">Status</th>
                 <th className="pb-2 text-right">Events</th>
                 <th className="pb-2 text-right">Last</th>
               </tr>
@@ -222,6 +233,9 @@ export default function RateLimitsPage() {
                     <td className="py-1.5" style={{ color: KIND_COLOR[r.kind] ?? 'inherit' }} title={KIND_HELP[r.kind]}>
                       {r.kind}
                     </td>
+                    <td className="py-1.5 text-right font-mono">
+                      <StatusCell status={r.http_status} />
+                    </td>
                     <td className="py-1.5 text-right font-bold">{r.events}</td>
                     <td className="py-1.5 text-right text-[var(--color-muted)]">
                       {formatRelativeTime(r.last_seen)}
@@ -244,6 +258,7 @@ export default function RateLimitsPage() {
               <tr className="text-[var(--color-muted)] text-left">
                 <th className="pb-2">Provider</th>
                 <th className="pb-2">Kind</th>
+                <th className="pb-2 text-right">Status</th>
                 <th className="pb-2 text-right">Events</th>
                 <th className="pb-2 text-right">Avg retry-after</th>
                 <th className="pb-2 text-right">Last</th>
@@ -260,6 +275,9 @@ export default function RateLimitsPage() {
                     >
                       {r.kind}
                     </span>
+                  </td>
+                  <td className="py-1.5 text-right font-mono">
+                    <StatusCell status={r.http_status} />
                   </td>
                   <td className="py-1.5 text-right font-bold">{r.events}</td>
                   <td className="py-1.5 text-right text-[var(--color-muted)]">
@@ -303,45 +321,50 @@ export default function RateLimitsPage() {
           <h2 className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wide mb-3">
             Most recent ({recent.length})
           </h2>
-          <div className="space-y-1.5">
-            {recent.map((r, i) => (
-              <div key={i} className="text-sm border-t border-[var(--color-border)] pt-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[var(--color-muted)] shrink-0">
-                    {formatRelativeTime(r.timestamp)}
-                  </span>
-                  <span
-                    className="font-bold shrink-0"
-                    style={{ color: KIND_COLOR[r.kind] ?? 'inherit' }}
-                    title={KIND_HELP[r.kind]}
-                  >
-                    {r.kind}
-                  </span>
-                  <span className="font-mono text-[var(--color-muted)] shrink-0">{r.provider ?? '—'}</span>
-                  <span className="font-mono shrink-0" title="upstream that refused">
-                    {r.upstream
-                      ? `→ ${r.upstream}`
-                      : <span className="text-[var(--color-muted)] italic opacity-60">→ upstream not reported</span>}
-                  </span>
-                  {r.operation && (
-                    <span className="text-[var(--color-muted)] shrink-0">{r.operation} call</span>
-                  )}
-                  {r.http_status && (
-                    <span className="text-[var(--color-muted)] shrink-0">HTTP {r.http_status}</span>
-                  )}
-                  {r.retry_after_s != null && (
-                    <span className="text-[var(--color-muted)] shrink-0">retry {r.retry_after_s}s</span>
-                  )}
-                  {r.model && <span className="text-[var(--color-muted)] shrink-0">{r.model}</span>}
-                  {r.project && (
-                    <span className="text-[var(--color-muted)] shrink-0 opacity-70">{r.project}</span>
-                  )}
-                </div>
-                <div className="font-mono text-xs text-[var(--color-foreground)] opacity-70 break-words">
-                  {r.detail}
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[var(--color-muted)] text-left">
+                  <th className="pb-2">When</th>
+                  <th className="pb-2">Kind</th>
+                  <th className="pb-2 text-right">Status</th>
+                  <th className="pb-2">Harness</th>
+                  <th className="pb-2">Upstream</th>
+                  <th className="pb-2">Call</th>
+                  <th className="pb-2 text-right">Retry</th>
+                  <th className="pb-2">Model</th>
+                  <th className="pb-2">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((r, i) => (
+                  <tr key={i} className="border-t border-[var(--color-border)] align-top">
+                    <td className="py-1.5 text-[var(--color-muted)] whitespace-nowrap" title={r.timestamp}>
+                      {formatRelativeTime(r.timestamp)}
+                    </td>
+                    <td className="py-1.5 font-bold whitespace-nowrap" style={{ color: KIND_COLOR[r.kind] ?? 'inherit' }} title={KIND_HELP[r.kind]}>
+                      {r.kind}
+                    </td>
+                    <td className="py-1.5 text-right font-mono">
+                      <StatusCell status={r.http_status} />
+                    </td>
+                    <td className="py-1.5 font-mono text-[var(--color-muted)]">{r.provider ?? '—'}</td>
+                    <td className="py-1.5 font-mono" title="upstream that refused">
+                      {r.upstream ?? <span className="text-[var(--color-muted)] italic opacity-60">not reported</span>}
+                    </td>
+                    <td className="py-1.5 text-[var(--color-muted)]">{r.operation || '—'}</td>
+                    <td className="py-1.5 text-right text-[var(--color-muted)] whitespace-nowrap">
+                      {r.retry_after_s != null ? `${r.retry_after_s}s` : '—'}
+                    </td>
+                    <td className="py-1.5 text-[var(--color-muted)] font-mono text-xs">{r.model ?? '—'}</td>
+                    <td className="py-1.5 font-mono text-xs opacity-70 break-words min-w-[16rem]">
+                      {r.detail}
+                      {r.project && <span className="block opacity-70">{r.project}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

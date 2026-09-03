@@ -52,7 +52,9 @@ export async function GET(req: NextRequest) {
   const filter = `${targetClause} ${kindClause}`;
   const args = [since, ...(target === 'all' ? [] : [target]), ...kindArgs];
 
-  // Grouped by the upstream that refused, not the harness that got refused.
+  // Grouped by the upstream that refused, not the harness that got refused,
+  // and by HTTP status: a 529 and a 503 under one kind are two provider
+  // states, and the code is the one field a human reads first.
   // COALESCE to a sentinel rather than dropping nulls: "we do not know" is the
   // most common answer and hiding it would misrepresent the data as complete.
   const byUpstream = db.prepare(`
@@ -60,11 +62,12 @@ export async function GET(req: NextRequest) {
            COALESCE(provider, '(unknown)')      AS harness,
            COALESCE(operation, '')              AS operation,
            kind,
+           http_status,
            COUNT(*)       AS events,
            MAX(timestamp) AS last_seen
       FROM rate_limit_events
      WHERE timestamp >= ? ${filter}
-     GROUP BY upstream, provider, operation, kind
+     GROUP BY upstream, provider, operation, kind, http_status
      ORDER BY events DESC
   `).all(...args);
 
@@ -95,12 +98,13 @@ export async function GET(req: NextRequest) {
   const byProvider = db.prepare(`
     SELECT COALESCE(provider, '(unknown)') AS provider,
            kind,
+           http_status,
            COUNT(*)                        AS events,
            MAX(timestamp)                  AS last_seen,
            AVG(retry_after_s)              AS avg_retry_after_s
       FROM rate_limit_events
      WHERE timestamp >= ? ${filter}
-     GROUP BY provider, kind
+     GROUP BY provider, kind, http_status
      ORDER BY events DESC
   `).all(...args);
 
