@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { Fragment, useState } from 'react';
 import useSWR from 'swr';
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
@@ -109,7 +111,7 @@ export default function ScrobblePage() {
             then this page will show your overview, projects, and badges.
           </p>
           <p className="text-base text-[var(--color-muted)]">
-            See <a href="/projects" className="text-[var(--color-accent)] hover:underline">Projects</a> for setup steps.
+            See <Link href="/projects" className="text-[var(--color-accent)] hover:underline">Projects</Link> for setup steps.
           </p>
         </div>
       </div>

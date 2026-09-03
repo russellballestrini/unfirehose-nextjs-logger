@@ -79,8 +79,16 @@ export default function ProjectPage({
   const [customCmd, setCustomCmd] = useState('');
   const [target, setTarget] = useState('localhost');
 
-  // A model id is only meaningful for the harness and node it came from.
-  useEffect(() => { setModel(''); }, [harness, target]);
+  // A model id is only meaningful for the harness and node it came from, so
+  // changing either clears it. Adjusted during render rather than in an
+  // effect: an effect would paint one frame with the stale model still
+  // selected, and React flags the cascading render it causes.
+  const harnessTarget = `${harness}\u0000${target}`;
+  const [prevHarnessTarget, setPrevHarnessTarget] = useState(harnessTarget);
+  if (harnessTarget !== prevHarnessTarget) {
+    setPrevHarnessTarget(harnessTarget);
+    setModel('');
+  }
 
   // What this harness can actually run on this target. uncloseai-cli reaches
   // 469 models across local GPUs, OpenRouter, Nous and Grok — dispatching

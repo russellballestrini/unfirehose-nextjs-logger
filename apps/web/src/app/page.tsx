@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import useSWR from 'swr';
 import { BootScreen } from './BootScreen';
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
@@ -164,10 +166,10 @@ export default function DashboardPage() {
             </ol>
           </div>
           <div className="flex flex-wrap gap-3 pt-2 border-t border-[var(--color-border)]">
-            <a href="/projects" className="px-3 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10">Projects</a>
-            <a href="/schema" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Schema docs</a>
-            <a href="/settings" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Settings</a>
-            <a href="/live" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Live stream</a>
+            <Link href="/projects" className="px-3 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10">Projects</Link>
+            <Link href="/schema" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Schema docs</Link>
+            <Link href="/settings" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Settings</Link>
+            <Link href="/live" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Live stream</Link>
           </div>
         </div>
       </div>

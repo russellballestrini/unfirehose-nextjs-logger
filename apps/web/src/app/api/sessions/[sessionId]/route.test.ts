@@ -6,7 +6,7 @@ vi.mock('@unturf/unfirehose/session-paths', () => ({
     adapter: {
       name: 'mock',
       sessionFile: (slug: string, sessionId: string) => `/mock/${slug}/${sessionId}.jsonl`,
-      normalize: (raw: any) => raw,
+      normalize: (raw: unknown) => raw,
     },
     slug: 'proj',
   }),

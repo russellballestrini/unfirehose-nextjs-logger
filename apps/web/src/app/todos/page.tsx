@@ -290,7 +290,10 @@ export default function TodosPage() {
       setBootResult({ key, msg: `Error: ${String(err)}` });
     }
     setBooting(null);
-  }, [fetchTodos]);
+    // harness, customCmd and model are read inside: without them this
+    // callback keeps whichever harness was selected when it was first
+    // created, and dispatches to that one however the picker is set.
+  }, [fetchTodos, harness, customCmd, model]);
 
   const megaDeploy = useCallback(async () => {
     setMegaLoading(true); setMegaPanelOpen(true);

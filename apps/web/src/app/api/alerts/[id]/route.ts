@@ -132,7 +132,7 @@ export async function GET(
         : 0;
     }
 
-    const enrichedModels = modelBreakdown.map((m: any) => {
+    const enrichedModels = modelBreakdown.map((m) => {
       const c = costForUsage({
         model: m.model,
         input: m.input_tokens,

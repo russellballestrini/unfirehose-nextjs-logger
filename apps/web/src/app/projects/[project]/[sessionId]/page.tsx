@@ -3,7 +3,7 @@
 import { use, useEffect, useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import type { SessionEntry } from '@unturf/unfirehose/types';
+
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
@@ -42,6 +42,26 @@ function HarnessBadge({ harness }: { harness: string }) {
   );
 }
 
+/**
+ * What this viewer reads off an entry, whichever harness produced it.
+ *
+ * Narrower than the canonical SessionEntry union on purpose: this endpoint
+ * returns rows already normalized to unfirehose/1.0, and the page branches on
+ * exactly two of their fields. `thinking` is the legacy spelling of a
+ * reasoning block and still appears in older sessions.
+ */
+interface ViewerBlock {
+  type?: string;
+  text?: string;
+  thinking?: string;
+}
+
+interface ViewerEntry {
+  role?: string;
+  type?: string;
+  content?: ViewerBlock[];
+}
+
 export default function SessionViewerPage({
   params,
 }: {
@@ -76,11 +96,11 @@ export default function SessionViewerPage({
   // `project` from Next.js params is the raw URL-encoded segment (e.g. "agnt%3Achat") —
   // it must NOT be encoded again, or special chars (e.g. ":") double-encode and the server
   // resolves the wrong harness path.
-  const { data: sessionData, isLoading: loading } = useSWR<{ entries: SessionEntry[]; count: number }>(
+  const { data: sessionData, isLoading: loading } = useSWR<{ entries: ViewerEntry[]; count: number }>(
     `/api/sessions/${sessionId}?project=${project}&types=user,assistant,system,tool`,
     fetcher,
   );
-  const entries: SessionEntry[] = sessionData?.entries ?? [];
+  const entries: ViewerEntry[] = sessionData?.entries ?? [];
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
@@ -91,11 +111,11 @@ export default function SessionViewerPage({
   // Detect reasoning on either canonical 'reasoning' blocks or legacy 'thinking'
   // blocks. opus-4-7 ships sealed reasoning (empty text + signature only); we
   // surface the count and split readable vs sealed so the badge stays honest.
-  const reasoningInfo = (e: any) => {
+  const reasoningInfo = (e: ViewerEntry) => {
     if (!Array.isArray(e?.content)) return null;
-    const blocks = e.content.filter((b: any) => b?.type === 'reasoning' || b?.type === 'thinking');
+    const blocks = e.content.filter((b) => b?.type === 'reasoning' || b?.type === 'thinking');
     if (blocks.length === 0) return null;
-    const text = blocks.map((b: any) => (b.text ?? b.thinking ?? '')).join('');
+    const text = blocks.map((b) => b.text ?? b.thinking ?? '').join('');
     return { sealed: text.length === 0 };
   };
 
@@ -111,7 +131,7 @@ export default function SessionViewerPage({
   );
   const reasoningCount = reasoningStats.total;
 
-  const filteredEntries = entries.filter((e: any) => {
+  const filteredEntries = entries.filter((e) => {
     const role = e.role ?? e.type;
     const rolePass = role === 'user' || role === 'assistant' || role === 'system' || role === 'tool';
     if (!rolePass) return false;
