@@ -775,6 +775,30 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rle_session   ON rate_limit_events(session_id);
   `);
 
+  // Vendor status pages, polled by the worker (see status-pages.ts). Raw
+  // polls for 28 days, then one row per hour carrying the worst light.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS status_polls (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp      TEXT NOT NULL,
+      target_id      TEXT NOT NULL,
+      indicator      TEXT NOT NULL,        -- none | minor | major | unknown | unreachable | blocked_by_robots
+      description    TEXT NOT NULL,
+      http_status    INTEGER,
+      latency_ms     INTEGER,
+      incidents_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_status_polls_target_ts ON status_polls(target_id, timestamp);
+    CREATE TABLE IF NOT EXISTS status_polls_hourly (
+      hour            TEXT NOT NULL,       -- YYYY-MM-DDTHH
+      target_id       TEXT NOT NULL,
+      worst_indicator TEXT NOT NULL,
+      polls           INTEGER NOT NULL,
+      unreachable     INTEGER NOT NULL,
+      PRIMARY KEY (hour, target_id)
+    );
+  `);
+
   // vLLM prefix-cache counters, sampled per inference node.
   //
   // Stored as the counters vLLM reports rather than as a rate, because a hit

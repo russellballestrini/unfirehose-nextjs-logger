@@ -1,10 +1,10 @@
 # 3968: Status poller — every platform a person depends on, on one page
 
-**Status:** blocked
+**Status:** done
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 180m
 **Todo IDs:** 3968
-**Blocked by:** fox — robots.txt decision (below) and target list sign-off
+**Blocked by:** —
 
 ## Context
 
@@ -84,3 +84,22 @@ on the page instead of being fetched. Upgrade to 2 only if fox says so.
   to every vendor); the worker polls, the page reads our table.
 - Eight Forms check: this is intellectual capital made visible — no rent,
   no extraction; polling once a minute per vendor is polite.
+
+## Done — 2026-09-03
+
+Built as a **tab on /rate-limits** ("What vendors admit"), not a page — fox:
+to the person waiting, the provider falling over and the provider refusing
+us are one event. Our own /version endpoints dropped from scope: unfirehose
+measures language models, not our fleet.
+
+- `packages/core/status-pages.ts`: targets (defaults + settings
+  `status_targets` add/remove), robots.txt per host cached a day and
+  honoured, Atom parsing for Atlassian Statuspage (claude) and incident.io
+  (openai — CDATA, `<b>Status: X</b>`), indicator inferred from open
+  incidents, `status_polls` raw 28d + hourly worst-light rollup.
+- Worker polls every 60s; `POST /api/rate-limits/status {action: poll}` on
+  demand. `GET` current + `?history=<id>&hours=24`.
+- Refusals tab shows a one-line strip per vendor that appears in the view.
+- xAI (Cloudflare challenge) and OpenRouter (not Statuspage) read
+  `unreachable` with a note; add a feed when one is found.
+- Option 1 from the robots decision (feeds only) is what shipped.

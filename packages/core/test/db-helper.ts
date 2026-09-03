@@ -128,6 +128,15 @@ export function createTestDb(): Database.Database {
       created_at    INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS status_polls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, target_id TEXT NOT NULL,
+      indicator TEXT NOT NULL, description TEXT NOT NULL, http_status INTEGER, latency_ms INTEGER, incidents_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS status_polls_hourly (
+      hour TEXT NOT NULL, target_id TEXT NOT NULL, worst_indicator TEXT NOT NULL, polls INTEGER NOT NULL, unreachable INTEGER NOT NULL,
+      PRIMARY KEY (hour, target_id)
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,

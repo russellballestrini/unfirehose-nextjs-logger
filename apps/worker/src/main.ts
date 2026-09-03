@@ -6,6 +6,7 @@ import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { rollupDrain } from './mesh-rollup';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
+import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -46,6 +47,8 @@ const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
+const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
+const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
 const INGEST_STALL_MS = 10 * 60_000;       // >10 min with no completed ingest = suspect
 const INGEST_HANG_MS = 30 * 60_000;        // in-flight this long = abandoned; force-restart it
@@ -186,6 +189,29 @@ async function main() {
     ingestInFlight = false; // clear a stuck/abandoned guard before retrying
     void runIngestOnce('watchdog');
   }, WATCHDOG_TICK_MS);
+
+  // Vendor status pages. What the provider admits to, next to what we hit.
+  // First poll shortly after boot so the refusals tab is not blank for a
+  // minute; robots.txt is honoured inside pollAllStatusTargets.
+  const runStatusPoll = async () => {
+    try {
+      const polls = await pollAllStatusTargets(getDb());
+      const bad = polls.filter((p) => p.indicator !== 'none');
+      if (bad.length) console.log(`[worker] vendor status: ${bad.map((p) => `${p.targetId}=${p.indicator}`).join(' ')}`);
+    } catch (err) {
+      console.error('[worker] vendor status poll failed:', err);
+    }
+  };
+  const statusKickoff = setTimeout(() => { void runStatusPoll(); }, 10_000);
+  const statusInterval = setInterval(() => { void runStatusPoll(); }, STATUS_POLL_INTERVAL_MS);
+  const statusRollup = setInterval(() => {
+    try {
+      const n = rollupStatusPolls(getDb());
+      if (n > 0) console.log(`[worker] vendor status: folded ${n} raw poll(s) into hourly tier`);
+    } catch (err) {
+      console.error('[worker] vendor status rollup failed:', err);
+    }
+  }, STATUS_ROLLUP_INTERVAL_MS);
 
   // Headless mesh sampler — keeps GPU watts / utilization rolling without a
   // browser tab being open. Per-node phase offsets prevent a stampede when the
@@ -332,6 +358,9 @@ async function main() {
       clearInterval(watchdog);
       clearInterval(rollupInterval);
       clearInterval(rateLimitInterval);
+      clearTimeout(statusKickoff);
+      clearInterval(statusInterval);
+      clearInterval(statusRollup);
       clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);

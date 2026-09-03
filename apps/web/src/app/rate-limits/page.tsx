@@ -5,6 +5,7 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 import { formatRelativeTime } from '@unturf/unfirehose/format';
+import { VendorStatusTab, VendorStatusStrip } from './VendorStatus';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -64,6 +65,10 @@ export default function RateLimitsPage() {
   const [range, setRange] = useTimeRange('rate_limits_range', '28d');
   const [target, setTarget] = useStickyState<string>('rate_limits_target', 'inference');
   const [kind, setKind] = useStickyState<string>('rate_limits_kind', 'all');
+  // Vendor status is a tab here, not a page: to the person waiting on an
+  // answer, the provider falling over and the provider refusing us are the
+  // same event.
+  const [tab, setTab] = useStickyState<'refusals' | 'status'>('rate_limits_tab', 'refusals');
 
   const minutes = getTimeRangeMinutes(range);
   const days = minutes > 0 ? Math.max(1, Math.ceil(minutes / 1440)) : 365;
@@ -97,6 +102,18 @@ export default function RateLimitsPage() {
 
       <div className="flex items-center gap-4 flex-wrap">
         <h1 className="text-2xl font-bold">Refusals</h1>
+        <div className="flex rounded border border-[var(--color-border)] overflow-hidden text-sm">
+          {([['refusals', 'What we hit'], ['status', 'What vendors admit']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`px-3 py-1 cursor-pointer ${tab === id ? 'bg-[var(--color-accent)] text-black font-bold' : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === 'refusals' && (<>
         <TimeRangeSelect value={range} onChange={setRange} />
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-[var(--color-muted)]">Kind</span>
@@ -139,7 +156,13 @@ export default function RateLimitsPage() {
         <span className="text-xs text-[var(--color-muted)]">
           {targets.map((t: any) => `${t.events} ${t.target}`).join(' · ')}
         </span>
+        </>)}
       </div>
+
+      {tab === 'status' && <VendorStatusTab />}
+
+      {tab === 'refusals' && (<>
+      <VendorStatusStrip providers={[...new Set(byProvider.map((r: any) => r.provider).concat(byUpstream.map((r: any) => r.upstream)))]} />
 
       {/* Every kind present in this window, whether or not the filter shows
           it. A kind that exists but is currently hidden should be one click
@@ -368,6 +391,7 @@ export default function RateLimitsPage() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }

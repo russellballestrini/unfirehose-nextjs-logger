@@ -58,6 +58,7 @@
     "./auth": "./auth.ts",
     "./rate-limit": "./rate-limit.ts",
     "./rate-limits": "./rate-limits.ts",
+    "./status-pages": "./status-pages.ts",
     "./db/rate-limit-scan": "./db/rate-limit-scan.ts",
     "./apmonitor-adapter": "./apmonitor-adapter.ts",
     "./training": "./training.ts",

@@ -256,6 +256,23 @@ System alerts and notifications.
 Manage alerts (dismiss, acknowledge).
 ← `{ action: "dismiss", id: 123 }`
 
+### GET /api/rate-limits
+Refusals — every way a provider declined a call (throttles, quota, overloaded, 5xx, model gone), from harness-reported records and scanned output.
+- `?days=7&target=inference|service|web&kind=all|throttles|<kind>&limit=200`
+→ `{ total, byUpstream, byProvider, byDay, recent, attribution }` — every row carries `http_status`
+
+### POST /api/rate-limits
+← `{ fromScratch: true, drain: true }` rescan history with current rules; `{ backfillReported: true }` rebuild harness-reported rows from JSONL on disk
+
+### GET /api/rate-limits/status
+Vendor status pages as our worker last polled them (language-model vendors only; incident feeds, robots.txt honoured).
+- `?history=<targetId>&hours=24` → `{ history: [{ timestamp, indicator, description, http_status, latency_ms }] }`
+→ `{ current: [{ id, name, url, feed, since, poll: { indicator: none|minor|major|unknown|unreachable|blocked_by_robots, description, incidents: [...] } }] }`
+
+### POST /api/rate-limits/status
+← `{ action: "add", target: { id: "mistral", name: "Mistral", feed: "https://status.mistral.ai/history.atom" } }`
+← `{ action: "remove", id: "x-ai" }` · `{ action: "poll" }` polls every target now
+
 
 ## Triage
 
