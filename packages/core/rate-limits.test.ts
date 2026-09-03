@@ -35,7 +35,7 @@ describe('real throttling events', () => {
   });
 
   it('arborist vault: 429 TOO_MANY_ATTEMPTS is a service we run, not a model', () => {
-    const e = detectRateLimit('429 TOO_MANY_ATTEMPTS — vault refused')!;
+    const e = detectRateLimit('429 TOO_MANY_ATTEMPTS — vault is rate-limited to 1 /open per 3.0s. Next attempt allowed in 2.1s')!;
     expect(e.kind).toBe('rate_limit');
     expect(e.status).toBe(429);
     expect(e.target).toBe('service');
@@ -53,6 +53,10 @@ describe('real throttling events', () => {
     expect(e.kind).toBe('server_error');
     expect(e.provider).toBe('uncloseai');
     expect(e.status).toBe(502);
+  });
+
+  it('the bench prompt describing the vault limit is an instruction, not a refusal', () => {
+    expect(isRateLimited('The vault answers bursts with 429 TOO_MANY_ATTEMPTS with a Retry-After header. Brute forcing is not viable — reason about the code.')).toBe(false);
   });
 
   it('the bracket tag in code or prose is not a refusal', () => {
