@@ -120,6 +120,10 @@ function toCanonical(entry: any, harness: string): any | null {
         cacheReadTokens: usage.cache_read_input_tokens ?? 0,
         cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
       },
+      // Undefined when the harness quoted no price. Kept undefined rather
+      // than zeroed so insertMessage stores NULL and pricing falls back to
+      // its own estimate instead of booking the call as free.
+      costUSD: usage.cost_usd ?? undefined,
     };
   }
 
@@ -716,8 +720,8 @@ function insertMessage(
       `INSERT OR IGNORE INTO messages (
         session_id, message_uuid, parent_uuid, type, subtype, timestamp,
         model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-        duration_ms, is_sidechain, endpoint, provider
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        duration_ms, is_sidechain, endpoint, provider, observed_cost_usd
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       sessionId,
@@ -734,7 +738,11 @@ function insertMessage(
       entry.durationMs ?? null,
       entry.sidechain ? 1 : 0,
       entry.endpoint ?? null,
-      entry.provider ?? null
+      entry.provider ?? null,
+      // The gateway's own price for this call, when it quoted one. Undefined
+      // stays NULL: unpriced is not free, and a computed estimate fills in
+      // downstream rather than being frozen here as if it were an invoice.
+      usage?.costUSD ?? null
     );
 
   // changes === 0 means the row was ignored (duplicate uuid)

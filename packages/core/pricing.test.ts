@@ -403,3 +403,64 @@ describe('consensus', () => {
     expect(c.agree).toBe(true);
   });
 });
+
+// The 2026-09-02 Gemini defect: our books said $13.95 for a day that
+// OpenRouter billed near $7, because 10.9M of 17.9M prompt tokens were
+// served from cache at a tenth the rate and the response reported zero
+// cached tokens. No arrangement of token counts recovers that discount,
+// so the quoted price has to win.
+describe('a quoted price outranks our arithmetic', () => {
+  beforeEach(() => {
+    // OpenRouter's live figures for gemini-3.8-flash on 2026-09-02.
+    setPriceCatalog('openrouter', [
+      ...OPENROUTER,
+      { id: 'google/gemini-3.8-flash', source: 'openrouter', input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.0416666666666667, fetchedAt: 0 },
+    ]);
+  });
+
+  it('books what the gateway charged, not what the tokens imply', () => {
+    const tokens = { model: 'google/gemini-3.8-flash', input: 17_592_200, output: 200_465 };
+    const estimated = costForUsage(tokens);
+    const invoiced = costForUsage({ ...tokens, observedUSD: 7.28 });
+    expect(estimated.total).toBeGreaterThan(13);
+    expect(invoiced.total).toBe(7.28);
+    expect(invoiced.source).toBe('invoice');
+  });
+
+  it('keeps the split summing to the figure we were charged', () => {
+    const c = costForUsage({
+      model: 'google/gemini-3.8-flash', input: 17_592_200, output: 200_465,
+      observedUSD: 7.28,
+    });
+    const parts = c.input + c.output + c.cacheRead + c.cacheWrite;
+    expect(parts).toBeCloseTo(7.28, 6);
+  });
+
+  it('leaves market alone — it answers a different question', () => {
+    const tokens = { model: 'google/gemini-3.8-flash', input: 17_592_200, output: 200_465 };
+    const invoiced = costForUsage({ ...tokens, observedUSD: 7.28 });
+    expect(invoiced.market).toBeCloseTo(costForUsage(tokens).market, 6);
+    expect(invoiced.market).toBeGreaterThan(invoiced.total);
+  });
+
+  it('falls back to list price when nothing was quoted', () => {
+    const c = costForUsage({ model: 'google/gemini-3.8-flash', input: 1_000_000, output: 0 });
+    expect(c.total).toBeCloseTo(0.75, 6);
+    expect(c.source).not.toBe('invoice');
+  });
+
+  it('an unpriced call is never read as free', () => {
+    const c = costForUsage({ model: 'google/gemini-3.8-flash', input: 1_000_000, output: 0, observedUSD: null });
+    expect(c.total).toBeCloseTo(0.75, 6);
+  });
+
+  it('a day with an invoice marks the whole sum as invoiced', () => {
+    const c = costForUsageRows([
+      { model: 'google/gemini-3.8-flash', input: 1_000_000, output: 0, at: '2026-09-01' },
+      { model: 'google/gemini-3.8-flash', input: 1_000_000, output: 0, at: '2026-09-02', observedUSD: 0.10 },
+    ]);
+    // 0.75 estimated for the unpriced day, plus the 0.10 we were billed.
+    expect(c.total).toBeCloseTo(0.85, 6);
+    expect(c.source).toBe('invoice');
+  });
+});

@@ -73,6 +73,19 @@ export interface Usage {
   totalTokens?: number;
   inputTokenDetails?: InputTokenDetails;
   outputTokenDetails?: OutputTokenDetails;
+  /**
+   * What the provider or gateway ACTUALLY charged for this call, in USD, when
+   * it states a figure. Token count times list price is a model of the bill;
+   * this is the bill. The two diverge whenever a discount cannot be read off
+   * the token counts — a cached prefix billed at a tenth, a batch tier, a
+   * negotiated rate — and on 2026-09-02 they diverged by 1.87x on Gemini
+   * through OpenRouter, whose response reported zero cached tokens while its
+   * billing recorded 10.9M of them.
+   *
+   * Omit when nothing was quoted. Unpriced is not free, and a consumer must
+   * fall back to its own estimate rather than read an absent figure as $0.
+   */
+  costUSD?: number;
 }
 
 // === Message ===

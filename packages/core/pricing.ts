@@ -39,6 +39,7 @@ export type PriceSource =
   | 'llmprices'   // llm-prices.com
   | 'nous'        // Nous Portal resale price
   | 'table'       // built-in fallback below
+  | 'invoice'     // the gateway quoted its own price; not our arithmetic
   | 'energy'      // self-hosted; electricity, not an invoice
   | 'synthetic'   // test fixture; genuinely $0
   | 'free'        // real model, real tokens, priced at $0 by its provider
@@ -948,6 +949,12 @@ export interface UsageRow {
    * the sum silently reprices old tokens at today's rate.
    */
   at?: number | string | Date | null;
+  /**
+   * What the gateway ACTUALLY charged for these tokens, when it said so.
+   * Overrides the computed figure — see costForUsage. Null/undefined means
+   * nothing was quoted, and we fall back to tokens times list price.
+   */
+  observedUSD?: number | null;
 }
 
 /**
@@ -974,7 +981,7 @@ export function costForUsage(row: UsageRow): CostBreakdown {
       total: 0, market: 0, avoided: 0, source: 'unknown', selfHosted: false,
     };
   }
-  return calcCostBreakdown(
+  const computed = calcCostBreakdown(
     model,
     row.input ?? 0,
     row.output ?? 0,
@@ -988,6 +995,36 @@ export function costForUsage(row: UsageRow): CostBreakdown {
       at: row.at,
     },
   );
+  return row.observedUSD == null ? computed : withInvoice(computed, row.observedUSD);
+}
+
+/**
+ * Replace a computed cost with the price the gateway actually quoted.
+ *
+ * Tokens times list price is a MODEL of the bill, and it drifts wherever a
+ * discount cannot be read off the token counts. Gemini through OpenRouter on
+ * 2026-09-02 is the case that forced this: 10.9M of 17.9M prompt tokens were
+ * served from cache and billed at a tenth, our books said $13.95 against an
+ * invoice near $7, and the response reported zero cached tokens — so the
+ * discount was not reconstructable from the counts at any price.
+ *
+ * The per-class split stays proportional to our estimate. We know the true
+ * total and only estimate how it divides, so scaling keeps input + output +
+ * cache summing to the figure we were charged instead of letting the parts
+ * contradict the whole. `market` is untouched: it answers a different
+ * question — what these tokens cost at oracle rates, whoever served them.
+ */
+function withInvoice(computed: CostBreakdown, observed: number): CostBreakdown {
+  const scale = computed.total > 0 ? observed / computed.total : 0;
+  return {
+    ...computed,
+    input: computed.input * scale,
+    output: computed.output * scale,
+    cacheRead: computed.cacheRead * scale,
+    cacheWrite: computed.cacheWrite * scale,
+    total: observed,
+    source: 'invoice',
+  };
 }
 
 /** Sum costForUsage over many rows. The shape every dashboard needs. */
@@ -1009,12 +1046,17 @@ export function costForUsageRows(rows: Iterable<UsageRow>): CostBreakdown {
     acc.selfHosted = acc.selfHosted || c.selfHosted;
     acc.backdated = acc.backdated || !!c.backdated;
     // A mixed set has no single source; report the first real one we saw,
-    // and the id and promo it was priced against.
+    // and the id and promo it was priced against. An invoice outranks
+    // whatever came first, though: once any part of this sum is a price we
+    // were actually charged, calling the whole thing a list-price estimate
+    // understates what we know about it.
     if (!any && c.source !== 'unknown') {
       acc.source = c.source;
       acc.matchedId = c.matchedId;
       acc.promo = c.promo ?? null;
       any = true;
+    } else if (c.source === 'invoice' && acc.source !== 'invoice') {
+      acc.source = 'invoice';
     }
   }
   return acc;

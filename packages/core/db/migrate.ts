@@ -481,6 +481,15 @@ export function migrate(db: Database.Database) {
   // provider = "anthropic" | "openai" | "google" | "local" | "openrouter" | "hf-inference" | ...
   addColumn('messages', 'endpoint', 'TEXT');
   addColumn('messages', 'provider', 'TEXT');
+  // The invoice, when the gateway states one. Tokens times list price is a
+  // MODEL of the bill and it drifts: on 2026-09-02 ours read $13.95 for a day
+  // of Gemini against a real OpenRouter bill near $7, because 10.9M of 17.9M
+  // prompt tokens were served from cache and billed at a tenth. The response's
+  // own cached_tokens said 0 on every one of those calls, so the discount was
+  // unreconstructable from token counts alone. NULL means unpriced, never
+  // free — an aggregator that quotes its own price is the only source that
+  // cannot disagree with it.
+  addColumn('messages', 'observed_cost_usd', 'REAL');
   // One-time backfill: harness tells us provider with high confidence even when
   // the message row pre-dates endpoint/provider ingestion.
   //

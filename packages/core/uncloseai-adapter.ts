@@ -145,8 +145,12 @@ export function normalizeNativeEntry(raw: any): any | null {
         output_tokens: rawUsage.outputTokens ?? 0,
         cache_read_input_tokens: rawUsage.inputTokenDetails?.cacheReadTokens ?? 0,
         cache_creation_input_tokens: rawUsage.inputTokenDetails?.cacheWriteTokens ?? 0,
+        // The gateway's own price, when it quoted one. `?? null` and not
+        // `?? 0`: unpriced is not free, and a zero here would book every
+        // unmetered backend as costing nothing.
+        cost_usd: rawUsage.costUSD ?? null,
       }
-    : { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    : { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: null };
 
   return {
     type: role,

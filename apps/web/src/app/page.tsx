@@ -413,6 +413,14 @@ export default function DashboardPage() {
                           test
                         </span>
                       )}
+                      {m.costSource === 'invoice' && (
+                        <span
+                          className="text-xs text-[var(--color-muted)] opacity-70"
+                          title="Billed figure, quoted by the gateway. Not tokens times list price — a cached prefix or a batch tier bills below list and cannot be recovered from token counts."
+                        >
+                          billed
+                        </span>
+                      )}
                       {m.promo && (
                         <span
                           className="text-xs text-[var(--color-muted)] opacity-70"

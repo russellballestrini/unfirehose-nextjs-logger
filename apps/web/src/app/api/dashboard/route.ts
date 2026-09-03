@@ -60,11 +60,18 @@ export async function GET(request: NextRequest) {
              SUM(output_tokens) AS output_tokens,
              SUM(cache_read_tokens) AS cache_read_tokens,
              SUM(cache_creation_tokens) AS cache_creation_tokens,
+             -- Split each day by whether the gateway quoted a price. An
+             -- invoiced group books what we were charged; an unpriced one
+             -- falls back to tokens times list price. Mixing them in one
+             -- bucket would force a choice between ignoring real invoices
+             -- and inventing them for calls that never carried one.
+             (observed_cost_usd IS NOT NULL) AS priced,
+             SUM(observed_cost_usd) AS observed_cost,
              MAX(timestamp) AS last_seen
       FROM messages
       WHERE model IS NOT NULL
         AND timestamp >= ?
-      GROUP BY model, endpoint, provider, day
+      GROUP BY model, endpoint, provider, day, priced
     `).all(windowStart) as Array<{
       model: string;
       endpoint: string | null;
@@ -74,6 +81,8 @@ export async function GET(request: NextRequest) {
       output_tokens: number;
       cache_read_tokens: number;
       cache_creation_tokens: number;
+      priced: number;
+      observed_cost: number | null;
       last_seen: string | null;
     }>;
     t.mark('models_attribution');
@@ -81,7 +90,11 @@ export async function GET(request: NextRequest) {
     // Roll up per-(model, endpoint, provider, day) rows into per-model rows,
     // keeping the per-day token split for pricing, while tracking the
     // dominant (endpoint, provider) by total tokens across the whole window.
-    type DayTokens = { day: string; input: number; output: number; cacheRead: number; cacheWrite: number };
+    // observedUSD is the price the gateway quoted for this bucket, or null
+    // when it quoted none. It rides alongside the tokens so pricing can
+    // prefer the invoice per day rather than per model — a model can be
+    // invoiced today and estimated yesterday.
+    type DayTokens = { day: string; input: number; output: number; cacheRead: number; cacheWrite: number; observedUSD: number | null };
     const attrTotals: Record<string, Record<string, { endpoint: string | null; provider: string | null; tot: number }>> = {};
     const dominantAttr: Record<string, { endpoint: string | null; provider: string | null; _tot: number }> = {};
     const dbModelsMap: Record<string, {
@@ -107,6 +120,7 @@ export async function GET(request: NextRequest) {
       const day: DayTokens = {
         day: r.day, input: r.input_tokens, output: r.output_tokens,
         cacheRead: r.cache_read_tokens, cacheWrite: r.cache_creation_tokens,
+        observedUSD: r.priced ? (r.observed_cost ?? null) : null,
       };
       const prev = dbModelsMap[r.model];
       if (prev) {
@@ -250,6 +264,7 @@ export async function GET(request: NextRequest) {
         provider,
         endpoint,
         at: d.day,
+        observedUSD: d.observedUSD,
       })));
       let meshObservedUSD: number | undefined;
       if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {

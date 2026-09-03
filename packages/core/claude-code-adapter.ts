@@ -40,6 +40,10 @@ export function normalizeClaudeCodeEntry(entry: any): any | null {
       cacheReadTokens: ccUsage.cache_read_input_tokens ?? 0,
       cacheWriteTokens: ccUsage.cache_creation_input_tokens ?? 0,
     },
+    // Anthropic bills off-band and quotes no per-call price, so this is
+    // normally absent. Carried anyway: a harness that does quote one must
+    // not have it dropped here for the sake of a shorter mapping.
+    costUSD: ccUsage.cost_usd ?? undefined,
   } : undefined;
 
   return {
