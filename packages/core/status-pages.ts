@@ -41,13 +41,15 @@ export interface StatusTarget {
   url: string;
   /**
    * `statuspage-feed`: an incident feed (Atlassian Statuspage / incident.io
-   * Atom, or RSS). `self-observed`: the vendor publishes no status page, so
-   * the light is what our own calls saw — rate_limit_events for this id in
-   * the last SELF_OBSERVED_WINDOW_MIN minutes.
+   * Atom, or RSS). `http-probe`: the vendor publishes no status page, so we
+   * ask its API directly — a cheap unauthenticated GET (a model list) once
+   * a minute, judged on status code and latency.
    */
-  kind: 'statuspage-feed' | 'self-observed';
-  /** Feed URL; for `self-observed` targets, unused and may be ''. */
+  kind: 'statuspage-feed' | 'http-probe';
+  /** Feed URL for `statuspage-feed`; the probe URL for `http-probe`. */
   feed: string;
+  /** Status codes that mean "serving" for a probe. Default [200]. */
+  expect?: number[];
   note?: string;
 }
 
@@ -84,13 +86,15 @@ export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   // path. robots.txt disallows /incidents$ and /incidents?, not this.
   { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'statuspage-feed', feed: 'https://status.openrouter.ai/incidents.rss' },
   // Nous Portal publishes no status page (confirmed 2026-09-03: outages go to
-  // their Discord and X). Our own refusals are the only signal, so that is
-  // what this card shows.
-  { id: 'nous',       name: 'Nous Portal', url: 'https://portal.nousresearch.com', kind: 'self-observed', feed: '',
-    note: 'No public status page. Light is what our own calls to Nous saw in the last 15 minutes.' },
+  // their Discord and X). Their inference gateway lists models to anyone,
+  // so we ask it directly — the same host our calls go to.
+  { id: 'nous',       name: 'Nous Portal', url: 'https://portal.nousresearch.com', kind: 'http-probe',
+    feed: 'https://inference-api.nousresearch.com/v1/models',
+    note: 'No public status page. We probe their inference gateway\'s model list once a minute.' },
 ];
 
-export const SELF_OBSERVED_WINDOW_MIN = 15;
+/** A probe slower than this is answering, but not well. */
+export const PROBE_SLOW_MS = 5000;
 
 export const STATUS_TARGETS_SETTING = 'status_targets';
 
@@ -104,9 +108,9 @@ export function resolveStatusTargets(overridesJson: string | null): StatusTarget
   const byId = new Map<string, StatusTarget>();
   for (const t of DEFAULT_STATUS_TARGETS) if (!removed.has(t.id)) byId.set(t.id, t);
   for (const t of o.added ?? []) {
-    if (!t || typeof t.id !== 'string' || (typeof t.feed !== 'string' && t.kind !== 'self-observed')) continue;
+    if (!t || typeof t.id !== 'string' || typeof t.feed !== 'string') continue;
     if (removed.has(t.id)) continue;
-    byId.set(t.id, { id: t.id, feed: t.feed ?? '', kind: t.kind === 'self-observed' ? 'self-observed' : 'statuspage-feed', url: t.url ?? t.feed, name: t.name ?? t.id, note: t.note });
+    byId.set(t.id, { id: t.id, feed: t.feed, kind: t.kind === 'http-probe' ? 'http-probe' : 'statuspage-feed', url: t.url ?? t.feed, name: t.name ?? t.id, note: t.note, expect: Array.isArray(t.expect) ? t.expect.map(Number) : undefined });
   }
   return [...byId.values()];
 }
@@ -271,8 +275,28 @@ export async function pollStatusTarget(
     const res = await fetchImpl(target.feed, { signal: ctl.signal, headers: UA });
     clearTimeout(t);
     const latencyMs = Date.now() - t0;
-    if (res.status < 200 || res.status >= 300) {
+    if (target.kind !== 'http-probe' && (res.status < 200 || res.status >= 300)) {
       return { ...base, indicator: 'unreachable', description: `HTTP ${res.status}`, httpStatus: res.status, latencyMs };
+    }
+    if (target.kind === 'http-probe') {
+      const ok = (target.expect ?? [200]).includes(res.status);
+      if (!ok) {
+        const kind: StatusIndicator = res.status === 429 ? 'minor' : 'major';
+        return { ...base, indicator: kind, description: `GET ${u.pathname} → HTTP ${res.status} in ${latencyMs}ms`, httpStatus: res.status, latencyMs };
+      }
+      // A model list with nothing in it is a gateway with nothing behind it.
+      let models: number | null = null;
+      try {
+        const j = JSON.parse(await res.text());
+        const list = Array.isArray(j?.data) ? j.data : Array.isArray(j?.models) ? j.models : Array.isArray(j) ? j : null;
+        models = list ? list.length : null;
+      } catch { models = null; }
+      const slow = latencyMs > PROBE_SLOW_MS;
+      const empty = models === 0;
+      const indicator: StatusIndicator = empty ? 'major' : slow ? 'minor' : 'none';
+      const detail = [`HTTP ${res.status} in ${latencyMs}ms`, models !== null ? `${models} model${models === 1 ? '' : 's'} listed` : null, slow ? 'slow' : null]
+        .filter(Boolean).join(' · ');
+      return { ...base, indicator, description: `GET ${u.pathname} → ${detail}`, httpStatus: res.status, latencyMs };
     }
     const body = await res.text();
     if (!/<(?:feed|rss)[\s>]/i.test(body)) {
@@ -357,40 +381,10 @@ export function rollupStatusPolls(db: Database.Database, keepDays = 28): number 
   })();
 }
 
-/**
- * A vendor with no status page, read from our own refusals. Any hard
- * refusal (5xx, overloaded, timeout, model gone) in the window is a major
- * light — the vendor did not serve; throttles alone are minor — the vendor
- * served and said slow down. Quiet is `none`, which is also what it reads
- * when we made no calls, so the description says how many events it rests on.
- */
-export function observeFromRefusals(db: Database.Database, target: StatusTarget, now = new Date()): StatusPoll {
-  const since = new Date(now.getTime() - SELF_OBSERVED_WINDOW_MIN * 60_000).toISOString();
-  const rows = db.prepare(`
-    SELECT kind, COUNT(*) AS n, MAX(timestamp) AS last
-      FROM rate_limit_events
-     WHERE timestamp >= ? AND (upstream = ? OR (upstream IS NULL AND provider = ?))
-     GROUP BY kind ORDER BY n DESC
-  `).all(since, target.id, target.id) as Array<{ kind: string; n: number; last: string }>;
-  const total = rows.reduce((s, r) => s + r.n, 0);
-  const hard = rows.filter((r) => ['server_error', 'overloaded', 'timeout', 'model_gone'].includes(r.kind)).reduce((s, r) => s + r.n, 0);
-  const indicator: StatusIndicator = total === 0 ? 'none' : hard > 0 ? 'major' : 'minor';
-  const summary = rows.map((r) => `${r.n} ${r.kind}`).join(', ');
-  const description = total === 0
-    ? `No refusals from our calls in the last ${SELF_OBSERVED_WINDOW_MIN}m`
-    : `${total} refusal${total === 1 ? '' : 's'} in the last ${SELF_OBSERVED_WINDOW_MIN}m: ${summary}`;
-  const incidents: StatusIncident[] = rows.map((r) => ({
-    title: `${r.n} × ${r.kind} from our own calls`, status: 'Observed', updatedAt: r.last, link: null, open: true,
-  }));
-  return { targetId: target.id, timestamp: now.toISOString(), indicator, description, incidents, httpStatus: null, latencyMs: null };
-}
-
 /** One worker tick: poll every target, record each. Never throws. */
 export async function pollAllStatusTargets(db: Database.Database, opts: { fetchImpl?: Fetcher } = {}): Promise<StatusPoll[]> {
   const targets = getStatusTargets(db);
-  const polls = await Promise.all(targets.map((t) => t.kind === 'self-observed'
-    ? Promise.resolve(observeFromRefusals(db, t))
-    : pollStatusTarget(t, opts)));
+  const polls = await Promise.all(targets.map((t) => pollStatusTarget(t, opts)));
   for (const p of polls) {
     try { recordStatusPoll(db, p); } catch { /* one bad row must not stop the tick */ }
   }

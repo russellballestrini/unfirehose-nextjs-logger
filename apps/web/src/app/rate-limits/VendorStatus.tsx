@@ -108,9 +108,9 @@ export function VendorStatusTab() {
                 <Light indicator={p?.indicator} size={12} />
                 <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-bold hover:underline">{c.name}</a>
                 <span className="font-mono text-xs text-[var(--color-muted)]">{c.id}</span>
-                {c.kind === 'self-observed' && (
+                {c.kind === 'http-probe' && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-muted)]" title={c.note}>
-                    from our calls
+                    probed
                   </span>
                 )}
                 <span className="ml-auto text-sm" style={{ color: INDICATOR_COLOR[p?.indicator ?? 'unknown'] }}>
@@ -118,7 +118,7 @@ export function VendorStatusTab() {
                 </span>
               </div>
               <div className="text-sm">{p?.description ?? c.note ?? '—'}</div>
-              {c.kind === 'self-observed' && <div className="text-xs text-[var(--color-muted)]">{c.note}</div>}
+              {c.kind === 'http-probe' && <div className="text-xs text-[var(--color-muted)]">{c.note}</div>}
               <HistoryStrip targetId={c.id} />
               <div className="flex justify-between text-xs text-[var(--color-muted)]">
                 <span>{p?.indicator !== 'none' && c.since ? `${INDICATOR_LABEL[p.indicator]} since ${formatRelativeTime(c.since)}` : ''}</span>

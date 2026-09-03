@@ -106,3 +106,8 @@ measures language models, not our fleet.
   severity word decides major. OpenRouter: fox found `/incidents.rss` — Statuspage after all, at a
   non-default path; robots allows it. All four defaults now read.
 - Option 1 from the robots decision (feeds only) is what shipped.
+- Nous: no status page at all (Discord/X). Reading our own refusals was
+  tried and rejected — silent when idle, redundant with the other tab. Shipped
+  instead: an `http-probe` kind that GETs their inference gateway's
+  unauthenticated model list once a minute (200 + non-empty list = serving,
+  5xx/timeout = outage, 429 or >5s = degraded). Same host our calls hit.

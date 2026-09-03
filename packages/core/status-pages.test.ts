@@ -236,3 +236,36 @@ describe('pollStatusTarget', () => {
     expect(p.description).toContain('ENOTFOUND');
   });
 });
+
+describe('pollStatusTarget on an http-probe (nous)', () => {
+  beforeEach(() => _resetRobotsCache());
+  const nous = DEFAULT_STATUS_TARGETS.find((t) => t.id === 'nous')!;
+  const models = JSON.stringify({ data: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] });
+
+  it('a 200 with models listed is operational', async () => {
+    const p = await pollStatusTarget(nous, { fetchImpl: async (url: string) => url.endsWith('/robots.txt')
+      ? { status: 404, text: async () => '' } : { status: 200, text: async () => models } });
+    expect(p.indicator).toBe('none');
+    expect(p.description).toMatch(/^GET \/v1\/models → HTTP 200 in \d+ms · 3 models listed$/);
+  });
+
+  it('a 5xx is an outage, a 429 is degraded, an empty list is an outage', async () => {
+    const mk = (status: number, body = '') => async (url: string) => url.endsWith('/robots.txt')
+      ? { status: 404, text: async () => '' } : { status, text: async () => body };
+    expect((await pollStatusTarget(nous, { fetchImpl: mk(503) })).indicator).toBe('major');
+    _resetRobotsCache();
+    expect((await pollStatusTarget(nous, { fetchImpl: mk(429) })).indicator).toBe('minor');
+    _resetRobotsCache();
+    const empty = await pollStatusTarget(nous, { fetchImpl: mk(200, JSON.stringify({ data: [] })) });
+    expect(empty.indicator).toBe('major');
+    expect(empty.description).toContain('0 models listed');
+  });
+
+  it('a connection failure is unreachable', async () => {
+    const p = await pollStatusTarget(nous, { fetchImpl: async (url: string) => {
+      if (url.endsWith('/robots.txt')) return { status: 404, text: async () => '' };
+      throw new Error('connect ECONNREFUSED');
+    } });
+    expect(p.indicator).toBe('unreachable');
+  });
+});
