@@ -71,7 +71,6 @@ export default function RateLimitsPage() {
   const [tab, setTab] = useStickyState<'refusals' | 'status'>('rate_limits_tab', 'refusals');
 
   const minutes = getTimeRangeMinutes(range);
-  const days = minutes > 0 ? Math.max(1, Math.ceil(minutes / 1440)) : 365;
 
   const { data, error, isLoading } = useSWR<any>(
     `/api/rate-limits?minutes=${minutes}&target=${encodeURIComponent(target)}`
