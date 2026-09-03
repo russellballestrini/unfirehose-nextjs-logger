@@ -94,6 +94,10 @@ export default function DashboardPage() {
     measuredCacheQueries: m.measuredCacheQueries ?? null,
     measuredCacheHits: m.measuredCacheHits ?? null,
     measuredCacheNodes: m.measuredCacheNodes ?? null,
+    // Derived from our own conversation shape, for models that report no
+    // cache at all (vllm#44961). A ceiling, and the ~ says so.
+    structuralReuseTokens: m.structuralReuseTokens ?? null,
+    structuralReuseRate: m.structuralReuseRate ?? null,
     cost: m.costUSD ?? 0,
     // What these tokens are worth at oracle rates, and what our own hardware
     // saved by serving them. On a cloud row market EQUALS cost — the oracle
@@ -448,19 +452,21 @@ export default function DashboardPage() {
                           ? `cache read ${formatTokens(m.cacheReadTokens)} · ` +
                             `cache write ${formatTokens(m.cacheWriteTokens)}` +
                             (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
-                          : m.measuredCacheHits != null
-                            ? `${formatTokens(m.measuredCacheHits)} of ${formatTokens(m.measuredCacheQueries ?? 0)} prompt tokens served from vLLM's prefix cache` +
-                              ` — a ${((m.measuredCacheHitRate ?? 0) * 100).toFixed(1)}% hit rate` +
-                              `\non ${(m.measuredCacheNodes ?? []).join(', ')}.` +
-                              `\n\nMeasured, not billed — the ~ marks it. A model we serve ourselves reports no cache_read tokens, so token accounting cannot see this. vLLM counts it; we sample the counters and difference them over the window.`
+                          : m.structuralReuseTokens != null
+                            ? `~${formatTokens(m.structuralReuseTokens)} of ${formatTokens(m.inputTokens)} prompt tokens were a re-send of a prompt we had already delivered` +
+                              ` — ${((m.structuralReuseRate ?? 0) * 100).toFixed(1)}% of this model's prompt is prefix a cache could serve.` +
+                              `\n\nDERIVED, not measured — the ~ marks it. vLLM's V1 engine never maps num_cached_tokens into prompt_tokens_details (vllm#44961, open since 2025), so a model we serve ourselves reports no cache at all. This is computed from our own sessions: an agent loop appends, so the prefix shared with the previous call is that call's whole prompt, floored to vLLM's 16-token block. It is a CEILING — real hits are lower by whatever eviction takes.` +
+                              (m.measuredCacheHits != null
+                                ? `\n\nFor comparison, vLLM's own counters on ${(m.measuredCacheNodes ?? []).join(', ')} report ${formatTokens(m.measuredCacheHits)} hits over ${formatTokens(m.measuredCacheQueries ?? 0)} queries this window. That describes the NODE, every client of it — not our traffic — so it is context, not our hit rate.`
+                                : '')
                             : 'This provider reported no cache detail for these tokens. Not zero — unknown. An aggregator often returns it only when the request asks for detailed usage accounting.'
                       }
                     >
                       {m.cacheReadTokens + m.cacheWriteTokens > 0
                         ? formatTokens(m.cacheReadTokens + m.cacheWriteTokens)
-                        : m.measuredCacheHits != null
+                        : m.structuralReuseTokens != null
                           ? <span className="text-[var(--color-muted)]">
-                              ~{formatTokens(m.measuredCacheHits)}
+                              ~{formatTokens(m.structuralReuseTokens)}
                             </span>
                           : <span className="text-[var(--color-muted)]">—</span>}
                     </td>

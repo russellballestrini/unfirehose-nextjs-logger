@@ -3,6 +3,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { usageCacheHitRate, cacheHitRate } from '@unturf/unfirehose/vllm-metrics';
+import { VLLM_BLOCK_TOKENS } from '@unturf/unfirehose/prefix-reuse';
 import { Timing } from '@/lib/timing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -248,6 +249,35 @@ export async function GET(request: NextRequest) {
       measuredByModel.set(model, acc);
     }
 
+    // How much of each self-hosted model's prompt was a re-send of something
+    // we had already sent it. vLLM will not report per-request cache hits
+    // (vllm#44961), and its Prometheus counters describe the NODE rather than
+    // our traffic — one 7-day window showed 6.6B query tokens across the mesh
+    // against 791M of our own, so their ratio is not our hit rate. This is
+    // derived from our own conversations instead: an agent loop appends, so
+    // the prefix shared with the previous call is that call's whole prompt.
+    // A ceiling, not a measurement — the UI must say so.
+    const reuseRows = db.prepare(`
+      SELECT model,
+             SUM(input_tokens) AS prompt_tokens,
+             SUM((min(COALESCE(prev, 0), input_tokens) / ?) * ?) AS reusable_tokens
+        FROM (
+          SELECT model, input_tokens,
+                 LAG(input_tokens) OVER (
+                   PARTITION BY session_id ORDER BY timestamp
+                 ) AS prev
+            FROM messages
+           WHERE model IS NOT NULL
+             AND timestamp >= ?
+             AND input_tokens > 0
+             AND cache_read_tokens = 0
+        )
+       GROUP BY model
+    `).all(VLLM_BLOCK_TOKENS, VLLM_BLOCK_TOKENS, windowStart) as Array<{
+      model: string; prompt_tokens: number; reusable_tokens: number;
+    }>;
+    const reuseByModel = new Map(reuseRows.map((r) => [r.model, r]));
+
     const kwhRate = getKwhRate();
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
@@ -272,6 +302,10 @@ export async function GET(request: NextRequest) {
         meshObservedUSD = hostCost * (totalTokens / tokensByHost[host]);
       }
       const measured = measuredByModel.get(m.model);
+      const reuse = reuseByModel.get(m.model);
+      // Nothing reported a cache for this model all window — the condition
+      // vllm#44961 leaves us in, and the only one where an estimate helps.
+      const reportsNoCache = m.cache_read_tokens === 0 && m.cache_creation_tokens === 0;
       return {
         model: m.model,
         // What vLLM measured, when we serve this model ourselves. Null for a
@@ -283,6 +317,16 @@ export async function GET(request: NextRequest) {
         measuredCacheQueries: measured?.queries ?? null,
         measuredCacheHits: measured?.hits ?? null,
         measuredCacheNodes: measured ? [...measured.hosts].sort() : null,
+        // Derived from our own conversation shape — see reuseRows above.
+        // Gated on the MODEL reporting no cache at all across the window, not
+        // on individual rows: a provider that tells us the truth is never
+        // second-guessed by an estimate, and a handful of stray zero-cache
+        // messages on an otherwise-reporting model is noise, not a signal.
+        structuralReuseTokens: reportsNoCache ? (reuse?.reusable_tokens ?? null) : null,
+        structuralReuseRate:
+          reportsNoCache && reuse && reuse.prompt_tokens > 0
+            ? Math.min(1, reuse.reusable_tokens / reuse.prompt_tokens)
+            : null,
         inputTokens: m.input_tokens,
         outputTokens: m.output_tokens,
         cacheReadTokens: m.cache_read_tokens,
