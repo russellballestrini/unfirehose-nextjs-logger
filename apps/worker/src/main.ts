@@ -202,7 +202,13 @@ async function main() {
       console.error('[worker] vendor status poll failed:', err);
     }
   };
-  const statusKickoff = setTimeout(() => { void runStatusPoll(); }, 10_000);
+  // Stale-gated like the price sync: tsx watch reboots on every save, and a
+  // poll a minute ago is still the answer.
+  const statusKickoff = setTimeout(() => {
+    const last = getDb().prepare('SELECT MAX(timestamp) AS t FROM status_polls').get() as { t: string | null };
+    if (last?.t && Date.now() - Date.parse(last.t) < STATUS_POLL_INTERVAL_MS) return;
+    void runStatusPoll();
+  }, 10_000);
   const statusInterval = setInterval(() => { void runStatusPoll(); }, STATUS_POLL_INTERVAL_MS);
   const statusRollup = setInterval(() => {
     try {
