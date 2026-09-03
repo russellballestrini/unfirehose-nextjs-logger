@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import { createTestDb } from './test/db-helper';
-import { recordStatusPoll, getStatusCurrent, getStatusHistory, rollupStatusPolls, DEFAULT_STATUS_TARGETS } from './status-pages';
+import { recordStatusPoll, getStatusCurrent, getStatusHistory, rollupStatusPolls, observeFromRefusals, DEFAULT_STATUS_TARGETS } from './status-pages';
 
 let db: Database.Database;
 beforeEach(() => { db = createTestDb(); });
@@ -45,5 +45,36 @@ describe('status poll storage', () => {
     expect(db.prepare('SELECT * FROM status_polls_hourly').all()).toEqual([
       { hour: '2026-01-01T10', target_id: 'anthropic', worst_indicator: 'major', polls: 3, unreachable: 1 },
     ]);
+  });
+});
+
+describe('observeFromRefusals — a vendor with no status page', () => {
+  const nous = DEFAULT_STATUS_TARGETS.find((t) => t.id === 'nous')!;
+  const now = new Date('2026-09-03T16:00:00.000Z');
+  const ev = (ts: string, kind: string, upstream: string | null, provider = 'uncloseai') =>
+    db.prepare(`INSERT INTO rate_limit_events (timestamp, kind, target, provider, upstream, rule, detail)
+                VALUES (?, ?, 'inference', ?, ?, 'harness-reported', 'x')`).run(ts, kind, provider, upstream);
+
+  it('is none when our calls saw nothing in the window', () => {
+    ev('2026-09-03T15:00:00.000Z', 'server_error', 'nous'); // an hour old — outside 15m
+    const p = observeFromRefusals(db, nous, now);
+    expect(p.indicator).toBe('none');
+    expect(p.description).toBe('No refusals from our calls in the last 15m');
+  });
+
+  it('throttles alone read minor, a hard refusal reads major', () => {
+    ev('2026-09-03T15:55:00.000Z', 'rate_limit', 'nous');
+    expect(observeFromRefusals(db, nous, now)).toMatchObject({ indicator: 'minor', description: '1 refusal in the last 15m: 1 rate_limit' });
+    ev('2026-09-03T15:56:00.000Z', 'server_error', 'nous');
+    ev('2026-09-03T15:57:00.000Z', 'server_error', 'nous');
+    const p = observeFromRefusals(db, nous, now);
+    expect(p.indicator).toBe('major');
+    expect(p.description).toBe('3 refusals in the last 15m: 2 server_error, 1 rate_limit');
+    expect(p.incidents[0]).toMatchObject({ title: '2 × server_error from our own calls', open: true });
+  });
+
+  it('ignores other upstreams', () => {
+    ev('2026-09-03T15:58:00.000Z', 'server_error', 'qwen');
+    expect(observeFromRefusals(db, nous, now).indicator).toBe('none');
   });
 });

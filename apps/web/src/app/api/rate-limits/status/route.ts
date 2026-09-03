@@ -4,6 +4,7 @@ import { getSetting, setSetting } from '@unturf/unfirehose/db/ingest';
 import {
   getStatusCurrent, getStatusHistory, pollAllStatusTargets, STATUS_TARGETS_SETTING,
 } from '@unturf/unfirehose/status-pages';
+import type { StatusTarget } from '@unturf/unfirehose/status-pages';
 
 /**
  * Vendor status pages as our worker last saw them.
@@ -30,12 +31,16 @@ export async function POST(req: NextRequest) {
   if (body?.action === 'poll') {
     return NextResponse.json({ polls: await pollAllStatusTargets(db) });
   }
-  let overrides: { added?: any[]; removed?: string[] } = {};
+  let overrides: { added?: StatusTarget[]; removed?: string[] } = {};
   try { overrides = JSON.parse(getSetting(STATUS_TARGETS_SETTING) ?? '{}'); } catch { overrides = {}; }
   overrides.added ??= [];
   overrides.removed ??= [];
 
-  if (body?.action === 'add' && body.target?.id && body.target?.feed) {
+  if (body?.action === 'add' && body.target?.id && body.target?.kind === 'self-observed') {
+    const t = body.target;
+    overrides.added = overrides.added.filter((x) => x.id !== t.id).concat([{ id: String(t.id), name: String(t.name ?? t.id), feed: '', url: t.url ?? '', kind: 'self-observed', note: t.note ?? 'No public status page. Light is what our own calls saw.' }]);
+    overrides.removed = overrides.removed.filter((id) => id !== t.id);
+  } else if (body?.action === 'add' && body.target?.id && body.target?.feed) {
     const t = body.target;
     let feed: URL;
     try { feed = new URL(t.feed); } catch { return NextResponse.json({ error: 'feed must be a URL' }, { status: 400 }); }

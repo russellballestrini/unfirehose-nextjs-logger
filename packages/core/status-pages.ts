@@ -39,8 +39,14 @@ export interface StatusTarget {
   name: string;
   /** Human page. */
   url: string;
-  /** What to fetch. `statuspage-feed` is an Atlassian Statuspage history.atom. */
-  kind: 'statuspage-feed';
+  /**
+   * `statuspage-feed`: an incident feed (Atlassian Statuspage / incident.io
+   * Atom, or RSS). `self-observed`: the vendor publishes no status page, so
+   * the light is what our own calls saw — rate_limit_events for this id in
+   * the last SELF_OBSERVED_WINDOW_MIN minutes.
+   */
+  kind: 'statuspage-feed' | 'self-observed';
+  /** Feed URL; for `self-observed` targets, unused and may be ''. */
   feed: string;
   note?: string;
 }
@@ -77,7 +83,14 @@ export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   // Statuspage under the hood after all — its RSS lives at a non-default
   // path. robots.txt disallows /incidents$ and /incidents?, not this.
   { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'statuspage-feed', feed: 'https://status.openrouter.ai/incidents.rss' },
+  // Nous Portal publishes no status page (confirmed 2026-09-03: outages go to
+  // their Discord and X). Our own refusals are the only signal, so that is
+  // what this card shows.
+  { id: 'nous',       name: 'Nous Portal', url: 'https://portal.nousresearch.com', kind: 'self-observed', feed: '',
+    note: 'No public status page. Light is what our own calls to Nous saw in the last 15 minutes.' },
 ];
+
+export const SELF_OBSERVED_WINDOW_MIN = 15;
 
 export const STATUS_TARGETS_SETTING = 'status_targets';
 
@@ -91,9 +104,9 @@ export function resolveStatusTargets(overridesJson: string | null): StatusTarget
   const byId = new Map<string, StatusTarget>();
   for (const t of DEFAULT_STATUS_TARGETS) if (!removed.has(t.id)) byId.set(t.id, t);
   for (const t of o.added ?? []) {
-    if (!t || typeof t.id !== 'string' || typeof t.feed !== 'string') continue;
+    if (!t || typeof t.id !== 'string' || (typeof t.feed !== 'string' && t.kind !== 'self-observed')) continue;
     if (removed.has(t.id)) continue;
-    byId.set(t.id, { id: t.id, feed: t.feed, kind: 'statuspage-feed', url: t.url ?? t.feed, name: t.name ?? t.id, note: t.note });
+    byId.set(t.id, { id: t.id, feed: t.feed ?? '', kind: t.kind === 'self-observed' ? 'self-observed' : 'statuspage-feed', url: t.url ?? t.feed, name: t.name ?? t.id, note: t.note });
   }
   return [...byId.values()];
 }
@@ -344,10 +357,40 @@ export function rollupStatusPolls(db: Database.Database, keepDays = 28): number 
   })();
 }
 
+/**
+ * A vendor with no status page, read from our own refusals. Any hard
+ * refusal (5xx, overloaded, timeout, model gone) in the window is a major
+ * light — the vendor did not serve; throttles alone are minor — the vendor
+ * served and said slow down. Quiet is `none`, which is also what it reads
+ * when we made no calls, so the description says how many events it rests on.
+ */
+export function observeFromRefusals(db: Database.Database, target: StatusTarget, now = new Date()): StatusPoll {
+  const since = new Date(now.getTime() - SELF_OBSERVED_WINDOW_MIN * 60_000).toISOString();
+  const rows = db.prepare(`
+    SELECT kind, COUNT(*) AS n, MAX(timestamp) AS last
+      FROM rate_limit_events
+     WHERE timestamp >= ? AND (upstream = ? OR (upstream IS NULL AND provider = ?))
+     GROUP BY kind ORDER BY n DESC
+  `).all(since, target.id, target.id) as Array<{ kind: string; n: number; last: string }>;
+  const total = rows.reduce((s, r) => s + r.n, 0);
+  const hard = rows.filter((r) => ['server_error', 'overloaded', 'timeout', 'model_gone'].includes(r.kind)).reduce((s, r) => s + r.n, 0);
+  const indicator: StatusIndicator = total === 0 ? 'none' : hard > 0 ? 'major' : 'minor';
+  const summary = rows.map((r) => `${r.n} ${r.kind}`).join(', ');
+  const description = total === 0
+    ? `No refusals from our calls in the last ${SELF_OBSERVED_WINDOW_MIN}m`
+    : `${total} refusal${total === 1 ? '' : 's'} in the last ${SELF_OBSERVED_WINDOW_MIN}m: ${summary}`;
+  const incidents: StatusIncident[] = rows.map((r) => ({
+    title: `${r.n} × ${r.kind} from our own calls`, status: 'Observed', updatedAt: r.last, link: null, open: true,
+  }));
+  return { targetId: target.id, timestamp: now.toISOString(), indicator, description, incidents, httpStatus: null, latencyMs: null };
+}
+
 /** One worker tick: poll every target, record each. Never throws. */
 export async function pollAllStatusTargets(db: Database.Database, opts: { fetchImpl?: Fetcher } = {}): Promise<StatusPoll[]> {
   const targets = getStatusTargets(db);
-  const polls = await Promise.all(targets.map((t) => pollStatusTarget(t, opts)));
+  const polls = await Promise.all(targets.map((t) => t.kind === 'self-observed'
+    ? Promise.resolve(observeFromRefusals(db, t))
+    : pollStatusTarget(t, opts)));
   for (const p of polls) {
     try { recordStatusPoll(db, p); } catch { /* one bad row must not stop the tick */ }
   }
