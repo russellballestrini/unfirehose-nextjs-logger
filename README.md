@@ -1,12 +1,12 @@
 # unfirehose
 
-A local-first observability dashboard for AI coding agents. Reads JSONL session data from Claude Code, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
+A local-first observability dashboard for machine learning coding agents. Reads JSONL session data from Claude Code, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
 
 No cloud. No telemetry. Your data stays on your machine.
 
 ## Why
 
-If you run more than one AI coding agent, your sessions accumulate fast — multiple GB of JSONL spread across half a dozen tools, each with its own quirks and its own folder. There is no built-in way to:
+If you run more than one machine learning coding agent, your sessions accumulate fast — multiple GB of JSONL spread across half a dozen tools, each with its own quirks and its own folder. There is no built-in way to:
 
 - See which project is burning the most tokens **right now**, across every harness
 - Track API-equivalent cost on a Max plan with full **input / output / cache-read / cache-write split**
@@ -18,6 +18,101 @@ If you run more than one AI coding agent, your sessions accumulate fast — mult
 
 unfirehose does all of that, on your laptop, no API keys required.
 
+## Gallery
+
+Every shot is this dashboard running on one developer's machine, taken the day
+it was committed.
+
+### Refusals
+Every way a provider said no, in one place: throttles, quota, overloads, 5xx,
+and models that stopped existing. A banner answers "is it happening right now"
+before any table loads, and each row names the harness, the upstream that
+actually refused, the call, and the status.
+
+![Refusals](docs/screenshots/refusals.png)
+
+### What Vendors Admit
+The second half of the same question. Each provider's own incident feed,
+polled every minute, beside our own counts, so "is it me or them" is one glance
+rather than six browser tabs. A vendor with no status page gets probed directly
+and the card says that is what happened.
+
+![Vendor status](docs/screenshots/vendor-status.png)
+
+### Dashboard
+Time-range filtered overview: session count, message volume, model
+distribution, equivalent API cost. Activity by day and hour with automatic
+timezone detection, and a day-by-hour hotspot overlay showing when agents run
+hottest.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+### Live Feed
+Real-time SSE stream across every active session. Watch agents work as they
+stream responses, call tools, and reason. Colour-coded by harness, with a
+reasoning-only filter for when the thinking is the point.
+
+![Live Feed](docs/screenshots/live-feed.png)
+
+### Tokens
+Per-model and per-harness breakdown with the **full cost split** — input,
+output, cache-read, cache-write — booked at the price in force on the day the
+tokens were spent, from public price books kept in an append-only ledger. Cache
+hit rate expressed as a rate, and prefix-cache counters measured on our own
+inference nodes.
+
+![Tokens](docs/screenshots/token-usage.png)
+
+### Project Detail
+Single project deep-dive: sessions, commits, open todos, cost by model, top
+tools, 30-day usage share, and a prompt box to boot an agent on it. Rename the
+repo on disk and its history follows — identity comes from the git root commit,
+not the path.
+
+![Project Detail](docs/screenshots/project-detail.png)
+
+### Todo Kanban
+Cross-session todos extracted from every agent conversation across every
+harness. Pending, in-progress and completed lanes, with time estimates,
+dependency graphs and file attachments.
+
+![Todo Kanban](docs/screenshots/kanban-board.png)
+
+### Scrobble
+Activity heatmap (rows = days, columns = hours), hour-of-day distribution,
+daily cost, streak tracking. Your coding pattern at a glance. Opt-in, with
+per-project visibility.
+
+![Scrobble](docs/screenshots/scrobble.png)
+
+### Permacomputer Mesh
+Mesh overview: node economics, power draw and electricity cost, resource
+allocation, fleet metrics over time. Bootstrap panel for deploying harnesses to
+SSH nodes via tmux.
+
+![Permacomputer](docs/screenshots/permacomputer.png)
+
+### Node Detail
+Every sensor a machine will admit to: package temperature, fan duty, clock
+against rated speed, and throttle events counted since boot. A laptop cooking
+at 82°C is doing your work badly, and this is the page that says so.
+
+![Node Detail](docs/screenshots/node-detail.png)
+
+### Schema Browser
+Browse the unfirehose/1.0 spec in the dashboard: object types, field mapping
+tables, and an adapter doc for each supported harness. Published as
+`@unturf/unfirehose-schema` on npm.
+
+![Schema](docs/screenshots/schema.png)
+
+### Make It Yours
+Any accent colour you like, with a tonal scale derived from it, and forty
+display currencies to read costs in. No account, no telemetry, nothing leaves
+the machine.
+
+![Appearance](docs/screenshots/settings.png)
+
 ## What's new
 
 - **Refusals** — every throttle, quota hit, overload, timeout and dead model in one page, attributed to the upstream that actually refused. A second tab polls each vendor's own incident feed every minute and probes the ones with no status page, so "is it me or them" stops being six browser tabs.
@@ -28,9 +123,6 @@ unfirehose does all of that, on your laptop, no API keys required.
 - **19 harnesses** — Claude Code, uncloseai-cli, agnt, arborist, aider, Cursor, Continue, Gemini CLI, Codex, OpenCode, Pi, Ollama, vLLM, llama.cpp, Open WebUI, text-generation-webui, Fetch and more, all in one database. One session viewer, one project list, one token ledger.
 - **Rename-resilient projects** — identity comes from the git root commit and origin, not the encoded path, so renaming a repo on disk keeps its whole history.
 
-## Screenshots
-
-See [gallery below](#gallery).
 
 ## Features
 
@@ -327,7 +419,7 @@ market, so the dashboard shows what running them ourselves saved.
 
 ## Who This Is For
 
-- AI coding agent power users running multiple harnesses (Claude Code, agnt, uncloseai, fetch, arborist)
+- Machine learning coding agent power users running multiple harnesses (Claude Code, agnt, uncloseai, fetch, arborist)
 - Developers who want to understand how their agents actually behave at scale
 - Teams doing daily standups across agent workstreams
 - Anyone who wants to see exactly where the tokens (and the cache reads) go
@@ -350,100 +442,3 @@ AGPL-3.0-only
 ## Origin
 
 Built by humans and agents working together. From the first `create-next-app` to a full multi-harness observability platform.
-
----
-
-## Gallery
-
-Every shot is this dashboard running on one developer's machine, taken the day
-it was committed.
-
-### Refusals
-Every way a provider said no, in one place: throttles, quota, overloads, 5xx,
-and models that stopped existing. A banner answers "is it happening right now"
-before any table loads, and each row names the harness, the upstream that
-actually refused, the call, and the status.
-
-![Refusals](docs/screenshots/refusals.png)
-
-### What Vendors Admit
-The second half of the same question. Each provider's own incident feed,
-polled every minute, beside our own counts, so "is it me or them" is one glance
-rather than six browser tabs. A vendor with no status page gets probed directly
-and the card says that is what happened.
-
-![Vendor status](docs/screenshots/vendor-status.png)
-
-### Dashboard
-Time-range filtered overview: session count, message volume, model
-distribution, equivalent API cost. Activity by day and hour with automatic
-timezone detection, and a day-by-hour hotspot overlay showing when agents run
-hottest.
-
-![Dashboard](docs/screenshots/dashboard.png)
-
-### Live Feed
-Real-time SSE stream across every active session. Watch agents work as they
-stream responses, call tools, and reason. Colour-coded by harness, with a
-reasoning-only filter for when the thinking is the point.
-
-![Live Feed](docs/screenshots/live-feed.png)
-
-### Tokens
-Per-model and per-harness breakdown with the **full cost split** — input,
-output, cache-read, cache-write — booked at the price in force on the day the
-tokens were spent, from public price books kept in an append-only ledger. Cache
-hit rate expressed as a rate, and prefix-cache counters measured on our own
-inference nodes.
-
-![Tokens](docs/screenshots/token-usage.png)
-
-### Project Detail
-Single project deep-dive: sessions, commits, open todos, cost by model, top
-tools, 30-day usage share, and a prompt box to boot an agent on it. Rename the
-repo on disk and its history follows — identity comes from the git root commit,
-not the path.
-
-![Project Detail](docs/screenshots/project-detail.png)
-
-### Todo Kanban
-Cross-session todos extracted from every agent conversation across every
-harness. Pending, in-progress and completed lanes, with time estimates,
-dependency graphs and file attachments.
-
-![Todo Kanban](docs/screenshots/kanban-board.png)
-
-### Scrobble
-Activity heatmap (rows = days, columns = hours), hour-of-day distribution,
-daily cost, streak tracking. Your coding pattern at a glance. Opt-in, with
-per-project visibility.
-
-![Scrobble](docs/screenshots/scrobble.png)
-
-### Permacomputer Mesh
-Mesh overview: node economics, power draw and electricity cost, resource
-allocation, fleet metrics over time. Bootstrap panel for deploying harnesses to
-SSH nodes via tmux.
-
-![Permacomputer](docs/screenshots/permacomputer.png)
-
-### Node Detail
-Every sensor a machine will admit to: package temperature, fan duty, clock
-against rated speed, and throttle events counted since boot. A laptop cooking
-at 82°C is doing your work badly, and this is the page that says so.
-
-![Node Detail](docs/screenshots/node-detail.png)
-
-### Schema Browser
-Browse the unfirehose/1.0 spec in the dashboard: object types, field mapping
-tables, and an adapter doc for each supported harness. Published as
-`@unturf/unfirehose-schema` on npm.
-
-![Schema](docs/screenshots/schema.png)
-
-### Make It Yours
-Any accent colour you like, with a tonal scale derived from it, and forty
-display currencies to read costs in. No account, no telemetry, nothing leaves
-the machine.
-
-![Appearance](docs/screenshots/settings.png)
