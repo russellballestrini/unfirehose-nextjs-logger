@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setSetting, getSetting } from '@unturf/unfirehose/db/ingest';
+import { resolveExtraUsage } from '@/lib/extra-usage';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -12,13 +13,15 @@ export async function OPTIONS() {
 }
 
 export async function GET() {
-  return NextResponse.json({
+  // Snapshots are pushed by hand and never refresh themselves, so stamp each
+  // read with whether it still describes our current billing period.
+  return NextResponse.json(resolveExtraUsage({
     extraSpent:     getSetting('extra_usage_spent')     ?? null,
     extraLimit:     getSetting('extra_usage_limit')     ?? null,
     extraBalance:   getSetting('extra_usage_balance')   ?? null,
     extraResetDate: getSetting('extra_usage_reset_date') ?? null,
     extraUpdatedAt: getSetting('extra_usage_updated_at') ?? null,
-  }, { headers: CORS });
+  }), { headers: CORS });
 }
 
 export async function POST(req: NextRequest) {

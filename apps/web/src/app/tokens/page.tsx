@@ -315,11 +315,18 @@ export default function TokensPage() {
   const vllmModels: any[] = vllmCache?.models ?? [];
 
 
-  // Extra usage (actual card charges) — hoisted so overview + plan tabs can both use it
-  const extraSpent   = extraData?.extraSpent   ? parseFloat(extraData.extraSpent)   : null;
-  const extraLimit   = extraData?.extraLimit   ? parseFloat(extraData.extraLimit)   : null;
-  const extraBalance = extraData?.extraBalance ? parseFloat(extraData.extraBalance) : null;
-  const extraReset   = extraData?.extraResetDate ?? null;
+  // Extra usage (actual card charges) — hoisted so overview + plan tabs can both use it.
+  //
+  // A snapshot whose billing period has ended (the API marks it `expired`)
+  // says nothing about what we owe now, so it reads as "no data". The plan
+  // tab keeps the last-synced timestamp to explain the gap; nothing else
+  // shows a stale dollar figure as if it were live.
+  const extraExpired: boolean = extraData?.expired === true;
+  const extraLive    = extraData && !extraExpired ? extraData : null;
+  const extraSpent   = extraLive?.extraSpent   ? parseFloat(extraLive.extraSpent)   : null;
+  const extraLimit   = extraLive?.extraLimit   ? parseFloat(extraLive.extraLimit)   : null;
+  const extraBalance = extraLive?.extraBalance ? parseFloat(extraLive.extraBalance) : null;
+  const extraReset   = extraLive?.extraResetDate ?? null;
   const extraPct     = (extraSpent !== null && extraLimit !== null && extraLimit > 0)
     ? Math.min(100, (extraSpent / extraLimit) * 100) : null;
 
@@ -1272,6 +1279,18 @@ export default function TokensPage() {
                     </div>
                   )}
                 </>
+              ) : extraExpired ? (
+                <p className="text-base text-[var(--color-muted)]">
+                  Last sync covered a billing period that ended
+                  {extraData?.resetAt ? ` ${new Date(extraData.resetAt).toLocaleDateString()}` : ''}
+                  {extraData?.extraSpent ? ` ($${parseFloat(extraData.extraSpent).toFixed(2)} of $${extraData.extraLimit ?? '?'} then)` : ''}.
+                  Nothing is known about our current period — visit{' '}
+                  <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"
+                    className="text-[var(--color-accent)] hover:underline">
+                    claude.ai/settings/usage
+                  </a>
+                  {' '}to re-sync.
+                </p>
               ) : (
                 <p className="text-base text-[var(--color-muted)]">
                   No data yet. Drag the bookmarklet below to your browser bar, then click it on{' '}
