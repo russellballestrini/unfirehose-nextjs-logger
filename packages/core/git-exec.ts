@@ -1,5 +1,5 @@
 /**
- * Run one git command and return its stdout.
+ * Running child processes, in one place.
  *
  * Seven API routes each defined their own copy of this, differing only in
  * default timeout and buffer size, and every one of them paid the same
@@ -30,6 +30,36 @@ export interface GitExecOptions {
   stdin?: string;
 }
 
+/**
+ * Run a command and return both streams.
+ *
+ * Three API routes each defined this, identically. The rejection carries
+ * stderr, because a child that failed almost always said why there and
+ * nowhere else — an error without it reads as "command failed" and sends
+ * the reader to the terminal to reproduce it by hand.
+ */
+export function execAsync(
+  cmd: string,
+  args: string[],
+  opts: { timeout: number; cwd?: string; maxBuffer?: number },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(cmd, args, opts, (err, stdout, stderr) => {
+      if (err) reject(Object.assign(err, { stderr }));
+      else resolve({ stdout, stderr });
+    });
+    // A child left waiting on stdin never exits.
+    child.stdin?.end();
+  });
+}
+
+/**
+ * Run one git command and return its stdout.
+ *
+ * Seven API routes each defined their own copy of this. It stays separate
+ * from execAsync because of `stdin` below: git's batch commands read it, and
+ * the distinction is worth a signature rather than a flag.
+ */
 export function gitExec(
   cwd: string,
   args: string[],

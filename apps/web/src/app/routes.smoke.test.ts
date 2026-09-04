@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { describe, it, expect, vi } from 'vitest';
 import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 

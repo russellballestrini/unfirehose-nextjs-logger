@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { execFile } from 'child_process';
+import { execAsync } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-function execAsync(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
-      if (err) reject(Object.assign(err, { stderr }));
-      else resolve({ stdout, stderr });
-    });
-  });
-}
 
 function killWindowAfterDelay(target: string): void {
   setTimeout(() => {

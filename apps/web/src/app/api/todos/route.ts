@@ -2,19 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { recordTriage } from '@unturf/unfirehose/db/triage';
-import { execFile } from 'child_process';
 import { readFile, stat } from 'fs/promises';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
-
-function execAsync(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
-      if (err) reject(Object.assign(err, { stderr }));
-      else resolve({ stdout, stderr });
-    });
-  });
-}
+import { execAsync } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

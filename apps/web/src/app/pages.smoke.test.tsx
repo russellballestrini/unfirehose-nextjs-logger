@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+/// <reference types="vite/client" />
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 
 /**

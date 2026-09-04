@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { execFile } from 'child_process';
 import { stat, writeFile, unlink } from 'fs/promises';
 import path from 'path';
 import { tmpdir } from 'os';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { execAsync } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-function execAsync(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
-      if (err) reject(Object.assign(err, { stderr }));
-      else resolve({ stdout, stderr });
-    });
-  });
-}
 
 const AGENT_SYSTEM_PROMPT = `You are a deployed agent working through a todo list. Follow these rules:
 
