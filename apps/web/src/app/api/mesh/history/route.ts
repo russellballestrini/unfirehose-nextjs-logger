@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { Timing } from '@/lib/timing';
+import { rollupTimeline, decimatePeaks, distinctHostnames } from '@/lib/mesh-history';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -73,123 +74,21 @@ export async function GET(req: NextRequest) {
   //      15s window dedupe to the latest snapshot (the original reason
   //      bucketing exists at all).
   // No further downsampling — uPlot canvas renders 100k+ points cheaply.
-  const bucketSec = 15;
-  const truncateToBucket = (ts: string): string => {
-    // ts is 'YYYY-MM-DD HH:MM:SS' — parse, round down to bucketSec, re-format.
-    const isoMs = Date.parse(ts.replace(' ', 'T') + 'Z');
-    if (!isoMs) return ts.slice(0, 16);
-    const bucketMs = Math.floor(isoMs / (bucketSec * 1000)) * bucketSec * 1000;
-    return new Date(bucketMs).toISOString().replace('T', ' ').slice(0, 19);
-  };
+  const timeline = rollupTimeline(rows, 15);
 
-  // Group by bucket, deduping per hostname (last snapshot wins). The dashboard
-  // POSTs snapshots every ~6-15s from multiple pages, so a node can appear several
-  // times per bucket — summing every row would multiply the fleet totals. We keep
-  // only the latest row per (bucket, hostname), then derive aggregates from that.
-  const byTime = new Map<string, Map<string, any>>();
-  for (const r of rows) {
-    const minute = truncateToBucket(r.timestamp);
-    let nodes = byTime.get(minute);
-    if (!nodes) { nodes = new Map(); byTime.set(minute, nodes); }
-    // rows are ordered ASC, so this leaves the most recent per hostname
-    nodes.set(r.hostname, {
-      cpuWatts: r.power_watts ?? 0,
-      gpuWatts: r.gpu_power_watts ?? 0,
-      watts: (r.power_watts ?? 0) + (r.gpu_power_watts ?? 0),
-      load: r.load_avg_1 ?? 0,
-      cores: r.cpu_cores ?? 0,
-      memUsed: r.mem_used_gb ?? 0,
-      memTotal: r.mem_total_gb ?? 0,
-      claudes: r.claude_processes ?? 0,
-      // Every harness. Falls back to the claude count for snapshots taken
-      // before agent_processes existed, so old history still plots.
-      agents: r.agent_processes ?? r.claude_processes ?? 0,
-      harnessCounts: (() => {
-        try { return r.harness_counts ? JSON.parse(r.harness_counts) : undefined; }
-        catch { return undefined; }
-      })(),
-      gpuUtil: r.gpu_util ?? undefined,
-      gpuMemUsedMB: r.gpu_mem_used_mb ?? 0,
-      gpuMemTotalMB: r.gpu_mem_total_mb ?? 0,
-    });
-  }
-
-  const round1 = (n: number) => Math.round(n * 10) / 10;
-  const timeline = [...byTime.entries()].map(([minute, nodes]) => {
-    const list = [...nodes.values()];
-    const cpuWatts = list.reduce((s, n) => s + n.cpuWatts, 0);
-    const gpuWatts = list.reduce((s, n) => s + n.gpuWatts, 0);
-    const totalLoad = list.reduce((s, n) => s + n.load, 0);
-    const totalCores = list.reduce((s, n) => s + n.cores, 0);
-    const memUsed = list.reduce((s, n) => s + n.memUsed, 0);
-    const memTotal = list.reduce((s, n) => s + n.memTotal, 0);
-    const claudes = list.reduce((s, n) => s + n.claudes, 0);
-    const gpuNodes = list.filter(n => n.gpuUtil != null || n.gpuMemTotalMB > 0);
-    const gpuUtilSum = gpuNodes.reduce((s, n) => s + (n.gpuUtil ?? 0), 0);
-    const gpuMemUsed = gpuNodes.reduce((s, n) => s + n.gpuMemUsedMB, 0);
-    const gpuMemTotal = gpuNodes.reduce((s, n) => s + n.gpuMemTotalMB, 0);
-    return {
-      timestamp: minute,
-      totalWatts: round1(cpuWatts + gpuWatts),
-      cpuWatts: round1(cpuWatts),
-      gpuWatts: round1(gpuWatts),
-      avgLoad: totalCores > 0 ? Math.round((totalLoad / totalCores) * 100) / 100 : 0,
-      totalLoad: round1(totalLoad),
-      totalCores,
-      memUsedGB: round1(memUsed),
-      memTotalGB: round1(memTotal),
-      gpuUtil: gpuNodes.length > 0 ? round1(gpuUtilSum / gpuNodes.length) : 0,
-      gpuMemUsedGB: round1(gpuMemUsed / 1024),
-      gpuMemTotalGB: round1(gpuMemTotal / 1024),
-      claudes,
-      nodeCount: list.length,
-      nodes: Object.fromEntries(nodes),
-    };
-  });
-
-  // Downsample to what a chart can actually draw.
-  //
-  // Measured 2026-09-04: 24h returned 5,646 points x 15 fields plus a
-  // per-node breakdown at every point — 7.97 MB, polled every 6 seconds
-  // into a chart about 1,100px wide. Four of every five points could not be
-  // seen, and the browser parsed 1.3 MB/s to ignore them.
-  //
-  // Each bucket returns the REAL sample with the highest total watts rather
-  // than an average of the bucket. Averaging flattens exactly the spikes
-  // this chart exists to show, and every point stays a measurement that
-  // actually happened.
-  // Both fleet pages read the per-node breakdown, so it stays unless a
-  // caller says it does not need it. Downsampling alone takes 24h from
-  // 7.97 MB to 892 KB; asking for one hostname takes it further.
+  // Both fleet pages read the per-node breakdown, so it stays unless a caller
+  // says it does not need it. Downsampling alone takes 24h from 7.97 MB to
+  // 892 KB; asking for one hostname takes it further.
   const wantNodes = req.nextUrl.searchParams.get('nodes') !== '0';
-  const points = Math.max(50, Math.min(5000, parseInt(req.nextUrl.searchParams.get('points') ?? '600', 10) || 600));
+  const points = Math.max(50, Math.min(5000,
+    parseInt(req.nextUrl.searchParams.get('points') ?? '600', 10) || 600));
 
-  let series = timeline;
-  if (timeline.length > points) {
-    const bucketSize = timeline.length / points;
-    const picked: typeof timeline = [];
-    for (let b = 0; b < points; b++) {
-      const start = Math.floor(b * bucketSize);
-      const end = Math.min(timeline.length, Math.floor((b + 1) * bucketSize));
-      if (end <= start) continue;
-      let best = timeline[start];
-      for (let i = start + 1; i < end; i++) {
-        if (timeline[i].totalWatts > best.totalWatts) best = timeline[i];
-      }
-      picked.push(best);
-    }
-    series = picked;
-  }
-
+  let series = decimatePeaks(timeline, points);
   if (!wantNodes) {
-    series = series.map(({ nodes: _nodes, ...rest }) => rest as typeof series[number]);
+    series = series.map(({ nodes: _nodes, ...rest }) => rest);
   }
 
-  // Distinct hostnames — deduplicate short names that have FQDN variants
-  const rawHostnames = [...new Set(rows.map(r => r.hostname))];
-  const hostnames = rawHostnames.filter(h =>
-    !rawHostnames.some(other => other !== h && other.startsWith(h + '.'))
-  );
+  const hostnames = distinctHostnames(rows);
   t.mark('aggregate');
 
   return NextResponse.json(
