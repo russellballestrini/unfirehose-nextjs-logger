@@ -2,7 +2,7 @@ import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
 import { URL } from 'url';
 
-export interface SendResult {
+interface SendResult {
   accepted: number;
   errors: number;
   statusCode: number;

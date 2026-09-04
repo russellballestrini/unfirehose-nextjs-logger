@@ -175,7 +175,7 @@ export function complexityOfAll(files: string[]): FunctionComplexity[] {
  * Our bands. A function over 10 wants a second look; over 20 it is hard to
  * test exhaustively, and over 50 nobody holds it in their head at all.
  */
-export type Band = 'simple' | 'watch' | 'complex' | 'unmaintainable';
+type Band = 'simple' | 'watch' | 'complex' | 'unmaintainable';
 
 export function bandOf(complexity: number): Band {
   if (complexity <= 10) return 'simple';

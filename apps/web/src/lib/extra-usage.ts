@@ -11,11 +11,11 @@
  *     cannot parse. Billing periods are monthly; 35 days covers the longest.
  */
 
-export const MAX_SNAPSHOT_AGE_DAYS = 35;
+const MAX_SNAPSHOT_AGE_DAYS = 35;
 
 const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
 
-export interface ExtraUsageRaw {
+interface ExtraUsageRaw {
   extraSpent: string | null;
   extraLimit: string | null;
   extraBalance: string | null;
@@ -23,7 +23,7 @@ export interface ExtraUsageRaw {
   extraUpdatedAt: string | null;
 }
 
-export interface ExtraUsageResolved extends ExtraUsageRaw {
+interface ExtraUsageResolved extends ExtraUsageRaw {
   /** ISO timestamp for our reset date, or null when it could not be parsed. */
   resetAt: string | null;
   /** True when this snapshot no longer describes our current billing period. */

@@ -12,7 +12,7 @@
  *   THROTTLE  name|value                                (counters + cpufreq)
  */
 
-export interface SensorTemp {
+interface SensorTemp {
   chip: string;
   /** hwmon instance (hwmon0…) — the only thing separating two sockets'
    *  coretemp chips, which otherwise share chip name AND sensor key. */
@@ -40,7 +40,7 @@ export interface MergedTemp extends SensorTemp {
   source: 'hwmon' | 'acpi';
 }
 
-export interface ThermalZone {
+interface ThermalZone {
   zone: string;
   tempC: number;
 }
@@ -385,7 +385,7 @@ const NVML_THROTTLE_BITS: Array<[number, string, boolean]> = [
   [0x100, 'display clock setting', false],
 ];
 
-export interface GpuThrottleReasons {
+interface GpuThrottleReasons {
   mask: string;
   reasons: string[];
   throttling: boolean;

@@ -10,13 +10,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@unturf/unfirehose/db/api-keys';
 
-export const isCloudMode = () => process.env.MULTI_TENANT === 'true';
+const isCloudMode = () => process.env.MULTI_TENANT === 'true';
 
 /**
  * Middleware sets `X-Account-Id` for session requests and `X-Api-Key` for
  * key requests; a key is validated here rather than trusted.
  */
-export function getAccountId(request: NextRequest): string | null {
+function getAccountId(request: NextRequest): string | null {
   const accountId = request.headers.get('X-Account-Id');
   if (accountId) return accountId;
 

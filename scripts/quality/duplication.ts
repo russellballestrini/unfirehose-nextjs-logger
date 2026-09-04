@@ -48,13 +48,13 @@ export function tokenise(source: string, fileName = 'x.tsx'): Token[] {
   return out;
 }
 
-export interface CloneInstance {
+interface CloneInstance {
   path: string;
   startLine: number;
   endLine: number;
 }
 
-export interface Clone {
+interface Clone {
   tokens: number;
   instances: CloneInstance[];
   /** Tokens a reader would stop having to read if this were extracted once. */

@@ -27,7 +27,7 @@ export interface UPlotSeries {
                         //   trigger cursor focus dimming on neighbors
 }
 
-export interface UPlotTimeChartProps {
+interface UPlotTimeChartProps {
   data: Array<Record<string, number>>;
   series: UPlotSeries[];
   height: number;

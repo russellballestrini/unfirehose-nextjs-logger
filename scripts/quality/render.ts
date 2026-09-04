@@ -44,7 +44,7 @@ export function bar(fraction: number, width = 20): string {
   return grade(glyphs, pct, 70, 50, false);
 }
 
-export interface Column {
+interface Column {
   header: string;
   /** Right-align numbers, left-align names. */
   align?: 'left' | 'right';

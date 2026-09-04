@@ -175,7 +175,7 @@ const sensorHistory = (() => {
   }
 })();
 
-export interface GpuInfo {
+interface GpuInfo {
   index: number; name: string; tempC: number; gpuUtil: number; memUtil: number;
   memTotalMB: number; memUsedMB: number; powerDrawW: number; powerLimitW: number;
   fanPct: number; pstate: string;

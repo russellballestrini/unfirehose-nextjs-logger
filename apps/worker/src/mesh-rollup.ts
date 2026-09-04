@@ -81,14 +81,14 @@ interface MeshRow {
  * Round a SQLite "YYYY-MM-DD HH:MM:SS" timestamp DOWN to the start of its
  * 15-min bucket. Returns the same SQL string format.
  */
-export function bucketStart(sqlTs: string): string {
+function bucketStart(sqlTs: string): string {
   // SQLite stores in UTC by default; treat as such.
   const ms = new Date(sqlTs.replace(' ', 'T') + 'Z').getTime();
   const aligned = Math.floor(ms / BUCKET_MS) * BUCKET_MS;
   return new Date(aligned).toISOString().slice(0, 19).replace('T', ' ');
 }
 
-export function bucketEnd(bs: string): string {
+function bucketEnd(bs: string): string {
   const ms = new Date(bs.replace(' ', 'T') + 'Z').getTime() + BUCKET_MS;
   return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 }
@@ -116,7 +116,7 @@ function maxOf(rows: MeshRow[], col: SmoothCol): number | null {
  * cold tier. Returns true if a bucket was processed, false if no eligible
  * 15s rows exist yet. Self-balancing — multiple invocations drain backlog.
  */
-export function rollupOneBucket(db: Database): boolean {
+function rollupOneBucket(db: Database): boolean {
   // Find the oldest 15s row whose bucket has fully aged (bucket-end is past
   // 28d). Looking at timestamp alone would let us start folding a bucket
   // before its last sample crossed the boundary, producing partial rollups.

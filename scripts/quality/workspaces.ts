@@ -37,7 +37,7 @@ export const WORKSPACES: Workspace[] = [
 ];
 
 /** Directories no report should ever walk into. */
-export const SKIP_DIRS = new Set([
+const SKIP_DIRS = new Set([
   'node_modules', '.next', '.turbo', 'dist', 'build', 'coverage', '.git', 'out',
 ]);
 

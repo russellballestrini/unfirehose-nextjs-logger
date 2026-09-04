@@ -7,11 +7,11 @@ import { formatRelativeTime } from '@unturf/unfirehose/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export const INDICATOR_COLOR: Record<string, string> = {
+const INDICATOR_COLOR: Record<string, string> = {
   none: '#22c55e', minor: '#f59e0b', major: '#ef4444',
   unreachable: '#a855f7', unknown: '#71717a', blocked_by_robots: '#71717a',
 };
-export const INDICATOR_LABEL: Record<string, string> = {
+const INDICATOR_LABEL: Record<string, string> = {
   none: 'operational', minor: 'degraded', major: 'outage',
   unreachable: 'page unreachable', unknown: 'unparseable', blocked_by_robots: 'robots.txt forbids',
 };
@@ -28,7 +28,7 @@ function Light({ indicator, size = 10 }: { indicator: string | undefined; size?:
 
 const HARD_KINDS = new Set(['server_error', 'overloaded', 'timeout', 'model_gone']);
 
-export interface NowRow {
+interface NowRow {
   provider: string; upstream: string | null; kind: string; http_status: number | null;
   m60: number; m15: number; last_seen: string; first_seen: string; sample: string;
 }

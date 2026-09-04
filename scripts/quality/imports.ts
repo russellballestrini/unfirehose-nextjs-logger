@@ -74,7 +74,7 @@ function isOurs(specifier: string): boolean {
   );
 }
 
-export interface FileImports {
+interface FileImports {
   /** Absolute paths this file pulls in. */
   targets: string[];
   /** Names taken from each target: `{ resolved path → names }`. */
@@ -184,7 +184,7 @@ export function importsOf(file: string): FileImports {
   return { targets: [...targets], names, unresolved, starReexports };
 }
 
-export interface ExportedSymbol {
+interface ExportedSymbol {
   name: string;
   line: number;
   kind: string;

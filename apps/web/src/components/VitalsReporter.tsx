@@ -67,5 +67,3 @@ export function VitalsReporter() {
 
   return null;
 }
-
-export default VitalsReporter;

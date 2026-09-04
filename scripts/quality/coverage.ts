@@ -34,7 +34,7 @@ export interface FileCoverage {
   raw: IstanbulFile;
 }
 
-export interface CoverageSet {
+interface CoverageSet {
   /** Keyed by path relative to our repo root. */
   files: Map<string, FileCoverage>;
   /** Workspaces whose report was found. */
