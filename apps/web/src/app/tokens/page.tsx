@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
@@ -28,7 +29,6 @@ import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-
 const HARNESS_COLORS: Record<string, string> = {
   'claude-code': '#a78bfa',
   'fetch': '#60a5fa',
@@ -42,19 +42,6 @@ function getHarnessColor(harness: string): string {
   return HARNESS_COLORS[harness] ?? '#6b7280';
 }
 
-const MODEL_COLORS: Record<string, string> = {
-  // Opus tier — purple shades
-  'claude-opus-4-7':            '#c084fc',
-  'claude-opus-4-6':            '#a78bfa',
-  'claude-opus-4-5-20251101':   '#818cf8',
-  // Sonnet tier — green shades
-  'claude-sonnet-4-6':          '#10b981',
-  'claude-sonnet-4-5-20250929': '#34d399',
-  'claude-sonnet-4-20250514':   '#22c55e',
-  // Haiku tier — amber shades
-  'claude-haiku-4-5-20251001':  '#fbbf24',
-};
-
 const TOOL_COLORS = [
   '#10b981', '#a78bfa', '#60a5fa', '#fbbf24', '#f472b6',
   '#34d399', '#818cf8', '#38bdf8', '#fb923c', '#e879f9',
@@ -65,15 +52,10 @@ function shortModel(model: string): string {
   return model.replace('claude-', '').replace(/-\d{8}$/, '');
 }
 
-function getModelColor(model: string): string {
-  return MODEL_COLORS[model] ?? '#6b7280';
-}
-
 function formatCost(usd: number): string {
   if (usd >= 1000) return `$${(usd / 1000).toFixed(1)}K`;
   return `$${usd.toFixed(2)}`;
 }
-
 
 const tokensTabs = ['overview', 'harness', 'tools', 'plan'] as const;
 type TokensTab = (typeof tokensTabs)[number];
@@ -313,7 +295,6 @@ export default function TokensPage() {
   // that from a 900% one, and neither is a thing.
   const cacheHitPct = usageCacheHitRate(totalInput, totalCacheRead);
   const vllmModels: any[] = vllmCache?.models ?? [];
-
 
   // Extra usage (actual card charges) — hoisted so overview + plan tabs can both use it.
   //
@@ -1237,7 +1218,6 @@ export default function TokensPage() {
 
         // Extra usage — use hoisted values computed at component level
         const extraUpdated = extraData?.extraUpdatedAt ?? null;
-
 
         return (
           <div className="space-y-6">

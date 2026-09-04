@@ -4,10 +4,11 @@ import Link from 'next/link';
 
 import useSWR from 'swr';
 import { BootScreen } from './BootScreen';
+import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
+import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
 import {
   BarChart,
   Bar,
@@ -24,29 +25,11 @@ import {
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-const MODEL_COLORS: Record<string, string> = {
-  // Opus tier — purple shades
-  'claude-opus-4-7':            '#c084fc',
-  'claude-opus-4-6':            '#a78bfa',
-  'claude-opus-4-5-20251101':   '#818cf8',
-  // Sonnet tier — green shades
-  'claude-sonnet-4-6':          '#10b981',
-  'claude-sonnet-4-5-20250929': '#34d399',
-  'claude-sonnet-4-20250514':   '#22c55e',
-  // Haiku tier — amber shades
-  'claude-haiku-4-5-20251001':  '#fbbf24',
-};
-
-function getModelColor(model: string): string {
-  return MODEL_COLORS[model] ?? '#6b7280';
-}
-
 function shortModel(model: string): string {
   return model
     .replace('claude-', '')
     .replace(/-\d{8}$/, '');
 }
-
 
 const DAY_COLORS = [
   '#ef4444', // Sun - red
@@ -176,6 +159,13 @@ export default function DashboardPage() {
     );
   }
 
+  const splitTokens = {
+    input: data.summary.inputTokens ?? 0,
+    output: data.summary.outputTokens ?? 0,
+    cacheRead: data.summary.cacheReadTokens ?? 0,
+    cacheWrite: data.summary.cacheWriteTokens ?? 0,
+  };
+
   return (
     <div className="space-y-6">
       <PageContext
@@ -191,37 +181,45 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-5 gap-4">
-        <StatCard label="Sessions" value={String(data.summary.sessions)} />
-        <StatCard label="Messages" value={formatTokens(data.summary.messages)} />
-        <StatCard label="Models" value={String(data.summary.models)} />
-        <StatCard
-          label="Equiv Cost"
-          value={`$${data.summary.totalCost.toLocaleString()}`}
-          sub={
-            data.summary.cacheCost > 0 && data.summary.totalCost > 0
-              ? `$${data.summary.cacheCost.toLocaleString()} of it cache`
-              : 'at API rates'
-          }
-          title="At API rates, cache read and cache write billed at their own rates — not free, and not folded into input."
+      {/* One strip, not nine cards.
+          Sessions through Since is what happened; Tokens through Output is
+          what it cost. The old layout also printed the same dollar figure
+          twice — "Total Tokens $5,349" beside "Equiv Cost $5,349" — so the
+          cost lives on the token it belongs to now. */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-4 py-3
+                      flex flex-wrap items-start gap-x-6 gap-y-3">
+        <Stat label="Sessions" value={String(data.summary.sessions)} />
+        <Stat label="Messages" value={formatTokens(data.summary.messages)} />
+        <Stat label="Models" value={String(data.summary.models)} />
+        <Stat label="Since" value={data.summary.since ?? '?'} />
+
+        <span className="self-stretch w-px bg-[var(--color-border)]" aria-hidden />
+
+        <Stat
+          label="Tokens"
+          value={formatTokens(totalOf(splitTokens))}
+          sub={`$${data.summary.totalCost.toLocaleString()}`}
+          title="Input + output + cache read + cache write, priced at API rates. Cache is billed at its own rate — not free, and not folded into input."
         />
-        <StatCard
-          label="Since"
-          value={data.summary.since ?? '?'}
+        <Stat
+          label="Input"
+          value={formatTokens(splitTokens.input)}
+          sub={costSub(data.summary.costSplit?.input)}
+          color={TOKEN_TYPE_COLORS.input}
+        />
+        <Stat
+          label="Cache"
+          value={formatTokens(cacheOf(splitTokens))}
+          sub={`${costSub(cacheCostOf(data.summary.costSplit))}${cacheShare != null ? ` · ${Math.round(cacheShare * 100)}% of tokens` : ''}`}
+          color={TOKEN_TYPE_COLORS.cacheRead}
+        />
+        <Stat
+          label="Output"
+          value={formatTokens(splitTokens.output)}
+          sub={costSub(data.summary.costSplit?.output)}
+          color={TOKEN_TYPE_COLORS.output}
         />
       </div>
-
-      {/* Every token we moved, split by type and priced. Cache is the pile
-          that matters — hiding it inside a single total hides the workload. */}
-      <TokenSplitCards
-        tokens={{
-          input: data.summary.inputTokens ?? 0,
-          output: data.summary.outputTokens ?? 0,
-          cacheRead: data.summary.cacheReadTokens ?? 0,
-          cacheWrite: data.summary.cacheWriteTokens ?? 0,
-        }}
-        costs={data.summary.costSplit && { ...data.summary.costSplit, total: data.summary.totalCost }}
-      />
 
       {/* Charts row: activity + hour distribution */}
       <div className="grid grid-cols-2 gap-4">
@@ -375,7 +373,7 @@ export default function DashboardPage() {
             </PieChart>
           </ResponsiveContainer>
           <div className="flex-1">
-            <table className="w-full text-base">
+            <table className="w-full text-base [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
                   <th className="pb-2">Model</th>
@@ -608,12 +606,25 @@ function DualHourTick({ x, y, payload, offset }: any) {
   );
 }
 
-function StatCard({ label, value, sub, title }: { label: string; value: string; sub?: string; title?: string }) {
+/** One figure in the summary strip: label, value, and an optional smaller
+ *  line under it. Deliberately not a card — nine bordered boxes across two
+ *  rows said no more than one row of numbers does. */
+function Stat({ label, value, sub, title, color }: { label: string; value: string; sub?: string; title?: string; color?: string }) {
   return (
-    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4" title={title}>
-      <div className="text-base text-[var(--color-muted)] mb-1">{label}</div>
-      <div className="text-2xl font-bold">{value}</div>
-      {sub && <div className="text-base text-[var(--color-muted)] mt-1">{sub}</div>}
+    <div className="min-w-[6.5rem]" title={title}>
+      <div className="text-xs text-[var(--color-muted)] uppercase tracking-wide">{label}</div>
+      <div className="text-xl font-bold leading-tight" style={color ? { color } : undefined}>{value}</div>
+      {sub && <div className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</div>}
     </div>
   );
+}
+
+/** A cost we may not know. Undefined prints an em dash, never $0. */
+function costSub(usd: number | undefined | null): string {
+  return usd == null ? '—' : `$${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`;
+}
+
+function cacheCostOf(split: { cacheRead?: number; cacheWrite?: number } | undefined | null): number | undefined {
+  if (!split) return undefined;
+  return (split.cacheRead ?? 0) + (split.cacheWrite ?? 0);
 }

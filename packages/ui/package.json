@@ -39,7 +39,8 @@
     "./VaultGate": "./components/VaultGate.tsx",
     "./HarnessPicker": "./components/HarnessPicker.tsx",
     "./useStickyState": "./components/useStickyState.tsx",
-    "./TokenSplit": "./components/TokenSplit.tsx"
+    "./TokenSplit": "./components/TokenSplit.tsx",
+    "./modelColor": "./components/modelColor.ts"
   },
   "scripts": {
     "lint": "tsc --noEmit",
