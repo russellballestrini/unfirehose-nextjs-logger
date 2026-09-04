@@ -16,17 +16,16 @@ import type Database from 'better-sqlite3';
 import { claudePaths } from './claude-paths';
 import { decodeProjectName, resolveProjectPath } from './project-name';
 import { getDb } from './db/schema';
-import { getSetting, setSetting } from './db/ingest';
 import {
   rollupProjects, rollupTarget, newerOf,
   isEphemeralPath, isWorkspacePath, ancestorByPath, countPathChildren,
 } from './project-rollup';
 import type { ProjectInfo, SessionsIndex } from './types';
+import { storePayload, readPayload } from './precomputed';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export const PROJECT_LIST_KEY = 'project_list';
-export const PROJECT_LIST_AT = 'project_list_at';
 
 async function loadOneFsProject(dir: string, knownPath?: string): Promise<ProjectInfo | null> {
   try {
@@ -395,23 +394,13 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
 
 
 /** Build and store. The worker calls this. */
-export async function refreshProjectList(db: Database.Database = getDb()): Promise<ProjectInfo[]> {
+export async function refreshProjectList(): Promise<ProjectInfo[]> {
   const rows = await buildProjectList();
-  setSetting(PROJECT_LIST_KEY, JSON.stringify(rows));
-  setSetting(PROJECT_LIST_AT, new Date().toISOString());
-  void db;
+  storePayload(PROJECT_LIST_KEY, rows);
   return rows;
 }
 
 /** The stored list when it is fresh enough, else null. */
-export function readProjectList(maxAgeMs = 5 * 60_000): { rows: ProjectInfo[]; at: string } | null {
-  const raw = getSetting(PROJECT_LIST_KEY);
-  const at = getSetting(PROJECT_LIST_AT);
-  if (!raw || !at) return null;
-  if (Date.now() - Date.parse(at) > maxAgeMs) return null;
-  try {
-    return { rows: JSON.parse(raw), at };
-  } catch {
-    return null;
-  }
+export function readProjectList(maxAgeMs = 5 * 60_000) {
+  return readPayload<ProjectInfo[]>(PROJECT_LIST_KEY, maxAgeMs);
 }

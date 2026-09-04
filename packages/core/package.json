@@ -76,7 +76,8 @@
     "./scrobble": "./scrobble.ts",
     "./projects-list": "./projects-list.ts",
     "./dashboard": "./dashboard.ts",
-    "./test/db-helper": "./test/db-helper.ts"
+    "./test/db-helper": "./test/db-helper.ts",
+    "./precomputed": "./precomputed.ts"
   },
   "scripts": {
     "test": "vitest run",

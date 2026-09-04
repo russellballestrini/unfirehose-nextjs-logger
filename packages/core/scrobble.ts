@@ -9,9 +9,10 @@
 
 import type Database from 'better-sqlite3';
 import { getDb } from './db/schema';
-import { getSetting, setSetting } from './db/ingest';
+import { getSetting } from './db/ingest';
 import { costForUsage } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
+import { storePayload, readPayload } from './precomputed';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,7 +28,6 @@ function isoWeekKey(ts: string): string {
 }
 
 export const SCROBBLE_CACHE_KEY = 'scrobble_payload';
-export const SCROBBLE_CACHE_AT = 'scrobble_payload_at';
 
 /** Build the payload. Seconds of work; call it from the worker. */
 export function buildScrobblePayload(db: Database.Database = getDb()): any {
@@ -302,22 +302,13 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
  */
 export function refreshScrobblePayload(db: Database.Database = getDb()): any {
   const payload = buildScrobblePayload(db);
-  setSetting(SCROBBLE_CACHE_KEY, JSON.stringify(payload));
-  setSetting(SCROBBLE_CACHE_AT, new Date().toISOString());
+  storePayload(SCROBBLE_CACHE_KEY, payload);
   return payload;
 }
 
 /** The stored payload when it is fresh enough, else null. */
-export function readScrobblePayload(maxAgeMs = 10 * 60_000): { payload: any; at: string } | null {
-  const raw = getSetting(SCROBBLE_CACHE_KEY);
-  const at = getSetting(SCROBBLE_CACHE_AT);
-  if (!raw || !at) return null;
-  if (Date.now() - Date.parse(at) > maxAgeMs) return null;
-  try {
-    return { payload: JSON.parse(raw), at };
-  } catch {
-    return null;
-  }
+export function readScrobblePayload(maxAgeMs = 10 * 60_000) {
+  return readPayload<any>(SCROBBLE_CACHE_KEY, maxAgeMs);
 }
 
 function calcStreaks(sortedDatesDesc: string[]): { currentStreak: number; longestStreak: number } {

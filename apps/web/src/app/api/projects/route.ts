@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@unturf/unfirehose/db/schema';
-import { buildProjectList, readProjectList, refreshProjectList } from '@unturf/unfirehose/projects-list';
+import { readProjectList, refreshProjectList } from '@unturf/unfirehose/projects-list';
 
 /**
  * Serve the list the worker built.
@@ -14,23 +13,18 @@ import { buildProjectList, readProjectList, refreshProjectList } from '@unturf/u
 export async function GET() {
   const stored = readProjectList();
   if (stored) {
-    return NextResponse.json(stored.rows, {
+    return NextResponse.json(stored.payload, {
       headers: { 'Server-Timing': 'stored;dur=0', 'X-Computed-At': stored.at },
     });
   }
 
   try {
-    const rows = await refreshProjectList(getDb());
+    const rows = await refreshProjectList();
     return NextResponse.json(rows, { headers: { 'Server-Timing': 'built;dur=0' } });
   } catch (err) {
-    try {
-      const rows = await buildProjectList();
-      return NextResponse.json(rows);
-    } catch {
-      return NextResponse.json(
-        { error: 'Failed to list projects', detail: String(err) },
-        { status: 500 },
-      );
-    }
+    return NextResponse.json(
+      { error: 'Failed to list projects', detail: String(err) },
+      { status: 500 },
+    );
   }
 }

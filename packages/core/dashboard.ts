@@ -9,7 +9,7 @@
  */
 
 import { getDb } from './db/schema';
-import { getSetting, setSetting } from './db/ingest';
+import { storePayload, readPayload } from './precomputed';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
 import { usageCacheHitRate, cacheHitRate } from './vllm-metrics';
@@ -483,27 +483,14 @@ const key = (range: string) => `dashboard_${range}`;
 /** Build and store one range. The worker calls this. */
 export function refreshDashboard(range: string): any {
   const payload = buildDashboard(range);
-  setSetting(key(range), JSON.stringify(payload));
-  setSetting(`${key(range)}_at`, new Date().toISOString());
+  storePayload(key(range), payload);
   return payload;
 }
 
 /** The stored payload for a range when it is fresh enough, else null. */
-export function readDashboard(range: string, maxAgeMs = 3 * 60_000): { payload: any; at: string } | null {
-  const raw = getSetting(key(range));
-  const at = getSetting(`${key(range)}_at`);
-  if (!raw || !at) return null;
-  if (Date.now() - Date.parse(at) > maxAgeMs) return null;
-  try {
-    return { payload: JSON.parse(raw), at };
-  } catch {
-    return null;
-  }
+export function readDashboard(range: string, maxAgeMs = 3 * 60_000) {
+  return readPayload<any>(key(range), maxAgeMs);
 }
 
-/**
- * Ranges the worker keeps warm. The picker offers nine; these are the ones
- * a dashboard actually opens on, and anything else builds on first request
- * and is stored for the next.
- */
+/** The ranges a dashboard opens on, kept warm by the worker. */
 export const WARM_RANGES = ['24h', '7d', '28d'];

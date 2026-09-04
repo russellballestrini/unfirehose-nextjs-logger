@@ -218,7 +218,7 @@ async function main() {
   const refreshProjects = async () => {
     try {
       const t0 = Date.now();
-      const rows = await refreshProjectList(getDb());
+      const rows = await refreshProjectList();
       console.log(`[worker] project list: ${rows.length} projects in ${Date.now() - t0}ms`);
     } catch (err) {
       console.error('[worker] project list refresh failed:', err);
