@@ -38,6 +38,21 @@ export async function GET(
   }
 
   try {
+    // A tracked directory need not be a checkout — ~/git/thinking-room is
+    // files and tests with no .git. That is not an error, it is a project
+    // without history, and saying so beats a 500 the UI renders as a
+    // failure to find the path.
+    try {
+      await gitExec(repoPath, ['rev-parse', '--git-dir'], 3000);
+    } catch {
+      const notARepo = {
+        repoPath, branch: null, files: [], diffStat: '', diff: '',
+        recentCommits: '', isDirty: false, vcs: false as const,
+      };
+      gitCache.set(cacheKey, { data: notARepo, ts: Date.now() });
+      return NextResponse.json(notARepo);
+    }
+
     const [statusRaw, diffStat, branch, logRaw, fullDiff] = await Promise.all([
       gitExec(repoPath, ['status', '--porcelain']),
       gitExec(repoPath, ['diff', 'HEAD', '--stat']),
