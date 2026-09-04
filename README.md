@@ -309,6 +309,49 @@ Crawls `/sitemap` and all API routes, generates JSON + terminal report. Key patt
 - **Covering indexes** — `/api/tokens` and `/api/logs` use `EXISTS` subqueries and covering indexes
 - **Batch-capped external checks** — `/api/scrobble/preview` caps concurrent forge API checks at 7 projects with 2s timeout
 
+### Code Quality Reports
+
+Four views of the same tree, all driven from our Makefile. Each one also
+takes `--json` and writes a machine-readable copy under `reports/`.
+
+```bash
+make test        # every suite
+make coverage    # run them under coverage, then report what they reached
+make cc          # cyclomatic complexity — no tests required
+make crap        # CRAP: complexity vs coverage, ranked by risk
+make orphans     # files and exports nothing reaches
+make report      # all four, with JSON under reports/
+```
+
+- **`make coverage`** — statements, branches and functions per workspace, then
+  the least-covered files, biggest first. HTML for line-by-line reading lands
+  at `<workspace>/coverage/index.html`. It deliberately does not enforce the
+  thresholds each `vitest.config.ts` sets, because a run that aborts at the
+  first workspace under target leaves every later workspace unmeasured — use
+  `make coverage-check` for the gate.
+- **`make cc`** — McCabe cyclomatic complexity per function, off our TypeScript
+  AST: one point for the function, one for every `if`, loop, acting `case`,
+  `catch`, ternary and short-circuit. Nested functions score separately, so
+  the number means "paths through this body". Bands: ≤10 simple, 11–20 watch,
+  21–50 complex, >50 unmaintainable.
+- **`make crap`** — `cc² × (1 − coverage)³ + cc`, per function. Complexity
+  alone flags every parser we wrote on purpose; coverage alone flags every
+  trivial getter. CRAP multiplies them and ranks what is both hard to change
+  and unprotected while you change it. Fully covered, a function scores its
+  own complexity — so anything over 30 either wants tests or wants splitting,
+  and the report says which by printing the coverage that would clear the
+  line, or `split` when no amount would.
+- **`make orphans`** — walks our import graph out from every real entry point
+  (Next.js route conventions, package `exports` maps, the worker's main, our
+  scripts, extensions shipped for other tools) and reports what is left:
+  orphaned files, files alive only through their own test, and exported names
+  nobody imports (`ARGS=--exports`). Any specifier it cannot resolve is
+  printed rather than ignored, because an unresolved import is exactly how a
+  live file gets called dead.
+
+The tools live in `scripts/quality/` and carry their own suite — a metric
+nobody can check is worse than no metric.
+
 ### Database Schema
 
 - **projects** — one row per unique project directory, with identity stable across renames (root commit hash + origin URL)

@@ -1,4 +1,82 @@
-.PHONY: dev fix-watches persist-watches rescue-tool-results pricing pricing-report
+.PHONY: all clean test coverage coverage-check coverage-report cc crap orphans report \
+        dev fix-watches persist-watches rescue-tool-results pricing pricing-report
+
+# Everything a change should pass before it is pushed.
+all: test
+
+# Suites that emit coverage, in dependency order. apps/worker and
+# packages/router have none yet — adding one here is the whole wiring.
+COVERED := packages/core packages/ui apps/web scripts
+
+# Vitest writes coverage-final.json per workspace; every report below reads
+# those rather than re-running anything, so looking twice costs nothing.
+COVERAGE_REPORTERS := --coverage.reporter=text-summary --coverage.reporter=json --coverage.reporter=html
+
+# Measuring and gating are different jobs. `make coverage` measures, so it
+# must not stop at the first workspace under its threshold — the report is
+# the point, and a run that aborts leaves the later workspaces unmeasured.
+# `make coverage-check` is the gate, and honours what each vitest.config
+# declares.
+NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=0 \
+                 --coverage.thresholds.functions=0 --coverage.thresholds.branches=0
+
+test:
+	@for d in $(COVERED); do \
+	  echo "==> $$d"; (cd $$d && npx vitest run) || exit 1; \
+	done
+
+# Run every suite under coverage, then print what they reached. HTML lands
+# in <workspace>/coverage/index.html for line-by-line reading.
+#   make coverage
+#   make coverage ARGS="--worst 40 --json reports/coverage.json"
+coverage:
+	@for d in $(COVERED); do \
+	  echo "==> $$d"; (cd $$d && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)) || exit 1; \
+	done
+	@npx tsx scripts/quality/report-coverage.ts $(ARGS)
+
+# The gate: fail where a workspace sits under the thresholds its own
+# vitest.config sets.
+coverage-check:
+	@for d in $(COVERED); do \
+	  echo "==> $$d"; (cd $$d && npx vitest run --coverage $(COVERAGE_REPORTERS)) || exit 1; \
+	done
+
+# Print the last coverage run without repeating it.
+coverage-report:
+	npx tsx scripts/quality/report-coverage.ts $(ARGS)
+
+# Cyclomatic complexity — how many paths run through each function. Reads
+# source only, so it works on code no test has ever touched.
+#   make cc
+#   make cc ARGS="--min 20 --dir apps/web"
+cc:
+	npx tsx scripts/quality/report-cc.ts $(ARGS)
+
+# CRAP: complexity squared times uncovered cubed, plus complexity. Ranks
+# what is both hard to change and unprotected while you change it. Needs a
+# coverage run first — `make coverage`.
+#   make crap
+#   make crap ARGS="--threshold 60 --top 50"
+crap:
+	npx tsx scripts/quality/report-crap.ts $(ARGS)
+
+# Files and exports nothing reaches, walked out from every real entry point.
+#   make orphans
+#   make orphans ARGS=--exports
+orphans:
+	npx tsx scripts/quality/report-orphans.ts $(ARGS)
+
+# All four, with a machine-readable copy of each under reports/.
+report: coverage
+	@npx tsx scripts/quality/report-coverage.ts --json reports/coverage.json >/dev/null
+	@npx tsx scripts/quality/report-cc.ts --json reports/cc.json
+	@npx tsx scripts/quality/report-crap.ts --json reports/crap.json
+	@npx tsx scripts/quality/report-orphans.ts --json reports/orphans.json
+	@echo "\nreports/{coverage,cc,crap,orphans}.json"
+
+clean:
+	rm -rf reports packages/*/coverage apps/*/coverage
 
 # Refresh the model price ledger from every public oracle and print what
 # changed. Same function apps/worker runs daily (and whenever an unpriced

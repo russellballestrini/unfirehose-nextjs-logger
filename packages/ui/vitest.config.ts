@@ -6,6 +6,11 @@ export default defineConfig({
   test: {
     include: ['**/*.test.{ts,tsx}'],
     environment: 'jsdom',
+    coverage: {
+      provider: 'v8',
+      include: ['components/**/*.{ts,tsx}', 'hooks/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
+      exclude: ['**/*.test.*'],
+    },
     restoreMocks: true,
     clearMocks: true,
     // The vault derives its key with PBKDF2 at 600,000 iterations, which is
