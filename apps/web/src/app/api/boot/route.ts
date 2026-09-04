@@ -9,6 +9,7 @@ import { createHmac } from 'crypto';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
+import { execAsync as exec } from '@unturf/unfirehose/git-exec';
 
 const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const IS_WINDOWS = platform() === 'win32';
@@ -21,15 +22,6 @@ const AGENT_SYSTEM_PROMPT = `You are a deployed agent. Follow these rules:
 - Update relevant docs when your changes affect them.
 - Never force push. If something is unclear or risky, skip it.
 - When all work is complete, output the exact text UNEOF as your final message. This signals the orchestrator to retire this session.`;
-
-function exec(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
-      if (err) reject(Object.assign(err, { stderr }));
-      else resolve({ stdout, stderr });
-    });
-  });
-}
 
 // Resolve which host to boot on based on settings + strategy
 function resolveBootHost(requestedHost?: string): string {

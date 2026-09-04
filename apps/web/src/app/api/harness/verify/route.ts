@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { execFile } from 'child_process';
 import { stat } from 'fs/promises';
 import path from 'path';
 import { homedir } from 'os';
-
-function exec(cmd: string, args: string[], opts: { timeout: number }): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
-      if (err) reject(Object.assign(err, { stderr }));
-      else resolve({ stdout, stderr });
-    });
-  });
-}
+import { execAsync as exec } from '@unturf/unfirehose/git-exec';
 
 async function syncClaudeCredentials(host: string): Promise<boolean> {
   const credFile = path.join(homedir(), '.claude', '.credentials.json');

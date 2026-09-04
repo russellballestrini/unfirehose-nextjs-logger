@@ -16,7 +16,8 @@
 
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-import { UNFIREHOSE_DIR } from '@unturf/unfirehose/db/schema';
+import type { NextRequest } from 'next/server';
+import { UNFIREHOSE_DIR, getDb } from '@unturf/unfirehose/db/schema';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 
@@ -59,4 +60,30 @@ export function serveBlob(
       'Cache-Control': 'public, max-age=31536000, immutable',
     },
   });
+}
+
+/**
+ * A route that serves one blob, given how to look it up.
+ *
+ * Both callers had shrunk to the same twenty-two lines — await the params,
+ * read one row, 404, hand off — so the shape of the route is now stated once
+ * and each route keeps only the query that is actually its own.
+ */
+export function blobRoute(
+  lookup: (db: ReturnType<typeof getDb>, hash: string) =>
+    { mimeType?: string | null; filename?: string | null } | undefined,
+) {
+  return async function GET(
+    _request: NextRequest,
+    { params }: { params: Promise<{ hash: string }> },
+  ) {
+    try {
+      const { hash } = await params;
+      const found = lookup(getDb(), hash);
+      if (!found) return new Response('Not found', { status: 404 });
+      return serveBlob(hash, found);
+    } catch (err) {
+      return new Response(String(err), { status: 500 });
+    }
+  };
 }
