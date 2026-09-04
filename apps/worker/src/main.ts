@@ -202,7 +202,7 @@ async function main() {
     for (const range of WARM_RANGES) {
       try {
         const t0 = Date.now();
-        refreshDashboard(range, getDb());
+        refreshDashboard(range);
         console.log(`[worker] dashboard ${range} in ${Date.now() - t0}ms`);
       } catch (err) {
         console.error(`[worker] dashboard ${range} failed:`, err);

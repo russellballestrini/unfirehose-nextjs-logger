@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTestDb, seedProject, seedSession, seedMessage } from '@/test/db-helper';
 
 const db = createTestDb();
@@ -8,6 +8,15 @@ const { GET } = await import('./route');
 
 const req = (range: string) =>
   ({ nextUrl: { searchParams: new URLSearchParams({ range }) } }) as never;
+
+/**
+ * The route serves what the worker stored, so a payload built by an earlier
+ * test would answer a later one and hide the rows it just seeded. Each test
+ * wants its own build.
+ */
+beforeEach(() => {
+  db.prepare("DELETE FROM settings WHERE key LIKE 'dashboard_%'").run();
+});
 
 /** vLLM counters as our sampler records them: cumulative, space-separated ts. */
 function seedVllmSample(
@@ -111,5 +120,33 @@ describe('GET /api/dashboard — cache our own models actually served', () => {
     );
     expect(body.summary.costSplit).toHaveProperty('cacheRead');
     expect(body.summary.costSplit).toHaveProperty('cacheWrite');
+  });
+
+  it('serves a stored payload rather than rebuilding it', async () => {
+    const first = await GET(req('24h'));
+    const computedAt = first.headers.get('X-Computed-At');
+    expect(first.headers.get('Server-Timing')).toBe('built;dur=0');
+    expect(computedAt).toBeNull();
+
+    // Nothing about this project reaches the second response: the store
+    // answers it, which is the whole point of moving the build off the
+    // request path.
+    const projectId = seedProject(db, 'proj-after-store');
+    const sessionId = seedSession(db, projectId, 's-after-store');
+    seedMessage(db, sessionId, {
+      model: 'late/arrival',
+      inputTokens: 1_000,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    });
+
+    const second = await GET(req('24h'));
+    const body = await second.json();
+    expect(second.headers.get('Server-Timing')).toBe('stored;dur=0');
+    expect(second.headers.get('X-Computed-At')).toBeTruthy();
+    expect(
+      body.modelBreakdown.find((m: { model: string }) => m.model === 'late/arrival'),
+    ).toBeUndefined();
   });
 });

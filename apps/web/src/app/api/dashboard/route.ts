@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@unturf/unfirehose/db/schema';
 import { readDashboard, refreshDashboard } from '@unturf/unfirehose/dashboard';
 
 /**
@@ -20,7 +19,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    return NextResponse.json(refreshDashboard(range, getDb()), {
+    return NextResponse.json(refreshDashboard(range), {
       headers: { 'Server-Timing': 'built;dur=0' },
     });
   } catch (err) {

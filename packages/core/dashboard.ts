@@ -8,7 +8,6 @@
  * on the server too.
  */
 
-import type Database from 'better-sqlite3';
 import { getDb } from './db/schema';
 import { getSetting, setSetting } from './db/ingest';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from './pricing';
@@ -482,11 +481,10 @@ export function buildDashboard(range: string): any {
 const key = (range: string) => `dashboard_${range}`;
 
 /** Build and store one range. The worker calls this. */
-export function refreshDashboard(range: string, db: Database.Database = getDb()): any {
+export function refreshDashboard(range: string): any {
   const payload = buildDashboard(range);
   setSetting(key(range), JSON.stringify(payload));
   setSetting(`${key(range)}_at`, new Date().toISOString());
-  void db;
   return payload;
 }
 
