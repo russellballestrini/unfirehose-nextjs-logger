@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createTestDb, seedProject, seedSession, seedMessage } from '@/test/db-helper';
+import { createTestDb, seedProject, seedSession, seedMessage } from '@unturf/unfirehose/test/db-helper';
 
 const db = createTestDb();
 vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));

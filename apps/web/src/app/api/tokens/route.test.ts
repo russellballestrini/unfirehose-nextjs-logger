@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from '@/test/db-helper';
+import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from '@unturf/unfirehose/test/db-helper';
 
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(JSON.stringify({

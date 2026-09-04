@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { createTestDb, seedProject, seedSession, seedMessage } from '@/test/db-helper';
+import { createTestDb, seedProject, seedSession, seedMessage } from '@unturf/unfirehose/test/db-helper';
 
 // Built before the mock so the factory can close over it. The route reads
 // projects/sessions/messages through getDb(); unmocked it answered from the

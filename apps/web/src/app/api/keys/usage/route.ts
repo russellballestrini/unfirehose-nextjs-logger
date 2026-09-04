@@ -1,29 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@unturf/unfirehose/db/api-keys';
 import { getControlDb } from '@unturf/unfirehose/db/control';
-
-function getAccountId(request: NextRequest): string | null {
-  const accountId = request.headers.get('X-Account-Id');
-  if (accountId) return accountId;
-
-  const apiKey = request.headers.get('X-Api-Key');
-  if (apiKey) {
-    const result = validateApiKey(apiKey);
-    if (result) return result.accountId;
-  }
-
-  return null;
-}
+import { requireAccount } from '@/lib/cloud-account';
 
 export async function GET(request: NextRequest) {
-  if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 });
-  }
-
-  const accountId = getAccountId(request);
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = requireAccount(request, NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 }));
+  if ('response' in auth) return auth.response;
+  const { accountId } = auth;
 
   const { searchParams } = new URL(request.url);
   const days = Math.max(1, Math.min(365, parseInt(searchParams.get('days') || '30', 10) || 30));

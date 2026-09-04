@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { NextRequest } from 'next/server';
-import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from '@/test/db-helper';
+import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from '@unturf/unfirehose/test/db-helper';
 
 const db = createTestDb();
 

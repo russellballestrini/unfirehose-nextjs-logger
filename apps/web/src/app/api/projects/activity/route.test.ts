@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { createTestDb } from '@/test/db-helper';
+import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 
 // ensurePricingHydrated reaches for a database without saying so, so mocking
 // db/ingest alone still left this route reading the live one.

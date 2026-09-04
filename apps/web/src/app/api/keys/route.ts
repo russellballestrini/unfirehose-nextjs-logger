@@ -1,57 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createApiKey, listApiKeys, revokeApiKey } from '@unturf/unfirehose/db/api-keys';
-import { validateApiKey } from '@unturf/unfirehose/db/api-keys';
-
-function getAccountId(request: NextRequest): string | null {
-  // In cloud mode, middleware sets X-Account-Id for session-based requests.
-  // For API key requests, middleware sets X-Api-Key and we validate here.
-  const accountId = request.headers.get('X-Account-Id');
-  if (accountId) return accountId;
-
-  // Fallback: validate API key directly
-  const apiKey = request.headers.get('X-Api-Key');
-  if (apiKey) {
-    const result = validateApiKey(apiKey);
-    if (result) return result.accountId;
-  }
-
-  return null;
-}
-
-function getAccountTier(request: NextRequest): number {
-  const apiKey = request.headers.get('X-Api-Key');
-  if (apiKey) {
-    const result = validateApiKey(apiKey);
-    if (result) return result.tier;
-  }
-  return 0;
-}
+import { requireAccount, getAccountTier } from '@/lib/cloud-account';
 
 export async function GET(request: NextRequest) {
   // Local mode: no control DB, no keys to list. Return empty list with mode flag
   // so the /keys page can render a sensible message instead of firing SWR error state.
-  if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ mode: 'local', keys: [] });
-  }
-
-  const accountId = getAccountId(request);
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = requireAccount(request, NextResponse.json({ mode: 'local', keys: [] }));
+  if ('response' in auth) return auth.response;
+  const { accountId } = auth;
 
   const keys = listApiKeys(accountId);
   return NextResponse.json({ keys });
 }
 
 export async function POST(request: NextRequest) {
-  if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 });
-  }
-
-  const accountId = getAccountId(request);
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = requireAccount(request, NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 }));
+  if ('response' in auth) return auth.response;
+  const { accountId } = auth;
 
   let body: { label?: string; parentKeyId?: string; scopes?: string };
   try {
@@ -86,14 +51,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 });
-  }
-
-  const accountId = getAccountId(request);
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = requireAccount(request, NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 }));
+  if ('response' in auth) return auth.response;
+  const { accountId } = auth;
 
   let body: { keyId?: string };
   try {

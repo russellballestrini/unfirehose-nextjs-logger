@@ -75,7 +75,8 @@
     "./git-exec": "./git-exec.ts",
     "./scrobble": "./scrobble.ts",
     "./projects-list": "./projects-list.ts",
-    "./dashboard": "./dashboard.ts"
+    "./dashboard": "./dashboard.ts",
+    "./test/db-helper": "./test/db-helper.ts"
   },
   "scripts": {
     "test": "vitest run",

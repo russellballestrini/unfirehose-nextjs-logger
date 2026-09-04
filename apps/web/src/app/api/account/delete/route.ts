@@ -1,32 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey, listApiKeys, revokeApiKey } from '@unturf/unfirehose/db/api-keys';
+import { listApiKeys, revokeApiKey } from '@unturf/unfirehose/db/api-keys';
 import { getControlDb } from '@unturf/unfirehose/db/control';
 import { closeTenantDb } from '@unturf/unfirehose/db/tenant';
 import { unlinkSync } from 'fs';
 import path from 'path';
-
-function getAccountId(request: NextRequest): string | null {
-  const accountId = request.headers.get('X-Account-Id');
-  if (accountId) return accountId;
-
-  const apiKey = request.headers.get('X-Api-Key');
-  if (apiKey) {
-    const result = validateApiKey(apiKey);
-    if (result) return result.accountId;
-  }
-
-  return null;
-}
+import { requireAccount } from '@/lib/cloud-account';
 
 export async function POST(request: NextRequest) {
-  if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 });
-  }
-
-  const accountId = getAccountId(request);
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = requireAccount(request, NextResponse.json({ error: 'Not in cloud mode' }, { status: 404 }));
+  if ('response' in auth) return auth.response;
+  const { accountId } = auth;
 
   let body: { confirm?: boolean };
   try {

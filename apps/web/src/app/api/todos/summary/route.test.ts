@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createTestDb } from '@/test/db-helper';
+import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 
 // Build the test DB before mocking so the module mock can use it
 const db = createTestDb();

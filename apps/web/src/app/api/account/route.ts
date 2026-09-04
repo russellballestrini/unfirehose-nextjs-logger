@@ -1,30 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@unturf/unfirehose/db/api-keys';
 import { getControlDb } from '@unturf/unfirehose/db/control';
 import { tierName, tierLimits } from '@unturf/unfirehose/tiers';
-
-function getAccountId(request: NextRequest): string | null {
-  const accountId = request.headers.get('X-Account-Id');
-  if (accountId) return accountId;
-
-  const apiKey = request.headers.get('X-Api-Key');
-  if (apiKey) {
-    const result = validateApiKey(apiKey);
-    if (result) return result.accountId;
-  }
-
-  return null;
-}
+import { requireAccount } from '@/lib/cloud-account';
 
 export async function GET(request: NextRequest) {
-  if (process.env.MULTI_TENANT !== 'true') {
-    return NextResponse.json({ mode: 'local' });
-  }
-
-  const accountId = getAccountId(request);
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = requireAccount(request, NextResponse.json({ mode: 'local' }));
+  if ('response' in auth) return auth.response;
+  const { accountId } = auth;
 
   const db = getControlDb();
   const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId) as {
