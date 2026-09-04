@@ -50,6 +50,10 @@ import { fmtLocalDateTime } from '@/lib/local-time';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 import { GaugeRow, GaugeBlock, GaugeCard, GaugePill } from '@unturf/unfirehose-ui/Gauge';
 import { MiniStat } from '@unturf/unfirehose-ui/KV';
+import {
+  nodeVitals, nodeMonthlyCost, estimateContainerWatts,
+  type NodeVitals, type NodeCost,
+} from '@/lib/node-vitals';
 
 // ============================================================
 
@@ -303,140 +307,210 @@ function MeshSummaryBar({ summary, geoipLoading, geoipCount }: { summary: any; g
 // Node Card (compact, clickable)
 // ============================================================
 
+/** The status dot, name and agent badge across the top of a card. */
+function NodeCardHeader({ v, onHide }: { v: NodeVitals; onHide?: () => void }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <span className={`text-sm ${v.reachable ? 'text-green-400' : 'text-red-400'}`}>
+        {v.reachable ? '●' : '○'}
+      </span>
+      <span className="text-base font-bold font-mono truncate">{v.name}</span>
+      {v.hostname && v.hostname !== v.name && (
+        <span className="text-xs text-[var(--color-muted)] font-mono truncate">{v.hostname}</span>
+      )}
+      {v.agents > 0 && (
+        <span className="ml-auto text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
+          <span title={v.agentLabel || undefined}>
+            {v.agents} agent{v.agents !== 1 ? 's' : ''}
+          </span>
+        </span>
+      )}
+      {onHide && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (confirm(`Hide ${v.name} from permacomputer? Re-include by removing it from the mesh_excluded_hosts setting.`)) onHide();
+          }}
+          title="Hide from permacomputer"
+          className={`${v.agents > 0 ? '' : 'ml-auto'} opacity-0 group-hover:opacity-100 text-xs text-[var(--color-muted)] hover:text-red-400 px-1 leading-none transition-opacity`}
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Cores, memory and — only where there is a card — GPU. */
+function NodeCardGauges({ v }: { v: NodeVitals }) {
+  return (
+    <div className="space-y-2 mb-3">
+      <GaugeRow label="VCPU" value={`${v.load1}/${v.cpuCores}`} pct={v.loadPct} />
+      <GaugeRow label="RAM" value={`${v.memUsedGB}/${v.memTotalGB}G`} pct={v.memPct} />
+      {v.hasGpu && (
+        <>
+          <GaugeRow label="GPU" value={`${v.gpuUtil}%`} pct={v.gpuUtil} />
+          <GaugeRow
+            label="VRAM"
+            value={`${v.gpuVramUsedGB.toFixed(1)}/${v.gpuVramTotalGB.toFixed(1)}G`}
+            pct={v.gpuVramPct}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Where the machine is and who carries its traffic. */
+function NodeCardPlace({ v, econ, geoip }: { v: NodeVitals; econ: NodeEcon; geoip?: any }) {
+  const provider = PROVIDERS.find((p) => p.value === econ.provider)?.label ?? econ.provider;
+  return (
+    <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
+      <span>{v.cpuCores} cores</span>
+      {v.swapUsedGB > 0 && <span className="text-yellow-400">swap {v.swapUsedGB}G</span>}
+      {v.uptime && <span>up {v.uptime}</span>}
+      {geoip?.city
+        ? <span className="text-[var(--color-accent)]/70">{geoip.city}, {geoip.countryCode}</span>
+        : econ.location && <span className="text-[var(--color-accent)]/70">{econ.location}</span>}
+      {geoip?.isp
+        ? <span className="truncate max-w-[120px]">{geoip.isp}</span>
+        : econ.provider !== 'home' && <span>{provider}</span>}
+    </div>
+  );
+}
+
+/** Watts and what they cost by the month. */
+function NodeCardCost({ cost }: { cost: NodeCost }) {
+  return (
+    <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
+      <span>
+        {Math.round(cost.watts)}W
+        {cost.gpuWatts > 0 && <span className="opacity-60"> ({Math.round(cost.gpuWatts)}W gpu)</span>}
+        {' '}<span className="opacity-60">[{cost.source}]</span>
+      </span>
+      <span>${Math.round(cost.elecMonthly)}/mo elec</span>
+      {cost.ispShared && (
+        <span className="text-green-400">
+          ${Math.round(cost.ispMonthly)}/mo isp <span className="opacity-60">(split)</span>
+        </span>
+      )}
+      {cost.watts > 0 && <span className="opacity-60">${cost.perWatt.toFixed(2)}/W·mo</span>}
+      <span className="ml-auto font-bold text-[var(--color-foreground)]">
+        ${Math.round(cost.monthly)}/mo
+      </span>
+    </div>
+  );
+}
+
+/** Why we could not read a node, and enough of its config to fix that. */
+function NodeCardUnreachable({ node, sshHost }: { node: any; sshHost?: SshHost }) {
+  return (
+    <div className="text-xs text-[var(--color-muted)]">
+      {node?.error ?? (node ? 'unreachable' : 'not probed')}
+      {sshHost && (
+        <div className="mt-1">
+          {sshHost.user && <span>user: {sshHost.user} </span>}
+          {sshHost.port && sshHost.port !== '22' && <span>port: {sshHost.port}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
   node: any; sshHost?: SshHost; econ: NodeEcon; geoip?: any; egressGroups?: Map<string, string[]>;
   onHide?: () => void;
 }) {
-  const reachable = node?.reachable;
-  const name = sshHost?.name ?? node?.hostname ?? '?';
-  const hostname = sshHost?.hostname ?? node?.hostname;
-  const cpuCores = node?.cpuCores ?? 0;
-  const memTotal = node?.memTotalGB ?? 0;
-  const memUsed = node?.memUsedGB ?? 0;
-  const memPct = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
-  const load1 = node?.loadAvg?.[0] ?? 0;
-  const loadPct = cpuCores > 0 ? Math.min(100, Math.round((load1 / cpuCores) * 100)) : 0;
-  // Every agent harness. claudeProcesses stays claude-only for older payloads;
-  // harnessCounts carries the rest (uncloseai-cli, aider, codex, …).
-  const harnessCounts: Record<string, number> = node?.harnessCounts ?? {};
-  const harnessTotal = Object.values(harnessCounts).reduce((a: number, b: number) => a + b, 0);
-  const claudes = harnessTotal || (node?.claudeProcesses ?? 0);
-  const harnessLabel = Object.entries(harnessCounts)
-    .filter(([, n]) => (n as number) > 0)
-    .map(([k, n]) => `${n} ${k}`)
-    .join(', ');
-  const swap = node?.swapUsedGB ?? 0;
-  const probeHost = sshHost?.hostname ?? sshHost?.name ?? node?.hostname ?? name;
-  const gpuUtil = node?.gpuUtil;
-  const gpuMemTotalMB = node?.gpuMemTotalMB ?? 0;
-  const gpuMemUsedMB = node?.gpuMemUsedMB ?? 0;
-  const hasGpu = gpuMemTotalMB > 0 || (gpuUtil != null && gpuUtil > 0);
-  const gpuVramTotalGB = gpuMemTotalMB / 1024;
-  const gpuVramUsedGB = gpuMemUsedMB / 1024;
-  const gpuVramPct = gpuMemTotalMB > 0 ? Math.round((gpuMemUsedMB / gpuMemTotalMB) * 100) : 0;
+  const v = nodeVitals(node, sshHost);
 
   return (
     <Link
-      href={`/permacomputer/${encodeURIComponent(probeHost)}`}
-      className={`group text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block relative`}
+      href={`/permacomputer/${encodeURIComponent(v.probeHost)}`}
+      className="group text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block relative"
     >
-      {/* Header row */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`text-sm ${reachable ? 'text-green-400' : node ? 'text-red-400' : 'text-[var(--color-muted)]'}`}>
-          {reachable ? '●' : '○'}
-        </span>
-        <span className="text-base font-bold font-mono truncate">{name}</span>
-        {hostname && hostname !== name && (
-          <span className="text-xs text-[var(--color-muted)] font-mono truncate">{hostname}</span>
-        )}
-        {claudes > 0 && (
-          <span className="ml-auto text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
-            <span title={harnessLabel || undefined}>
-              {claudes} agent{claudes !== 1 ? 's' : ''}
-            </span>
-          </span>
-        )}
-        {onHide && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (confirm(`Hide ${name} from permacomputer? Re-include by removing it from the mesh_excluded_hosts setting.`)) onHide();
-            }}
-            title="Hide from permacomputer"
-            className={`${claudes > 0 ? '' : 'ml-auto'} opacity-0 group-hover:opacity-100 text-xs text-[var(--color-muted)] hover:text-red-400 px-1 leading-none transition-opacity`}
-          >
-            ✕
-          </button>
+      <NodeCardHeader v={v} onHide={onHide} />
+      {v.reachable ? (
+        <>
+          <NodeCardGauges v={v} />
+          <NodeCardPlace v={v} econ={econ} geoip={geoip} />
+          <NodeCardCost cost={nodeMonthlyCost(node, econ, v.name, egressGroups)} />
+        </>
+      ) : (
+        <NodeCardUnreachable node={node} sshHost={sshHost} />
+      )}
+    </Link>
+  );
+}
+
+/** What a cloud container reports about itself, once it has been probed. */
+function UnsandboxProbeBody({ probe, status }: { probe: any; status: any }) {
+  const v = nodeVitals(probe);
+  const gpuModel = probe?.gpuModel;
+  const gpuMemMB = probe?.gpuMemTotalMB ?? 0;
+  const gpuW = probe?.gpuPowerWatts ?? 0;
+  const watts = estimateContainerWatts(probe);
+
+  return (
+    <>
+      <div className="space-y-2 mb-3">
+        <GaugeRow label="VCPU" value={`${v.load1}/${v.cpuCores}`} pct={v.loadPct} />
+        <GaugeRow label="RAM" value={`${v.memUsedGB}/${v.memTotalGB}G`} pct={v.memPct} />
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
+        <span>{v.cpuCores} cores</span>
+        {v.swapUsedGB > 0 && <span className="text-yellow-400">swap {v.swapUsedGB}G</span>}
+        {v.uptime && v.uptime !== 'unknown' && <span>up {v.uptime}</span>}
+        <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
+        {probe.cpuModel && probe.cpuModel !== 'unknown' && (
+          <span className="truncate max-w-[150px]">{probe.cpuModel}</span>
         )}
       </div>
 
-      {reachable ? (
-        <>
-          {/* Mini gauges */}
-          <div className="space-y-2 mb-3">
-            <GaugeRow label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
-            <GaugeRow label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
-            {hasGpu && (
-              <>
-                <GaugeRow label="GPU" value={`${gpuUtil ?? 0}%`} pct={gpuUtil ?? 0} />
-                <GaugeRow label="VRAM" value={`${gpuVramUsedGB.toFixed(1)}/${gpuVramTotalGB.toFixed(1)}G`} pct={gpuVramPct} />
-              </>
-            )}
-          </div>
-
-          {/* Stats row */}
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
-            <span>{cpuCores} cores</span>
-            {swap > 0 && <span className="text-yellow-400">swap {swap}G</span>}
-            {node.uptime && <span>up {node.uptime}</span>}
-            {geoip?.city && <span className="text-[var(--color-accent)]/70">{geoip.city}, {geoip.countryCode}</span>}
-            {!geoip?.city && econ.location && <span className="text-[var(--color-accent)]/70">{econ.location}</span>}
-            {geoip?.isp && <span className="truncate max-w-[120px]">{geoip.isp}</span>}
-            {!geoip?.isp && econ.provider !== 'home' && <span>{PROVIDERS.find(p => p.value === econ.provider)?.label ?? econ.provider}</span>}
-          </div>
-          {/* Power + cost row */}
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
-            {(() => {
-              const cpuW = node.powerWatts ?? 0;
-              const gpuW = node.gpuPowerWatts ?? 0;
-              const totalW = cpuW + gpuW;
-              const kwhMonth = (totalW * 24 * 30) / 1000;
-              const elecCost = kwhMonth * econ.electricityCostKwh;
-              const effIsp = egressGroups ? getEffectiveIspCost(name, econ.ispCostMonthly, egressGroups) : econ.ispCostMonthly;
-              const totalCost = elecCost + effIsp;
-              const isSplit = effIsp < econ.ispCostMonthly;
-              const sourceTag = node.powerSource === 'rapl' ? 'rapl' : node.powerSource === 'tdp' ? 'tdp' : 'n/a';
-              const perWatt = totalW > 0 ? totalCost / totalW : 0;
-              return (
-                <>
-                  <span>
-                    {Math.round(totalW)}W
-                    {gpuW > 0 && <span className="opacity-60"> ({Math.round(gpuW)}W gpu)</span>}
-                    {' '}<span className="opacity-60">[{sourceTag}]</span>
-                  </span>
-                  <span>${Math.round(elecCost)}/mo elec</span>
-                  {isSplit && <span className="text-green-400">${Math.round(effIsp)}/mo isp <span className="opacity-60">(split)</span></span>}
-                  {totalW > 0 && <span className="opacity-60">${perWatt.toFixed(2)}/W·mo</span>}
-                  <span className="ml-auto font-bold text-[var(--color-foreground)]">${Math.round(totalCost)}/mo</span>
-                </>
-              );
-            })()}
-          </div>
-        </>
-      ) : (
-        <div className="text-xs text-[var(--color-muted)]">
-          {node?.error ?? (node ? 'unreachable' : 'not probed')}
-          {sshHost && (
-            <div className="mt-1">
-              {sshHost.user && <span>user: {sshHost.user} </span>}
-              {sshHost.port && sshHost.port !== '22' && <span>port: {sshHost.port}</span>}
-            </div>
-          )}
+      {gpuModel && (
+        <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1">
+          <span className="text-purple-400">GPU</span>
+          <span className="truncate max-w-[180px]">{gpuModel}</span>
+          {gpuMemMB > 0 && <span>{Math.round(gpuMemMB / 1024)}GB</span>}
+          {gpuW > 0 && <span>{Math.round(gpuW)}W</span>}
         </div>
       )}
-    </Link>
+
+      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
+        {watts > 0 && <span>{watts}W <span className="opacity-60">[est]</span></span>}
+        {status.rateLimit && <span>{status.rateLimit} rpm</span>}
+        {status.maxSessions && <span>{status.maxSessions} sess</span>}
+        <span className="ml-auto font-bold text-[var(--color-foreground)]">
+          {status.tier <= 1 ? 'free' : `tier ${status.tier}`}
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** A service is deployed but has not answered a probe yet. */
+function UnsandboxServiceBody({ service, status, running }: { service: any; status: any; running: boolean }) {
+  return (
+    <>
+      <div className="space-y-1.5 mb-3">
+        <div className="flex items-center gap-2 text-xs">
+          <span className={`font-bold ${running ? 'text-green-400' : 'text-yellow-400'}`}>
+            {service.status ?? 'deployed'}
+          </span>
+          <span className="text-[var(--color-muted)]">{service.name}</span>
+        </div>
+        {service.domain && (
+          <div className="text-xs text-[var(--color-muted)] font-mono truncate">{service.domain}</div>
+        )}
+      </div>
+      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
+        {status.rateLimit && <span>{status.rateLimit} rpm</span>}
+        {status.maxSessions && <span>{status.maxSessions} session{status.maxSessions !== 1 ? 's' : ''}</span>}
+        <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
+      </div>
+    </>
   );
 }
 
@@ -452,31 +526,15 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
       });
       return res.json();
     },
-    { refreshInterval: 120000, revalidateOnFocus: false }
+    { refreshInterval: 120000, revalidateOnFocus: false },
   );
   const probe = probeData?.probe;
-  const cpuCores = probe?.cpuCores ?? 0;
-  const memTotal = probe?.memTotalGB ?? 0;
-  const memUsed = probe?.memUsedGB ?? 0;
-  const memPct = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
-  const load1 = probe?.loadAvg?.[0] ?? 0;
-  const loadPct = cpuCores > 0 ? Math.min(100, Math.round((load1 / cpuCores) * 100)) : 0;
-  const swap = probe?.swapUsedGB ?? 0;
-  const gpuModel = probe?.gpuModel;
-  const gpuMemMB = probe?.gpuMemTotalMB ?? 0;
-  const gpuW = probe?.gpuPowerWatts ?? 0;
-
-  // Estimate wattage (cloud container — TDP-style: ~5W per core at load + memory + GPU)
-  const estimatedWatts = cpuCores > 0
-    ? Math.round(cpuCores * 5 * Math.max(0.2, load1 / cpuCores) + memTotal * 0.4 + gpuW)
-    : 0;
 
   return (
     <Link
       href="/permacomputer/unsandbox"
       className="text-left bg-[var(--color-surface)] rounded border p-4 transition-all cursor-pointer hover:border-[var(--color-accent)]/50 border-[var(--color-border)] block"
     >
-      {/* Header row */}
       <div className="flex items-center gap-2 mb-3">
         <span className={`text-sm ${running || probe ? 'text-green-400' : hasService ? 'text-yellow-400' : 'text-[var(--color-accent)]'}`}>
           {running || probe ? '●' : hasService ? '◐' : '○'}
@@ -489,61 +547,9 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
       </div>
 
       {probe ? (
-        <>
-          {/* Mini gauges — same as SSH nodes */}
-          <div className="space-y-2 mb-3">
-            <GaugeRow label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
-            <GaugeRow label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
-          </div>
-
-          {/* Stats row */}
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
-            <span>{cpuCores} cores</span>
-            {swap > 0 && <span className="text-yellow-400">swap {swap}G</span>}
-            {probe.uptime && probe.uptime !== 'unknown' && <span>up {probe.uptime}</span>}
-            <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
-            {probe.cpuModel && probe.cpuModel !== 'unknown' && (
-              <span className="truncate max-w-[150px]">{probe.cpuModel}</span>
-            )}
-          </div>
-          {/* GPU row */}
-          {gpuModel && (
-            <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1">
-              <span className="text-purple-400">GPU</span>
-              <span className="truncate max-w-[180px]">{gpuModel}</span>
-              {gpuMemMB > 0 && <span>{Math.round(gpuMemMB / 1024)}GB</span>}
-              {gpuW > 0 && <span>{Math.round(gpuW)}W</span>}
-            </div>
-          )}
-          {/* Power + tier row */}
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-1.5">
-            {estimatedWatts > 0 && <span>{estimatedWatts}W <span className="opacity-60">[est]</span></span>}
-            {status.rateLimit && <span>{status.rateLimit} rpm</span>}
-            {status.maxSessions && <span>{status.maxSessions} sess</span>}
-            <span className="ml-auto font-bold text-[var(--color-foreground)]">
-              {status.tier <= 1 ? 'free' : `tier ${status.tier}`}
-            </span>
-          </div>
-        </>
+        <UnsandboxProbeBody probe={probe} status={status} />
       ) : hasService ? (
-        <>
-          <div className="space-y-1.5 mb-3">
-            <div className="flex items-center gap-2 text-xs">
-              <span className={`font-bold ${running ? 'text-green-400' : 'text-yellow-400'}`}>
-                {service.status ?? 'deployed'}
-              </span>
-              <span className="text-[var(--color-muted)]">{service.name}</span>
-            </div>
-            {service.domain && (
-              <div className="text-xs text-[var(--color-muted)] font-mono truncate">{service.domain}</div>
-            )}
-          </div>
-          <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
-            {status.rateLimit && <span>{status.rateLimit} rpm</span>}
-            {status.maxSessions && <span>{status.maxSessions} session{status.maxSessions !== 1 ? 's' : ''}</span>}
-            <span className="text-[var(--color-accent)]/70">unsandbox.com</span>
-          </div>
-        </>
+        <UnsandboxServiceBody service={service} status={status} running={running} />
       ) : (
         <div className="text-xs text-[var(--color-muted)]">
           <span className="text-green-400">connected</span> — no unfirehose service deployed yet
