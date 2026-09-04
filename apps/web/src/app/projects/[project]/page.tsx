@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { use, useState, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
@@ -1095,6 +1095,15 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  // One string for the gutter. Building it per line was the point of the
+  // table this replaced.
+  const lineNumbers = useMemo(() => {
+    const n = (treeData?.content ?? '').split('\n').length;
+    let out = '';
+    for (let i = 1; i <= n; i++) out += i + '\n';
+    return out;
+  }, [treeData?.content]);
+
   // Breadcrumb from treePath
   const pathParts = treePath ? treePath.split('/') : [];
   const breadcrumbs = pathParts.map((part: string, i: number) => ({
@@ -1236,20 +1245,19 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
                   </span>
                 )}
               </div>
-              {/* Line-numbered content */}
-              <div className="overflow-auto max-h-[700px]">
-                <table className="w-full text-xs font-mono border-collapse">
-                  <tbody>
-                    {(treeData.content || '').split('\n').map((line: string, i: number) => (
-                      <tr key={i} className="hover:bg-[var(--color-surface-hover)]">
-                        <td className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] w-1 whitespace-nowrap opacity-50">
-                          {i + 1}
-                        </td>
-                        <td className="px-3 py-0 whitespace-pre">{line || ' '}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* Line-numbered content.
+                  Two text nodes, not two DOM nodes per line. This was a
+                  table with a <tr> and two <td> per line — 6,504 nodes for
+                  pricing.ts, 8,748 for this file — which React reconciled
+                  and the browser laid out on every open. That was the wait
+                  when opening a file, not the fetch: the API answers in
+                  7-15ms. */}
+              <div className="overflow-auto max-h-[700px] flex text-xs font-mono leading-[1.45]">
+                <pre
+                  className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] opacity-50 shrink-0"
+                  aria-hidden
+                >{lineNumbers}</pre>
+                <pre className="px-3 py-0 whitespace-pre flex-1">{treeData.content || ''}</pre>
               </div>
             </div>
           )}
