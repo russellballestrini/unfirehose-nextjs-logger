@@ -120,36 +120,39 @@ export async function GET(request: NextRequest) {
 }
 
 // POST — execute code or create session
-export async function POST(request: NextRequest) {
-  const publicKey = getSetting('unsandbox_public_key');
-  const secretKey = getSetting('unsandbox_secret_key');
+/**
+ * One action, given the keys and the request body.
+ *
+ * The keys are read once by POST and handed down, so no handler reaches for
+ * settings on its own and none can forget the check that they exist.
+ */
+interface ActionContext {
+  publicKey: string;
+  secretKey: string;
+  body: any;
+}
 
-  if (!publicKey || !secretKey) {
-    return NextResponse.json({ error: 'No unsandbox keys configured' }, { status: 400 });
-  }
+type Action = (ctx: ActionContext) => Promise<NextResponse>;
 
-  const body = await request.json();
-  const { action } = body;
-
-  if (action === 'test') {
-    // Quick connectivity test — GET /keys/self
-    try {
-      const path = '/keys/self';
-      const headers = authHeaders(publicKey, secretKey, 'GET', path);
-      const res = await fetch(`${API_BASE}${path}`, { headers, signal: AbortSignal.timeout(10000) });
-      if (!res.ok) {
-        return NextResponse.json({ ok: false, error: humanizeAuthError(`HTTP ${res.status}`) });
-      }
-      const data = await res.json();
-      return NextResponse.json({ ok: true, tier: data.tier });
-    } catch (err) {
-      return NextResponse.json({ ok: false, error: humanizeAuthError(String(err)) });
+const test: Action = async ({ publicKey, secretKey, body }) => {
+  // Quick connectivity test — GET /keys/self
+  try {
+    const path = '/keys/self';
+    const headers = authHeaders(publicKey, secretKey, 'GET', path);
+    const res = await fetch(`${API_BASE}${path}`, { headers, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) {
+      return NextResponse.json({ ok: false, error: humanizeAuthError(`HTTP ${res.status}`) });
     }
+    const data = await res.json();
+    return NextResponse.json({ ok: true, tier: data.tier });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: humanizeAuthError(String(err)) });
   }
+};
 
-  if (action === 'probe') {
-    // Run a system probe on unsandbox to get CPU, memory, GPU, etc.
-    const probeScript = `#!/bin/bash
+const probe: Action = async ({ publicKey, secretKey, body }) => {
+  // Run a system probe on unsandbox to get CPU, memory, GPU, etc.
+  const probeScript = `#!/bin/bash
 echo "---JSON---"
 CORES=$(nproc 2>/dev/null || echo 1)
 HOST_THREADS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "$CORES")
@@ -170,224 +173,261 @@ GPU_MODEL=""
 GPU_MEM_MB=0
 GPU_POWER_W=0
 if command -v nvidia-smi &>/dev/null; then
-  GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "")
-  GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
-  GPU_POWER_W=$(nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
+GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "")
+GPU_MEM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
+GPU_POWER_W=$(nvidia-smi --query-gpu=power.draw --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
 fi
 cat <<ENDJSON
 {
-  "cpuCores": $CORES,
-  "hostThreads": $HOST_THREADS,
-  "cpuModel": "$CPU_MODEL",
-  "memTotalGB": $MEM_TOTAL,
-  "memUsedGB": $MEM_USED,
-  "memAvailableGB": $MEM_AVAIL,
-  "swapTotalGB": $SWAP_TOTAL,
-  "swapUsedGB": $SWAP_USED,
-  "loadAvg": [$LOAD1, $LOAD5, $LOAD15],
-  "uptime": "$UPTIME",
-  "gpuModel": "$GPU_MODEL",
-  "gpuMemTotalMB": $GPU_MEM_MB,
-  "gpuPowerWatts": $GPU_POWER_W
+"cpuCores": $CORES,
+"hostThreads": $HOST_THREADS,
+"cpuModel": "$CPU_MODEL",
+"memTotalGB": $MEM_TOTAL,
+"memUsedGB": $MEM_USED,
+"memAvailableGB": $MEM_AVAIL,
+"swapTotalGB": $SWAP_TOTAL,
+"swapUsedGB": $SWAP_USED,
+"loadAvg": [$LOAD1, $LOAD5, $LOAD15],
+"uptime": "$UPTIME",
+"gpuModel": "$GPU_MODEL",
+"gpuMemTotalMB": $GPU_MEM_MB,
+"gpuPowerWatts": $GPU_POWER_W
 }
 ENDJSON`;
-    const path = '/execute';
-    const payload = JSON.stringify({
-      language: 'bash',
-      code: probeScript,
-      network_mode: 'zerotrust',
+  const path = '/execute';
+  const payload = JSON.stringify({
+    language: 'bash',
+    code: probeScript,
+    network_mode: 'zerotrust',
+  });
+  try {
+    const data = await apiPost(publicKey, secretKey, path, payload, 30000);
+    // Parse the JSON from stdout
+    const stdout: string = data.stdout || data.output || '';
+    const jsonMatch = stdout.match(/---JSON---\s*([\s\S]*)/);
+    if (jsonMatch) {
+      try {
+        const probe = JSON.parse(jsonMatch[1].trim());
+        return NextResponse.json({ probe, raw: data });
+      } catch {
+        return NextResponse.json({ error: 'Failed to parse probe output', raw: stdout });
+      }
+    }
+    return NextResponse.json({ error: 'No probe data in output', raw: stdout });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const execute: Action = async ({ publicKey, secretKey, body }) => {
+  // Run code on unsandbox
+  const { language, code, network } = body;
+  const path = '/execute';
+  const payload = JSON.stringify({
+    language: language || 'bash',
+    code,
+    network_mode: network || 'semitrusted',
+  });
+  const headers = authHeaders(publicKey, secretKey, 'POST', path, payload);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers,
+      body: payload,
+      signal: AbortSignal.timeout(120000),
     });
-    try {
-      const data = await apiPost(publicKey, secretKey, path, payload, 30000);
-      // Parse the JSON from stdout
-      const stdout: string = data.stdout || data.output || '';
-      const jsonMatch = stdout.match(/---JSON---\s*([\s\S]*)/);
-      if (jsonMatch) {
-        try {
-          const probe = JSON.parse(jsonMatch[1].trim());
-          return NextResponse.json({ probe, raw: data });
-        } catch {
-          return NextResponse.json({ error: 'Failed to parse probe output', raw: stdout });
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const session: Action = async ({ publicKey, secretKey, body }) => {
+  // Create an interactive session for agent harness
+  const { image, network } = body;
+  const path = '/sessions';
+  const payload = JSON.stringify({
+    image: image || 'ubuntu:24.04',
+    network_mode: network || 'semitrusted',
+  });
+  const headers = authHeaders(publicKey, secretKey, 'POST', path, payload);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers,
+      body: payload,
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return NextResponse.json({ error: data.error || `HTTP ${res.status}` }, { status: res.status });
+    }
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const killSession: Action = async ({ publicKey, secretKey, body }) => {
+  const { sessionId } = body;
+  if (!sessionId) return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+  try {
+    await apiDelete(publicKey, secretKey, `/sessions/${sessionId}`);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const createService: Action = async ({ publicKey, secretKey, body }) => {
+  const { ports, bootstrap, network } = body;
+  // Derive a stable per-user suffix via SHA-256 of the public key — consistent,
+  // non-reversible, and safe to expose in a global namespace.
+  const pkSuffix = createHash('sha256').update(publicKey).digest('hex').slice(0, 8);
+  const name = body.name
+    ? `${body.name}-${pkSuffix}`
+    : `service-${pkSuffix}`;
+  if (!name) return NextResponse.json({ error: 'Missing service name' }, { status: 400 });
+  try {
+    // Inject Claude auth credentials into bootstrap script if present
+    let finalBootstrap = bootstrap;
+    if (finalBootstrap) {
+      const credLines = await buildCredentialLines();
+      if (credLines) {
+        // Insert after shebang + set -e, before the rest
+        const lines = finalBootstrap.split('\n');
+        const insertIdx = lines.findIndex((l: string) => l.startsWith('set -e'));
+        if (insertIdx >= 0) {
+          lines.splice(insertIdx + 1, 0, credLines);
+        } else {
+          lines.splice(1, 0, credLines);
         }
+        finalBootstrap = lines.join('\n');
       }
-      return NextResponse.json({ error: 'No probe data in output', raw: stdout });
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
     }
+
+    // Ports must be an array of integers (matching SDK format)
+    const portsArray = (ports || '80').toString().split(',').map((p: string) => parseInt(p.trim())).filter((p: number) => !isNaN(p));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const svcPayload: any = { name, ports: portsArray };
+    if (finalBootstrap) svcPayload.bootstrap = finalBootstrap;
+    if (network) svcPayload.network = network;
+    const payload = JSON.stringify(svcPayload);
+    const data = await apiPost(publicKey, secretKey, '/services', payload);
+    return NextResponse.json({ ...data, resolvedName: name });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const destroyService: Action = async ({ publicKey, secretKey, body }) => {
+  const { serviceId } = body;
+  if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+  try {
+    await apiDelete(publicKey, secretKey, `/services/${serviceId}`);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const serviceInfo: Action = async ({ publicKey, secretKey, body }) => {
+  const { serviceId } = body;
+  if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+  try {
+    const data = await apiGet(publicKey, secretKey, `/services/${serviceId}`, 15000);
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const serviceLogs: Action = async ({ publicKey, secretKey, body }) => {
+  const { serviceId } = body;
+  if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+  try {
+    const data = await apiGet(publicKey, secretKey, `/services/${serviceId}/logs`, 30000);
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const serviceWake: Action = async ({ publicKey, secretKey, body }) => {
+  const { serviceId } = body;
+  if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+  try {
+    const data = await apiPost(publicKey, secretKey, `/services/${serviceId}/wake`, '{}', 30000);
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const serviceRedeploy: Action = async ({ publicKey, secretKey, body }) => {
+  const { serviceId } = body;
+  if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
+  try {
+    const data = await apiPost(publicKey, secretKey, `/services/${serviceId}/redeploy`, '{}', 60000);
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+const sessionExec: Action = async ({ publicKey, secretKey, body }) => {
+  // Execute a command inside an existing session
+  const { sessionId, command } = body;
+  if (!sessionId || !command) return NextResponse.json({ error: 'Missing sessionId or command' }, { status: 400 });
+  try {
+    const execPath = `/sessions/${sessionId}/execute`;
+    const execPayload = JSON.stringify({ command });
+    const data = await apiPost(publicKey, secretKey, execPath, execPayload, 30000);
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+};
+
+/**
+ * Every action this proxy forwards, by name.
+ *
+ * These were twelve `if (action === ...)` blocks in one 268-line
+ * function, which is how a dispatcher reaches 54 branches: the shape of
+ * the dispatch and the work of every action shared a scope, so reading
+ * any one of them meant scrolling past the other eleven.
+ */
+const ACTIONS: Record<string, Action> = {
+  'test': test,
+  'probe': probe,
+  'execute': execute,
+  'session': session,
+  'kill-session': killSession,
+  'create-service': createService,
+  'destroy-service': destroyService,
+  'service-info': serviceInfo,
+  'service-logs': serviceLogs,
+  'service-wake': serviceWake,
+  'service-redeploy': serviceRedeploy,
+  'session-exec': sessionExec,
+};
+
+export async function POST(request: NextRequest) {
+  const publicKey = getSetting('unsandbox_public_key');
+  const secretKey = getSetting('unsandbox_secret_key');
+
+  if (!publicKey || !secretKey) {
+    return NextResponse.json({ error: 'No unsandbox keys configured' }, { status: 400 });
   }
 
-  if (action === 'execute') {
-    // Run code on unsandbox
-    const { language, code, network } = body;
-    const path = '/execute';
-    const payload = JSON.stringify({
-      language: language || 'bash',
-      code,
-      network_mode: network || 'semitrusted',
-    });
-    const headers = authHeaders(publicKey, secretKey, 'POST', path, payload);
-    try {
-      const res = await fetch(`${API_BASE}${path}`, {
-        method: 'POST',
-        headers,
-        body: payload,
-        signal: AbortSignal.timeout(120000),
-      });
-      const data = await res.json();
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
+  const body = await request.json();
+  const handler = ACTIONS[body.action];
+  if (!handler) {
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
 
-  if (action === 'session') {
-    // Create an interactive session for agent harness
-    const { image, network } = body;
-    const path = '/sessions';
-    const payload = JSON.stringify({
-      image: image || 'ubuntu:24.04',
-      network_mode: network || 'semitrusted',
-    });
-    const headers = authHeaders(publicKey, secretKey, 'POST', path, payload);
-    try {
-      const res = await fetch(`${API_BASE}${path}`, {
-        method: 'POST',
-        headers,
-        body: payload,
-        signal: AbortSignal.timeout(30000),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        return NextResponse.json({ error: data.error || `HTTP ${res.status}` }, { status: res.status });
-      }
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'kill-session') {
-    const { sessionId } = body;
-    if (!sessionId) return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
-    try {
-      await apiDelete(publicKey, secretKey, `/sessions/${sessionId}`);
-      return NextResponse.json({ ok: true });
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'create-service') {
-    const { ports, bootstrap, network } = body;
-    // Derive a stable per-user suffix via SHA-256 of the public key — consistent,
-    // non-reversible, and safe to expose in a global namespace.
-    const pkSuffix = createHash('sha256').update(publicKey).digest('hex').slice(0, 8);
-    const name = body.name
-      ? `${body.name}-${pkSuffix}`
-      : `service-${pkSuffix}`;
-    if (!name) return NextResponse.json({ error: 'Missing service name' }, { status: 400 });
-    try {
-      // Inject Claude auth credentials into bootstrap script if present
-      let finalBootstrap = bootstrap;
-      if (finalBootstrap) {
-        const credLines = await buildCredentialLines();
-        if (credLines) {
-          // Insert after shebang + set -e, before the rest
-          const lines = finalBootstrap.split('\n');
-          const insertIdx = lines.findIndex((l: string) => l.startsWith('set -e'));
-          if (insertIdx >= 0) {
-            lines.splice(insertIdx + 1, 0, credLines);
-          } else {
-            lines.splice(1, 0, credLines);
-          }
-          finalBootstrap = lines.join('\n');
-        }
-      }
-
-      // Ports must be an array of integers (matching SDK format)
-      const portsArray = (ports || '80').toString().split(',').map((p: string) => parseInt(p.trim())).filter((p: number) => !isNaN(p));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const svcPayload: any = { name, ports: portsArray };
-      if (finalBootstrap) svcPayload.bootstrap = finalBootstrap;
-      if (network) svcPayload.network = network;
-      const payload = JSON.stringify(svcPayload);
-      const data = await apiPost(publicKey, secretKey, '/services', payload);
-      return NextResponse.json({ ...data, resolvedName: name });
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'destroy-service') {
-    const { serviceId } = body;
-    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
-    try {
-      await apiDelete(publicKey, secretKey, `/services/${serviceId}`);
-      return NextResponse.json({ ok: true });
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'service-info') {
-    const { serviceId } = body;
-    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
-    try {
-      const data = await apiGet(publicKey, secretKey, `/services/${serviceId}`, 15000);
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'service-logs') {
-    const { serviceId } = body;
-    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
-    try {
-      const data = await apiGet(publicKey, secretKey, `/services/${serviceId}/logs`, 30000);
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'service-wake') {
-    const { serviceId } = body;
-    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
-    try {
-      const data = await apiPost(publicKey, secretKey, `/services/${serviceId}/wake`, '{}', 30000);
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'service-redeploy') {
-    const { serviceId } = body;
-    if (!serviceId) return NextResponse.json({ error: 'Missing serviceId' }, { status: 400 });
-    try {
-      const data = await apiPost(publicKey, secretKey, `/services/${serviceId}/redeploy`, '{}', 60000);
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  if (action === 'session-exec') {
-    // Execute a command inside an existing session
-    const { sessionId, command } = body;
-    if (!sessionId || !command) return NextResponse.json({ error: 'Missing sessionId or command' }, { status: 400 });
-    try {
-      const execPath = `/sessions/${sessionId}/execute`;
-      const execPayload = JSON.stringify({ command });
-      const data = await apiPost(publicKey, secretKey, execPath, execPayload, 30000);
-      return NextResponse.json(data);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
-    }
-  }
-
-  return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  return handler({ publicKey, secretKey, body });
 }
 
 // Build shell lines that inject Claude auth credentials into a container
