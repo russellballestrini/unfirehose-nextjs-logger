@@ -234,3 +234,66 @@ export function exportsOf(file: string): ExportedSymbol[] {
 
   return out;
 }
+
+export interface DeadFunction {
+  name: string;
+  line: number;
+  endLine: number;
+}
+
+/**
+ * Functions a file declares, does not export, and never calls.
+ *
+ * Export-level analysis cannot see these: the file is reachable, so nothing
+ * flags the sixty lines inside it that nothing reaches. Found the first one
+ * by hand — a canonical-form converter in db/ingest.ts with no callers — and
+ * looking for the rest by hand across two hundred files is how they stay.
+ *
+ * Only top-level declarations count. A nested helper is scoped to its
+ * parent, and a method could be called through an object we cannot follow.
+ */
+export function deadPrivateFunctions(file: string): DeadFunction[] {
+  const text = fs.readFileSync(file, 'utf8');
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const lineOf = (pos: number) => sf.getLineAndCharacterOfPosition(pos).line + 1;
+
+  const declared = new Map<string, { line: number; endLine: number }>();
+  for (const node of sf.statements) {
+    const exported = ts.canHaveModifiers(node) &&
+      ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (exported) continue;
+
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      declared.set(node.name.text, {
+        line: lineOf(node.getStart(sf)), endLine: lineOf(node.getEnd()),
+      });
+    } else if (ts.isVariableStatement(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
+        if (!ts.isArrowFunction(decl.initializer) && !ts.isFunctionExpression(decl.initializer)) continue;
+        declared.set(decl.name.text, {
+          line: lineOf(node.getStart(sf)), endLine: lineOf(node.getEnd()),
+        });
+      }
+    }
+  }
+  if (declared.size === 0) return [];
+
+  // Count every identifier that is not the declaration itself.
+  const used = new Set<string>();
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node)) {
+      const parent = node.parent;
+      const isOwnName =
+        (ts.isFunctionDeclaration(parent) || ts.isVariableDeclaration(parent)) && parent.name === node;
+      if (!isOwnName) used.add(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+
+  return [...declared.entries()]
+    .filter(([name]) => !used.has(name))
+    .map(([name, where]) => ({ name, ...where }))
+    .sort((a, b) => a.line - b.line);
+}

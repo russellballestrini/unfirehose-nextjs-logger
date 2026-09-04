@@ -276,23 +276,6 @@ function parseProcesses(raw: string) {
   }).filter(Boolean);
 }
 
-function parseClaudeProcesses(raw: string) {
-  if (!raw || raw === 'none') return [];
-  return raw.split('\n').filter(l => l.trim()).map(line => {
-    const parts = line.trim().split(/\s+/);
-    if (parts.length < 11) return null;
-    return {
-      user: parts[0],
-      pid: parseInt(parts[1]),
-      cpu: parseFloat(parts[2]),
-      mem: parseFloat(parts[3]),
-      rss: parseInt(parts[5]),
-      start: parts[8],
-      time: parts[9],
-      command: parts.slice(10).join(' '),
-    };
-  }).filter(Boolean);
-}
 
 function parseNvidiaGpu(raw: string) {
   if (!raw || raw === 'none') return [];

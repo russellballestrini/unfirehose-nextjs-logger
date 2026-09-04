@@ -71,68 +71,6 @@ export interface IngestResult {
   providenceAdded: number;
 }
 
-/**
- * Normalize a raw harness entry to unfirehose/1.0 canonical format.
- * Works for Claude Code, Fetch, and uncloseai entries.
- */
-function toCanonical(entry: any, harness: string): any | null {
-  if (!entry.type || !['user', 'assistant', 'system'].includes(entry.type)) return null;
-
-  const canonical: any = {
-    $schema: 'unfirehose/1.0',
-    role: entry.type,
-    id: entry.uuid ?? null,
-    parentId: entry.parentUuid ?? null,
-    timestamp: entry.timestamp ?? null,
-    sidechain: entry.isSidechain ?? false,
-    harness,
-  };
-
-  if (entry.message?.model) canonical.model = entry.message.model;
-  if (entry.message?.stop_reason) canonical.stopReason = entry.message.stop_reason;
-  if (entry.subtype) canonical.subtype = entry.subtype;
-  if (entry.durationMs) canonical.durationMs = entry.durationMs;
-  if (entry.sessionId) canonical.sessionId = entry.sessionId;
-
-  // Normalize content blocks
-  if (entry.message?.content && Array.isArray(entry.message.content)) {
-    canonical.content = entry.message.content.map((block: any) => {
-      switch (block.type) {
-        case 'text':
-          return { type: 'text', text: block.text };
-        case 'thinking':
-          return { type: 'reasoning', text: block.thinking, signature: block.thinking_signature };
-        case 'tool_use':
-          return { type: 'tool-call', toolCallId: block.id, toolName: block.name, input: block.input };
-        case 'tool_result':
-          return { type: 'tool-result', toolCallId: block.tool_use_id, output: block.content, isError: block.is_error };
-        default:
-          return block;
-      }
-    });
-  } else if (entry.type === 'user' && typeof entry.message?.content === 'string') {
-    canonical.content = [{ type: 'text', text: entry.message.content }];
-  }
-
-  // Normalize usage
-  const usage = entry.message?.usage;
-  if (usage) {
-    canonical.usage = {
-      inputTokens: usage.input_tokens ?? 0,
-      outputTokens: usage.output_tokens ?? 0,
-      inputTokenDetails: {
-        cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-        cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
-      },
-      // Undefined when the harness quoted no price. Kept undefined rather
-      // than zeroed so insertMessage stores NULL and pricing falls back to
-      // its own estimate instead of booking the call as free.
-      costUSD: usage.cost_usd ?? undefined,
-    };
-  }
-
-  return canonical;
-}
 
 // Project identity — see docs/architecture/project-identity.md.
 // A project's stable identity is (root_commit_hash, origin_url), not its filesystem path.

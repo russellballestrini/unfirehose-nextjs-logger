@@ -1791,41 +1791,6 @@ const ChartOverlay = React.memo(function ChartOverlay() {
 });
 ChartOverlay.displayName = 'ChartOverlay';
 
-// Tooltip content that debounces re-renders — cursor line tracks ASAP (recharts
-// native), but the numeric details only update once the mouse has settled for
-// `delay` ms, so the box doesn't thrash on every pixel of motion. Recharts
-// clones this element with live { active, label, payload } props each render.
-function DebouncedTooltip({ active, label, payload, labelFormatter, formatter, contentStyle, delay = 200 }: any) {
-  const [snap, setSnap] = useState<{ active: boolean; label: any; payload: any[] } | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setSnap({ active: !!active, label, payload: payload ?? [] });
-    }, delay);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [active, label, delay, payload]);
-  if (!snap?.active || !snap.payload?.length) return null;
-  const rows = snap.payload;
-  return (
-    <div style={{ ...(contentStyle ?? {}), padding: '6px 10px', fontSize: 12, lineHeight: '1.5em' }}>
-      <div style={{ color: '#a1a1aa', marginBottom: 2 }}>
-        {labelFormatter ? labelFormatter(snap.label) : String(snap.label)}
-      </div>
-      {rows.map((p: any, i: number) => {
-        const result = formatter ? formatter(p.value, p.name, p, i, rows) : [p.value, p.name];
-        const value = Array.isArray(result) ? result[0] : result;
-        const name = Array.isArray(result) ? result[1] : p.name;
-        return (
-          <div key={i} style={{ color: p.color || p.stroke }}>
-            <span style={{ color: '#a1a1aa' }}>{name}: </span>
-            <span>{value}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function Section({ title, children }: { title: string | React.ReactNode; children: React.ReactNode }) {
   return (

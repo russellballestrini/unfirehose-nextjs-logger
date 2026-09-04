@@ -193,20 +193,6 @@ interface BootOpts {
   model?: string;        // model id to pin, when the harness accepts one
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function _detectMultiplexer(): Promise<'tmux' | 'screen' | null> {
-  try {
-    await exec('which', ['tmux'], { timeout: 2000 });
-    return 'tmux';
-  } catch {
-    try {
-      await exec('which', ['screen'], { timeout: 2000 });
-      return 'screen';
-    } catch {
-      return null;
-    }
-  }
-}
 
 function buildClaudeCmd(opts: BootOpts): string {
   if (opts.harness !== 'claude') {

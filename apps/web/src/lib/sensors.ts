@@ -236,21 +236,6 @@ export interface CpuTopology {
   dies: number;
 }
 
-/** "0-3" / "0,4" / "16-19" → [0,1,2,3] */
-function expandCpuList(list: string): number[] {
-  const out: number[] = [];
-  for (const part of list.split(',')) {
-    const t = part.trim();
-    if (!t) continue;
-    const m = /^(\d+)-(\d+)$/.exec(t);
-    if (m) {
-      for (let i = +m[1]; i <= +m[2]; i++) out.push(i);
-    } else if (/^\d+$/.test(t)) {
-      out.push(+t);
-    }
-  }
-  return out;
-}
 
 /**
  * CPU topology → physical cores with cluster and tier.

@@ -24,7 +24,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ROOT, WORKSPACES, walk, isTest, isSource, rel } from './workspaces.ts';
-import { importsOf, exportsOf, publicEntries } from './imports.ts';
+import { importsOf, exportsOf, publicEntries, deadPrivateFunctions } from './imports.ts';
 import { args, table, heading, dim, bold, grade, writeJson } from './render.ts';
 
 const flags = args();
@@ -200,6 +200,24 @@ if (showExports && unusedExports.length > 0) {
   console.log(dim(`\n  ${unusedExports.length} exported names nothing imports — \`make orphans ARGS=--exports\` to list them.`));
 }
 
+// Dead code inside a live file. Export-level analysis cannot see this: the
+// file is reached, so nothing flags the function inside it that is not.
+const dead = sources
+  .flatMap((file) => deadPrivateFunctions(file).map((fn) => ({ path: rel(file), ...fn })))
+  .sort((a, b) => (b.endLine - b.line) - (a.endLine - a.line));
+
+if (dead.length > 0) {
+  const lines = dead.reduce((n, d) => n + (d.endLine - d.line + 1), 0);
+  console.log(heading(`Declared, never called, never exported (${dead.length})`));
+  console.log(table(
+    [{ header: 'lines', align: 'right' }, { header: 'function' }, { header: 'where' }],
+    dead.slice(0, 30).map((d) => [
+      String(d.endLine - d.line + 1), d.name, dim(`${d.path}:${d.line}`),
+    ]),
+  ));
+  console.log(dim(`\n  ${lines} lines nothing calls.`));
+}
+
 const unresolved = new Map<string, string[]>();
 for (const file of all) {
   for (const spec of graph.get(file)!.unresolved) {
@@ -229,6 +247,7 @@ if (flags.has('json')) {
     orphaned: orphaned.map((f) => ({ path: rel(f), lines: linesOf(f) })),
     testOnly: testOnly.map((f) => ({ path: rel(f), lines: linesOf(f) })),
     unusedExports,
+    deadFunctions: dead,
     unresolved: [...unresolved.entries()].map(([specifier, files]) => ({ specifier, files })),
   });
 }

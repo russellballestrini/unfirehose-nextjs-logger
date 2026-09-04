@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { resolveSpecifier, importsOf, exportsOf } from './imports.ts';
+import { resolveSpecifier, importsOf, exportsOf, deadPrivateFunctions } from './imports.ts';
 import { ROOT } from './workspaces.ts';
 
 /**
@@ -120,5 +120,56 @@ describe('exportsOf', () => {
   it('leaves what a file keeps to itself out of its surface', () => {
     const file = write('private.ts', 'const hidden = 1;\nfunction alsoHidden() {}\nexport const shown = 2;\n');
     expect(exportsOf(file).map((e) => e.name)).toEqual(['shown']);
+  });
+});
+
+describe('deadPrivateFunctions', () => {
+  it('finds a function nothing calls', () => {
+    const file = write('dead.ts', [
+      'function used() { return 1; }',
+      'function unused() { return 2; }',
+      'export const answer = used();',
+    ].join('\n'));
+    expect(deadPrivateFunctions(file).map((f) => f.name)).toEqual(['unused']);
+  });
+
+  it('leaves an exported function alone, since callers live elsewhere', () => {
+    const file = write('exported.ts', 'export function offered() { return 1; }\n');
+    expect(deadPrivateFunctions(file)).toEqual([]);
+  });
+
+  it('counts a component used only in JSX as used', () => {
+    // The first version of this missed JSX tag names, which would have
+    // condemned half the components in the app.
+    const file = write('view.tsx', [
+      'function Row() { return <li/>; }',
+      'export function List() { return <ul><Row/></ul>; }',
+    ].join('\n'));
+    expect(deadPrivateFunctions(file)).toEqual([]);
+  });
+
+  it('sees an unused arrow bound to a const', () => {
+    const file = write('arrow.ts', 'const helper = () => 1;\nexport const x = 2;\n');
+    expect(deadPrivateFunctions(file).map((f) => f.name)).toEqual(['helper']);
+  });
+
+  it('ignores a nested helper, which is scoped to its parent', () => {
+    const file = write('nested.ts', [
+      'export function outer() {',
+      '  function inner() { return 1; }',
+      '  return inner();',
+      '}',
+    ].join('\n'));
+    expect(deadPrivateFunctions(file)).toEqual([]);
+  });
+
+  it('reports the range to delete, comment excluded', () => {
+    const file = write('range.ts', [
+      'function gone() {',
+      '  return 1;',
+      '}',
+      'export const x = 1;',
+    ].join('\n'));
+    expect(deadPrivateFunctions(file)[0]).toMatchObject({ name: 'gone', line: 1, endLine: 3 });
   });
 });

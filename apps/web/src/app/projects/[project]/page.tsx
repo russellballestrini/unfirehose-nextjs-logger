@@ -30,15 +30,6 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]['key'];
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
-  return (
-    <div className="border border-[var(--color-border)] rounded p-3">
-      <div className="text-lg font-bold">{value}</div>
-      <div className="text-xs text-[var(--color-muted)]">{label}</div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</div>}
-    </div>
-  );
-}
 
 function ProgressBar({ value, max, label, detail }: { value: number; max: number; label: string; detail: string }) {
   const pct = max > 0 ? (value / max) * 100 : 0;
