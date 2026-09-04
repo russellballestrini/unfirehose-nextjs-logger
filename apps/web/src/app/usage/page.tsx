@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useEffect, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -7,8 +9,6 @@ import { formatTokens } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const HISTORY_DAYS = 14;
 

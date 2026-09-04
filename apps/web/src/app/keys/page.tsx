@@ -1,9 +1,9 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 interface ApiKey {
   id: string;

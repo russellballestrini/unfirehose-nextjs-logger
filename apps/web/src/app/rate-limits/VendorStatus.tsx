@@ -1,11 +1,11 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import useSWR from 'swr';
 import { formatRelativeTime } from '@unturf/unfirehose/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export const INDICATOR_COLOR: Record<string, string> = {
   none: '#22c55e', minor: '#f59e0b', major: '#ef4444',

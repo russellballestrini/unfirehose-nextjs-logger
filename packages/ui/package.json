@@ -42,7 +42,8 @@
     "./TokenSplit": "./components/TokenSplit.tsx",
     "./modelColor": "./components/modelColor.ts",
     "./StatStrip": "./components/StatStrip.tsx",
-    "./DiffView": "./components/DiffView.tsx"
+    "./DiffView": "./components/DiffView.tsx",
+    "./fetcher": "./components/fetcher.ts"
   },
   "scripts": {
     "lint": "tsc --noEmit",

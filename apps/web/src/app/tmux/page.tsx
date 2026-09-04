@@ -1,13 +1,13 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 type Tab = 'sessions' | 'new';
 type NewTarget = 'tmux' | 'unsandbox';

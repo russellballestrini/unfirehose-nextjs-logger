@@ -1,12 +1,12 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { AVAILABLE_CURRENCIES } from '@unturf/unfirehose-ui/useCurrency';
 import { useVault } from '@unturf/unfirehose-ui/VaultProvider';
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const SETTINGS_KEYS = {
   accentColor: 'theme_accent_color',

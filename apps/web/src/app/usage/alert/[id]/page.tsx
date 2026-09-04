@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
@@ -13,8 +15,6 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { formatTokens, formatCost, formatRelativeTime, formatTimestamp, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const PIE_COLORS = ['#10b981', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#34d399', '#fb923c', '#e879f9'];
 

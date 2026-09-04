@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -8,8 +10,6 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // Virtual filter values are mapped to ?types + ?has_thinking in buildParams below.
 // 'reasoning' is the only filter that turns on has_thinking.

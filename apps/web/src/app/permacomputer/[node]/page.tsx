@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { DEFAULT_KWH_RATE as PRICING_DEFAULT_KWH_RATE } from '@unturf/unfirehose/pricing';
 
 import { useParams } from 'next/navigation';
@@ -21,8 +23,6 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 // Re-exported from @unturf/unfirehose/pricing so pages and server cost math
 // cannot drift apart — this file used 0.31 while pricing.ts used 0.33.
@@ -277,7 +277,6 @@ export default function NodeDetailPage() {
   );
   const { data: settings } = useSWR('/api/settings', fetcher, { revalidateOnFocus: false });
   const { data: sshConfig, mutate: mutateSsh } = useSWR('/api/ssh-config', fetcher, { revalidateOnFocus: false });
-
 
   // Per-node tunables
   const [kwhRate, setKwhRate] = useState(DEFAULT_KWH_RATE);

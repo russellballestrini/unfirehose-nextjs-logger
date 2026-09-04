@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { use, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -7,8 +9,6 @@ import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
 import { BootScreen } from '../../BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 type Tab = 'overview' | 'deployments' | 'session' | 'attachments';
 

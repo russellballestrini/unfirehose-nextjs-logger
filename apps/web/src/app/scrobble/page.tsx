@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import Link from 'next/link';
 
 import { Fragment, useState } from 'react';
@@ -8,8 +10,6 @@ import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 const VISIBILITY_OPTIONS = ['public', 'unlisted', 'private'] as const;
 const VISIBILITY_COLORS: Record<string, string> = {

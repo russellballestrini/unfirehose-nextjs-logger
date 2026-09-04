@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
@@ -7,8 +9,6 @@ import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

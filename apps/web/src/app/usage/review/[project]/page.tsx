@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
@@ -8,8 +10,6 @@ import { useVault } from '@unturf/unfirehose-ui/VaultProvider';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function ReviewPage() {
   const params = useParams();

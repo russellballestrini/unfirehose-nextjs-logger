@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -11,8 +13,6 @@ import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 interface ProjectActivity {
   name: string;

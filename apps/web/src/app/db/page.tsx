@@ -1,11 +1,11 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 function fmtNum(n: number | null): string {
   if (n === null) return '—';
@@ -36,7 +36,7 @@ function SizeBar({ bytes, total, color = '#a78bfa' }: { bytes: number | null; to
 }
 
 export default function DbPage() {
-  const { data, error, mutate } = useSWR('/api/db/meta', fetcher, { refreshInterval: 0 });
+  const { data, error, mutate } = useSWR<any>('/api/db/meta', fetcher, { refreshInterval: 0 });
 
   if (error) return <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>;
   if (!data) return <div className="text-[var(--color-muted)]">Loading database metadata...</div>;

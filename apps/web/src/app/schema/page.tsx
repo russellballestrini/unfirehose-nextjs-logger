@@ -1,12 +1,12 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function SchemaPage() {
   const [selectedFile, setSelectedFile] = useState('README.md');

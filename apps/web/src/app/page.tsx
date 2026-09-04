@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import Link from 'next/link';
 
 import useSWR from 'swr';
@@ -23,8 +25,6 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 function shortModel(model: string): string {
   return model

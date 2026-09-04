@@ -1,12 +1,12 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import useSWR from 'swr';
 import '@xterm/xterm/css/xterm.css';
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 // ── ANSI renderer (for tmux capture-pane snapshots) ─────────────────────────
 const FG_MAP: Record<string, string> = {

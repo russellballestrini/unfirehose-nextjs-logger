@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useEffect } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
@@ -9,8 +11,6 @@ import { formatRelativeTime } from '@unturf/unfirehose/format';
 import { VendorStatusTab, NowBanner } from './VendorStatus';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // What each bucket means, spelled out — "rate limit" gets used for four
 // different conditions and the difference decides what you do about it.
@@ -199,7 +199,6 @@ export default function RateLimitsPage() {
           })}
         </div>
       )}
-
 
       {error && <div className="text-[var(--color-error)]">Failed to load: {String(error)}</div>}
       {isLoading && !data && <div className="text-[var(--color-muted)]">Loading…</div>}

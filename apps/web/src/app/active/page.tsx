@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
@@ -50,8 +52,6 @@ const SESSION_COLORS = [
   '#34d399', '#818cf8', '#38bdf8', '#fb923c', '#a3e635',
   '#e879f9', '#2dd4bf', '#f87171', '#facc15', '#4ade80',
 ];
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 function findMatchingTmux(projectName: string, tmuxSessions: string[]): string | undefined {
   const suffix = projectName.split('-').pop() || '';

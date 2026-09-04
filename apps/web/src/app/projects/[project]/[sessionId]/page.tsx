@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { use, useEffect, useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -8,8 +10,6 @@ import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const HARNESS_COLORS: Record<string, string> = {
   'claude-code': '#a78bfa',

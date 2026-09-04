@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
@@ -26,8 +28,6 @@ import {
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const HARNESS_COLORS: Record<string, string> = {
   'claude-code': '#a78bfa',

@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { use, useState, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -16,8 +18,6 @@ import { TodoBoard } from '@/components/TodoBoard';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const TABS = [
   { key: 'overview', label: 'Overview' },

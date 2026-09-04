@@ -1,13 +1,13 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { BootScreen } from '../../BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 const TABS = ['Overview', 'Harnesses', 'Bootstrap', 'Services', 'Sessions', 'Ephemeral'] as const;
 type Tab = (typeof TABS)[number];

@@ -1,5 +1,7 @@
 'use client';
 
+import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -11,8 +13,6 @@ import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const SETTINGS_KEYS = {
   unsandboxPublicKey: 'unsandbox_public_key',
