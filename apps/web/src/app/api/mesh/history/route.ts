@@ -147,6 +147,44 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Downsample to what a chart can actually draw.
+  //
+  // Measured 2026-09-04: 24h returned 5,646 points x 15 fields plus a
+  // per-node breakdown at every point — 7.97 MB, polled every 6 seconds
+  // into a chart about 1,100px wide. Four of every five points could not be
+  // seen, and the browser parsed 1.3 MB/s to ignore them.
+  //
+  // Each bucket returns the REAL sample with the highest total watts rather
+  // than an average of the bucket. Averaging flattens exactly the spikes
+  // this chart exists to show, and every point stays a measurement that
+  // actually happened.
+  // Both fleet pages read the per-node breakdown, so it stays unless a
+  // caller says it does not need it. Downsampling alone takes 24h from
+  // 7.97 MB to 892 KB; asking for one hostname takes it further.
+  const wantNodes = req.nextUrl.searchParams.get('nodes') !== '0';
+  const points = Math.max(50, Math.min(5000, parseInt(req.nextUrl.searchParams.get('points') ?? '600', 10) || 600));
+
+  let series = timeline;
+  if (timeline.length > points) {
+    const bucketSize = timeline.length / points;
+    const picked: typeof timeline = [];
+    for (let b = 0; b < points; b++) {
+      const start = Math.floor(b * bucketSize);
+      const end = Math.min(timeline.length, Math.floor((b + 1) * bucketSize));
+      if (end <= start) continue;
+      let best = timeline[start];
+      for (let i = start + 1; i < end; i++) {
+        if (timeline[i].totalWatts > best.totalWatts) best = timeline[i];
+      }
+      picked.push(best);
+    }
+    series = picked;
+  }
+
+  if (!wantNodes) {
+    series = series.map(({ nodes: _nodes, ...rest }) => rest as typeof series[number]);
+  }
+
   // Distinct hostnames — deduplicate short names that have FQDN variants
   const rawHostnames = [...new Set(rows.map(r => r.hostname))];
   const hostnames = rawHostnames.filter(h =>
@@ -155,7 +193,7 @@ export async function GET(req: NextRequest) {
   t.mark('aggregate');
 
   return NextResponse.json(
-    { timeline, hostnames, hours, count: rows.length },
+    { timeline: series, hostnames, hours, count: rows.length, sampled: series.length, of: timeline.length },
     { headers: { 'Server-Timing': t.header() } },
   );
 }

@@ -242,7 +242,9 @@ export default function NodeDetailPage() {
     focusThrottleInterval: LIVE_MS,
   });
   const { data: meshHistory } = useSWR(
-    `/api/mesh/history?hours=${chartHours}`,
+    // One node's page needs one node's history. Unfiltered, this pulled the
+    // whole fleet's timeline every LIVE_MS and threw all but one host away.
+    `/api/mesh/history?hours=${chartHours}&hostname=${encodeURIComponent(host)}`,
     fetcher,
     {
       refreshInterval: LIVE_MS,
