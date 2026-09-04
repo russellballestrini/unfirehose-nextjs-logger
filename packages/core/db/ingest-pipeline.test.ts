@@ -153,3 +153,93 @@ describe('ingesting JSONL', () => {
     expect(count('messages')).toBe(2);
   });
 });
+
+/**
+ * Todos, which arrive as tool calls inside ordinary messages.
+ *
+ * These reach the database through the same path as everything else, so they
+ * are tested through it rather than by reaching for a private function. The
+ * rule that matters most is the last one: a session someone has closed must
+ * not have its todos raised from the dead the next time its file is read.
+ */
+const withBlocks = (uuid: string, blocks: unknown[]) => JSON.stringify({
+  type: 'assistant',
+  uuid,
+  timestamp: '2026-09-04T12:00:00.000Z',
+  message: { role: 'assistant', model: 'claude-opus-4-6-20260301', content: blocks },
+});
+
+const todoWrite = (uuid: string, todos: unknown[]) =>
+  withBlocks(uuid, [{ type: 'tool_use', name: 'TodoWrite', id: 't1', input: { todos } }]);
+
+const todoRows = () =>
+  db.prepare('SELECT content, status, external_id FROM todos ORDER BY id')
+    .all() as { content: string; status: string; external_id: string | null }[];
+
+describe('extracting todos while ingesting', () => {
+  it('stores the list a TodoWrite carried', () => {
+    ingestJsonlLines(db, [todoWrite('a1', [
+      { content: 'write the test', status: 'in_progress', activeForm: 'Writing the test' },
+      { content: 'read the code', status: 'completed' },
+    ])], 'proj', 's1');
+
+    expect(todoRows()).toEqual([
+      { content: 'write the test', status: 'in_progress', external_id: null },
+      { content: 'read the code', status: 'completed', external_id: null },
+    ]);
+  });
+
+  it('advances a todo rather than storing it twice', () => {
+    // A session rewrites its whole list on every change, so the same content
+    // arrives again and again. Inserting each time would multiply one task
+    // into a dozen.
+    ingestJsonlLines(db, [todoWrite('a1', [{ content: 'ship it', status: 'pending' }])], 'proj', 's1');
+    ingestJsonlLines(db, [todoWrite('a2', [{ content: 'ship it', status: 'completed' }])], 'proj', 's1');
+
+    expect(todoRows()).toEqual([{ content: 'ship it', status: 'completed', external_id: null }]);
+  });
+
+  it('ignores an entry with no content to record', () => {
+    ingestJsonlLines(db, [todoWrite('a1', [{ status: 'pending' }])], 'proj', 's1');
+    expect(todoRows()).toEqual([]);
+  });
+
+  it('takes the id a tool result assigns to the task it just made', () => {
+    ingestJsonlLines(db, [
+      withBlocks('a1', [{ type: 'tool_use', name: 'TaskCreate', id: 'c1', input: { subject: 'first task' } }]),
+      withBlocks('a2', [{ type: 'tool_result', tool_use_id: 'c1', content: 'Task #42 created successfully: first task' }]),
+    ], 'proj', 's1');
+
+    expect(todoRows()).toEqual([{ content: 'first task', status: 'pending', external_id: '42' }]);
+  });
+
+  it('records a status change as an event, not just a new value', () => {
+    ingestJsonlLines(db, [
+      withBlocks('a1', [{ type: 'tool_use', name: 'TaskCreate', id: 'c1', input: { subject: 'a task' } }]),
+      withBlocks('a2', [{ type: 'tool_result', tool_use_id: 'c1', content: 'Task #7 created' }]),
+      withBlocks('a3', [{ type: 'tool_use', name: 'TaskUpdate', id: 'u1', input: { taskId: 7, status: 'completed' } }]),
+    ], 'proj', 's1');
+
+    expect(todoRows()[0].status).toBe('completed');
+    const event = db.prepare(
+      'SELECT old_status, new_status FROM todo_events ORDER BY id DESC LIMIT 1',
+    ).get() as { old_status: string; new_status: string };
+    expect(event).toEqual({ old_status: 'pending', new_status: 'completed' });
+  });
+
+  it('leaves the todos of a closed session closed when its file is read again', () => {
+    // Claude Code never closes its own todo lists, so thousands sit pending
+    // forever and get swept to obsolete by hand. If ingest reopened them on
+    // the next pass, that sweep would undo itself and the backlog would
+    // return with no one having done anything.
+    ingestJsonlLines(db, [todoWrite('a1', [{ content: 'long finished', status: 'pending' }])], 'proj', 's1');
+
+    const now = new Date().toISOString();
+    db.prepare("UPDATE todos SET status = 'obsolete'").run();
+    db.prepare("UPDATE sessions SET status = 'closed', closed_at = ?").run(now);
+
+    ingestJsonlLines(db, [todoWrite('a2', [{ content: 'long finished', status: 'pending' }])], 'proj', 's1');
+
+    expect(todoRows()).toEqual([{ content: 'long finished', status: 'obsolete', external_id: null }]);
+  });
+});
