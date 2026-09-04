@@ -46,7 +46,8 @@
     "./fetcher": "./components/fetcher.ts",
     "./BootScreen": "./components/BootScreen.tsx",
     "./chart-theme": "./components/chart-theme.ts",
-    "./ansi": "./components/ansi.ts"
+    "./ansi": "./components/ansi.ts",
+    "./StatCard": "./components/StatCard.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

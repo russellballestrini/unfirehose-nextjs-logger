@@ -14,6 +14,7 @@ import type { ProjectMetadata } from '@unturf/unfirehose/types';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { formatTokens, formatCost, formatRelativeTime, formatTimestamp, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
 import { AXIS_TICK, TOOLTIP_STYLE } from '@unturf/unfirehose-ui/chart-theme';
+import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -52,16 +53,6 @@ function ProgressBar({ value, max, color }: { value: number; max: number; color?
 }
 
 // --- Stat Card ---
-
-function StatCard({ label, value, sub, warn }: { label: string; value: string; sub?: string; warn?: boolean }) {
-  return (
-    <div className={`bg-[var(--color-background)] rounded border p-3 ${warn ? 'border-[var(--color-error)]' : 'border-[var(--color-border)]'}`}>
-      <div className="text-base text-[var(--color-muted)] uppercase tracking-wide">{label}</div>
-      <div className={`text-xl font-bold mt-0.5 ${warn ? 'text-[var(--color-error)]' : ''}`}>{value}</div>
-      {sub && <div className="text-base text-[var(--color-muted)] mt-0.5">{sub}</div>}
-    </div>
-  );
-}
 
 // --- Thinking Block ---
 
@@ -347,7 +338,7 @@ export default function AlertDetailPage() {
 
         {/* Stat cards grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-          <StatCard label="Total Cost" value={formatCost(totals.total_cost_usd)} sub={`${formatCost(stats.cost_per_minute)}/min`} warn />
+          <StatCard label="Total Cost" value={formatCost(totals.total_cost_usd)} sub={`${formatCost(stats.cost_per_minute)}/min`} tone="warn" />
           <StatCard label="Total Tokens" value={formatTokens(totals.total_tokens)} sub={`${formatTokens(stats.tokens_per_minute)}/min`} />
           <StatCard label="Messages" value={totals.messages.toLocaleString()} sub={`${activeSessions.length} sessions`} />
           <StatCard label="Output Share" value={`${stats.output_share_pct}%`} sub={`${formatTokens(totals.output_tokens)} of ${formatTokens(totals.total_tokens)}`} />
@@ -360,7 +351,7 @@ export default function AlertDetailPage() {
               These used to be Opus rates multiplied inline here, so this panel
               disagreed with every other page for anything not running on Opus. */}
           <StatCard label="Input Tokens" value={formatTokens(totals.input_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.input ?? 0) : undefined} />
-          <StatCard label="Output Tokens" value={formatTokens(totals.output_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.output ?? 0) : undefined} warn={stats.output_share_pct > 40} />
+          <StatCard label="Output Tokens" value={formatTokens(totals.output_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.output ?? 0) : undefined} tone={stats.output_share_pct > 40 ? 'warn' : 'default'} />
           <StatCard label="Cache Read" value={formatTokens(totals.cache_read_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.cache_read ?? 0) : undefined} />
           <StatCard label="Cache Write" value={formatTokens(totals.cache_creation_tokens)} sub={totals.cost_split_usd ? formatCost(totals.cost_split_usd.cache_write ?? 0) : undefined} />
           <StatCard label="I/O Ratio" value={`${stats.input_output_ratio}:1`} sub={`${stats.unique_models} model${stats.unique_models !== 1 ? 's' : ''}`} />

@@ -8,6 +8,7 @@ import { Fragment, useState } from 'react';
 import useSWR from 'swr';
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -170,7 +171,7 @@ export default function ScrobblePage() {
             <StatCard label="Sessions" value={lt.totalSessions.toLocaleString()} />
             <StatCard label="Messages" value={lt.totalMessages.toLocaleString()} />
             <StatCard label="Active Days" value={lt.activeDays.toLocaleString()} />
-            <StatCard label="Current Streak" value={`${streaks.current}d`} accent={streaks.current >= 3} />
+            <StatCard label="Current Streak" value={`${streaks.current}d`} tone={streaks.current >= 3 ? 'accent' : 'default'} />
             <StatCard label="Longest Streak" value={`${streaks.longest}d`} />
             <StatCard label="Total Cost" value={`$${lt.totalCostUSD.toLocaleString()}`} />
           </div>
@@ -399,16 +400,6 @@ export default function ScrobblePage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
-  return (
-    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3">
-      <div className="text-base text-[var(--color-muted)]">{label}</div>
-      <div className={`text-base font-bold ${accent ? 'text-[var(--color-accent)]' : ''}`}>{value}</div>
-      {sub && <div className="text-xs text-[var(--color-muted)]">{sub}</div>}
     </div>
   );
 }

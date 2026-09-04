@@ -11,6 +11,7 @@ import {
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { groupNavItems } from '@unturf/unfirehose-ui/layout/nav-items';
+import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 // --- Mock data ---
 
@@ -865,25 +866,35 @@ export default function StyleguidePage() {
 
       {/* Cards */}
       <Section title="Cards">
+        {/* The real StatCard, not a drawing of one — this page drifting from
+            the component it documents is how four pages ended up with four
+            StatCards in the first place. */}
+        <div className="text-base text-[var(--color-muted)] mb-2">
+          StatCard — <code>@unturf/unfirehose-ui/StatCard</code>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* StatCard */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-base text-[var(--color-muted)]">Total Sessions</div>
-            <div className="text-2xl font-bold mt-1">412</div>
-            <div className="text-base text-[var(--color-accent)] mt-1">+12 today</div>
-          </div>
-          {/* RateCard normal */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <div className="text-base text-[var(--color-muted)]">Cost / hour</div>
-            <div className="text-2xl font-bold mt-1">$3.20</div>
-            <div className="text-base text-[var(--color-muted)] mt-1">avg last 7d</div>
-          </div>
-          {/* RateCard warn */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-error)] p-4">
-            <div className="text-base text-[var(--color-error)]">Rate Alert</div>
-            <div className="text-2xl font-bold text-[var(--color-error)] mt-1">$8.50/hr</div>
-            <div className="text-base text-[var(--color-muted)] mt-1">exceeds $5 threshold</div>
-          </div>
+          <StatCard label="Total Sessions" value="412" sub="+12 today" />
+          <StatCard label="Cost / hour" value="$3.20" sub="avg last 7d" tone="accent" />
+          <StatCard label="Rate Alert" value="$8.50/hr" sub="exceeds $5 threshold" tone="warn" />
+        </div>
+
+        <div className="text-base text-[var(--color-muted)] mt-4 mb-2">
+          <code>color</code> — for a series that carries its own, like a token type
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <StatCard label="Input" value="800.1M" sub="$17.77" color="#60a5fa" />
+          <StatCard label="Cache" value="9.4B" sub="$5266.29" color="#4ade80" />
+          <StatCard label="Output" value="32.5M" sub="$634.51" color="#c084fc" />
+        </div>
+
+        <div className="text-base text-[var(--color-muted)] mt-4 mb-2">
+          <code>compact</code> — denser type and padding, for grids that fit many to a row
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="CPU" value="Ryzen 7 5800X" sub="16 cores" compact />
+          <StatCard label="Architecture" value="x86_64" sub="6.8.0-generic" compact />
+          <StatCard label="OS" value="Linux" sub="up 10d 0h" compact />
+          <StatCard label="Agents" value={3} sub="2 claude, 1 codex" tone="accent" compact />
         </div>
         {/* ProjectCard mock */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 max-w-sm hover:border-[var(--color-accent)] transition-colors cursor-pointer">

@@ -27,6 +27,7 @@ import {
 } from 'recharts';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import { AXIS_TICK } from '@unturf/unfirehose-ui/chart-theme';
+import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1487,28 +1488,6 @@ export default function TokensPage() {
       })()}
 
       </>)}
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  sub,
-  color,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  color?: string;
-}) {
-  return (
-    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-      <div className="text-base text-[var(--color-muted)] mb-1">{label}</div>
-      <div className="text-2xl font-bold" style={color ? { color } : undefined}>
-        {value}
-      </div>
-      {sub && <div className="text-base text-[var(--color-muted)] mt-1">{sub}</div>}
     </div>
   );
 }

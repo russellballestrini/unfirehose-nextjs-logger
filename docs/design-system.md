@@ -342,6 +342,29 @@ Error variant: border-[var(--color-error)] text-[var(--color-error)]
 Accent variant: border-[var(--color-accent)]
 ```
 
+### StatCard
+
+One figure with a label — `@unturf/unfirehose-ui/StatCard`. Import it rather
+than rebuilding it; four pages each grew their own before this existed, and
+the styleguide drew a fifth from raw divs.
+
+```tsx
+<StatCard label="Total Sessions" value="412" sub="+12 today" />
+<StatCard label="Cost / hour" value="$3.20" tone="accent" />
+<StatCard label="Rate Alert" value="$8.50/hr" tone="warn" />
+<StatCard label="Cache" value="9.4B" color="#4ade80" />
+<StatCard label="CPU" value="Ryzen 7 5800X" sub="16 cores" compact />
+```
+
+| Prop | Effect |
+|---|---|
+| `tone="accent"` | Accent on the value; the card stays quiet |
+| `tone="warn"` | Red border, label and value — findable in a grid without reading |
+| `color` | Explicit value colour for a series that carries its own. Wins over `tone` |
+| `compact` | `p-3`, `text-xs` label, truncated `text-sm` value, for grids fitting many to a row |
+
+Live: `localhost:3000/styleguide` → Cards.
+
 ### Buttons
 
 | Variant | Classes |

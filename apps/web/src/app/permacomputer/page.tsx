@@ -47,6 +47,7 @@ import {
   parseExcludedHosts,
 } from '@/lib/mesh-score';
 import { fmtLocalDateTime } from '@/lib/local-time';
+import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 // ============================================================
 
@@ -630,7 +631,6 @@ function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEcon, sett
   );
 }
 
-
 // ============================================================
 // Overview Tab
 // ============================================================
@@ -654,9 +654,9 @@ function OverviewTab({ detail }: { detail: any }) {
     <div className="space-y-5">
       {/* System info */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="CPU" value={sys?.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim() ?? 'n/a'} sub={`${cores} cores${sys?.cpuMhz ? ` @ ${Math.round(sys.cpuMhz)}MHz` : ''}`} />
-        <StatCard label="Architecture" value={sys?.arch ?? 'n/a'} sub={sys?.kernel ?? ''} />
-        <StatCard label="OS" value={sys?.os ?? 'Linux'} sub={`up ${formatDuration(detail.uptimeSeconds)}`} />
+        <StatCard label="CPU" value={sys?.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim() ?? 'n/a'} sub={`${cores} cores${sys?.cpuMhz ? ` @ ${Math.round(sys.cpuMhz)}MHz` : ''}`} compact />
+        <StatCard label="Architecture" value={sys?.arch ?? 'n/a'} sub={sys?.kernel ?? ''} compact />
+        <StatCard label="OS" value={sys?.os ?? 'Linux'} sub={`up ${formatDuration(detail.uptimeSeconds)}`} compact />
         {(() => {
           // Was "Claudes" and counted only claude, so a node running five
           // uncloseai-cli agents reported none.
@@ -666,7 +666,7 @@ function OverviewTab({ detail }: { detail: any }) {
           const sub = procs.length
             ? Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ')
             : 'none running';
-          return <StatCard label="Agents" value={procs.length} sub={sub} accent />;
+          return <StatCard label="Agents" value={procs.length} sub={sub} tone="accent" compact />;
         })()}
       </div>
 
@@ -1731,16 +1731,6 @@ function EconomicsTab({ hostname: _hostname, econ, onSave, meshNode, geoip, sett
 // Shared UI Components
 // ============================================================
 
-function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: boolean }) {
-  return (
-    <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
-      <div className="text-xs text-[var(--color-muted)] mb-1">{label}</div>
-      <div className={`text-sm font-bold truncate ${accent ? 'text-[var(--color-accent)]' : ''}`}>{value}</div>
-      {sub && <div className="text-xs text-[var(--color-muted)] truncate mt-0.5">{sub}</div>}
-    </div>
-  );
-}
-
 function GaugeBar({ label, pct, value, sub, warn }: { label: string; pct: number; value: string; sub?: string; warn?: boolean }) {
   const color = warn || pct > 85 ? '#ef4444' : pct > 60 ? '#eab308' : 'var(--color-accent)';
   return (
@@ -1981,7 +1971,6 @@ function UnsandboxPanel() {
     </div>
   );
 }
-
 
 // ============================================================
 // Host Form
