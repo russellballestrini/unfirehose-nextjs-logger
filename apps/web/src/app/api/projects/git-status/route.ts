@@ -27,7 +27,13 @@ interface ProjectGitStatus {
  * minute so an untracked file cannot hide for long.
  */
 const repoMemo = new Map<string, { indexMs: number; headMs: number; at: number; status: ProjectGitStatus | null }>();
-const MEMO_MAX_AGE = 60_000;
+// The mtime check catches every real change; this backstop exists only for a
+// brand-new untracked file, which touches neither index nor HEAD. At 60s it
+// forced a real `git status` on all 96 repositories every minute, and a full
+// pass takes ~113s — so the sweep never stopped and starved the event loop
+// for every other request on the server. Ten minutes, with the work per
+// sweep bounded below.
+const MEMO_MAX_AGE = 10 * 60_000;
 
 async function gitStamps(repoPath: string): Promise<{ indexMs: number; headMs: number } | null> {
   try {
@@ -116,12 +122,27 @@ async function sweep() {
       .map((dir) => ({ dir, repoPath: repoPathForProject(dir) }))
       .filter((e): e is { dir: string; repoPath: string } => !!e.repoPath);
 
-    // Concurrency cap: 85+ parallel git processes OOMs the server.
-    const CONCURRENCY = 8;
+    // Bounded work per sweep. A repo whose mtimes are unchanged costs two
+    // stats and is always refreshed; one that needs a real `git status`
+    // costs spawns and seconds, so only a few of those happen per pass and
+    // the rest wait for the next one. Steady state is stat-only.
+    let budget = 12;
+    const CONCURRENCY = 4;
     for (let i = 0; i < eligible.length; i += CONCURRENCY) {
       const batch = eligible.slice(i, i + CONCURRENCY);
       await Promise.all(
         batch.map(async ({ dir, repoPath }) => {
+          const memo = repoMemo.get(repoPath);
+          const stamps = await gitStamps(repoPath);
+          if (!stamps) { delete known[dir]; return; }
+          const unchanged = memo && memo.indexMs === stamps.indexMs && memo.headMs === stamps.headMs;
+          const fresh = memo && Date.now() - memo.at < MEMO_MAX_AGE;
+          if (unchanged && fresh) {
+            if (memo!.status) known[dir] = memo!.status;
+            return;
+          }
+          if (budget <= 0) return;   // next sweep picks it up
+          budget -= 1;
           const status = await getGitStatus(repoPath);
           // Publish each repo as it finishes, so a poll mid-sweep sees
           // progress rather than nothing.
@@ -129,6 +150,7 @@ async function sweep() {
           else delete known[dir];
         }),
       );
+      if (budget <= 0 && i > eligible.length / 2) break;
     }
   } catch { /* a sweep that fails leaves the previous answers in place */ } finally {
     lastSweep = Date.now();

@@ -19,6 +19,18 @@ import { gitExec } from '@unturf/unfirehose/git-exec';
 const activityCache = new Map<number, { data: any[]; ts: number }>();
 const ACTIVITY_TTL = 60_000;
 
+/**
+ * Per-project cost, cached beside the activity rows it is derived from.
+ *
+ * It was recomputed on every request even when the rows came from cache:
+ * one calcCostBreakdown per (project, model, day) over the whole window.
+ * Measured 2026-09-04 at days=365, that is 2.8-3.4 SECONDS of pure
+ * arithmetic — and the projects page polls this every 10 seconds, so a
+ * third of a core went to recalculating an answer that had not changed.
+ * Nothing in it can change without the rows changing.
+ */
+const costCache = new Map<number, { data: Map<string, { cost: number; market: number; avoided: number }>; ts: number }>();
+
 interface GitContext {
   isDirty: boolean;
   unpushedCount: number;
@@ -142,21 +154,29 @@ export async function GET(request: NextRequest) {
       : activity.filter((r: any) => !isWorkspacePath(r.path) && !isEphemeralPath(r.path));
 
     // Per-project cost, summed over each model that actually ran there.
-    ensurePricingHydrated();
-    const costByProject = new Map<string, { cost: number; market: number; avoided: number }>();
-    for (const r of getProjectModelActivity(days)) {
-      const selfHosted = isSelfHosted(r.model, r.endpoint, r.provider);
-      const c = calcCostBreakdown(
-        r.model, r.input, r.output, r.cache_read, r.cache_write,
-        { selfHosted, at: r.day },
-      );
-      const acc = costByProject.get(r.name) ?? { cost: 0, market: 0, avoided: 0 };
-      acc.cost += c.total;
-      acc.market += c.market;
-      acc.avoided += c.avoided;
-      costByProject.set(r.name, acc);
-    }
-    t.mark('cost');
+    const cachedCost = costCache.get(days);
+    const costFromCache = cachedCost && Date.now() - cachedCost.ts < ACTIVITY_TTL;
+    const costByProject = costFromCache
+      ? cachedCost!.data
+      : (() => {
+          ensurePricingHydrated();
+          const acc0 = new Map<string, { cost: number; market: number; avoided: number }>();
+          for (const r of getProjectModelActivity(days)) {
+            const selfHosted = isSelfHosted(r.model, r.endpoint, r.provider);
+            const c = calcCostBreakdown(
+              r.model, r.input, r.output, r.cache_read, r.cache_write,
+              { selfHosted, at: r.day },
+            );
+            const acc = acc0.get(r.name) ?? { cost: 0, market: 0, avoided: 0 };
+            acc.cost += c.total;
+            acc.market += c.market;
+            acc.avoided += c.avoided;
+            acc0.set(r.name, acc);
+          }
+          costCache.set(days, { data: acc0, ts: Date.now() });
+          return acc0;
+        })();
+    t.mark(costFromCache ? 'cost_cache' : 'cost');
 
     const enriched = listed.map((p: any) => {
       const c = costByProject.get(p.name) ?? { cost: 0, market: 0, avoided: 0 };

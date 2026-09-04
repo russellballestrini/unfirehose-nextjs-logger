@@ -8,6 +8,7 @@ import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from 
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
+import { refreshProjectList } from '@unturf/unfirehose/projects-list';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -48,6 +49,7 @@ const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
+const PROJECT_LIST_REFRESH_MS = 60_000;   // ~5s of aggregates; never on a page load
 const SCROBBLE_REFRESH_MS = 5 * 60_000;   // two full scans of messages; not on a page load
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
@@ -191,6 +193,21 @@ async function main() {
     ingestInFlight = false; // clear a stuck/abandoned guard before retrying
     void runIngestOnce('watchdog');
   }, WATCHDOG_TICK_MS);
+
+  // Project list. Two aggregates over messages plus a filesystem pass —
+  // about 5s, which starves the single-threaded web process if it runs
+  // there. Built here, read there.
+  const refreshProjects = async () => {
+    try {
+      const t0 = Date.now();
+      const rows = await refreshProjectList(getDb());
+      console.log(`[worker] project list: ${rows.length} projects in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.error('[worker] project list refresh failed:', err);
+    }
+  };
+  const projectsKickoff = setTimeout(() => { void refreshProjects(); }, 8_000);
+  const projectsInterval = setInterval(() => { void refreshProjects(); }, PROJECT_LIST_REFRESH_MS);
 
   // Scrobble payload. Building it is two full scans of a 1.6M-row table, so
   // it is computed here and stored, and the page reads what we left.
@@ -385,6 +402,8 @@ async function main() {
       clearInterval(statusRollup);
       clearTimeout(scrobbleKickoff);
       clearInterval(scrobbleInterval);
+      clearTimeout(projectsKickoff);
+      clearInterval(projectsInterval);
       clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
