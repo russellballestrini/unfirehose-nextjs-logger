@@ -5,7 +5,7 @@ import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import Link from 'next/link';
 
 import useSWR from 'swr';
-import { BootScreen } from './BootScreen';
+import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';

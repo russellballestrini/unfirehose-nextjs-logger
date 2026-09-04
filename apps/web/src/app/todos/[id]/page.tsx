@@ -6,7 +6,7 @@ import { use, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
-import { BootScreen } from '../../BootScreen';
+import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

@@ -5,7 +5,7 @@ import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { BootScreen } from '../../BootScreen';
+import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

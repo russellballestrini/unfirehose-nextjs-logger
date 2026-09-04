@@ -43,7 +43,8 @@
     "./modelColor": "./components/modelColor.ts",
     "./StatStrip": "./components/StatStrip.tsx",
     "./DiffView": "./components/DiffView.tsx",
-    "./fetcher": "./components/fetcher.ts"
+    "./fetcher": "./components/fetcher.ts",
+    "./BootScreen": "./components/BootScreen.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

@@ -13,7 +13,7 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
-import { BootScreen } from '../../BootScreen';
+import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 import { TodoBoard } from '@/components/TodoBoard';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 

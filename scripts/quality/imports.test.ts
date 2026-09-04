@@ -48,8 +48,8 @@ describe('resolveSpecifier', () => {
   });
 
   it('resolves our @/ alias to apps/web/src', () => {
-    const resolved = resolveSpecifier('@/test/db-helper', path.join(ROOT, 'apps/web/src/x.ts'));
-    expect(resolved).toBe(path.join(ROOT, 'apps/web/src/test/db-helper.ts'));
+    const resolved = resolveSpecifier('@/lib/cloud-account', path.join(ROOT, 'apps/web/src/x.ts'));
+    expect(resolved).toBe(path.join(ROOT, 'apps/web/src/lib/cloud-account.ts'));
   });
 
   it('gives up on a package we do not own', () => {
