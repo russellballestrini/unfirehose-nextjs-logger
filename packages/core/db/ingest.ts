@@ -2778,7 +2778,14 @@ export function getModelBreakdownInWindow(windowStart: string, windowEnd: string
            SUM(m.input_tokens) as input_tokens,
            SUM(m.output_tokens) as output_tokens,
            SUM(m.cache_read_tokens) as cache_read_tokens,
-           SUM(m.cache_creation_tokens) as cache_creation_tokens
+           SUM(m.cache_creation_tokens) as cache_creation_tokens,
+           -- Who served it. The alert detail page has always asked for these
+           -- to decide self-hosted vs bought, and the query never returned
+           -- them, so that decision fell back to guessing from the model
+           -- name. MAX picks one non-null value per model, which is what a
+           -- model served by one route has anyway.
+           MAX(m.provider) as provider,
+           MAX(m.endpoint) as endpoint
     FROM messages m
     WHERE m.timestamp >= ? AND m.timestamp <= ?
       AND m.type = 'assistant'
@@ -2791,6 +2798,8 @@ export function getModelBreakdownInWindow(windowStart: string, windowEnd: string
     output_tokens: number;
     cache_read_tokens: number;
     cache_creation_tokens: number;
+    provider: string | null;
+    endpoint: string | null;
   }>;
 }
 

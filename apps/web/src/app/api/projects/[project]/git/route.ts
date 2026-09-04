@@ -4,20 +4,12 @@ import { readFile, unlink, appendFile } from 'fs/promises';
 import { join } from 'path';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
+import { gitExec } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const gitCache = new Map<string, { data: any; ts: number }>();
 const GIT_CACHE_TTL = 5_000; // 5 seconds
-
-function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 5 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
-  });
-}
 
 // GET: return git status + diff for a project
 export async function GET(
@@ -43,7 +35,7 @@ export async function GET(
     // without history, and saying so beats a 500 the UI renders as a
     // failure to find the path.
     try {
-      await gitExec(repoPath, ['rev-parse', '--git-dir'], 3000);
+      await gitExec(repoPath, ['rev-parse', '--git-dir'], { timeout: 3000 });
     } catch {
       const notARepo = {
         repoPath, branch: null, files: [], diffStat: '', diff: '',
@@ -112,20 +104,20 @@ export async function POST(
     // Push-only action — auto rebase-and-retry if remote is ahead
     if (action === 'push') {
       try {
-        const pushOut = await gitExec(repoPath, ['push'], 30000);
+        const pushOut = await gitExec(repoPath, ['push'], { timeout: 30000 });
         return NextResponse.json({ success: true, pushed: true, output: pushOut.trim() });
       } catch (pushErr: any) {
         const msg = String(pushErr.message || pushErr);
         // Remote has commits we don't have — rebase and retry
         if (msg.includes('fetch first') || msg.includes('failed to push') || msg.includes('rejected')) {
           try {
-            await gitExec(repoPath, ['pull', '--rebase'], 30000);
+            await gitExec(repoPath, ['pull', '--rebase'], { timeout: 30000 });
           } catch (rebaseErr: any) {
             // Conflict — abort so the repo isn't left mid-rebase
             await gitExec(repoPath, ['rebase', '--abort']).catch(() => {});
             return NextResponse.json({ success: false, error: 'Remote has conflicts that need manual resolution' }, { status: 409 });
           }
-          const retryOut = await gitExec(repoPath, ['push'], 30000);
+          const retryOut = await gitExec(repoPath, ['push'], { timeout: 30000 });
           return NextResponse.json({ success: true, pushed: true, rebased: true, output: retryOut.trim() });
         }
         throw pushErr;
@@ -167,7 +159,7 @@ export async function POST(
     let pushError: string | undefined;
     if (autoPush) {
       try {
-        await gitExec(repoPath, ['push'], 30000);
+        await gitExec(repoPath, ['push'], { timeout: 30000 });
         pushed = true;
       } catch (err: any) {
         pushError = String(err.message || err);

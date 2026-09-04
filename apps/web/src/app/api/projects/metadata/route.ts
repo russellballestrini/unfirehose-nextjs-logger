@@ -4,19 +4,11 @@ import { execFile } from 'child_process';
 import path from 'path';
 import type { ProjectMetadata, GitRemote, GitCommit } from '@unturf/unfirehose/types';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
+import { gitExec } from '@unturf/unfirehose/git-exec';
 
 // Module-level cache: project -> { data, ts }
 const cache = new Map<string, { data: ProjectMetadata; ts: number }>();
 const CACHE_TTL = 60_000; // 60s
-
-function gitExec(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout: 5000 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout.trim());
-    });
-  });
-}
 
 async function fetchMetadata(projectName: string): Promise<ProjectMetadata> {
   const repoPath = repoPathForProject(projectName) ?? '';

@@ -5,15 +5,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { getAllSettings } from '@unturf/unfirehose/db/ingest';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
-
-function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 5 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
-  });
-}
+import { gitExec } from '@unturf/unfirehose/git-exec';
 
 // Auto-detect Claude Max OAuth token from filesystem
 async function getClaudeMaxToken(): Promise<{ accessToken: string; expiresAt: number } | null> {

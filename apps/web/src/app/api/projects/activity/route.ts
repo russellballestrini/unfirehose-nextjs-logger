@@ -6,6 +6,7 @@ import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { isWorkspacePath, isEphemeralPath } from '@unturf/unfirehose/project-rollup';
 import { Timing } from '@/lib/timing';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
+import { gitExec } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,15 +18,6 @@ import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 // Cache: activity aggregates are expensive — refresh every 60s
 const activityCache = new Map<number, { data: any[]; ts: number }>();
 const ACTIVITY_TTL = 60_000;
-
-function gitExec(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout: 5000 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout.trim());
-    });
-  });
-}
 
 interface GitContext {
   isDirty: boolean;

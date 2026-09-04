@@ -4,17 +4,9 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
+import { gitExec } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 5 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout.trim());
-    });
-  });
-}
 
 interface GitSnapshot {
   branch: string;
@@ -116,7 +108,7 @@ export async function POST(
     } else if (action === 'nudge') {
       // Get project harness from most recent session
       const harness = getProjectHarness(db, project);
-      const diff = git?.isDirty ? await gitExec(repoPath, ['diff', 'HEAD'], 15000).catch(() => '') : '';
+      const diff = git?.isDirty ? await gitExec(repoPath, ['diff', 'HEAD'], { timeout: 15000 }).catch(() => '') : '';
       // Fire and forget — spawn agent in background, update DB when done
       spawnNudgeAgent(db, Number(actionId), project, repoPath, harness, git, prompts, diff);
       return NextResponse.json({ ok: true, actionId, status: 'spawned', harness });
@@ -203,7 +195,7 @@ async function executeFinish(git: GitSnapshot | null, repoPath: string, message?
   // Step 2: push if unpushed (including the commit we just made)
   const unpushedAfter = await gitExec(repoPath, ['log', '--oneline', '@{upstream}..HEAD']).catch(() => '');
   if (unpushedAfter.trim()) {
-    await gitExec(repoPath, ['push'], 30000);
+    await gitExec(repoPath, ['push'], { timeout: 30000 });
     actions.push(`Pushed ${unpushedAfter.split('\n').filter(Boolean).length} commit(s)`);
   }
 

@@ -4,6 +4,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import path from 'path';
 import { Timing } from '@/lib/timing';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
+import { gitExec } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -62,20 +63,6 @@ async function branchFromHead(repoPath: string): Promise<string | null> {
 const TREE_CACHE_TTL = 10_000; // 10 seconds
 const TREE_CACHE_MAX = 100; // LRU cap
 
-function gitExec(cwd: string, args: string[], timeout = 10000, stdin?: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 10 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
-    // A command that reads stdin (cat-file --batch-check) hangs until the
-    // stream closes. Closing it is not optional: without this every call
-    // waited out the full timeout.
-    if (stdin !== undefined) child.stdin?.end(stdin);
-    else child.stdin?.end();
-  });
-}
-
 // GET: file tree or file content
 // ?path=<subpath> — browse directory or read file
 /**
@@ -88,7 +75,7 @@ function gitExec(cwd: string, args: string[], timeout = 10000, stdin?: string): 
  */
 async function isGitRepo(repoPath: string): Promise<boolean> {
   try {
-    await gitExec(repoPath, ['rev-parse', '--git-dir'], 3000);
+    await gitExec(repoPath, ['rev-parse', '--git-dir'], { timeout: 3000 });
     return true;
   } catch {
     return false;
@@ -208,11 +195,13 @@ export async function GET(
       try {
         // `--batch-check` answers type AND size in one spawn; it used to be
         // `cat-file -t` then `cat-file -s`, two forks for two numbers.
-        const check = (await gitExec(repoPath, ['cat-file', '--batch-check', `--batch-all-objects=0`].slice(0, 2).concat([]), 10000, `${ref}:${subpath}\n`)).trim();
+        const check = (await gitExec(repoPath, ['cat-file', '--batch-check'], {
+          stdin: `${ref}:${subpath}\n`,
+        })).trim();
         const [, objType, sizeRaw] = check.split(/\s+/);
         if (objType === 'blob') {
           const [content, lastCommitRaw] = await Promise.all([
-            gitExec(repoPath, ['show', `${ref}:${subpath}`], 15000),
+            gitExec(repoPath, ['show', `${ref}:${subpath}`], { timeout: 15000 }),
             gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', subpath]).then(s => s.trim()).catch(() => ''),
           ]);
           const size = parseInt(sizeRaw, 10);
@@ -282,7 +271,7 @@ export async function GET(
       const readmeName = ['README.md', 'README', 'readme.md', 'README.txt']
         .find((n) => entries.some((e) => e.name === n && e.type === 'blob'));
       if (readmeName) {
-        readme = await gitExec(repoPath, ['show', `${ref}:${readmeName}`], 5000).catch(() => '');
+        readme = await gitExec(repoPath, ['show', `${ref}:${readmeName}`], { timeout: 5000 }).catch(() => '');
       }
     }
 
