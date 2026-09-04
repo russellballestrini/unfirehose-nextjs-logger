@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  parseUncloseModels,
-  parseOllamaModels,
-  withModelArg,
-  supportsModelSelection,
-  isLocalProviderSet,
-  HARNESS_MODEL_ADAPTERS,
-} from './harness-models.js';
+import { parseUncloseModels, parseOllamaModels, withModelArg, supportsModelSelection, isLocalProviderSet, HARNESS_MODEL_ADAPTERS, withPromptArg } from './harness-models.js';
 
 // Verbatim from `unclose --list-models` on 2026-08-25 (469 models total).
 const UNCLOSE_OUT = [
@@ -124,5 +117,34 @@ describe('adapters', () => {
   it('asks uncloseai for its list with the binary it was given', () => {
     expect(HARNESS_MODEL_ADAPTERS.uncloseai.command('uncloseai-cli'))
       .toEqual(['uncloseai-cli', '--list-models']);
+  });
+});
+
+describe('withPromptArg — a harness has to be handed its task', () => {
+  it('reads the prompt from a file for uncloseai', () => {
+    expect(withPromptArg(['unclose', '--model', 'qwen'], 'uncloseai', '/tmp/p.txt'))
+      .toEqual(['unclose', '--model', 'qwen', '-f', '/tmp/p.txt']);
+  });
+
+  it('falls back to interactive when there is no task', () => {
+    // `unclose --model X` with no prompt and no -i prints help and exits 1,
+    // so a boot without this flag opens a window that is already dead.
+    expect(withPromptArg(['unclose', '--model', 'qwen'], 'uncloseai', null))
+      .toEqual(['unclose', '--model', 'qwen', '-i']);
+  });
+
+  it('leaves a harness we have not mapped alone', () => {
+    expect(withPromptArg(['aider'], 'aider', '/tmp/p.txt')).toEqual(['aider']);
+    expect(withPromptArg(['gemini'], 'gemini', null)).toEqual(['gemini']);
+  });
+
+  it('composes with the model flag, in the order the CLI accepts', () => {
+    const parts = withPromptArg(
+      withModelArg(['unclose'], 'uncloseai', 'Lorbus/Qwen3.6-27B-int4-AutoRound'),
+      'uncloseai',
+      '/tmp/task.txt',
+    );
+    expect(parts.join(' '))
+      .toBe('unclose --model Lorbus/Qwen3.6-27B-int4-AutoRound -f /tmp/task.txt');
   });
 });

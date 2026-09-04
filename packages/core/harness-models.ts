@@ -173,6 +173,45 @@ export const HARNESS_MODEL_FLAGS: Record<string, string> = {
   ollama: '',   // model is a positional arg, not a flag
 };
 
+/**
+ * How a harness is handed its task, and how it is asked to stay open.
+ *
+ * uncloseai-cli takes the prompt as a positional argument or, better for
+ * anything multi-line, from a file with `-f`. Given NEITHER a prompt nor
+ * `-i`, it prints help and exits 1 — so a dispatch that forgets the prompt
+ * does not start an idle agent, it starts nothing at all, and the tmux
+ * window dies with usage text in it.
+ */
+export interface HarnessInvocation {
+  /** Flag that reads the prompt from a file, when the harness has one. */
+  promptFileFlag?: string;
+  /** Flag that keeps the harness in a REPL when no task was given. */
+  interactiveFlag?: string;
+}
+
+export const HARNESS_INVOCATION: Record<string, HarnessInvocation> = {
+  uncloseai: { promptFileFlag: '-f', interactiveFlag: '-i' },
+};
+
+/**
+ * Append the task to a harness command.
+ *
+ * `promptFile` is a path we have already written. With no prompt, a harness
+ * that has an interactive flag gets it, so the window stays usable instead
+ * of exiting on usage text.
+ */
+export function withPromptArg(
+  parts: string[],
+  harness: string,
+  promptFile: string | null,
+): string[] {
+  const inv = HARNESS_INVOCATION[harness];
+  if (!inv) return parts;
+  if (promptFile && inv.promptFileFlag) return [...parts, inv.promptFileFlag, promptFile];
+  if (!promptFile && inv.interactiveFlag) return [...parts, inv.interactiveFlag];
+  return parts;
+}
+
 export function supportsModelSelection(harness: string): boolean {
   return harness in HARNESS_MODEL_FLAGS;
 }

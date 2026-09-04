@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { withModelArg } from '@unturf/unfirehose/harness-models';
+import { withModelArg, withPromptArg, HARNESS_INVOCATION } from '@unturf/unfirehose/harness-models';
 import { stat } from 'fs/promises';
 import { writeFile, readFile, unlink } from 'fs/promises';
 import path from 'path';
@@ -218,7 +218,12 @@ async function _detectMultiplexer(): Promise<'tmux' | 'screen' | null> {
 
 function buildClaudeCmd(opts: BootOpts): string {
   if (opts.harness !== 'claude') {
-    return withModelArg([opts.harness], opts.harnessKey ?? opts.harness, opts.model).join(' ');
+    const key = opts.harnessKey ?? opts.harness;
+    const withModel = withModelArg([opts.harness], key, opts.model);
+    const promptFile = opts.prompt && HARNESS_INVOCATION[key]?.promptFileFlag
+      ? path.join(tmpdir(), `${key}-prompt-${opts.sessionName}.txt`)
+      : null;
+    return withPromptArg(withModel, key, promptFile).join(' ');
   }
 
   const parts = ['claude'];
@@ -243,10 +248,18 @@ function buildClaudeArgs(opts: BootOpts): { parts: string[]; cleanupFiles: strin
     // A harness that takes a model runs whatever default it holds unless we
     // pass one. uncloseai-cli reaches 469 models; dispatching without saying
     // which is how work silently lands on the wrong tier.
-    return {
-      parts: withModelArg([opts.harness], opts.harnessKey ?? opts.harness, opts.model),
-      cleanupFiles,
-    };
+    const key = opts.harnessKey ?? opts.harness;
+    let parts = withModelArg([opts.harness], key, opts.model);
+    // And it needs the task. Until now the prompt was dropped for every
+    // non-claude harness, so booting uncloseai from a project built
+    // `unclose --model X`, which prints help and exits 1.
+    let promptFile: string | null = null;
+    if (opts.prompt && typeof opts.prompt === 'string' && HARNESS_INVOCATION[key]?.promptFileFlag) {
+      promptFile = path.join(tmpdir(), `${key}-prompt-${opts.sessionName}.txt`);
+      cleanupFiles.push(promptFile);
+    }
+    parts = withPromptArg(parts, key, promptFile);
+    return { parts, cleanupFiles };
   }
 
   const parts = ['claude'];
@@ -275,6 +288,11 @@ function buildClaudeArgs(opts: BootOpts): { parts: string[]; cleanupFiles: strin
 }
 
 async function writePromptFiles(opts: BootOpts, cleanupFiles: string[]) {
+  // Non-claude harnesses read their task from a file we name after them.
+  const key = opts.harnessKey ?? opts.harness;
+  if (opts.harness !== 'claude' && opts.prompt && HARNESS_INVOCATION[key]?.promptFileFlag) {
+    await writeFile(path.join(tmpdir(), `${key}-prompt-${opts.sessionName}.txt`), opts.prompt, 'utf-8');
+  }
   if (opts.yolo) {
     const sysFile = path.join(tmpdir(), `claude-sys-${opts.sessionName}.txt`);
     await writeFile(sysFile, AGENT_SYSTEM_PROMPT, 'utf-8');
