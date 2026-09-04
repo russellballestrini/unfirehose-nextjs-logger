@@ -6,7 +6,18 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 // serving a dashboard, ingesting sessions and probing a mesh. The default
 // 1s window makes these assert machine speed rather than behaviour: they
 // have failed twice on load while passing standalone.
-const WAIT = { timeout: 20_000 };
+/**
+ * The vault derives its key with PBKDF2 at the 600,000 iterations that ship,
+ * which is the point of testing it. One derivation runs 1.5-2.5s on an idle
+ * machine and several times that when the rest of the suite is competing for
+ * CPU, so these waits are budgeted for a busy machine rather than a quiet one.
+ *
+ * Note this is what governs, not vitest's testTimeout: a waitFor with its own
+ * timeout gives up on its own schedule no matter how long the test is allowed.
+ * Four call sites here still carried a 5s literal after the file-level budget
+ * was raised, which is why the suite kept failing intermittently.
+ */
+const WAIT = { timeout: 30_000 };
 import userEvent from '@testing-library/user-event';
 import { VaultProvider } from './VaultProvider';
 import { VaultGate } from './VaultGate';
@@ -63,7 +74,7 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    }, { timeout: 5000 });
+    }, WAIT);
   });
 
   it('skip button creates vault and shows app', async () => {
@@ -75,7 +86,7 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    }, { timeout: 5000 });
+    }, WAIT);
   });
 
   it('shows unlock UI when vault already exists', async () => {
@@ -123,7 +134,7 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    }, { timeout: 5000 });
+    }, WAIT);
   });
 
   it('auto-restores session and shows app immediately', async () => {
@@ -134,6 +145,6 @@ describe('VaultGate', () => {
     renderGate();
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
-    }, { timeout: 5000 });
+    }, WAIT);
   });
 });

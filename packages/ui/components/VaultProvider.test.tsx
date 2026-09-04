@@ -4,6 +4,19 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { VaultProvider, useVault } from './VaultProvider';
 
+/**
+ * The vault derives its key with PBKDF2 at the 600,000 iterations that ship,
+ * which is the point of testing it. One derivation runs 1.5-2.5s on an idle
+ * machine and several times that when the rest of the suite is competing for
+ * CPU, so these waits are budgeted for a busy machine rather than a quiet one.
+ *
+ * Note this is what governs, not vitest's testTimeout: a waitFor with its own
+ * timeout gives up on its own schedule no matter how long the test is allowed.
+ * Four call sites here still carried a 5s literal after the file-level budget
+ * was raised, which is why the suite kept failing intermittently.
+ */
+const WAIT = { timeout: 30_000 };
+
 afterEach(() => cleanup());
 beforeEach(() => {
   localStorage.clear();
@@ -60,7 +73,7 @@ describe('VaultProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('unlocked').textContent).toBe('true');
       expect(screen.getByTestId('exists').textContent).toBe('true');
-    }, { timeout: 5000 });
+    }, WAIT);
   });
 
   it('locks and unlocks', async () => {
@@ -69,13 +82,13 @@ describe('VaultProvider', () => {
     await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'));
 
     await user.click(screen.getByTestId('create'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), WAIT);
 
     await user.click(screen.getByTestId('lock'));
     await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('false'));
 
     await user.click(screen.getByTestId('unlock'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), WAIT);
   });
 
   it('manages keys through vault context', async () => {
@@ -84,7 +97,7 @@ describe('VaultProvider', () => {
     await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'));
 
     await user.click(screen.getByTestId('create'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), WAIT);
 
     expect(screen.getByTestId('key-anthropic').textContent).toBe('empty');
 
@@ -104,7 +117,7 @@ describe('VaultProvider', () => {
     renderWithVault();
     await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'));
     await user.click(screen.getByTestId('create'));
-    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByTestId('unlocked').textContent).toBe('true'), WAIT);
 
     expect(screen.getByTestId('preferred').textContent).toBe('none');
 

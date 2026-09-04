@@ -28,7 +28,12 @@ export interface UPlotSeries {
 }
 
 interface UPlotTimeChartProps {
-  data: Array<Record<string, number>>;
+  /**
+   * Rows keyed by series name. Values may be strings — a row carries its own
+   * timestamp alongside its numbers — and only the keys named in `series`
+   * are read, so a stricter type here would reject every real row.
+   */
+  data: Array<Record<string, number | string>>;
   series: UPlotSeries[];
   height: number;
   syncKey: string;
@@ -49,7 +54,9 @@ function buildData(rows: UPlotTimeChartProps['data'], series: UPlotSeries[]): uP
     return [[], ...series.map(() => [])] as unknown as uPlot.AlignedData;
   }
   const xs = new Array<number>(rows.length);
-  for (let i = 0; i < rows.length; i++) xs[i] = rows[i].tsMs / 1000; // uPlot wants seconds
+  // tsMs is the one key this component requires to be a number; the rest are
+  // read through the series list and skipped when they are not.
+  for (let i = 0; i < rows.length; i++) xs[i] = Number(rows[i].tsMs) / 1000; // uPlot wants seconds
   const cols: (number | null)[][] = series.map(() => new Array(rows.length));
   for (let i = 0; i < rows.length; i++) {
     for (let s = 0; s < series.length; s++) {

@@ -14,6 +14,8 @@ import { ThermalPanel } from '@/components/ThermalPanel';
 import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 import { utcToLocalDate, fmtLocalHHMM, fmtLocalDateTime } from '@/lib/local-time';
+import { toNodeSeries, seriesBounds } from '@/lib/node-series';
+import { memCapGB as hardwareMemCapGB } from '@/lib/mesh-probe';
 import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
 import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
@@ -601,16 +603,9 @@ export default function NodeDetailPage() {
     () => probe?.memory?.totalGB ?? 0,
     [probe?.memory?.totalGB],
   );
-  // Hardware DIMM cap — Linux's /proc/meminfo reports usable RAM (kernel
-  // reserves trimmed off), so 64GB DIMMs show as ~62.5GB. Rounding up to
-  // the next power-of-2 recovers the actual hardware cap which is what
-  // belongs on the Memory chart's watermark line.
-  const memCapGB = useMemo(() => {
-    if (memTotalGB <= 0) return 0;
-    let cap = 1;
-    while (cap < memTotalGB) cap *= 2;
-    return cap <= memTotalGB * 1.5 ? cap : Math.round(memTotalGB);
-  }, [memTotalGB]);
+  // Hardware DIMM cap for the Memory chart's watermark. Same rounding the
+  // mesh probe applies, from the same place, rather than a third copy.
+  const memCapGB = useMemo(() => hardwareMemCapGB(memTotalGB), [memTotalGB]);
   // useDeferredValue makes the timeline a low-priority input: when SWR polls
   // new mesh data every 6s, React renders the chart subtree with the OLD
   // timeline immediately (so the parent re-render is cheap) and schedules a
@@ -626,41 +621,13 @@ export default function NodeDetailPage() {
   const liveDataMinMaxRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
   useEffect(() => {
     if (!Array.isArray(timeline) || timeline.length === 0) return;
-    const filtered = timeline.filter((t: any) => t.nodes?.[host]);
-    if (filtered.length === 0) return;
-    liveDataMinMaxRef.current = {
-      min: utcToLocalDate(filtered[0].timestamp).getTime(),
-      max: utcToLocalDate(filtered[filtered.length - 1].timestamp).getTime(),
-    };
+    const bounds = seriesBounds(toNodeSeries(timeline, host, { memTotalGB: 0, memCapGB: 0, kwhRate: 0 }));
+    if (bounds) liveDataMinMaxRef.current = bounds;
   }, [timeline, host]);
-  const chartData = useMemo(() => {
-    if (!Array.isArray(deferredTimeline) || deferredTimeline.length === 0) return [] as any[];
-    return deferredTimeline
-      .filter((t: any) => t.nodes?.[host])
-      .map((t: any) => {
-        const n = t.nodes[host];
-        return {
-          tsMs: utcToLocalDate(t.timestamp).getTime(),
-          timestamp: t.timestamp,
-          watts: n.watts ?? 0,
-          cpuWatts: (n.watts ?? 0) - (n.gpuWatts ?? 0),
-          gpuWatts: n.gpuWatts ?? 0,
-          load: n.load ?? 0,
-          cores: n.cores ?? 0,
-          memUsedGB: n.memUsed ?? 0,
-          memTotalGB,
-          memCapGB,
-          claudes: n.claudes ?? 0,
-          // Every harness. Falls back to the claude count for history recorded
-          // before agent_processes existed, so old series still plot.
-          agents: n.agents ?? n.claudes ?? 0,
-          gpuUtil: n.gpuUtil ?? 0,
-          gpuMemUsedGB: Math.round((n.gpuMemUsedMB ?? 0) / 1024 * 10) / 10,
-          gpuMemTotalGB: Math.round((n.gpuMemTotalMB ?? 0) / 1024 * 10) / 10,
-          elecCostPerHour: Math.round(((n.watts ?? 0) / 1000) * kwhRate * 100) / 100,
-        };
-      });
-  }, [deferredTimeline, host, memTotalGB, memCapGB, kwhRate]);
+  const chartData = useMemo(
+    () => toNodeSeries(deferredTimeline, host, { memTotalGB, memCapGB, kwhRate }),
+    [deferredTimeline, host, memTotalGB, memCapGB, kwhRate],
+  );
 
   return (
     <div className="p-6 w-full">
