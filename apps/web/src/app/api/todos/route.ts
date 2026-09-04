@@ -305,15 +305,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Also get summary counts
+    // Summary counts, scoped the same way the list is. Unscoped, a board
+    // filtered to one project showed that project's cards under the whole
+    // machine's numbers — 8 in the column, 1,937 on the chip above it.
     const counts = db.prepare(`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'pending') as pending,
-        COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress,
-        COUNT(*) FILTER (WHERE status = 'completed') as completed,
-        COUNT(*) FILTER (WHERE status != 'deleted') as total
-      FROM todos
-    `).get() as any;
+        COUNT(*) FILTER (WHERE t.status = 'pending')     as pending,
+        COUNT(*) FILTER (WHERE t.status = 'in_progress') as in_progress,
+        COUNT(*) FILTER (WHERE t.status = 'completed')   as completed,
+        COUNT(*)                                         as total
+      FROM todos t
+      LEFT JOIN projects p ON t.project_id = p.id
+      WHERE t.status != 'deleted'${project ? ' AND p.name = ?' : ''}
+    `).get(...(project ? [project] : [])) as any;
 
     // Resolve missing project paths from sessions index / filesystem
     const groups = Object.values(byProject);

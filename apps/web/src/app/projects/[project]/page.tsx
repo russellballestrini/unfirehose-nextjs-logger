@@ -12,11 +12,11 @@ import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { BootScreen } from '../../BootScreen';
+import { TodoBoard } from '@/components/TodoBoard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
-
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -365,12 +365,6 @@ export default function ProjectPage({
             </button>
           );
         })}
-        <Link
-          href={`/todos?project=${encodeURIComponent(project)}`}
-          className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-border)] transition-colors whitespace-nowrap"
-        >
-          Todos board ↗
-        </Link>
       </div>
 
       {/* Tab content */}
@@ -548,7 +542,6 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
             <div className="flex items-center gap-2 mb-3">
               <h3 className="text-sm font-bold text-[var(--color-muted)]">Open Todos</h3>
               {full?.todos?.length > 0 && <span className="text-xs text-[var(--color-muted)]">{full.todos.length}</span>}
-              <Link href={`/todos?project=${encodeURIComponent(project)}`} className="text-xs text-[var(--color-accent)] hover:underline ml-auto">Open board ↗</Link>
             </div>
             {full?.todos?.length > 0 ? (
               <div className="space-y-1">
@@ -855,61 +848,11 @@ function CommitsTab({ meta, fetchRemotes, activityData, project }: any) {
 }
 
 /* ─── TODOS TAB ─── */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function TodosTab({ full, project, decodedProject: _decodedProject }: any) {
-  const todos = full?.todos ?? [];
-  const pending = todos.filter((t: any) => t.status === 'pending');
-  const inProgress = todos.filter((t: any) => t.status === 'in_progress');
-  const completed = todos.filter((t: any) => t.status === 'completed');
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex gap-2 text-sm">
-          <span className="px-2 py-0.5 rounded bg-[var(--color-surface-hover)]">{pending.length} pending</span>
-          <span className="px-2 py-0.5 rounded bg-blue-400/10 text-blue-400">{inProgress.length} active</span>
-          <span className="px-2 py-0.5 rounded bg-green-400/10 text-green-400">{completed.length} done</span>
-        </div>
-        <Link href={`/todos?project=${encodeURIComponent(project)}`} className="text-sm text-[var(--color-accent)] hover:underline ml-auto">
-          Open Todos board ↗
-        </Link>
-      </div>
-
-      {/* In Progress */}
-      {inProgress.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-blue-400">In Progress</h3>
-          {inProgress.map((t: any) => (
-            <TodoRow key={t.id} todo={t} project={project} />
-          ))}
-        </div>
-      )}
-
-      {/* Pending */}
-      {pending.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-yellow-400">Pending</h3>
-          {pending.map((t: any) => (
-            <TodoRow key={t.id} todo={t} project={project} />
-          ))}
-        </div>
-      )}
-
-      {/* Completed */}
-      {completed.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-green-400">Recently Completed</h3>
-          {completed.map((t: any) => (
-            <TodoRow key={t.id} todo={t} project={project} completed />
-          ))}
-        </div>
-      )}
-
-      {todos.length === 0 && (
-        <p className="text-center text-[var(--color-muted)] py-8">No todos for this project</p>
-      )}
-    </div>
-  );
+function TodosTab({ project }: any) {
+  // The same board the Todos page renders, scoped to this project — so a
+  // project with no todos can still create one, which the old read-only
+  // list could not.
+  return <TodoBoard project={project} />;
 }
 
 function OverviewTodoRow({ todo }: { todo: any }) {
@@ -932,46 +875,6 @@ function OverviewTodoRow({ todo }: { todo: any }) {
       >{copied === 'uuid' ? 'copied' : todo.uuid.slice(-8)}</button>}
       <Link href={`/todos/${todo.id}`} className="flex-1 truncate hover:text-[var(--color-accent)]">{todo.content}</Link>
       <span className="text-xs text-[var(--color-muted)] shrink-0">{formatRelativeTime(todo.updatedAt)}</span>
-    </div>
-  );
-}
-
-function TodoRow({ todo, project, completed }: { todo: any; project: string; completed?: boolean }) {
-  const [copied, setCopied] = useState<'id' | 'uuid' | false>(false);
-  return (
-    <div className={`flex items-center gap-3 px-3 py-2 rounded border border-[var(--color-border)] text-sm ${completed ? 'opacity-60' : ''}`}>
-      <span
-        className={`w-2.5 h-2.5 rounded-full shrink-0 ${todo.status === 'in_progress' ? 'animate-pulse' : ''}`}
-        style={{
-          backgroundColor: todo.status === 'pending' ? '#fbbf24' : todo.status === 'in_progress' ? '#60a5fa' : '#22c55e',
-        }}
-      />
-      <button
-        onClick={() => { navigator.clipboard.writeText(`#${todo.id}`); setCopied('id'); setTimeout(() => setCopied(false), 420); }}
-        className="font-mono text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] cursor-pointer shrink-0"
-        title={`#${todo.id}`}
-      >{copied === 'id' ? 'copied' : `#${todo.id}`}</button>
-      {todo.uuid && <button
-        onClick={() => { navigator.clipboard.writeText(todo.uuid); setCopied('uuid'); setTimeout(() => setCopied(false), 420); }}
-        className="font-mono text-xs opacity-50 hover:opacity-100 hover:text-[var(--color-accent)] cursor-pointer shrink-0"
-        title={todo.uuid}
-      >{copied === 'uuid' ? 'copied' : todo.uuid.slice(-8)}</button>}
-      <span className={`flex-1 ${completed ? 'line-through text-[var(--color-muted)]' : ''}`}>{todo.content}</span>
-      {todo.deployment?.tmuxSession && (
-        <Link href={`/tmux/${encodeURIComponent(todo.deployment.tmuxSession)}${todo.deployment.tmuxWindow ? `?window=${encodeURIComponent(todo.deployment.tmuxWindow)}` : ''}`}
-          className="text-xs font-mono text-[var(--color-accent)] hover:underline shrink-0">
-          {todo.deployment.tmuxSession}{todo.deployment.tmuxWindow ? `:${todo.deployment.tmuxWindow}` : ''}
-        </Link>
-      )}
-      <span className="text-xs text-[var(--color-muted)] shrink-0">
-        {todo.source !== 'claude' && <span className="mr-1.5 px-1 py-0.5 rounded bg-[var(--color-surface-hover)]">{todo.source}</span>}
-        {formatRelativeTime(todo.updatedAt)}
-      </span>
-      {todo.sessionUuid && (
-        <Link href={`/projects/${project}/${todo.sessionUuid}`} className="text-xs text-[var(--color-accent)] hover:underline shrink-0">
-          session
-        </Link>
-      )}
     </div>
   );
 }
