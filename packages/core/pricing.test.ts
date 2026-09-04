@@ -187,21 +187,32 @@ describe('prefill and decode are billed at their own rates', () => {
 });
 
 describe('market and avoided cost', () => {
-  it('reports what our own hardware saved', () => {
+  it('costs a self-hosted row at what buying it would have cost, and keeps the power bill beside it', () => {
     const c = calcCostBreakdown(
       'Lorbus/Qwen3.6-27B-int4-AutoRound',
       1_091_954_235, 14_972_952, 0, 0,
       { selfHosted: true },
     );
-    expect(c.source).toBe('energy');
-    expect(c.market).toBeGreaterThan(c.total);   // cloud would have cost more
-    expect(c.avoided).toBeCloseTo(c.market - c.total, 6);
+    // The headline is the purchase price, so a page comparing an Anthropic
+    // project with a Qwen one compares the same question.
+    expect(c.total).toBe(c.market);
+    expect(c.total).toBeGreaterThan(0);
+    expect(c.source).not.toBe('energy');        // an oracle priced it, not a meter
+    // Electricity is still reported — it is what actually left the account.
+    expect(c.energy).toBeGreaterThan(0);
+    expect(c.energy).toBeLessThan(c.total);     // cheaper to run than to buy
+    expect(c.avoided).toBeCloseTo(c.total - c.energy, 6);
+    // And the split is populated, so self-hosted tokens are no longer
+    // invisible to every cost-split chart.
+    expect(c.input + c.output + c.cacheRead + c.cacheWrite).toBeCloseTo(c.total, 6);
+    expect(c.selfHosted).toBe(true);
   });
 
   it('leaves avoided at zero for cloud rows', () => {
     const c = calcCostBreakdown('claude-opus-5', 1_000_000, 1_000_000, 0, 0);
     expect(c.avoided).toBe(0);
     expect(c.market).toBe(c.total);
+    expect(c.energy).toBe(0);   // nothing we ran, nothing we powered
   });
 });
 
@@ -244,7 +255,8 @@ describe('local weights filenames resolve to the model they build', () => {
       selfHosted: true,
     });
     expect(c.market).toBeGreaterThan(0);
-    expect(c.source).toBe('energy');
+    expect(c.total).toBe(c.market);
+    expect(c.energy).toBeGreaterThan(0);
   });
 });
 

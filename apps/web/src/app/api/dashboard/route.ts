@@ -340,6 +340,9 @@ export async function GET(request: NextRequest) {
         // What these tokens would cost at oracle rates whoever served them,
         // and what running them ourselves saved. Zero for cloud rows.
         marketUSD: c.market,
+        // What we actually spent on power to serve it ourselves. Zero for a
+        // row we bought.
+        energyUSD: c.energy,
         avoidedUSD: c.avoided,
         costSource: c.source,
         pricedAgainst: c.matchedId ?? null,

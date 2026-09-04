@@ -72,9 +72,20 @@ describe('every surface agrees — the property that broke', () => {
     };
     const viaEntry = costForUsage(row);
     const naive = calcCostBreakdown(row.model!, 1_000_000, 10_000, 0, 0, { selfHosted: false });
-    expect(viaEntry.source).toBe('energy');
+
+    // Both now cost the same, because a self-hosted row is priced at what
+    // buying it would have cost — that is the whole point of the column.
+    expect(viaEntry.total).toBeCloseTo(naive.total, 6);
     expect(naive.source).toBe('openrouter');
-    expect(viaEntry.total).not.toBeCloseTo(naive.total, 6);
+
+    // What the router decides is whether this was OURS to power. A caller
+    // that forgets loses the power bill and the saving, not the price.
+    expect(viaEntry.selfHosted).toBe(true);
+    expect(viaEntry.energy).toBeGreaterThan(0);
+    expect(viaEntry.avoided).toBeGreaterThan(0);
+    expect(naive.selfHosted).toBe(false);
+    expect(naive.energy).toBe(0);
+    expect(naive.avoided).toBe(0);
   });
 
   it('keeps ox-alpha on an invoice, not on electricity, despite provider=local', () => {

@@ -90,6 +90,7 @@ export default function DashboardPage() {
     // real spread between the two. The table renders market accordingly.
     market: m.marketUSD ?? 0,
     avoided: m.avoidedUSD ?? 0,
+    energy: m.energyUSD ?? 0,
     costSource: m.costSource ?? 'unknown',
     pricedAgainst: m.pricedAgainst ?? null,
     promo: m.promo ?? null,
@@ -381,9 +382,9 @@ export default function DashboardPage() {
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }} title="Cache read + cache write. A model we serve ourselves reports no cache tokens, so its cell shows what vLLM measured, marked ~. A dash means the provider told us nothing — unknown, not zero.">Cache</th>
                   <th className="pb-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }} title="Tokens the model generated.">Output</th>
                   <th className="pb-2 text-right" title="Input + output + cache read + cache write.">Tokens</th>
-                  <th className="pb-2 text-right" title="What we pay. Invoice for cloud, electricity for our own hardware.">Cost</th>
-                  <th className="pb-2 text-right" title="What these tokens would cost at OpenRouter / Nous rates, whoever served them. Dashed on a provider row, where that rate is already the invoice under Cost.">Market</th>
-                  <th className="pb-2 text-right" title="Market minus cost — what running it ourselves saved.">Saved</th>
+                  <th className="pb-2 text-right" title="What these tokens cost to buy: the invoice for a provider row, and for one we serve ourselves, what the same tokens would have cost from OpenRouter.">Cost</th>
+                  <th className="pb-2 text-right" title="Electricity we actually spent serving this on our own hardware. Dashed for anything we bought.">Power</th>
+                  <th className="pb-2 text-right" title="Buy price minus our power bill — what running it ourselves saved.">Saved</th>
                 </tr>
               </thead>
               <tbody>
@@ -486,13 +487,13 @@ export default function DashboardPage() {
                           : `$${m.cost.toFixed(2)}`}
                     </td>
                     <td className="py-1.5 text-right text-[var(--color-muted)]">
-                      {/* A cloud row's market price IS its invoice, so printing
-                          both puts the same figure in adjacent columns and the
-                          pair reads as a double charge. Market earns its ink
-                          only where it differs from what we paid. */}
-                      {m.market > 0 && m.market.toFixed(2) !== m.cost.toFixed(2)
-                        ? `$${m.market.toFixed(2)}`
-                        : <span title="Served by a provider — the market price is the invoice, shown under Cost.">—</span>}
+                      {/* Cost is now the buy price for every row, so the old
+                          Market column would repeat it. What a self-hosted row
+                          adds is the power bill — the money that actually
+                          left the account. */}
+                      {m.energy > 0
+                        ? <span title="Electricity: watts × GPU-seconds × $/kWh. What serving this ourselves actually cost.">${m.energy.toFixed(2)}</span>
+                        : <span title="Bought from a provider — no power bill of ours.">—</span>}
                     </td>
                     <td className="py-1.5 text-right">
                       {m.avoided > 0

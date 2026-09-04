@@ -794,15 +794,25 @@ export interface CostBreakdown {
   output: number;
   cacheRead: number;
   cacheWrite: number;
-  /** What we actually pay. Invoice for cloud, electricity for self-hosted. */
-  total: number;
   /**
-   * What these tokens would cost at oracle rates, whoever served them. For a
-   * cloud model this equals `total`. For a self-hosted model it is the market
-   * price we did NOT pay.
+   * What these tokens cost to BUY — the invoice for a cloud model, and for a
+   * model we serve ourselves, what the same tokens would have cost from
+   * OpenRouter or whichever oracle prices it.
+   *
+   * This used to be electricity for self-hosted rows, which made a page
+   * comparing projects compare two different questions: an Anthropic project
+   * showed a purchase price and a Qwen project showed a power bill 30x
+   * smaller. One column, one meaning — what the work was worth to buy.
    */
+  total: number;
+  /** Same as `total` now, kept so existing callers do not shift meaning. */
   market: number;
-  /** market - total, floored at 0. Non-zero only for self-hosted rows. */
+  /**
+   * Electricity for a self-hosted row: watts x GPU-seconds x $/kWh. Zero for
+   * anything we bought. This is what actually left the bank account.
+   */
+  energy: number;
+  /** total - energy, floored at 0. What running it ourselves saved. */
   avoided: number;
   source: PriceSource;
   /** Upstream catalog id we priced against, when there was one. */
@@ -872,7 +882,7 @@ export function calcCostBreakdown(
   const selfHosted = opts.selfHosted ?? hardwareForModel(model) !== null;
 
   if (resolved?.source === 'synthetic') {
-    return { ...zero, total: 0, market: 0, avoided: 0, source: 'synthetic', selfHosted: false };
+    return { ...zero, total: 0, market: 0, energy: 0, avoided: 0, source: 'synthetic', selfHosted: false };
   }
 
   const marketBreak = resolved ? applyPrice(resolved, input, output, cacheRead, cacheWrite) : null;
@@ -881,11 +891,20 @@ export function calcCostBreakdown(
     const energy = selfHostCostSplit(model, input, output, cacheRead, cacheWrite);
     const market = marketBreak?.total ?? 0;
     return {
-      ...zero,
-      total: energy,
+      // The per-class split comes from the market price too. It used to be
+      // zeroed, so a self-hosted row contributed nothing to any cost-split
+      // chart and its tokens looked free in every breakdown.
+      input: marketBreak?.input ?? 0,
+      output: marketBreak?.output ?? 0,
+      cacheRead: marketBreak?.cacheRead ?? 0,
+      cacheWrite: marketBreak?.cacheWrite ?? 0,
+      total: market,
       market,
+      energy,
       avoided: Math.max(0, market - energy),
-      source: 'energy',
+      // The number is oracle-derived now, so name the oracle. 'energy' as a
+      // source would claim the figure came from a power meter.
+      source: resolved?.source ?? 'unknown',
       matchedId: resolved?.matchedId,
       promo: resolved?.promo ?? null,
       backdated: resolved?.backdated ?? false,
@@ -901,6 +920,7 @@ export function calcCostBreakdown(
       cacheWrite: marketBreak.cacheWrite,
       total: marketBreak.total,
       market: marketBreak.total,
+      energy: 0,
       avoided: 0,
       source: resolved.source,
       matchedId: resolved.matchedId,
@@ -912,7 +932,7 @@ export function calcCostBreakdown(
 
   // Neither oracle nor table nor hardware hint. Report unknown — the UI must
   // render this distinctly from $0 so a missing price cannot masquerade as free.
-  return { ...zero, total: 0, market: 0, avoided: 0, source: 'unknown', selfHosted: false };
+  return { ...zero, total: 0, market: 0, energy: 0, avoided: 0, source: 'unknown', selfHosted: false };
 }
 
 export function calcCost(
@@ -978,7 +998,7 @@ export function costForUsage(row: UsageRow): CostBreakdown {
   if (!model) {
     return {
       input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
-      total: 0, market: 0, avoided: 0, source: 'unknown', selfHosted: false,
+      total: 0, market: 0, energy: 0, avoided: 0, source: 'unknown', selfHosted: false,
     };
   }
   const computed = calcCostBreakdown(
@@ -1031,7 +1051,7 @@ function withInvoice(computed: CostBreakdown, observed: number): CostBreakdown {
 export function costForUsageRows(rows: Iterable<UsageRow>): CostBreakdown {
   const acc: CostBreakdown = {
     input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
-    total: 0, market: 0, avoided: 0, source: 'unknown', selfHosted: false,
+    total: 0, market: 0, energy: 0, avoided: 0, source: 'unknown', selfHosted: false,
   };
   let any = false;
   for (const r of rows) {
@@ -1042,6 +1062,7 @@ export function costForUsageRows(rows: Iterable<UsageRow>): CostBreakdown {
     acc.cacheWrite += c.cacheWrite;
     acc.total += c.total;
     acc.market += c.market;
+    acc.energy += c.energy;
     acc.avoided += c.avoided;
     acc.selfHosted = acc.selfHosted || c.selfHosted;
     acc.backdated = acc.backdated || !!c.backdated;
