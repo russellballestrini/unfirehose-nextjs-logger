@@ -8,7 +8,7 @@ import { homedir } from 'os';
 import { getDb, UNFIREHOSE_DIR } from './schema';
 import { claudePaths, decodeProjectName, resolveProjectPath } from '../claude-paths';
 // uncloseai: auto-discovered via ~/.uncloseai/unfirehose/ (native unfirehose/1.0)
-import { fetchPaths, decodeFetchProjectName } from '../fetch-paths';
+import { fetchPaths } from '../fetch-paths';
 // agnt-paths no longer needed — auto-discovered via ~/.agnt/unfirehose/
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
@@ -1435,7 +1435,7 @@ async function ingestFetch(
     if (!dirStat?.isDirectory()) continue;
 
     const projectName = `fetch:${slug}`;
-    const displayName = `[fetch] ${decodeFetchProjectName(slug)}`;
+    const displayName = `[fetch] ${decodeProjectName(slug)}`;
 
     let files: string[];
     try {
@@ -1554,7 +1554,7 @@ async function ingestFetch(
       ).run(new Date().toISOString(), sessionUuid);
 
       // Extract Q&A providence records from this session
-      result.providenceAdded += extractProvidenceFromSession(db, sessionId, decodeFetchProjectName(slug), 'fetch');
+      result.providenceAdded += extractProvidenceFromSession(db, sessionId, decodeProjectName(slug), 'fetch');
     }
   }
 

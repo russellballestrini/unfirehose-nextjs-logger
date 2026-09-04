@@ -1,27 +1,11 @@
 import path from 'path';
 import os from 'os';
+import { harnessPaths } from './harness-paths';
 
 /**
- * Path helpers for Fetch JSONL session data.
- *
- * Fetch writes JSONL to ~/.fetch/sessions/{project-slug}/{session-id}.jsonl.
- * Override with FETCH_JSONL_DIR env var if Fetch writes elsewhere.
+ * Fetch writes to ~/.fetch/sessions/{project-slug}/{session-id}.jsonl.
+ * Override the root with FETCH_JSONL_DIR.
  */
-
-const FETCH_JSONL_DIR = process.env.FETCH_JSONL_DIR
-  || path.join(os.homedir(), '.fetch', 'sessions');
-
-export const fetchPaths = {
-  root: FETCH_JSONL_DIR,
-
-  projectDir(slug: string) {
-    return path.join(FETCH_JSONL_DIR, slug);
-  },
-
-  sessionFile(slug: string, sessionId: string) {
-    return path.join(FETCH_JSONL_DIR, slug, `${sessionId}.jsonl`);
-  },
-};
-
-// Re-export from canonical location
-export { decodeProjectName as decodeFetchProjectName } from './project-name';
+export const fetchPaths = harnessPaths(
+  process.env.FETCH_JSONL_DIR ?? path.join(os.homedir(), '.fetch', 'sessions'),
+);

@@ -253,7 +253,7 @@ export function backfillReportedRefusals(
     `SELECT 1 FROM rate_limit_events WHERE rule = 'harness-reported' AND message_id = ? LIMIT 1`,
   );
 
-  const uncloseaiFiles = walkJsonl(opts.uncloseaiDir ?? uncloseaiPaths.unfirehose);
+  const uncloseaiFiles = walkJsonl(opts.uncloseaiDir ?? uncloseaiPaths.root);
   const claudeFiles = walkJsonl(opts.claudeProjectsDir ?? claudePaths.projects);
   res.files = uncloseaiFiles.length + claudeFiles.length;
 
