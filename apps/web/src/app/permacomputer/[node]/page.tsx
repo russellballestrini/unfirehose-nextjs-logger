@@ -13,6 +13,7 @@ import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { ThermalPanel } from '@/components/ThermalPanel';
 import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
+import { utcToLocalDate, fmtLocalHHMM, fmtLocalDateTime } from '@/lib/local-time';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
   AreaChart,
@@ -30,18 +31,6 @@ import {
 // cannot drift apart — this file used 0.31 while pricing.ts used 0.33.
 const DEFAULT_KWH_RATE = PRICING_DEFAULT_KWH_RATE;
 
-// SQLite emits timestamps as "YYYY-MM-DD HH:MM[:SS]" in UTC with no tz marker.
-// Parse as UTC and let the browser format in the user's local timezone.
-function utcToLocalDate(utcStr: string): Date {
-  const iso = utcStr.replace(' ', 'T') + (utcStr.length <= 16 ? ':00Z' : 'Z');
-  return new Date(iso);
-}
-function fmtLocalHHMM(utcStr: string): string {
-  return utcToLocalDate(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-function fmtLocalDateTime(utcStr: string): string {
-  return utcToLocalDate(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

@@ -41,12 +41,12 @@ import {
   applyGeoRegionElectricity,
   computeEgressGroups,
   computeMeshScore,
-  fmtLocalDateTime,
   getDefaultEcon,
   getEffectiveIspCost,
   nodeEconKey,
   parseExcludedHosts,
 } from '@/lib/mesh-score';
+import { fmtLocalDateTime } from '@/lib/local-time';
 
 // ============================================================
 

@@ -186,18 +186,6 @@ export function getEffectiveIspCost(hostname: string, ispCost: number, egressGro
 
 export const HOURS_PER_MONTH = 24 * 30;
 
-// SQLite emits timestamps as "YYYY-MM-DD HH:MM" or "...:SS" in UTC with no tz marker.
-// Parse as UTC and let the browser format in the user's local timezone.
-export function utcToLocalIso(utcStr: string): Date {
-  const iso = utcStr.replace(' ', 'T') + (utcStr.length <= 16 ? ':00Z' : 'Z');
-  return new Date(iso);
-}
-export function fmtLocalHHMM(utcStr: string): string {
-  return utcToLocalIso(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-export function fmtLocalDateTime(utcStr: string): string {
-  return utcToLocalIso(utcStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-}
 
 // Total draw for a node = CPU/system watts + GPU watts (nvidia-smi power.draw).
 export function nodeTotalWatts(meshNode?: any): number {

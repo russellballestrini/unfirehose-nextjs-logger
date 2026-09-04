@@ -5,7 +5,6 @@ import {
   memoryScore, wisdomScore, storageScore, efficiencyScore, uptimeScore,
   gpuComputeClass, gpuScore, haversineKm, detectGeoRegion,
   computeEgressGroups, getEffectiveIspCost, nodeTotalWatts, nodeElecMonthly,
-  utcToLocalIso,
 } from './mesh-score';
 
 /**
@@ -195,14 +194,5 @@ describe('power and cost', () => {
     const econ = { electricityCostKwh: 0.10 } as never;
     // 100W for 720 hours is 72 kWh, so $7.20 at a dime.
     expect(nodeElecMonthly(econ, { powerWatts: 100 })).toBeCloseTo(7.2, 2);
-  });
-});
-
-describe('utcToLocalIso', () => {
-  it('reads a SQLite timestamp as UTC rather than as local time', () => {
-    // SQLite writes "YYYY-MM-DD HH:MM:SS" with no zone marker. Parsing that
-    // as local time shifts every mesh chart by the operator's offset.
-    expect(utcToLocalIso('2026-09-04 12:00:00').toISOString()).toBe('2026-09-04T12:00:00.000Z');
-    expect(utcToLocalIso('2026-09-04 12:00').toISOString()).toBe('2026-09-04T12:00:00.000Z');
   });
 });
