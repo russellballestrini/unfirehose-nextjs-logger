@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { buildCacheKey } from '@/lib/providence-key';
 
 // GET /api/providence/lookup
 // Required: root= (Merkle/git root) and q= (question text)
@@ -21,12 +22,18 @@ export async function GET(request: NextRequest) {
   if (!root && !git) return NextResponse.json({ error: 'root or git required' },      { status: 400 });
 
   try {
-    const document_root  = root ?? git!;
-    const question_hash  = await sha256short(q);
-    const key_material   = [document_root, question_hash, model_id, model_revision,
-                            quantization, conversation_hash,
-                            seed != null ? seed : ''].join(':');
-    const cache_key      = await sha256short(key_material);
+    const document_root = root ?? git!;
+    // The same function the writer uses. Two implementations of one key is a
+    // cache that stops hitting the moment either side changes.
+    const { cache_key, question_hash } = await buildCacheKey({
+      document_root,
+      question_text: q,
+      model_id,
+      model_revision,
+      quantization,
+      conversation_hash,
+      seed,
+    });
 
     const db = getDb();
     const row = db.prepare(`
@@ -88,7 +95,3 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function sha256short(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
-}

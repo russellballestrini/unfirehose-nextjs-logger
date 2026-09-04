@@ -1,41 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
-
-// Cache key = hash of tier-1 inputs:
-//   document_root + question_hash + model_id + model_revision + quantization
-//   + conversation_hash + seed (only when non-null)
-//
-// conversation_hash = SHA-256 of the full normalized OpenAI messages array:
-//   JSON.stringify([{role, content}, ...]) covering all turns in order —
-//   system prompt + all prior assistant & user messages + current user question.
-//   A single-turn Q&A and a multi-turn conversation arriving at the same final
-//   question produce different hashes and different cache keys.
-//   Callers hash client-side and pass only the hash — message content never stored.
-//
-// Tier-2 metadata (base_uri, temperature, sampling params, backend, node_id,
-//   inference_ms) stored for research/audit but does not affect the key.
-async function buildCacheKey(fields: {
-  document_root: string;
-  question_text: string;
-  model_id?: string;
-  model_revision?: string | null;
-  quantization?: string | null;
-  conversation_hash?: string | null;
-  seed?: number | null;
-}): Promise<{ cache_key: string; question_hash: string }> {
-  const question_hash = await sha256short(fields.question_text);
-  const key_material = [
-    fields.document_root,
-    question_hash,
-    fields.model_id       ?? '',
-    fields.model_revision ?? '',
-    fields.quantization   ?? '',
-    fields.conversation_hash ?? '',
-    fields.seed != null ? String(fields.seed) : '',
-  ].join(':');
-  const cache_key = await sha256short(key_material);
-  return { cache_key, question_hash };
-}
+import { buildCacheKey } from '@/lib/providence-key';
 
 // GET /api/providence?uri=...&root=...&git=...&model_id=...&backend=...&node_id=...&limit=50
 export async function GET(request: NextRequest) {
@@ -166,7 +131,3 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-async function sha256short(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
-}
