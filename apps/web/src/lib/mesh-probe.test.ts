@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseRemoteProbe, parseCpuModel, countSpinningDisks, memCapGB,
   formatUptime, round, lookupCpuTdp, lookupCpuYear, deduplicateNodes,
-  calcNonCpuWatts,
+  calcNonCpuWatts, countSsds, parseMeminfo, parseLoadavg,
 } from './mesh-probe';
 
 /**
@@ -131,6 +131,37 @@ describe('the small parsers', () => {
     expect(countSpinningDisks(lsblk)).toBe(2);
   });
 
+  it('counts flash and platters as a pair, by the same flag', () => {
+    const lsblk = 'NAME TYPE SIZE ROTA\nsda disk 3.6T 1\nnvme0n1 disk 1.8T 0\nnvme1n1 disk 1.8T 0';
+    expect(countSpinningDisks(lsblk)).toBe(1);
+    expect(countSsds(lsblk)).toBe(2);
+  });
+
+  it('reads meminfo in gigabytes, though the file speaks kilobytes', () => {
+    const mem = parseMeminfo([
+      'MemTotal:       32791234 kB',
+      'MemAvailable:   20000000 kB',
+      'SwapTotal:       8000000 kB',
+      'SwapFree:        7000000 kB',
+    ].join('\n'));
+    expect(mem.totalGB).toBeCloseTo(31.3, 1);
+    expect(mem.availableGB).toBeCloseTo(19.1, 1);
+    expect(mem.swapTotalGB).toBeCloseTo(7.6, 1);
+  });
+
+  it('reads a missing meminfo field as zero rather than NaN', () => {
+    // A container without swap has no SwapTotal line, and NaN would reach
+    // the page as a blank where a number belongs.
+    expect(parseMeminfo('MemTotal: 1048576 kB')).toEqual({
+      totalGB: 1, availableGB: 0, swapTotalGB: 0, swapFreeGB: 0,
+    });
+  });
+
+  it('takes the three figures at the head of loadavg', () => {
+    expect(parseLoadavg('0.52 0.41 0.38 1/900 12345')).toEqual([0.52, 0.41, 0.38]);
+    expect(parseLoadavg('')).toEqual([0, 0, 0]);
+  });
+
   it('formats uptime at the scale a reader cares about', () => {
     expect(formatUptime(90)).toBe('1m');
     expect(formatUptime(3700)).toBe('1h 1m');
@@ -152,8 +183,12 @@ describe('the small parsers', () => {
   it('charges for the RAM and disks the CPU figure leaves out', () => {
     // RAPL measures the package only; DIMMs, spindles and PSU loss are real
     // watts the wall meter sees.
-    const bare = calcNonCpuWatts({ memTotalGB: 8, spinningDisks: 0, ssdCount: 1 });
-    const loaded = calcNonCpuWatts({ memTotalGB: 128, spinningDisks: 4, ssdCount: 2 });
+    const bare = calcNonCpuWatts({
+      memTotalGB: 8, spinningDisks: 0, ssdCount: 1, isServer: false, isLaptop: true,
+    });
+    const loaded = calcNonCpuWatts({
+      memTotalGB: 128, spinningDisks: 4, ssdCount: 2, isServer: true, isLaptop: false,
+    });
     expect(bare).toBeGreaterThan(0);
     expect(loaded).toBeGreaterThan(bare);
   });

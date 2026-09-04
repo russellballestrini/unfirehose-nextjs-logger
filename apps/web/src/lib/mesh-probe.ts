@@ -360,6 +360,41 @@ export function parseCpuModel(cpuinfoOrText: string): string | null {
 /**
  * Count spinning disks (ROTA=1, not loop devices) from lsblk.
  */
+/**
+ * Solid-state disks, by the same rotational flag that finds the spinning
+ * ones: lsblk's last column is 1 for a platter and 0 for flash.
+ *
+ * The local and remote probes each counted these with the same inline
+ * expression while calling a named function for the spinning ones, so half
+ * the pair had a name and half did not.
+ */
+export function countSsds(lsblkOutput: string): number {
+  return lsblkOutput.split('\n').filter((line) => {
+    const parts = line.trim().split(/\s+/);
+    return parts[1] === 'disk' && parts[parts.length - 1] === '0';
+  }).length;
+}
+
+/** /proc/meminfo in gigabytes. Its own figures are kilobytes. */
+export function parseMeminfo(text: string): {
+  totalGB: number; availableGB: number; swapTotalGB: number; swapFreeGB: number;
+} {
+  const field = (name: string) =>
+    parseInt(text.match(new RegExp(`${name}:\\s+(\\d+)`))?.[1] ?? '0') / 1024 / 1024;
+  return {
+    totalGB: field('MemTotal'),
+    availableGB: field('MemAvailable'),
+    swapTotalGB: field('SwapTotal'),
+    swapFreeGB: field('SwapFree'),
+  };
+}
+
+/** The three figures at the head of /proc/loadavg. */
+export function parseLoadavg(text: string): [number, number, number] {
+  const parts = text.trim().split(/\s+/);
+  return [0, 1, 2].map((i) => parseFloat(parts[i]) || 0) as [number, number, number];
+}
+
 export function countSpinningDisks(lsblkOutput: string): number {
   return lsblkOutput.split('\n').filter(l => {
     const parts = l.trim().split(/\s+/);
@@ -489,22 +524,19 @@ export function parseRemoteProbe(host: string, stdout: string): MeshNode {
   if (lsblkEndIdx > 4) {
     const lsblkText = lines.slice(4, lsblkEndIdx).join('\n');
     spinningDisks = countSpinningDisks(lsblkText);
-    ssdCount = lsblkText.split('\n').filter(l => {
-      const p = l.trim().split(/\s+/);
-      return p[1] === 'disk' && p[p.length - 1] === '0';
-    }).length;
+    ssdCount = countSsds(lsblkText);
   }
 
   const meminfoLines = lines.slice(lsblkEndIdx > 0 ? lsblkEndIdx + 1 : 3);
   const meminfoText = meminfoLines.join('\n');
-  const memTotal = parseInt(meminfoText.match(/MemTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-  const memAvailable = parseInt(meminfoText.match(/MemAvailable:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-  const swapTotal = parseInt(meminfoText.match(/SwapTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-  const swapFree = parseInt(meminfoText.match(/SwapFree:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
+  const mem = parseMeminfo(meminfoText);
+  const memTotal = mem.totalGB;
+  const memAvailable = mem.availableGB;
+  const swapTotal = mem.swapTotalGB;
+  const swapFree = mem.swapFreeGB;
 
   const loadLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+/.test(l));
-  const loadParts = loadLine?.split(/\s+/) ?? ['0', '0', '0'];
-  const loadAvg: [number, number, number] = [parseFloat(loadParts[0]), parseFloat(loadParts[1]), parseFloat(loadParts[2])];
+  const loadAvg = parseLoadavg(loadLine ?? '');
 
   const uptimeLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+$/.test(l.trim()));
   const uptimeSeconds = parseFloat(uptimeLine?.split(/\s/)[0] ?? '0');

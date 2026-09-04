@@ -4,6 +4,7 @@ import {
   type MeshNode, deduplicateNodes, parseRemoteProbe,
   lookupCpuTdp, lookupCpuYear, parseCpuModel, countSpinningDisks,
   calcSystemWatts, calcNonCpuWatts, formatUptime, round, memCapGB,
+  countSsds, parseMeminfo, parseLoadavg,
 } from '@/lib/mesh-probe';
 import { execSync, execFile } from 'child_process';
 import { readFileSync, readdirSync } from 'fs';
@@ -86,20 +87,15 @@ function getLocalStats(): MeshNode {
     const cpuinfo = readFileSync('/proc/cpuinfo', 'utf-8');
     const cpuModel = parseCpuModel(cpuinfo);
 
-    // Memory from /proc/meminfo (more precise than free)
-    const meminfo = readFileSync('/proc/meminfo', 'utf-8');
-    const memTotal = parseInt(meminfo.match(/MemTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-    const memAvailable = parseInt(meminfo.match(/MemAvailable:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-    const swapTotal = parseInt(meminfo.match(/SwapTotal:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
-    const swapFree = parseInt(meminfo.match(/SwapFree:\s+(\d+)/)?.[1] ?? '0') / 1024 / 1024;
+    // Memory from /proc/meminfo (more precise than free), through the same
+    // parsers the remote probe uses — the two read identical formats.
+    const mem = parseMeminfo(readFileSync('/proc/meminfo', 'utf-8'));
+    const memTotal = mem.totalGB;
+    const memAvailable = mem.availableGB;
+    const swapTotal = mem.swapTotalGB;
+    const swapFree = mem.swapFreeGB;
 
-    // Load average
-    const loadavg = readFileSync('/proc/loadavg', 'utf-8').trim().split(/\s+/);
-    const loadAvg: [number, number, number] = [
-      parseFloat(loadavg[0]),
-      parseFloat(loadavg[1]),
-      parseFloat(loadavg[2]),
-    ];
+    const loadAvg = parseLoadavg(readFileSync('/proc/loadavg', 'utf-8'));
 
     // Uptime
     const uptimeSeconds = parseFloat(readFileSync('/proc/uptime', 'utf-8').split(/\s/)[0]);
@@ -128,10 +124,7 @@ function getLocalStats(): MeshNode {
     try {
       const lsblk = execSync('lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null', { encoding: 'utf-8' });
       spinningDisks = countSpinningDisks(lsblk);
-      ssdCount = lsblk.split('\n').filter(l => {
-        const p = l.trim().split(/\s+/);
-        return p[1] === 'disk' && p[p.length - 1] === '0';
-      }).length;
+      ssdCount = countSsds(lsblk);
     } catch { /* no lsblk */ }
 
     const isServer = cpuModel ? /xeon|epyc/i.test(cpuModel) : false;
