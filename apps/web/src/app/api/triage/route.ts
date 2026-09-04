@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { closeSessions, staleSessionUuids, obsoleteTodo } from '@unturf/unfirehose/db/session-close';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -157,69 +158,21 @@ export async function POST(request: NextRequest) {
       for (const action of actions) {
         switch (action.action) {
           case 'close_project_sessions': {
-            const rows = db.prepare(`
-              SELECT s.session_uuid
-              FROM sessions s
-              JOIN projects p ON s.project_id = p.id
-              WHERE p.name = ?
-                AND (s.status IS NULL OR s.status = 'active')
-                AND COALESCE(s.last_message_at, s.updated_at) < datetime('now', ?)
-            `).all(action.project, `-${action.olderThanDays} days`) as any[];
-
-            let closed = 0;
-            let obsoleted = 0;
-            for (const row of rows) {
-              db.prepare(
-                `UPDATE sessions SET status = 'closed', closed_at = ? WHERE session_uuid = ?`
-              ).run(now, row.session_uuid);
-              closed++;
-
-              const todos = db.prepare(
-                `SELECT t.id, t.status FROM todos t
-                 JOIN sessions s ON t.session_id = s.id
-                 WHERE s.session_uuid = ? AND t.status IN ('pending', 'in_progress')`
-              ).all(row.session_uuid) as any[];
-
-              for (const t of todos) {
-                db.prepare(
-                  `UPDATE todos SET status = 'obsolete', updated_at = ?, completed_at = ? WHERE id = ?`
-                ).run(now, now, t.id);
-                db.prepare(
-                  `INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, ?, 'obsolete', ?)`
-                ).run(t.id, t.status, now);
-                obsoleted++;
-              }
-            }
-            results.push({ action: action.action, project: action.project, closedSessions: closed, obsoletedTodos: obsoleted });
+            const uuids = staleSessionUuids(db, action.project, action.olderThanDays);
+            const r = closeSessions(db, uuids, { now });
+            results.push({
+              action: action.action, project: action.project,
+              closedSessions: r.closedSessions, obsoletedTodos: r.obsoletedTodos,
+            });
             break;
           }
 
           case 'close_sessions': {
-            let closed = 0;
-            let obsoleted = 0;
-            for (const uuid of (action.sessionUuids ?? [])) {
-              const r = db.prepare(
-                `UPDATE sessions SET status = 'closed', closed_at = ? WHERE session_uuid = ? AND (status IS NULL OR status = 'active')`
-              ).run(now, uuid);
-              if (r.changes > 0) closed++;
-
-              const todos = db.prepare(
-                `SELECT t.id, t.status FROM todos t
-                 JOIN sessions s ON t.session_id = s.id
-                 WHERE s.session_uuid = ? AND t.status IN ('pending', 'in_progress')`
-              ).all(uuid) as any[];
-
-              for (const t of todos) {
-                db.prepare(
-                  `UPDATE todos SET status = 'obsolete', updated_at = ?, completed_at = ? WHERE id = ?`
-                ).run(now, now, t.id);
-                db.prepare(
-                  `INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, ?, 'obsolete', ?)`
-                ).run(t.id, t.status, now);
-                obsoleted++;
-              }
-            }
-            results.push({ action: action.action, closedSessions: closed, obsoletedTodos: obsoleted });
+            const r = closeSessions(db, action.sessionUuids ?? [], { now });
+            results.push({
+              action: action.action,
+              closedSessions: r.closedSessions, obsoletedTodos: r.obsoletedTodos,
+            });
             break;
           }
 
@@ -227,13 +180,9 @@ export async function POST(request: NextRequest) {
             let count = 0;
             for (const id of (action.todoIds ?? [])) {
               const old = db.prepare('SELECT status FROM todos WHERE id = ?').get(id) as any;
+              // Already closed is not an error, but it is not a change either.
               if (!old || old.status === 'completed' || old.status === 'obsolete') continue;
-              db.prepare(
-                `UPDATE todos SET status = 'obsolete', updated_at = ?, completed_at = ? WHERE id = ?`
-              ).run(now, now, id);
-              db.prepare(
-                `INSERT INTO todo_events (todo_id, old_status, new_status, event_at) VALUES (?, ?, 'obsolete', ?)`
-              ).run(id, old.status, now);
+              obsoleteTodo(db, id, old.status, now);
               count++;
             }
             results.push({ action: action.action, obsoleted: count });
