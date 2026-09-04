@@ -41,7 +41,8 @@
     "./useStickyState": "./components/useStickyState.tsx",
     "./TokenSplit": "./components/TokenSplit.tsx",
     "./modelColor": "./components/modelColor.ts",
-    "./StatStrip": "./components/StatStrip.tsx"
+    "./StatStrip": "./components/StatStrip.tsx",
+    "./DiffView": "./components/DiffView.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

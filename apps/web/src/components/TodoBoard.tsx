@@ -202,6 +202,9 @@ export function TodoBoard({ project }: { project?: string } = {}) {
   const [megaLoading, setMegaLoading] = useState(false);
   const [megaPanelOpen, setMegaPanelOpen] = useState(false);
   const [hideCompleted, setHideCompleted] = useState(true);
+  // The unscoped board caps what it draws. Say so rather than quietly
+  // showing a slice of the truth.
+  const [truncated, setTruncated] = useState<{ shown: number; limit: number } | null>(null);
   const [autoCull, setAutoCull] = useState(false);
   const [draggedTodo, setDraggedTodo] = useState<Todo | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -231,6 +234,7 @@ export function TodoBoard({ project }: { project?: string } = {}) {
         if (data.error) throw new Error(data.error);
         setByProject(data.byProject ?? []);
         setCounts(data.counts ?? { pending: 0, inProgress: 0, completed: 0, total: 0 });
+        setTruncated(data.truncated ? { shown: (data.todos ?? []).length, limit: data.limit } : null);
       })
       .catch(() => {
         setByProject([]);
@@ -587,6 +591,12 @@ export function TodoBoard({ project }: { project?: string } = {}) {
         </div>
       )}
 
+      {truncated && (
+        <div className="text-xs text-[var(--color-muted)] mb-2">
+          Showing the {truncated.shown} most recently touched of {counts.total.toLocaleString()}.
+          Open a project to see all of its todos.
+        </div>
+      )}
       {loading ? (
         <p className="text-[var(--color-muted)]">Loading...</p>
       ) : counts.total === 0 ? (

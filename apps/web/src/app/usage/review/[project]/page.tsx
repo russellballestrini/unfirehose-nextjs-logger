@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useVault } from '@unturf/unfirehose-ui/VaultProvider';
+import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -141,23 +142,7 @@ export default function ReviewPage() {
           {data.diff && (
             <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
               <h3 className="text-sm font-bold text-[var(--color-muted)] mb-2">Diff</h3>
-              <pre className="text-xs font-mono overflow-x-auto max-h-[70vh] overflow-y-auto leading-relaxed">
-                {data.diff.split('\n').map((line: string, i: number) => (
-                  <div
-                    key={i}
-                    className={
-                      line.startsWith('+++') || line.startsWith('---') ? 'text-[var(--color-muted)] font-bold' :
-                      line.startsWith('+') ? 'text-green-400 bg-green-500/10' :
-                      line.startsWith('-') ? 'text-red-400 bg-red-500/10' :
-                      line.startsWith('@@') ? 'text-cyan-400 mt-2' :
-                      line.startsWith('diff ') ? 'text-[var(--color-accent)] font-bold mt-4 border-t border-[var(--color-border)] pt-2' :
-                      'text-[var(--color-muted)]'
-                    }
-                  >
-                    {line || '\u00A0'}
-                  </div>
-                ))}
-              </pre>
+              <DiffView diff={data.diff} className="overflow-x-auto max-h-[70vh] overflow-y-auto" />
             </div>
           )}
 

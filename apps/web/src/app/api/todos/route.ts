@@ -226,12 +226,27 @@ export async function GET(request: NextRequest) {
       params.push(source);
     }
 
+    // The board shows completed work for a few days and discards the rest —
+    // it was doing that in the browser, after downloading all 1,988 of them.
+    // 2.27 MB per poll to render a few dozen cards.
+    const completedDays = Math.max(0, Math.min(365, Number(url.searchParams.get('completedDays') ?? 7)));
+    query += ` AND (t.status != 'completed'
+                    OR COALESCE(t.completed_at, t.updated_at) >= datetime('now', '-' || ? || ' days'))`;
+    params.push(completedDays);
+
     query += ` ORDER BY
       CASE t.status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
       t.updated_at DESC
-      LIMIT 2000`;
+      LIMIT ?`;
+    // 1,937 of these are pending across 22 projects, so the unscoped board
+    // was 2.27 MB of JSON rendered as ~2,000 cards. The counts below still
+    // report the true totals; this bounds what is drawn. A project-scoped
+    // board asks for everything, because a project has tens, not thousands.
+    const limit = Math.max(1, Math.min(2000, Number(url.searchParams.get('limit') ?? (project ? 2000 : 400))));
+    params.push(limit);
 
     const todos = db.prepare(query).all(...params) as any[];
+    const truncated = todos.length >= limit;
 
     // Build map of todo_id → deployment info (including all statuses for lifecycle tracking)
     interface DeploymentInfo { tmuxSession: string; tmuxWindow: string | null; status: string; startedAt: string | null; stoppedAt: string | null; }
@@ -257,8 +272,14 @@ export async function GET(request: NextRequest) {
       }
     } catch { /* table may not exist */ }
 
-    // Load all attachments
-    const attachments = db.prepare('SELECT * FROM todo_attachments ORDER BY created_at').all() as any[];
+    // Attachments for the todos in this response, not every attachment in
+    // the database.
+    const todoIds = todos.map((t: any) => t.id);
+    const attachments = todoIds.length
+      ? db.prepare(
+          `SELECT * FROM todo_attachments WHERE todo_id IN (${todoIds.map(() => '?').join(',')}) ORDER BY created_at`,
+        ).all(...todoIds) as any[]
+      : [];
     const attachmentsByTodo = new Map<number, any[]>();
     for (const a of attachments) {
       if (!attachmentsByTodo.has(a.todo_id)) attachmentsByTodo.set(a.todo_id, []);
@@ -330,6 +351,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       todos,
       byProject: groups,
+      limit,
+      truncated,
       counts: {
         pending: counts?.pending ?? 0,
         inProgress: counts?.in_progress ?? 0,

@@ -8,6 +8,7 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
 import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
+import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -831,17 +832,7 @@ function DirtyReposTab({
                           <div className="px-4 py-2 text-xs font-bold text-[var(--color-muted)] bg-[var(--color-surface)] border-b border-[var(--color-border)]">
                             Diff
                           </div>
-                          <pre className="text-xs p-0 overflow-auto max-h-[500px] font-mono leading-relaxed">
-                            {detail.diff.split('\n').map((line: string, i: number) => {
-                              let color = 'inherit';
-                              let bg = 'transparent';
-                              if (line.startsWith('+') && !line.startsWith('+++')) { color = '#22c55e'; bg = 'rgba(34,197,94,0.08)'; }
-                              else if (line.startsWith('-') && !line.startsWith('---')) { color = '#ef4444'; bg = 'rgba(239,68,68,0.08)'; }
-                              else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96,165,250,0.06)'; }
-                              else if (line.startsWith('diff ') || line.startsWith('index ')) color = 'var(--color-muted)';
-                              return <div key={i} style={{ color, backgroundColor: bg, paddingLeft: '16px', paddingRight: '16px' }}>{line || ' '}</div>;
-                            })}
-                          </pre>
+                          <DiffView diff={detail.diff} className="overflow-auto max-h-[500px]" />
                         </div>
                       )}
 
