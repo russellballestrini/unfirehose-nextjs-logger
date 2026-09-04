@@ -1,37 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { execSync } from 'child_process';
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#fbbf24',
-  in_progress: '#60a5fa',
-  completed: '#10b981',
-  obsolete: '#71717a',
-};
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max - 1) + '…';
-}
-
-function escapeLabel(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-}
-
-function sanitizeClusterId(s: string): string {
-  return s.replace(/[^a-zA-Z0-9_]/g, '_');
-}
-
-interface TodoRow {
-  id: number;
-  uuid: string | null;
-  external_id: string | null;
-  content: string;
-  status: string;
-  blocked_by: string | null;
-  project_name: string;
-  project_display: string | null;
-}
+import { resolveEdges, buildDot, type TodoRow } from '@/lib/todo-graph';
 
 export async function GET(request: NextRequest) {
   try {
@@ -70,91 +40,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ svg: emptySvg, nodeCount: 0, edgeCount: 0, dot: '' });
     }
 
-    // Build lookup: id/uuid/external_id → todo
-    const byId = new Map<number, TodoRow>();
-    const byUuid = new Map<string, TodoRow>();
-    const byExtId = new Map<string, TodoRow>();
-    for (const row of rows) {
-      byId.set(row.id, row);
-      if (row.uuid) byUuid.set(row.uuid, row);
-      if (row.external_id) byExtId.set(row.external_id, row);
-    }
-
-    // Parse edges
-    const edges: Array<{ from: number; to: number }> = [];
-    for (const row of rows) {
-      if (!row.blocked_by) continue;
-      let blockers: string[];
-      try {
-        blockers = JSON.parse(row.blocked_by);
-      } catch {
-        continue;
-      }
-      if (!Array.isArray(blockers)) continue;
-
-      for (const ref of blockers) {
-        // Try to resolve reference: could be uuid, external_id, or numeric id
-        const refStr = String(ref).replace(/^todo:/, '');
-        const blocker = byUuid.get(refStr) ?? byExtId.get(refStr) ?? byId.get(Number(refStr));
-        if (blocker) {
-          edges.push({ from: blocker.id, to: row.id });
-        }
-      }
-    }
-
-    // Group by project
-    const byProject = new Map<string, { display: string; todos: TodoRow[] }>();
-    for (const row of rows) {
-      const proj = row.project_name;
-      if (!byProject.has(proj)) byProject.set(proj, { display: row.project_display || proj, todos: [] });
-      byProject.get(proj)!.todos.push(row);
-    }
-
-    // Build DOT
-    const lines: string[] = [
-      'digraph todos {',
-      `  rankdir=${layout};`,
-      '  bgcolor="transparent";',
-      '  node [shape=box, style="filled,rounded", fontname="monospace", fontsize=10, margin="0.2,0.1"];',
-      '  edge [color="#71717a"];',
-      '',
-    ];
-
-    for (const [proj, group] of byProject) {
-      const clusterId = sanitizeClusterId(proj);
-      lines.push(`  subgraph cluster_${clusterId} {`);
-      lines.push(`    label="${escapeLabel(group.display)}";`);
-      lines.push('    color="#3f3f46";');
-      lines.push('    fontcolor="#a1a1aa";');
-      lines.push('    style=dashed;');
-      lines.push('');
-
-      // Collect node IDs that have no edges (isolated) for chaining
-      const clusterNodeIds: number[] = [];
-      for (const todo of group.todos) {
-        const color = STATUS_COLORS[todo.status] || '#71717a';
-        const content = truncate(todo.content.replace(/\n/g, ' '), 40);
-        const nodeLabel = `${escapeLabel(content)}\\n[${todo.status}]`;
-        lines.push(`    "t_${todo.id}" [label="${nodeLabel}" fillcolor="${color}" fontcolor="#000"];`);
-        clusterNodeIds.push(todo.id);
-      }
-
-      // Chain isolated nodes with invisible edges to enforce ordering
-      if (clusterNodeIds.length > 1) {
-        const chain = clusterNodeIds.map(id => `"t_${id}"`).join(' -> ');
-        lines.push(`    ${chain} [style=invis];`);
-      }
-
-      lines.push('  }');
-      lines.push('');
-    }
-
-    for (const edge of edges) {
-      lines.push(`  "t_${edge.from}" -> "t_${edge.to}";`);
-    }
-
-    lines.push('}');
-    const dot = lines.join('\n');
+    const edges = resolveEdges(rows);
+    const dot = buildDot(rows, edges, layout);
 
     // Render SVG via graphviz
     let svg: string;
