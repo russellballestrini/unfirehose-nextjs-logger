@@ -48,8 +48,11 @@ describe('resolveSpecifier', () => {
   });
 
   it('resolves our @/ alias to apps/web/src', () => {
-    const resolved = resolveSpecifier('@/lib/cloud-account', path.join(ROOT, 'apps/web/src/x.ts'));
-    expect(resolved).toBe(path.join(ROOT, 'apps/web/src/lib/cloud-account.ts'));
+    // layout.tsx, because Next.js requires it: a test anchored on an
+    // ordinary source file fails the day that file is deleted, which says
+    // nothing about whether alias resolution works.
+    const resolved = resolveSpecifier('@/app/layout', path.join(ROOT, 'apps/web/src/x.ts'));
+    expect(resolved).toBe(path.join(ROOT, 'apps/web/src/app/layout.tsx'));
   });
 
   it('gives up on a package we do not own', () => {

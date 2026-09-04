@@ -1,9 +1,34 @@
 # unfirehose.com: Multi-Tenant Cloud Dashboard
 
-**Status:** complete
+**Status:** removed — revisit with a data and monetization plan
 **Project:** unfirehose-nextjs-logger
 **Estimated:** multi-week
 **Blocked by:** fox approval on architecture
+
+## Removed 2026-09-04
+
+The dashboard half of this shipped as code and never launched: no paid tier,
+no functional test of any of it, no account that ever existed. It was removed
+rather than carried — a design written before the pricing question is asked
+reads as a decision when you come back to it, and this one had already put a
+MULTI_TENANT branch in middleware and five routes that everyone had to reason
+about for a mode that never ran.
+
+What went: `packages/core/{auth,tiers,rate-limit}.ts`,
+`packages/core/db/{api-keys,control,tenant}.ts`, the account, keys, login and
+tier-sync routes, the /keys and /login pages, and the JWT middleware.
+`git show daa34c0^:<path>` brings any of it back verbatim.
+
+No data was dropped: `accounts`, `api_keys` and `usage_log` live only in a
+separate control database that `db/control.ts` created on demand, and never
+appeared in `unfirehose.db`. Any control database on disk is untouched.
+
+**Still live on the other side.** Per the section below, unsandbox.com
+carries the Elixir counterpart — `UnfirehoseAccount`, the accounts CRUD with
+lapse detection, the pricing page with crypto and Stripe, and a webhook
+sender pointed at `https://api.unfirehose.org/webhooks/tier-sync`, which now
+has no receiver. That repo is out of scope from here; whoever picks
+monetization back up decides whether that sender stays.
 
 ## Context
 

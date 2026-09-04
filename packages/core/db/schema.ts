@@ -30,9 +30,6 @@ function isTestRuntime(): boolean {
 }
 
 export function getDb(): Database.Database {
-  if (process.env.MULTI_TENANT === 'true') {
-    throw new Error('Use getTenantDb() in multi-tenant mode');
-  }
   if (_db) return _db;
 
   // A test that forgets to mock this reads the LIVE database, and nothing
