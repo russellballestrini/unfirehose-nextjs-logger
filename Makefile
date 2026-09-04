@@ -1,4 +1,4 @@
-.PHONY: all clean test coverage coverage-check coverage-report cc crap orphans report \
+.PHONY: all clean test coverage coverage-check coverage-report cc crap dupes orphans report \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report
 
 # Everything a change should pass before it is pushed.
@@ -61,6 +61,12 @@ cc:
 crap:
 	npx tsx scripts/quality/report-crap.ts $(ARGS)
 
+# Copy-paste, matched on structure so renamed variables cannot hide it.
+#   make dupes
+#   make dupes ARGS="--min 100 --dir apps/web"
+dupes:
+	npx tsx scripts/quality/report-dupes.ts $(ARGS)
+
 # Files and exports nothing reaches, walked out from every real entry point.
 #   make orphans
 #   make orphans ARGS=--exports
@@ -72,8 +78,9 @@ report: coverage
 	@npx tsx scripts/quality/report-coverage.ts --json reports/coverage.json >/dev/null
 	@npx tsx scripts/quality/report-cc.ts --json reports/cc.json
 	@npx tsx scripts/quality/report-crap.ts --json reports/crap.json
+	@npx tsx scripts/quality/report-dupes.ts --json reports/dupes.json
 	@npx tsx scripts/quality/report-orphans.ts --json reports/orphans.json
-	@echo "\nreports/{coverage,cc,crap,orphans}.json"
+	@echo "\nreports/{coverage,cc,crap,dupes,orphans}.json"
 
 clean:
 	rm -rf reports packages/*/coverage apps/*/coverage
