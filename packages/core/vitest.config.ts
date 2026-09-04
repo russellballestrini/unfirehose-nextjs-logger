@@ -20,10 +20,10 @@ export default defineConfig({
       // working toward. Raise them when coverage rises; never lower them to
       // make a red build green.
       thresholds: {
-        statements: 58,
-        branches: 48,
-        functions: 60,
-        lines: 60,
+        statements: 60,
+        branches: 50,
+        functions: 63,
+        lines: 62,
       },
     },
     restoreMocks: true,
