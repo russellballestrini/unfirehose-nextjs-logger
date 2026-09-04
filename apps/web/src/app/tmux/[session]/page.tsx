@@ -7,61 +7,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import useSWR from 'swr';
 import '@xterm/xterm/css/xterm.css';
-
-// ── ANSI renderer (for tmux capture-pane snapshots) ─────────────────────────
-const FG_MAP: Record<string, string> = {
-  '30': '#1e1e1e', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',
-  '34': '#60a5fa', '35': '#c084fc', '36': '#22d3ee', '37': '#d4d4d4',
-  '90': '#737373', '91': '#f87171', '92': '#4ade80', '93': '#facc15',
-  '94': '#93c5fd', '95': '#d8b4fe', '96': '#67e8f9', '97': '#ffffff',
-};
-const BG_MAP: Record<string, string> = {
-  '40': '#1e1e1e', '41': '#991b1b', '42': '#166534', '43': '#854d0e',
-  '44': '#1e3a5f', '45': '#581c87', '46': '#164e63', '47': '#404040',
-};
-const ANSI_RE = /(\x1b\[[0-9;]*m)/;
-const ESC_RE = /^\x1b\[([0-9;]*)m$/;
-const styleCache = new Map<string, string>();
-function getStyleTag(fg: string, bg: string, bold: boolean, dim: boolean): string {
-  const key = `${fg}|${bg}|${bold ? 1 : 0}|${dim ? 1 : 0}`;
-  let cached = styleCache.get(key);
-  if (!cached) {
-    const s: string[] = [];
-    if (fg) s.push(`color:${fg}`);
-    if (bg) s.push(`background:${bg}`);
-    if (bold) s.push('font-weight:bold');
-    if (dim) s.push('opacity:0.6');
-    cached = s.length ? `<span style="${s.join(';')}">` : '';
-    styleCache.set(key, cached);
-  }
-  return cached;
-}
-function ansiToHtml(text: string): string {
-  const chunks: string[] = [];
-  let fg = '', bg = '', bold = false, dim = false;
-  for (const part of text.split(ANSI_RE)) {
-    if (!part) continue;
-    const match = ESC_RE.exec(part);
-    if (match) {
-      for (const code of match[1].split(';')) {
-        if (!code || code === '0') { fg = ''; bg = ''; bold = false; dim = false; }
-        else if (code === '1') bold = true;
-        else if (code === '2') dim = true;
-        else if (code === '22') { bold = false; dim = false; }
-        else if (FG_MAP[code]) fg = FG_MAP[code];
-        else if (BG_MAP[code]) bg = BG_MAP[code];
-        else if (code === '39') fg = '';
-        else if (code === '49') bg = '';
-      }
-    } else {
-      const escaped = part.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const open = getStyleTag(fg, bg, bold, dim);
-      if (open) chunks.push(open, escaped, '</span>');
-      else chunks.push(escaped);
-    }
-  }
-  return chunks.join('');
-}
+import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 
 // ── Drop overlay animations ──────────────────────────────────────────────────
 const DROP_STYLES = `

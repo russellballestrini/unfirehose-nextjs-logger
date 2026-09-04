@@ -12,6 +12,7 @@ import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes, TIME_RANGE_OPTIONS 
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { ThermalPanel } from '@/components/ThermalPanel';
 import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
+import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
   AreaChart,
@@ -43,49 +44,6 @@ function fmtLocalDateTime(utcStr: string): string {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-// Convert basic ANSI escape codes to styled spans
-function ansiToHtml(text: string): string {
-  const colorMap: Record<string, string> = {
-    '30': '#1e1e1e', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',
-    '34': '#60a5fa', '35': '#c084fc', '36': '#22d3ee', '37': '#d4d4d4',
-    '90': '#737373', '91': '#f87171', '92': '#4ade80', '93': '#facc15',
-    '94': '#93c5fd', '95': '#d8b4fe', '96': '#67e8f9', '97': '#ffffff',
-  };
-  const bgMap: Record<string, string> = {
-    '40': '#1e1e1e', '41': '#991b1b', '42': '#166534', '43': '#854d0e',
-    '44': '#1e3a5f', '45': '#581c87', '46': '#164e63', '47': '#404040',
-  };
-  let result = '';
-  let fg = '', bg = '';
-  let bold = false, dim = false;
-  const parts = text.split(/(\x1b\[[0-9;]*m)/);
-  for (const part of parts) {
-    const match = part.match(/^\x1b\[([0-9;]*)m$/);
-    if (match) {
-      const codes = match[1].split(';').filter(Boolean);
-      for (const code of codes) {
-        if (code === '0') { fg = ''; bg = ''; bold = false; dim = false; }
-        else if (code === '1') bold = true;
-        else if (code === '2') dim = true;
-        else if (code === '22') { bold = false; dim = false; }
-        else if (colorMap[code]) fg = colorMap[code];
-        else if (bgMap[code]) bg = bgMap[code];
-        else if (code === '39') fg = '';
-        else if (code === '49') bg = '';
-      }
-    } else if (part) {
-      const escaped = part.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const styles: string[] = [];
-      if (fg) styles.push(`color:${fg}`);
-      if (bg) styles.push(`background:${bg}`);
-      if (bold) styles.push('font-weight:bold');
-      if (dim) styles.push('opacity:0.6');
-      result += styles.length > 0 ? `<span style="${styles.join(';')}">${escaped}</span>` : escaped;
-    }
-  }
-  return result;
-}
 
 const HARNESSES = [
   // --- Coding agents ---

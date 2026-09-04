@@ -45,7 +45,8 @@
     "./DiffView": "./components/DiffView.tsx",
     "./fetcher": "./components/fetcher.ts",
     "./BootScreen": "./components/BootScreen.tsx",
-    "./chart-theme": "./components/chart-theme.ts"
+    "./chart-theme": "./components/chart-theme.ts",
+    "./ansi": "./components/ansi.ts"
   },
   "scripts": {
     "lint": "tsc --noEmit",
