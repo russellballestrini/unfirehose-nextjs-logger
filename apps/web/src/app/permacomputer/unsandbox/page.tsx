@@ -6,6 +6,8 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
+import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
+import { KV } from '@unturf/unfirehose-ui/KV';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,24 +52,6 @@ const HARNESSES = [
 ];
 
 type BootStatus = { state: 'idle' } | { state: 'verifying'; output?: string } | { state: 'success'; version: string } | { state: 'error'; detail: string };
-
-function Bar({ pct, color }: { pct: number; color: string }) {
-  return (
-    <div className="w-full h-2.5 bg-[var(--color-background)] rounded-full overflow-hidden">
-      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }} />
-    </div>
-  );
-}
-
-function KV({ label, value }: { label: string; value?: string | number | null }) {
-  if (value == null || value === '') return null;
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-[var(--color-muted)]">{label}:</span>
-      <span className="font-bold text-right">{value}</span>
-    </div>
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -419,12 +403,12 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
             <Section title="System">
               {probe ? (
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                  <KV label="CPU" value={probe.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim()} />
-                  <KV label="Cores" value={cpuCores} />
-                  <KV label="Memory" value={`${memTotal.toFixed(1)}GB`} />
-                  <KV label="Uptime" value={probe.uptime} />
-                  {probe.gpuModel && <KV label="GPU" value={probe.gpuModel} />}
-                  {probe.gpuMemTotalMB > 0 && <KV label="GPU Memory" value={`${(probe.gpuMemTotalMB / 1024).toFixed(1)}GB`} />}
+                  <KV hideEmpty align label="CPU" value={probe.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim()} />
+                  <KV hideEmpty align label="Cores" value={cpuCores} />
+                  <KV hideEmpty align label="Memory" value={`${memTotal.toFixed(1)}GB`} />
+                  <KV hideEmpty align label="Uptime" value={probe.uptime} />
+                  {probe.gpuModel && <KV hideEmpty align label="GPU" value={probe.gpuModel} />}
+                  {probe.gpuMemTotalMB > 0 && <KV hideEmpty align label="GPU Memory" value={`${(probe.gpuMemTotalMB / 1024).toFixed(1)}GB`} />}
                 </div>
               ) : probing ? (
                 <div className="text-sm text-[var(--color-muted)] animate-pulse">Probing sandbox...</div>
@@ -443,7 +427,7 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
                     <span>Load: {load[0].toFixed(2)} / {load[1].toFixed(2)} / {load[2].toFixed(2)}</span>
                     <span>{cpuCores} cores</span>
                   </div>
-                  <Bar pct={loadPct} color={loadPerCore > 2 ? 'var(--color-error)' : loadPerCore > 1 ? '#f97316' : 'var(--color-accent)'} />
+                  <GaugeTrack height="h-2.5" pct={loadPct} color={loadPerCore > 2 ? 'var(--color-error)' : loadPerCore > 1 ? '#f97316' : 'var(--color-accent)'} />
                   <div className="text-xs text-[var(--color-muted)]">
                     {loadPct.toFixed(0)}% per-core utilization
                   </div>
@@ -458,7 +442,7 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
                     <span>{memUsed.toFixed(1)}GB / {memTotal.toFixed(1)}GB ({memPct.toFixed(0)}%)</span>
                     <span>{memAvail.toFixed(1)}G available</span>
                   </div>
-                  <Bar pct={memPct} color={memPct > 85 ? 'var(--color-error)' : '#60a5fa'} />
+                  <GaugeTrack height="h-2.5" pct={memPct} color={memPct > 85 ? 'var(--color-error)' : '#60a5fa'} />
                   {probe.swapTotalGB > 0 && (
                     <div className="text-xs text-[var(--color-muted)]">
                       Swap: {probe.swapUsedGB}GB / {probe.swapTotalGB}GB
@@ -473,11 +457,11 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
             {/* Account info */}
             <Section title="Account">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <KV label="Tier" value={status.tier} />
-                <KV label="Rate Limit" value={`${status.rateLimit} rpm`} />
-                <KV label="Max Sessions" value={status.maxSessions} />
-                <KV label="Burst" value={status.burst} />
-                <KV label="Expires" value={status.expiresAtHuman} />
+                <KV hideEmpty align label="Tier" value={status.tier} />
+                <KV hideEmpty align label="Rate Limit" value={`${status.rateLimit} rpm`} />
+                <KV hideEmpty align label="Max Sessions" value={status.maxSessions} />
+                <KV hideEmpty align label="Burst" value={status.burst} />
+                <KV hideEmpty align label="Expires" value={status.expiresAtHuman} />
               </div>
             </Section>
 
@@ -545,8 +529,8 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
                   <span className="text-[var(--color-muted)]">Active Sessions</span>
                   <button onClick={() => setActiveTab('Sessions')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{sessionList.length}</button>
                 </div>
-                <KV label="Type" value="ephemeral" />
-                <KV label="Provider" value="unsandbox.com" />
+                <KV hideEmpty align label="Type" value="ephemeral" />
+                <KV hideEmpty align label="Provider" value="unsandbox.com" />
               </div>
             </Section>
 

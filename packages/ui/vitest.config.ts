@@ -24,6 +24,12 @@ export default defineConfig({
     //
     // The alternative was lowering the iteration count under test, which
     // buys speed by no longer exercising the parameter that ships.
-    testTimeout: 30_000,
+    //
+    // Raised from 30s as this suite grew: the derivations are CPU-bound and
+    // now compete with far more parallel work, so the wall-clock cost of a
+    // fixed amount of work went up and the vault tests started failing
+    // intermittently while passing alone. The budget tracks the suite, not
+    // the machine.
+    testTimeout: 60_000,
   },
 });

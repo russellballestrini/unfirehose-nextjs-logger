@@ -400,6 +400,48 @@ Left border (2-3px) indicates message role/type:
 | Thinking | `var(--color-thinking)` | purple |
 | Tool | `var(--color-tool)` | amber |
 
+### Gauge family
+
+A proportion as a filled track — `@unturf/unfirehose-ui/Gauge`. Six variants of
+this lived across three pages before it existed, each rebuilding the same two
+divs and re-deciding its own thresholds.
+
+```tsx
+<GaugeTrack pct={72} />                                   // the bar alone
+<GaugeTrack pct={64} color="#60a5fa" />                   // a series with its own colour
+<GaugeRow label="mem" value="24.1 / 31.3 GB" pct={77} />  // dense measurement lists
+<GaugeBlock label="CPU" pct={42} value="42%" sub="…" />   // label above, caption below
+<GaugeCard label="Disk" pct={88} value="1.6 / 1.8 TB" />  // percentage as headline
+<GaugePill label="1m" value={1.2} max={16} />             // figure against a ceiling
+```
+
+Colour comes from `gaugeColor(pct, thresholds)`, never from the call site:
+
+| Thresholds | Warn | Danger | For |
+|---|---|---|---|
+| `UTILISATION` (default) | 60% | 85% | Disk, memory — most of a bank is fine until it is not |
+| `SATURATION` | 20% | 50% | Load average per core — a queue forms long before saturation |
+
+The resting colour is `--color-accent`, which is our brand red, so a gauge reads
+red at both ends. The yellow band and the brighter alarm red are what carry the
+warning.
+
+### KV / MiniStat
+
+`@unturf/unfirehose-ui/KV`. A labelled value for detail panels, and a one-line
+label-and-figure for summary bars.
+
+```tsx
+<KV label="Kernel" value="6.8.0-generic" />        // missing reads "n/a"
+<KV label="Ports" value={ports} hideEmpty align /> // missing renders nothing
+<MiniStat label="watts" value="387W" accent />
+```
+
+`hideEmpty` is the one real difference between the two callers: a node panel
+says "n/a" because the absence of a reading is information about the probe, and
+a service panel hides the row because a field that does not apply is noise. A
+real `0` is a value and always renders.
+
 ### Progress Bar
 
 ```

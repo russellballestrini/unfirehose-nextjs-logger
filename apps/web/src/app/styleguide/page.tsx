@@ -12,6 +12,8 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { groupNavItems } from '@unturf/unfirehose-ui/layout/nav-items';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
+import { GaugeTrack, GaugeRow, GaugeBlock, GaugeCard, GaugePill } from '@unturf/unfirehose-ui/Gauge';
+import { KV, MiniStat } from '@unturf/unfirehose-ui/KV';
 
 // --- Mock data ---
 
@@ -1384,6 +1386,107 @@ Response:
           <ProgressBar value={50} label="50%" />
           <ProgressBar value={78} label="78%" />
           <ProgressBar value={100} label="100%" />
+        </div>
+      </Section>
+
+      {/* Gauges */}
+      <Section title="Gauges">
+        <div className="text-base text-[var(--color-muted)] mb-2">
+          A proportion as a filled track — <code>@unturf/unfirehose-ui/Gauge</code>.
+          Colour comes from <code>gaugeColor()</code>, so what counts as alarming is
+          decided once.
+        </div>
+
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+          <div className="text-base text-[var(--color-muted)]">
+            <code>GaugeTrack</code> — the bar alone. Accent below 60%, yellow above it,
+            alarm red above 85%. Note the accent is our brand red, so the low and high
+            ends are both red: the yellow band in the middle is what carries the warning,
+            and the alarm red is a distinctly brighter one.
+          </div>
+          {[12, 45, 72, 91].map((pct) => (
+            <div key={pct} className="grid grid-cols-[3rem_1fr] items-center gap-3">
+              <span className="text-xs font-mono text-[var(--color-muted)]">{pct}%</span>
+              <GaugeTrack pct={pct} />
+            </div>
+          ))}
+          <div className="grid grid-cols-[3rem_1fr] items-center gap-3">
+            <span className="text-xs font-mono text-[var(--color-muted)]">color</span>
+            <GaugeTrack pct={64} color="#60a5fa" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
+            <div className="text-base text-[var(--color-muted)] mb-1">
+              <code>GaugeRow</code> — dense lists of measurements
+            </div>
+            <GaugeRow label="mem" value="24.1 / 31.3 GB" pct={77} />
+            <GaugeRow label="swap" value="0.9 / 8.0 GB" pct={11} />
+            <GaugeRow label="disk" value="1.7 / 1.8 TB" pct={94} />
+          </div>
+
+          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-3">
+            <div className="text-base text-[var(--color-muted)] mb-1">
+              <code>GaugeBlock</code> — label and value above, caption below
+            </div>
+            <GaugeBlock label="CPU" pct={42} value="42%" sub="8 cores, load 3.4" />
+            <GaugeBlock label="Memory" pct={91} value="28.5 GB" sub="of 31.3 GB" />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-base text-[var(--color-muted)] mb-2">
+            <code>GaugeCard</code> — the percentage as the headline
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <GaugeCard label="CPU" pct={34} value="8 cores" />
+            <GaugeCard label="Memory" pct={68} value="21.3 / 31.3 GB" />
+            <GaugeCard label="Disk" pct={88} value="1.6 / 1.8 TB" />
+            <GaugeCard label="GPU" pct={12} value="RTX 3090" />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-base text-[var(--color-muted)] mb-2">
+            <code>GaugePill</code> — a raw figure against a ceiling. Load average turns
+            yellow at 20% of cores and red at 50%, far earlier than utilisation,
+            because a queue forms long before saturation.
+          </div>
+          <div className="flex gap-4">
+            <GaugePill label="1m" value={1.2} max={16} />
+            <GaugePill label="5m" value={5.4} max={16} />
+            <GaugePill label="15m" value={11.8} max={16} />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-base text-[var(--color-muted)] mb-2">
+            <code>KV</code> and <code>MiniStat</code> — <code>@unturf/unfirehose-ui/KV</code>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 text-base">
+              <KV label="Kernel" value="6.8.0-generic" />
+              <KV label="Arch" value="x86_64" />
+              <KV label="Uplink" value={null} />
+              <div className="text-xs text-[var(--color-muted)] mt-2">
+                missing reads &quot;n/a&quot; — the absence of a reading is information
+              </div>
+            </div>
+            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 text-base">
+              <KV label="Image" value="ubuntu:24.04" hideEmpty align />
+              <KV label="Ports" value="8080, 9090" hideEmpty align />
+              <KV label="Command" value={null} hideEmpty align />
+              <div className="text-xs text-[var(--color-muted)] mt-2">
+                <code>hideEmpty align</code> — a field that does not apply is noise
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-4 mt-3 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+            <MiniStat label="nodes" value={5} />
+            <MiniStat label="watts" value="387W" accent />
+            <MiniStat label="score" value={412} />
+          </div>
         </div>
       </Section>
 

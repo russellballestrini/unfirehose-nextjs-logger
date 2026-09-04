@@ -48,6 +48,8 @@ import {
 } from '@/lib/mesh-score';
 import { fmtLocalDateTime } from '@/lib/local-time';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
+import { GaugeRow, GaugeBlock, GaugeCard, GaugePill } from '@unturf/unfirehose-ui/Gauge';
+import { MiniStat } from '@unturf/unfirehose-ui/KV';
 
 // ============================================================
 
@@ -297,15 +299,6 @@ function MeshSummaryBar({ summary, geoipLoading, geoipCount }: { summary: any; g
   );
 }
 
-function MiniStat({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-base text-[var(--color-muted)]">{label}</span>
-      <span className={`text-base font-bold font-mono ${accent ? 'text-[var(--color-accent)]' : ''}`}>{value}</span>
-    </div>
-  );
-}
-
 // ============================================================
 // Node Card (compact, clickable)
 // ============================================================
@@ -383,12 +376,12 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
         <>
           {/* Mini gauges */}
           <div className="space-y-2 mb-3">
-            <MiniGauge label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
-            <MiniGauge label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
+            <GaugeRow label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
+            <GaugeRow label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
             {hasGpu && (
               <>
-                <MiniGauge label="GPU" value={`${gpuUtil ?? 0}%`} pct={gpuUtil ?? 0} />
-                <MiniGauge label="VRAM" value={`${gpuVramUsedGB.toFixed(1)}/${gpuVramTotalGB.toFixed(1)}G`} pct={gpuVramPct} />
+                <GaugeRow label="GPU" value={`${gpuUtil ?? 0}%`} pct={gpuUtil ?? 0} />
+                <GaugeRow label="VRAM" value={`${gpuVramUsedGB.toFixed(1)}/${gpuVramTotalGB.toFixed(1)}G`} pct={gpuVramPct} />
               </>
             )}
           </div>
@@ -499,8 +492,8 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
         <>
           {/* Mini gauges — same as SSH nodes */}
           <div className="space-y-2 mb-3">
-            <MiniGauge label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
-            <MiniGauge label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
+            <GaugeRow label="VCPU" value={`${load1}/${cpuCores}`} pct={loadPct} />
+            <GaugeRow label="RAM" value={`${memUsed}/${memTotal}G`} pct={memPct} />
           </div>
 
           {/* Stats row */}
@@ -558,19 +551,6 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
         </div>
       )}
     </Link>
-  );
-}
-
-function MiniGauge({ label, value, pct }: { label: string; value: string; pct: number }) {
-  const color = pct > 85 ? '#ef4444' : pct > 60 ? '#eab308' : 'var(--color-accent)';
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-[var(--color-muted)] w-10 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-[var(--color-background)] rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="text-xs font-mono w-24 text-right shrink-0 whitespace-nowrap">{value}</span>
-    </div>
   );
 }
 
@@ -701,7 +681,7 @@ function OverviewTab({ detail }: { detail: any }) {
           <div className="text-xs text-[var(--color-muted)] mb-2">Memory</div>
           {mem && (
             <>
-              <GaugeBar label="RAM" pct={memPct} value={`${mem.usedGB}/${mem.totalGB}G`} sub={`${mem.availableGB}G available`} />
+              <GaugeBlock label="RAM" pct={memPct} value={`${mem.usedGB}/${mem.totalGB}G`} sub={`${mem.availableGB}G available`} />
               <div className="flex gap-3 text-xs text-[var(--color-muted)] mt-2 mb-3">
                 <span>buffers: {mem.buffersGB}G</span>
                 <span>cached: {mem.cachedGB}G</span>
@@ -709,7 +689,7 @@ function OverviewTab({ detail }: { detail: any }) {
                 {mem.dirtyMB > 0 && <span className="text-yellow-400">dirty: {mem.dirtyMB}MB</span>}
               </div>
               {mem.swapTotalGB > 0 && (
-                <GaugeBar label="Swap" pct={swapPct} value={`${mem.swapUsedGB}/${mem.swapTotalGB}G`} sub={mem.swapCachedGB > 0 ? `${mem.swapCachedGB}G cached` : ''} warn={swapPct > 50} />
+                <GaugeBlock label="Swap" pct={swapPct} value={`${mem.swapUsedGB}/${mem.swapTotalGB}G`} sub={mem.swapCachedGB > 0 ? `${mem.swapCachedGB}G cached` : ''} warn={swapPct > 50} />
               )}
             </>
           )}
@@ -1730,50 +1710,6 @@ function EconomicsTab({ hostname: _hostname, econ, onSave, meshNode, geoip, sett
 // ============================================================
 // Shared UI Components
 // ============================================================
-
-function GaugeBar({ label, pct, value, sub, warn }: { label: string; pct: number; value: string; sub?: string; warn?: boolean }) {
-  const color = warn || pct > 85 ? '#ef4444' : pct > 60 ? '#eab308' : 'var(--color-accent)';
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-bold">{label}</span>
-        <span className="text-xs font-mono">{value}</span>
-      </div>
-      <div className="h-2.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</div>}
-    </div>
-  );
-}
-
-function GaugeCard({ label, pct, value }: { label: string; pct: number; value: string }) {
-  const color = pct > 85 ? '#ef4444' : pct > 60 ? '#eab308' : 'var(--color-accent)';
-  return (
-    <div className="bg-[var(--color-surface)] rounded p-3">
-      <div className="text-xs text-[var(--color-muted)] mb-1">{label}</div>
-      <div className="text-lg font-mono font-bold mb-1" style={{ color }}>{pct}%</div>
-      <div className="h-1.5 bg-[var(--color-background)] rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <div className="text-xs text-[var(--color-muted)] mt-1">{value}</div>
-    </div>
-  );
-}
-
-function GaugePill({ label, value, max }: { label: string; value: number; max: number }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
-  const color = pct > 50 ? '#ef4444' : pct > 20 ? '#eab308' : 'var(--color-accent)';
-  return (
-    <div className="flex items-center gap-1 w-20">
-      <span className="text-xs text-[var(--color-muted)]">{label}</span>
-      <div className="flex-1 h-1 bg-[var(--color-background)] rounded-full overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="text-xs font-mono" style={{ color }}>{value.toFixed(1)}</span>
-    </div>
-  );
-}
 
 // ============================================================
 // Helpers

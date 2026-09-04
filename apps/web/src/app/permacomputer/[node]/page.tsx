@@ -14,6 +14,8 @@ import { ThermalPanel } from '@/components/ThermalPanel';
 import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 import { utcToLocalDate, fmtLocalHHMM, fmtLocalDateTime } from '@/lib/local-time';
+import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
+import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
   AreaChart,
@@ -30,7 +32,6 @@ import {
 // Re-exported from @unturf/unfirehose/pricing so pages and server cost math
 // cannot drift apart — this file used 0.31 while pricing.ts used 0.33.
 const DEFAULT_KWH_RATE = PRICING_DEFAULT_KWH_RATE;
-
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -769,7 +770,7 @@ export default function NodeDetailPage() {
                     <span>Load: {probe.loadAvg[0].toFixed(2)} / {probe.loadAvg[1].toFixed(2)} / {probe.loadAvg[2].toFixed(2)}</span>
                     <span>{probe.runnable}</span>
                   </div>
-                  <Bar pct={Math.min(loadPerCore * 100, 100)} color={loadPerCore > 2 ? 'var(--color-error)' : '#f97316'} />
+                  <GaugeTrack height="h-2" pct={Math.min(loadPerCore * 100, 100)} color={loadPerCore > 2 ? 'var(--color-error)' : '#f97316'} />
                   <div className="text-xs text-[var(--color-muted)]">
                     {(loadPerCore * 100).toFixed(0)}% per-core utilization
                   </div>
@@ -784,7 +785,7 @@ export default function NodeDetailPage() {
                     <span>{mem.usedGB.toFixed(1)}GB / {mem.totalGB.toFixed(1)}GB ({memPct.toFixed(0)}%)</span>
                     <span>{mem.availableGB.toFixed(1)}G available</span>
                   </div>
-                  <Bar pct={memPct} color={memPct > 85 ? 'var(--color-error)' : '#60a5fa'} />
+                  <GaugeTrack height="h-2" pct={memPct} color={memPct > 85 ? 'var(--color-error)' : '#60a5fa'} />
                   <div className="flex gap-4 text-xs text-[var(--color-muted)] flex-wrap">
                     <span>buffers: {mem.buffersGB}G</span>
                     <span>cached: {mem.cachedGB}G</span>
@@ -837,7 +838,7 @@ export default function NodeDetailPage() {
                         <span className="font-mono">{d.device}</span>
                         <span>{d.mount} &middot; {d.used}/{d.size} ({d.usePct}%)</span>
                       </div>
-                      <Bar pct={d.usePct} color={d.usePct > 90 ? 'var(--color-error)' : d.usePct > 75 ? '#f97316' : '#22c55e'} />
+                      <GaugeTrack height="h-2" pct={d.usePct} color={d.usePct > 90 ? 'var(--color-error)' : d.usePct > 75 ? '#f97316' : '#22c55e'} />
                     </div>
                   ))}
                 </div>
@@ -890,7 +891,7 @@ export default function NodeDetailPage() {
                             <span>VRAM</span>
                             <span>{(g.memUsedMB / 1024).toFixed(1)} / {(g.memTotalMB / 1024).toFixed(1)} GB ({memPct.toFixed(0)}%)</span>
                           </div>
-                          <Bar pct={memPct} color={memPct > 90 ? 'var(--color-error)' : '#22c55e'} />
+                          <GaugeTrack height="h-2" pct={memPct} color={memPct > 90 ? 'var(--color-error)' : '#22c55e'} />
                         </div>
 
                         <div className="space-y-1">
@@ -898,7 +899,7 @@ export default function NodeDetailPage() {
                             <span>Utilization</span>
                             <span>{g.gpuUtil}% core &middot; {g.memUtil}% mem bus</span>
                           </div>
-                          <Bar pct={g.gpuUtil} color="#22c55e" />
+                          <GaugeTrack height="h-2" pct={g.gpuUtil} color="#22c55e" />
                         </div>
 
                         <div className="space-y-1">
@@ -906,7 +907,7 @@ export default function NodeDetailPage() {
                             <span>Power</span>
                             <span>{powerPct.toFixed(0)}% of limit</span>
                           </div>
-                          <Bar pct={powerPct} color={powerPct > 90 ? '#f97316' : '#a78bfa'} />
+                          <GaugeTrack height="h-2" pct={powerPct} color={powerPct > 90 ? '#f97316' : '#a78bfa'} />
                         </div>
                       </div>
                     );
@@ -1791,29 +1792,11 @@ const ChartOverlay = React.memo(function ChartOverlay() {
 });
 ChartOverlay.displayName = 'ChartOverlay';
 
-
 function Section({ title, children }: { title: string | React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
       <h3 className="text-sm font-bold text-[var(--color-muted)] mb-3">{title}</h3>
       {children}
-    </div>
-  );
-}
-
-function Bar({ pct, color }: { pct: number; color: string }) {
-  return (
-    <div className="h-2 rounded bg-[var(--color-background)] overflow-hidden">
-      <div className="h-full rounded" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
-    </div>
-  );
-}
-
-function KV({ label, value }: { label: string; value?: string | number | null }) {
-  return (
-    <div>
-      <span className="text-[var(--color-muted)]">{label}: </span>
-      <span>{value ?? 'n/a'}</span>
     </div>
   );
 }
