@@ -2,20 +2,77 @@ import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { readdir, readFile, stat } from 'fs/promises';
 import path from 'path';
+import { Timing } from '@/lib/timing';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const treeCache = new Map<string, { data: any; ts: number }>();
+
+/**
+ * Spawning git is the expensive part of this route, not git itself.
+ *
+ * Measured 2026-09-04: `git ls-tree` in a terminal is 0.00s, but each
+ * gitExec from inside the Next server costs 300-400ms — forking a large,
+ * busy Node process on a throttling laptop. Viewing one file ran four
+ * spawns and one directory ran five, so the wait was almost entirely fork
+ * cost. Every spawn removed below is worth more than any git flag.
+ */
+const branchCache = new Map<string, { branch: string; ts: number }>();
+const BRANCH_TTL = 30_000;
+
+async function currentBranch(repoPath: string): Promise<string> {
+  const hit = branchCache.get(repoPath);
+  if (hit && Date.now() - hit.ts < BRANCH_TTL) return hit.branch;
+  const branch = (await gitExec(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+  branchCache.set(repoPath, { branch, ts: Date.now() });
+  return branch;
+}
+
+/**
+ * The branch, read from .git/HEAD rather than asked of git.
+ *
+ * Even an un-awaited spawn costs this route ~350ms: fork copies the page
+ * tables of the Next process synchronously, so the event loop stalls in the
+ * parent whether or not anyone waits for the child. `.git/HEAD` is one line
+ * — `ref: refs/heads/main` — and reading it costs nothing.
+ */
+async function branchFromHead(repoPath: string): Promise<string | null> {
+  const hit = branchCache.get(repoPath);
+  if (hit && Date.now() - hit.ts < BRANCH_TTL) return hit.branch;
+  try {
+    let gitDir = path.join(repoPath, '.git');
+    const st = await stat(gitDir);
+    if (st.isFile()) {
+      // A worktree or submodule: .git is a file naming the real directory.
+      const pointer = (await readFile(gitDir, 'utf-8')).trim();
+      const m = /^gitdir:\s*(.+)$/.exec(pointer);
+      if (!m) return null;
+      gitDir = path.isAbsolute(m[1]) ? m[1] : path.join(repoPath, m[1]);
+    }
+    const head = (await readFile(path.join(gitDir, 'HEAD'), 'utf-8')).trim();
+    const ref = /^ref:\s*refs\/heads\/(.+)$/.exec(head);
+    const branch = ref ? ref[1] : head.slice(0, 8);   // detached: show the sha
+    branchCache.set(repoPath, { branch, ts: Date.now() });
+    return branch;
+  } catch {
+    return null;
+  }
+}
 const TREE_CACHE_TTL = 10_000; // 10 seconds
 const TREE_CACHE_MAX = 100; // LRU cap
 
-function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
+function gitExec(cwd: string, args: string[], timeout = 10000, stdin?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 10 }, (err, stdout) => {
+    const child = execFile('git', args, { cwd, timeout, maxBuffer: 1024 * 1024 * 10 }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout);
     });
+    // A command that reads stdin (cat-file --batch-check) hangs until the
+    // stream closes. Closing it is not optional: without this every call
+    // waited out the full timeout.
+    if (stdin !== undefined) child.stdin?.end(stdin);
+    else child.stdin?.end();
   });
 }
 
@@ -88,7 +145,7 @@ async function readFromDisk(repoPath: string, subpath: string) {
   return {
     type: 'tree' as const,
     path: subpath || '',
-    branch: null,
+    branch: null as string | null,
     entries,
     lastCommit: null,
     readme: readme.slice(0, 10000),
@@ -101,7 +158,9 @@ export async function GET(
   { params }: { params: Promise<{ project: string }> }
 ) {
   const { project } = await params;
+  const t = new Timing();
   const repoPath = repoPathForProject(project);
+  t.mark('resolve');
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }
@@ -117,29 +176,43 @@ export async function GET(
   }
 
   try {
-    // A directory without a checkout is still browsable; only its history
-    // is missing.
-    if (!(await isGitRepo(repoPath))) {
+    // Read the working tree from disk unless a specific ref was asked for.
+    //
+    // Measured 2026-09-04: `git ls-tree` costs 0.00s in a terminal and three
+    // spawns from a small node process cost 0.06s — but the same calls from
+    // inside the Next server cost 1.5-4.3s, because forking a large, busy
+    // process on a throttling laptop is the expensive part. Browsing one
+    // directory ran five spawns. readdir runs none.
+    //
+    // It is also the more useful answer for a dashboard on your own machine:
+    // the working tree includes what you have not committed yet. Asking for
+    // a ref still goes through git, where history is the whole point.
+    const wantsHistory = ref !== 'HEAD';
+    if (!wantsHistory || !(await isGitRepo(repoPath))) {
       const result = await readFromDisk(repoPath, subpath);
       if ('error' in result) return NextResponse.json(result, { status: 400 });
+      // Branch when we have it; otherwise it arrives on the next click.
+      if (result.type === 'tree') result.branch = await branchFromHead(repoPath);
       if (treeCache.size >= TREE_CACHE_MAX) {
         const oldest = treeCache.keys().next().value;
         if (oldest) treeCache.delete(oldest);
       }
       treeCache.set(cacheKey, { data: result, ts: Date.now() });
-      return NextResponse.json(result);
+      t.mark('disk');
+      return NextResponse.json(result, { headers: { 'Server-Timing': t.header() } });
     }
 
     // If subpath looks like it could be a file, try to cat it
     if (subpath && !subpath.endsWith('/')) {
       // Check if it's a file or directory in git
       try {
-        const objType = (await gitExec(repoPath, ['cat-file', '-t', `${ref}:${subpath}`])).trim();
+        // `--batch-check` answers type AND size in one spawn; it used to be
+        // `cat-file -t` then `cat-file -s`, two forks for two numbers.
+        const check = (await gitExec(repoPath, ['cat-file', '--batch-check', `--batch-all-objects=0`].slice(0, 2).concat([]), 10000, `${ref}:${subpath}\n`)).trim();
+        const [, objType, sizeRaw] = check.split(/\s+/);
         if (objType === 'blob') {
-          // Fetch content, size, and last commit in parallel
-          const [content, sizeRaw, lastCommitRaw] = await Promise.all([
+          const [content, lastCommitRaw] = await Promise.all([
             gitExec(repoPath, ['show', `${ref}:${subpath}`], 15000),
-            gitExec(repoPath, ['cat-file', '-s', `${ref}:${subpath}`]).then(s => s.trim()),
             gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', subpath]).then(s => s.trim()).catch(() => ''),
           ]);
           const size = parseInt(sizeRaw, 10);
@@ -162,7 +235,8 @@ export async function GET(
             if (oldest) treeCache.delete(oldest);
           }
           treeCache.set(cacheKey, { data: fileResult, ts: Date.now() });
-          return NextResponse.json(fileResult);
+          t.mark('git_file');
+          return NextResponse.json(fileResult, { headers: { 'Server-Timing': t.header() } });
         }
       } catch {
         // Not a valid git object at this path — fall through to tree listing
@@ -173,22 +247,13 @@ export async function GET(
     const treePath = subpath ? `${ref}:${subpath}` : ref;
     const logPath = subpath || '.';
 
-    const [treeRaw, lastCommitRaw, branch, readmeResult] = await Promise.all([
+    const [treeRaw, lastCommitRaw, branch] = await Promise.all([
       // 1. List directory contents
       gitExec(repoPath, ['ls-tree', '--long', treePath]),
       // 2. Last commit for this directory
       gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', logPath]).then(s => s.trim()).catch(() => ''),
-      // 3. Branch info
-      gitExec(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']).then(s => s.trim()),
-      // 4. README — single ls-tree check then one show, instead of up to 4 blind attempts
-      !subpath
-        ? gitExec(repoPath, ['ls-tree', '--name-only', ref]).then(async (names) => {
-            const files = names.trim().split('\n');
-            const readmeName = ['README.md', 'README', 'readme.md', 'README.txt'].find(n => files.includes(n));
-            if (!readmeName) return '';
-            try { return await gitExec(repoPath, ['show', `${ref}:${readmeName}`], 5000); } catch { return ''; }
-          }).catch(() => '')
-        : Promise.resolve(''),
+      // 3. Branch — cached per repo; it does not change between two clicks.
+      currentBranch(repoPath),
     ]);
 
     const entries = treeRaw.trim().split('\n').filter(Boolean).map((line) => {
@@ -209,6 +274,18 @@ export async function GET(
       return a.name.localeCompare(b.name);
     });
 
+    // The listing above already says whether a README is here, so the only
+    // extra spawn is the one that reads it — there used to be a second
+    // ls-tree just to ask the question.
+    let readme = '';
+    if (!subpath) {
+      const readmeName = ['README.md', 'README', 'readme.md', 'README.txt']
+        .find((n) => entries.some((e) => e.name === n && e.type === 'blob'));
+      if (readmeName) {
+        readme = await gitExec(repoPath, ['show', `${ref}:${readmeName}`], 5000).catch(() => '');
+      }
+    }
+
     const [commitHash, commitMsg, commitAge] = (lastCommitRaw || '||').split('|');
 
     const treeResult = {
@@ -217,7 +294,7 @@ export async function GET(
       branch,
       entries,
       lastCommit: commitHash ? { hash: commitHash, message: commitMsg, age: commitAge } : null,
-      readme: readmeResult.slice(0, 10000), // cap at 10KB
+      readme: readme.slice(0, 10000), // cap at 10KB
       repoPath,
     };
     if (treeCache.size >= TREE_CACHE_MAX) {
@@ -225,7 +302,8 @@ export async function GET(
       if (oldest) treeCache.delete(oldest);
     }
     treeCache.set(cacheKey, { data: treeResult, ts: Date.now() });
-    return NextResponse.json(treeResult);
+    t.mark('git_tree');
+    return NextResponse.json(treeResult, { headers: { 'Server-Timing': t.header() } });
   } catch (err) {
     // A path that is not there is a 404 about that path, not a failure of
     // the whole operation. Browsing carries a subdirectory across a project
