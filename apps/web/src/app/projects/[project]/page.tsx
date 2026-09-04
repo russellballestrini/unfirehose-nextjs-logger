@@ -5,7 +5,8 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
 import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
-import { TokenSplitCards } from '@unturf/unfirehose-ui/TokenSplit';
+import { TOKEN_TYPE_COLORS, totalOf, cacheOf, cacheShareOf } from '@unturf/unfirehose-ui/TokenSplit';
+import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
@@ -421,28 +422,61 @@ export default function ProjectPage({
 /* ─── OVERVIEW TAB ─── */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets, model, setModel, harnessModels }: any) {
+  // Every token this project moved, by type. Input and output alone
+  // described about 8% of it.
+  const projectTokens = {
+    input: full?.stats?.totalInput ?? 0,
+    output: full?.stats?.totalOutput ?? 0,
+    cacheRead: full?.stats?.totalCacheRead ?? 0,
+    cacheWrite: full?.stats?.totalCacheWrite ?? 0,
+  };
+  const projectCacheShare = cacheShareOf(projectTokens);
+
   return (
     <div className="space-y-6">
       {/* Stats bar */}
       {full?.stats && (
         <div className="space-y-2">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Sessions" value={full.stats.sessionCount} />
-            <StatCard label="Messages" value={full.stats.messageCount.toLocaleString()} />
-            <StatCard label="Active Days" value={full.stats.activeDays} sub={full.stats.firstActivity ? `since ${formatRelativeTime(full.stats.firstActivity)}` : undefined} />
-            <StatCard label="Equiv Cost" value={`$${full.stats.totalCost.toFixed(2)}`} />
-          </div>
-          {/* This project's tokens by type, each priced. Input and output
-              alone described about 8% of what this project actually moved. */}
-          <TokenSplitCards
-            tokens={{
-              input: full.stats.totalInput ?? 0,
-              output: full.stats.totalOutput ?? 0,
-              cacheRead: full.stats.totalCacheRead ?? 0,
-              cacheWrite: full.stats.totalCacheWrite ?? 0,
-            }}
-            costs={full.stats.costSplit && { ...full.stats.costSplit, total: full.stats.totalCost }}
-          />
+          {/* One row. Sessions through Active Days is what happened; Tokens
+              through Output is what it cost. Equiv Cost used to sit beside
+              Total Tokens printing the same figure twice, so the cost lives
+              on the token it belongs to. */}
+          <StatStrip>
+            <Stat label="Sessions" value={full.stats.sessionCount} />
+            <Stat label="Messages" value={full.stats.messageCount.toLocaleString()} />
+            <Stat
+              label="Active Days"
+              value={full.stats.activeDays}
+              sub={full.stats.firstActivity ? `since ${formatRelativeTime(full.stats.firstActivity)}` : undefined}
+            />
+
+            <StatDivider />
+
+            <Stat
+              label="Tokens"
+              value={formatTokens(totalOf(projectTokens))}
+              sub={costSub(full.stats.totalCost)}
+              title="Input + output + cache read + cache write, priced at what these tokens cost to buy."
+            />
+            <Stat
+              label="Input"
+              value={formatTokens(projectTokens.input)}
+              sub={costSub(full.stats.costSplit?.input)}
+              color={TOKEN_TYPE_COLORS.input}
+            />
+            <Stat
+              label="Cache"
+              value={formatTokens(cacheOf(projectTokens))}
+              sub={`${costSub(cacheCostOf(full.stats.costSplit))}${projectCacheShare != null ? ` · ${Math.round(projectCacheShare * 100)}% of tokens` : ''}`}
+              color={TOKEN_TYPE_COLORS.cacheRead}
+            />
+            <Stat
+              label="Output"
+              value={formatTokens(projectTokens.output)}
+              sub={costSub(full.stats.costSplit?.output)}
+              color={TOKEN_TYPE_COLORS.output}
+            />
+          </StatStrip>
           <div className="text-right">
             <Link
               href={`/tokens?project=${encodeURIComponent(project)}`}

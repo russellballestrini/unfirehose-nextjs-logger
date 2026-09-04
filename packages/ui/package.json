@@ -40,7 +40,8 @@
     "./HarnessPicker": "./components/HarnessPicker.tsx",
     "./useStickyState": "./components/useStickyState.tsx",
     "./TokenSplit": "./components/TokenSplit.tsx",
-    "./modelColor": "./components/modelColor.ts"
+    "./modelColor": "./components/modelColor.ts",
+    "./StatStrip": "./components/StatStrip.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

@@ -9,6 +9,7 @@ import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
+import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
 import {
   BarChart,
   Bar,
@@ -187,14 +188,13 @@ export default function DashboardPage() {
           what it cost. The old layout also printed the same dollar figure
           twice — "Total Tokens $5,349" beside "Equiv Cost $5,349" — so the
           cost lives on the token it belongs to now. */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-4 py-3
-                      flex flex-wrap items-start gap-x-6 gap-y-3">
+      <StatStrip>
         <Stat label="Sessions" value={String(data.summary.sessions)} />
         <Stat label="Messages" value={formatTokens(data.summary.messages)} />
         <Stat label="Models" value={String(data.summary.models)} />
         <Stat label="Since" value={data.summary.since ?? '?'} />
 
-        <span className="self-stretch w-px bg-[var(--color-border)]" aria-hidden />
+        <StatDivider />
 
         <Stat
           label="Tokens"
@@ -220,7 +220,7 @@ export default function DashboardPage() {
           sub={costSub(data.summary.costSplit?.output)}
           color={TOKEN_TYPE_COLORS.output}
         />
-      </div>
+      </StatStrip>
 
       {/* Charts row: activity + hour distribution */}
       <div className="grid grid-cols-2 gap-4">
@@ -607,25 +607,3 @@ function DualHourTick({ x, y, payload, offset }: any) {
   );
 }
 
-/** One figure in the summary strip: label, value, and an optional smaller
- *  line under it. Deliberately not a card — nine bordered boxes across two
- *  rows said no more than one row of numbers does. */
-function Stat({ label, value, sub, title, color }: { label: string; value: string; sub?: string; title?: string; color?: string }) {
-  return (
-    <div className="min-w-[6.5rem]" title={title}>
-      <div className="text-xs text-[var(--color-muted)] uppercase tracking-wide">{label}</div>
-      <div className="text-xl font-bold leading-tight" style={color ? { color } : undefined}>{value}</div>
-      {sub && <div className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</div>}
-    </div>
-  );
-}
-
-/** A cost we may not know. Undefined prints an em dash, never $0. */
-function costSub(usd: number | undefined | null): string {
-  return usd == null ? '—' : `$${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`;
-}
-
-function cacheCostOf(split: { cacheRead?: number; cacheWrite?: number } | undefined | null): number | undefined {
-  if (!split) return undefined;
-  return (split.cacheRead ?? 0) + (split.cacheWrite ?? 0);
-}
