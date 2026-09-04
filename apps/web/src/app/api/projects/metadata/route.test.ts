@@ -2,17 +2,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@unturf/unfirehose/claude-paths', () => ({
-  claudePaths: {
-    sessionsIndex: (p: string) => `/mock/${p}/sessions-index.json`,
-  },
+// The route asks the database where a repo lives; the encoded name is only
+// the fallback. Mock the resolver, not the filesystem guess it replaced.
+vi.mock('@unturf/unfirehose/db/repo-path', () => ({
+  repoPathForProject: (name: string) =>
+    name ? '/home/fox/git/test' : null,
 }));
 
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockImplementation((path: string) => {
-    if (path.includes('sessions-index.json')) {
-      return Promise.resolve(JSON.stringify({ originalPath: '/home/fox/git/test', entries: [] }));
-    }
     if (path.includes('CLAUDE.md')) {
       return Promise.resolve('# Test Project\n\nThis is a test.');
     }
