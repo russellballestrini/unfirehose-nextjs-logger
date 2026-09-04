@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
+
+// Key derivation is real crypto, and this suite runs on a box that is also
+// serving a dashboard, ingesting sessions and probing a mesh. The default
+// 1s window makes these assert machine speed rather than behaviour: they
+// have failed twice on load while passing standalone.
+const WAIT = { timeout: 20_000 };
 import userEvent from '@testing-library/user-event';
 import { VaultProvider } from './VaultProvider';
 import { VaultGate } from './VaultGate';
@@ -25,7 +31,7 @@ describe('VaultGate', () => {
     renderGate();
     await waitFor(() => {
       expect(screen.getByText('Create your vault')).toBeTruthy();
-    });
+    }, WAIT);
     expect(screen.getByPlaceholderText('Choose a password (8+ chars)')).toBeTruthy();
     expect(screen.getByText('Create Vault')).toBeTruthy();
     expect(screen.queryByTestId('app-content')).toBeNull();
@@ -34,7 +40,7 @@ describe('VaultGate', () => {
   it('validates minimum password length', async () => {
     const user = userEvent.setup();
     renderGate();
-    await waitFor(() => expect(screen.getByText('Create your vault')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Create your vault')).toBeTruthy(), WAIT);
 
     const input = screen.getByPlaceholderText('Choose a password (8+ chars)');
     await user.type(input, 'short');
@@ -42,14 +48,14 @@ describe('VaultGate', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Password must be at least 8 characters')).toBeTruthy();
-    });
+    }, WAIT);
     expect(screen.queryByTestId('app-content')).toBeNull();
   });
 
   it('creates vault and shows app content', async () => {
     const user = userEvent.setup();
     renderGate();
-    await waitFor(() => expect(screen.getByText('Create your vault')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Create your vault')).toBeTruthy(), WAIT);
 
     const input = screen.getByPlaceholderText('Choose a password (8+ chars)');
     await user.type(input, 'longpassword123');
@@ -63,7 +69,7 @@ describe('VaultGate', () => {
   it('skip button creates vault and shows app', async () => {
     const user = userEvent.setup();
     renderGate();
-    await waitFor(() => expect(screen.getByText('Create your vault')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Create your vault')).toBeTruthy(), WAIT);
 
     await user.click(screen.getByText(/Skip/));
 
@@ -81,7 +87,7 @@ describe('VaultGate', () => {
     renderGate();
     await waitFor(() => {
       expect(screen.getByText('Unlock vault')).toBeTruthy();
-    });
+    }, WAIT);
     expect(screen.getByPlaceholderText('Vault password')).toBeTruthy();
     expect(screen.getByText('Unlock')).toBeTruthy();
   });
@@ -93,14 +99,14 @@ describe('VaultGate', () => {
 
     const user = userEvent.setup();
     renderGate();
-    await waitFor(() => expect(screen.getByText('Unlock vault')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Unlock vault')).toBeTruthy(), WAIT);
 
     await user.type(screen.getByPlaceholderText('Vault password'), 'wrong-password');
     await user.click(screen.getByText('Unlock'));
 
     await waitFor(() => {
       expect(screen.getByText('Wrong password')).toBeTruthy();
-    });
+    }, WAIT);
   });
 
   it('unlocks with correct password and shows app', async () => {
@@ -110,7 +116,7 @@ describe('VaultGate', () => {
 
     const user = userEvent.setup();
     renderGate();
-    await waitFor(() => expect(screen.getByText('Unlock vault')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Unlock vault')).toBeTruthy(), WAIT);
 
     await user.type(screen.getByPlaceholderText('Vault password'), 'correct-pw');
     await user.click(screen.getByText('Unlock'));
