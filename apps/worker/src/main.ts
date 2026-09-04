@@ -9,6 +9,7 @@ import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 import { refreshProjectList } from '@unturf/unfirehose/projects-list';
+import { refreshDashboard, WARM_RANGES } from '@unturf/unfirehose/dashboard';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -49,6 +50,7 @@ const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
+const DASHBOARD_REFRESH_MS = 60_000;      // ~1.2s per range; the page polls every 30s
 const PROJECT_LIST_REFRESH_MS = 60_000;   // ~5s of aggregates; never on a page load
 const SCROBBLE_REFRESH_MS = 5 * 60_000;   // two full scans of messages; not on a page load
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
@@ -193,6 +195,22 @@ async function main() {
     ingestInFlight = false; // clear a stuck/abandoned guard before retrying
     void runIngestOnce('watchdog');
   }, WATCHDOG_TICK_MS);
+
+  // Dashboard payloads for the ranges a dashboard opens on. Any other range
+  // builds on its first request and is stored for the next.
+  const refreshDashboards = () => {
+    for (const range of WARM_RANGES) {
+      try {
+        const t0 = Date.now();
+        refreshDashboard(range, getDb());
+        console.log(`[worker] dashboard ${range} in ${Date.now() - t0}ms`);
+      } catch (err) {
+        console.error(`[worker] dashboard ${range} failed:`, err);
+      }
+    }
+  };
+  const dashboardKickoff = setTimeout(refreshDashboards, 12_000);
+  const dashboardInterval = setInterval(refreshDashboards, DASHBOARD_REFRESH_MS);
 
   // Project list. Two aggregates over messages plus a filesystem pass —
   // about 5s, which starves the single-threaded web process if it runs
@@ -404,6 +422,8 @@ async function main() {
       clearInterval(scrobbleInterval);
       clearTimeout(projectsKickoff);
       clearInterval(projectsInterval);
+      clearTimeout(dashboardKickoff);
+      clearInterval(dashboardInterval);
       clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);

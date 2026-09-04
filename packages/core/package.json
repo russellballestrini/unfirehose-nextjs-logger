@@ -74,7 +74,8 @@
     "./db/repo-path": "./db/repo-path.ts",
     "./git-exec": "./git-exec.ts",
     "./scrobble": "./scrobble.ts",
-    "./projects-list": "./projects-list.ts"
+    "./projects-list": "./projects-list.ts",
+    "./dashboard": "./dashboard.ts"
   },
   "scripts": {
     "test": "vitest run",
