@@ -1,6 +1,6 @@
 # 3973: Codebase audit — the defect classes behind "everything is slow"
 
-**Status:** open
+**Status:** done
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 240m
 **Todo IDs:** 3973
@@ -81,7 +81,7 @@ model colour map (2), the summary strip (2). `gitExec` and `fetcher` are
 the remaining large ones. A shared `gitExec` also gives one place to add
 the spawn accounting item 4 needs.
 
-### 6. Unbounded SELECT in 12 API routes
+### 6. Unbounded SELECT in 12 API routes — **not a real problem, measured**
 
 `mesh/history`, `projects`, `dashboard`, `active-sessions`,
 `rate-limits`, `usage/plan`, `account`, `projects/merge`,
@@ -100,3 +100,29 @@ endpoint. The lifetime aggregates could be a rollup table like
 
 1, 2 and 3 are user-visible today. 5 is what fox asked for and makes 4
 tractable. 6 and 7 are debt that grows with the database.
+
+## Done — 2026-09-04
+
+| # | what | before | after |
+|---|---|---|---|
+| 1 | `/api/mesh/history` | 7.97 MB every 6s | **149 KB - 892 KB**, peak-preserving buckets |
+| 2 | `/api/todos` | 2.27 MB, ~2,000 cards | **471 KB**, 400 drawn, truncation stated |
+| 3 | three diff viewers | one `<div>` per line | one `DiffView`, runs not lines |
+| 4 | `/api/projects/git-status` | **131s** blocking, 288 spawns | **0.56s**, mtime memo, sweep behind the response |
+| 5 | `gitExec` x7, `fetcher` x24 | copies | one each, in core and ui |
+| 6 | unbounded SELECT x12 | flagged | **withdrawn** — all measured 0-12 KB; they aggregate, they do not return rows. Left as a note, not a change |
+| 7 | `/api/scrobble/payload` | 11.6s per miss | **37ms**, worker precomputes |
+
+Two defects surfaced while fixing these, neither of them the thing being
+fixed:
+
+- `getModelBreakdownInWindow` never selected `provider` or `endpoint`,
+  which the alert detail page reads to decide self-hosted versus bought. It
+  had been guessing from the model name. Typing the row exposed it.
+- The shared `fetcher` resolves nothing on a non-2xx now. All 24 copies
+  returned the parsed error body as data, so a 500 rendered as a page of
+  undefined instead of the error SWR exists to surface.
+
+The vault test suite was made load-tolerant: it failed twice under load and
+passed standalone both times, and a flaky test here blocks the publish
+stage that has kept npm at 1.1.2.
