@@ -72,7 +72,8 @@
     "./claude-code-adapter": "./claude-code-adapter.ts",
     "./vllm-metrics": "./vllm-metrics.ts",
     "./db/repo-path": "./db/repo-path.ts",
-    "./git-exec": "./git-exec.ts"
+    "./git-exec": "./git-exec.ts",
+    "./scrobble": "./scrobble.ts"
   },
   "scripts": {
     "test": "vitest run",

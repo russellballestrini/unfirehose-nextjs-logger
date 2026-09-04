@@ -7,6 +7,7 @@ import { rollupDrain } from './mesh-rollup';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
+import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -47,6 +48,7 @@ const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
+const SCROBBLE_REFRESH_MS = 5 * 60_000;   // two full scans of messages; not on a page load
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
@@ -189,6 +191,20 @@ async function main() {
     ingestInFlight = false; // clear a stuck/abandoned guard before retrying
     void runIngestOnce('watchdog');
   }, WATCHDOG_TICK_MS);
+
+  // Scrobble payload. Building it is two full scans of a 1.6M-row table, so
+  // it is computed here and stored, and the page reads what we left.
+  const refreshScrobble = () => {
+    try {
+      const t0 = Date.now();
+      refreshScrobblePayload(getDb());
+      console.log(`[worker] scrobble payload refreshed in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.error('[worker] scrobble refresh failed:', err);
+    }
+  };
+  const scrobbleKickoff = setTimeout(refreshScrobble, 20_000);
+  const scrobbleInterval = setInterval(refreshScrobble, SCROBBLE_REFRESH_MS);
 
   // Vendor status pages. What the provider admits to, next to what we hit.
   // First poll shortly after boot so the refusals tab is not blank for a
@@ -367,6 +383,8 @@ async function main() {
       clearTimeout(statusKickoff);
       clearInterval(statusInterval);
       clearInterval(statusRollup);
+      clearTimeout(scrobbleKickoff);
+      clearInterval(scrobbleInterval);
       clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
