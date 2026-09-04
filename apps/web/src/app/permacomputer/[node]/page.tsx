@@ -11,9 +11,9 @@ import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, use
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes, TIME_RANGE_OPTIONS } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { ThermalPanel } from '@/components/ThermalPanel';
+import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
-import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
   AreaChart,
   Area,
   LineChart,
