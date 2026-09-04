@@ -146,6 +146,14 @@ export default function ProjectPage({
 
   // File tree data (for code tab)
   const [treePath, setTreePath] = useState('');
+  // A subdirectory belongs to the project you were browsing. Carried into
+  // the next one it asks for a path that does not exist there, which is how
+  // the Code tab ended up reporting a failure for a healthy project.
+  const [treePathProject, setTreePathProject] = useState(project);
+  if (treePathProject !== project) {
+    setTreePathProject(project);
+    if (treePath) setTreePath('');
+  }
   const { data: treeData } = useSWR<any>(
     tab === 'code' ? `/api/projects/${project}/tree?path=${encodeURIComponent(treePath)}` : null,
     fetcher

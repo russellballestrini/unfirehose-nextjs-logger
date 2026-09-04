@@ -227,6 +227,16 @@ export async function GET(
     treeCache.set(cacheKey, { data: treeResult, ts: Date.now() });
     return NextResponse.json(treeResult);
   } catch (err) {
+    // A path that is not there is a 404 about that path, not a failure of
+    // the whole operation. Browsing carries a subdirectory across a project
+    // switch, and the old 500 read as "Tree operation failed" with no clue
+    // which path was missing.
+    if (err && typeof err === 'object' && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return NextResponse.json(
+        { error: 'No such path in this project', path: subpath },
+        { status: 404 },
+      );
+    }
     return NextResponse.json({ error: 'Tree operation failed', detail: String(err) }, { status: 500 });
   }
 }
