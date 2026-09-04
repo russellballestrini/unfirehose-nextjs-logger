@@ -44,7 +44,8 @@
     "./StatStrip": "./components/StatStrip.tsx",
     "./DiffView": "./components/DiffView.tsx",
     "./fetcher": "./components/fetcher.ts",
-    "./BootScreen": "./components/BootScreen.tsx"
+    "./BootScreen": "./components/BootScreen.tsx",
+    "./chart-theme": "./components/chart-theme.ts"
   },
   "scripts": {
     "lint": "tsc --noEmit",

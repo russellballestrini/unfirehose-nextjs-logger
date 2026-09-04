@@ -13,6 +13,7 @@ import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSe
 import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
 import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
 import {
+import { AXIS_TICK, TOOLTIP_STYLE } from '@unturf/unfirehose-ui/chart-theme';
   BarChart,
   Bar,
   AreaChart,
@@ -232,12 +233,12 @@ export default function DashboardPage() {
             <BarChart data={data.dailyActivity}>
               <XAxis
                 dataKey="date"
-                tick={{ fill: '#71717a', fontSize: 16 }}
+                tick={AXIS_TICK}
                 tickFormatter={(d: string) => d.slice(5)}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
+              <YAxis tick={AXIS_TICK} />
               <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+                contentStyle={TOOLTIP_STYLE}
               />
               <Bar dataKey="messageCount" fill="#10b981" radius={[2, 2, 0, 0]} />
             </BarChart>
@@ -259,9 +260,9 @@ export default function DashboardPage() {
                 interval={2}
                 height={40}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
+              <YAxis tick={AXIS_TICK} />
               <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+                contentStyle={TOOLTIP_STYLE}
                 labelFormatter={(h) => formatDualHourTooltip(h as number)}
               />
               <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} />
@@ -279,10 +280,10 @@ export default function DashboardPage() {
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.dayOfWeekCounts}>
-              <XAxis dataKey="day" tick={{ fill: '#71717a', fontSize: 16 }} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
+              <XAxis dataKey="day" tick={AXIS_TICK} />
+              <YAxis tick={AXIS_TICK} />
               <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+                contentStyle={TOOLTIP_STYLE}
               />
               <Bar dataKey="count" radius={[2, 2, 0, 0]}>
                 {(data.dayOfWeekCounts ?? []).map((d: any) => (
@@ -309,9 +310,9 @@ export default function DashboardPage() {
                 interval={2}
                 height={40}
               />
-              <YAxis tick={{ fill: '#71717a', fontSize: 16 }} />
+              <YAxis tick={AXIS_TICK} />
               <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4, color: '#fafafa', fontSize: 14 }}
+                contentStyle={TOOLTIP_STYLE}
                 labelFormatter={(h) => formatDualHourTooltip(h as number)}
               />
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (

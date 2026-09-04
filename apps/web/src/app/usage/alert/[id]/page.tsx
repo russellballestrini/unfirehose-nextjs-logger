@@ -13,6 +13,7 @@ import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import type { ProjectMetadata } from '@unturf/unfirehose/types';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { formatTokens, formatCost, formatRelativeTime, formatTimestamp, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
+import { AXIS_TICK, TOOLTIP_STYLE } from '@unturf/unfirehose-ui/chart-theme';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

@@ -13,6 +13,7 @@ import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { ThermalPanel } from '@/components/ThermalPanel';
 // uplot CSS is bundled by UPlotTimeChart's import
 import {
+import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
   AreaChart,
   Area,
   LineChart,
@@ -1283,7 +1284,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} />
+                  <YAxis tick={AXIS_TICK_SM} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Legend />
                   <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
@@ -1304,7 +1305,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
+                  <YAxis tick={AXIS_TICK_SM} unit="GB" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Legend />
                   {last.memTotalGB > 0 && (
@@ -1328,7 +1329,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="%" domain={[0, 100]} />
+                  <YAxis tick={AXIS_TICK_SM} unit="%" domain={[0, 100]} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
@@ -1349,7 +1350,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="GB" />
+                  <YAxis tick={AXIS_TICK_SM} unit="GB" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                   <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
@@ -1371,7 +1372,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
+                  <YAxis tick={AXIS_TICK_SM} unit="W" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
@@ -1393,7 +1394,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+                  <YAxis tick={AXIS_TICK_SM} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>
@@ -1412,7 +1413,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} unit="W" />
+                  <YAxis tick={AXIS_TICK_SM} unit="W" />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Legend />
                   <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
@@ -1436,7 +1437,7 @@ export default function NodeDetailPage() {
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={chartData}>
                   <XAxis {...xAxisProps} />
-                  <YAxis tick={{ fill: '#71717a', fontSize: 12 }} allowDecimals={false} />
+                  <YAxis tick={AXIS_TICK_SM} allowDecimals={false} />
                   <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
                   <Area type="stepAfter" dataKey="agents" name="Agents" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
                 </AreaChart>

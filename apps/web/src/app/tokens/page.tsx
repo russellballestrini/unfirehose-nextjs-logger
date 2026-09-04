@@ -26,6 +26,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
+import { AXIS_TICK } from '@unturf/unfirehose-ui/chart-theme';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -819,7 +820,7 @@ export default function TokensPage() {
                   <BarChart data={barData} layout="vertical" margin={{ left: 10 }}>
                     <XAxis
                       type="number"
-                      tick={{ fill: '#71717a', fontSize: 16 }}
+                      tick={AXIS_TICK}
                       tickFormatter={(v: number) => formatTokens(v)}
                     />
                     <YAxis
@@ -872,11 +873,11 @@ export default function TokensPage() {
                 <BarChart data={chartData}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#71717a', fontSize: 16 }}
+                    tick={AXIS_TICK}
                     tickFormatter={(d: string) => d.slice(5)}
                   />
                   <YAxis
-                    tick={{ fill: '#71717a', fontSize: 16 }}
+                    tick={AXIS_TICK}
                     tickFormatter={(v: number) => formatTokens(v)}
                   />
                   <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
@@ -1073,7 +1074,7 @@ export default function TokensPage() {
             >
               <XAxis
                 type="number"
-                tick={{ fill: '#71717a', fontSize: 16 }}
+                tick={AXIS_TICK}
                 tickFormatter={(v: number) => v.toLocaleString()}
               />
               <YAxis
@@ -1436,18 +1437,18 @@ export default function TokensPage() {
                   <BarChart data={cumulativeData}>
                     <XAxis
                       dataKey="date"
-                      tick={{ fill: '#71717a', fontSize: 16 }}
+                      tick={AXIS_TICK}
                       tickFormatter={(d: string) => d.slice(5)}
                     />
                     <YAxis
                       yAxisId="left"
-                      tick={{ fill: '#71717a', fontSize: 16 }}
+                      tick={AXIS_TICK}
                       tickFormatter={(v: number) => formatCost(v)}
                     />
                     <YAxis
                       yAxisId="right"
                       orientation="right"
-                      tick={{ fill: '#71717a', fontSize: 16 }}
+                      tick={AXIS_TICK}
                       tickFormatter={(v: number) => formatCost(v)}
                     />
                     <Tooltip formatter={(v) => formatCost(Number(v ?? 0))} />
