@@ -21,10 +21,10 @@ export default defineConfig({
       // still a ratchet: it catches the day a tested route stops being
       // tested. Raise it when coverage rises.
       thresholds: {
-        statements: 9,
+        statements: 11,
         branches: 5,
         functions: 5,
-        lines: 9,
+        lines: 12,
       },
     },
     restoreMocks: true,
