@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { readFile, stat } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 import { getAllSettings } from '@unturf/unfirehose/db/ingest';
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
-import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -14,35 +13,6 @@ function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> 
       else resolve(stdout);
     });
   });
-}
-
-async function resolvePathFromName(name: string): Promise<string | null> {
-  const parts = name.replace(/^-/, '').split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx < 0 || gitIdx >= parts.length - 1) return null;
-  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
-  const projectParts = parts.slice(gitIdx + 1);
-  const dashJoined = prefix + '/' + projectParts.join('-');
-  try { if ((await stat(dashJoined)).isDirectory()) return dashJoined; } catch {}
-  if (projectParts.length >= 2) {
-    const lastPart = projectParts[projectParts.length - 1];
-    if (['com', 'net', 'org', 'io', 'dev', 'ai', 'app'].includes(lastPart)) {
-      const dotted = prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + lastPart;
-      try { if ((await stat(dotted)).isDirectory()) return dotted; } catch {}
-      const allDots = prefix + '/' + projectParts.join('.');
-      try { if ((await stat(allDots)).isDirectory()) return allDots; } catch {}
-    }
-  }
-  return null;
-}
-
-async function resolveRepoPath(projectName: string): Promise<string | null> {
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    if (index.originalPath) return index.originalPath;
-  } catch {}
-  return resolvePathFromName(projectName);
 }
 
 // Auto-detect Claude Max OAuth token from filesystem
@@ -217,7 +187,7 @@ export async function POST(
   { params }: { params: Promise<{ project: string }> }
 ) {
   const { project } = await params;
-  const repoPath = await resolveRepoPath(project);
+  const repoPath = repoPathForProject(project);
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { execFile } from 'child_process';
 import path from 'path';
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
-import type { ProjectMetadata, GitRemote, GitCommit, SessionsIndex } from '@unturf/unfirehose/types';
+import type { ProjectMetadata, GitRemote, GitCommit } from '@unturf/unfirehose/types';
+import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 // Module-level cache: project -> { data, ts }
 const cache = new Map<string, { data: ProjectMetadata; ts: number }>();
@@ -18,18 +18,8 @@ function gitExec(cwd: string, args: string[]): Promise<string> {
   });
 }
 
-async function resolveRepoPath(projectName: string): Promise<string | null> {
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    return index.originalPath ?? null;
-  } catch {
-    return null;
-  }
-}
-
 async function fetchMetadata(projectName: string): Promise<ProjectMetadata> {
-  const repoPath = await resolveRepoPath(projectName) ?? '';
+  const repoPath = repoPathForProject(projectName) ?? '';
   let branch: string | null = null;
   let remotes: GitRemote[] = [];
   let recentCommits: GitCommit[] = [];

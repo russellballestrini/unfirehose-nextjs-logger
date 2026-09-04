@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { readFile } from 'fs/promises';
 import { getProjectActivity, getProjectModelActivity, getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { calcCostBreakdown, isSelfHosted } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { isWorkspacePath, isEphemeralPath } from '@unturf/unfirehose/project-rollup';
-import type { SessionsIndex } from '@unturf/unfirehose/types';
 import { Timing } from '@/lib/timing';
+import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -29,16 +27,6 @@ function gitExec(cwd: string, args: string[]): Promise<string> {
   });
 }
 
-async function resolveRepoPath(projectName: string): Promise<string | null> {
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    return index.originalPath ?? null;
-  } catch {
-    return null;
-  }
-}
-
 interface GitContext {
   isDirty: boolean;
   unpushedCount: number;
@@ -47,7 +35,7 @@ interface GitContext {
 }
 
 async function getGitContext(projectName: string): Promise<GitContext | null> {
-  const repoPath = await resolveRepoPath(projectName);
+  const repoPath = repoPathForProject(projectName);
   if (!repoPath) return null;
 
   try {

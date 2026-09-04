@@ -70,7 +70,8 @@
     "./agnt-paths": "./agnt-paths.ts",
     "./session-paths": "./session-paths.ts",
     "./claude-code-adapter": "./claude-code-adapter.ts",
-    "./vllm-metrics": "./vllm-metrics.ts"
+    "./vllm-metrics": "./vllm-metrics.ts",
+    "./db/repo-path": "./db/repo-path.ts"
   },
   "scripts": {
     "test": "vitest run",

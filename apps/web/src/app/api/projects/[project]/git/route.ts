@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { readFile, stat, unlink, appendFile } from 'fs/promises';
+import { readFile, unlink, appendFile } from 'fs/promises';
 import { join } from 'path';
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
-import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -20,41 +19,6 @@ function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> 
   });
 }
 
-async function resolvePathFromName(name: string): Promise<string | null> {
-  const parts = name.replace(/^-/, '').split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx < 0 || gitIdx >= parts.length - 1) return null;
-  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
-  const projectParts = parts.slice(gitIdx + 1);
-
-  // Try exact dash-joined name
-  const dashJoined = prefix + '/' + projectParts.join('-');
-  try { if ((await stat(dashJoined)).isDirectory()) return dashJoined; } catch {}
-
-  // Try TLD patterns (e.g. unsandbox-com → unsandbox.com)
-  if (projectParts.length >= 2) {
-    const lastPart = projectParts[projectParts.length - 1];
-    if (['com', 'net', 'org', 'io', 'dev', 'ai', 'app'].includes(lastPart)) {
-      const dotted = prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + lastPart;
-      try { if ((await stat(dotted)).isDirectory()) return dotted; } catch {}
-      const allDots = prefix + '/' + projectParts.join('.');
-      try { if ((await stat(allDots)).isDirectory()) return allDots; } catch {}
-    }
-  }
-  return null;
-}
-
-async function resolveRepoPath(projectName: string): Promise<string | null> {
-  // Try sessions-index.json first
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    if (index.originalPath) return index.originalPath;
-  } catch {}
-  // Fall back to deriving from project directory name
-  return resolvePathFromName(projectName);
-}
-
 // GET: return git status + diff for a project
 export async function GET(
   request: NextRequest,
@@ -68,7 +32,7 @@ export async function GET(
     return NextResponse.json(cached.data);
   }
 
-  const repoPath = await resolveRepoPath(project);
+  const repoPath = repoPathForProject(project);
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }
@@ -119,7 +83,7 @@ export async function POST(
   { params }: { params: Promise<{ project: string }> }
 ) {
   const { project } = await params;
-  const repoPath = await resolveRepoPath(project);
+  const repoPath = repoPathForProject(project);
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }
@@ -212,7 +176,7 @@ export async function DELETE(
   { params }: { params: Promise<{ project: string }> }
 ) {
   const { project } = await params;
-  const repoPath = await resolveRepoPath(project);
+  const repoPath = repoPathForProject(project);
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }

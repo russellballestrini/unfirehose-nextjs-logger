@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { execFile } from 'child_process';
-import { readdir, readFile, stat } from 'fs/promises';
+import { readdir } from 'fs/promises';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
-import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 /* Batch git status for all projects — returns dirty/unpushed counts.
    Designed to be fast: runs git commands in parallel with short timeouts. */
@@ -14,33 +14,6 @@ function gitExec(cwd: string, args: string[], timeout = 3000): Promise<string> {
       else resolve(stdout);
     });
   });
-}
-
-async function resolvePathFromName(name: string): Promise<string | null> {
-  const parts = name.replace(/^-/, '').split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx < 0 || gitIdx >= parts.length - 1) return null;
-  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
-  const projectParts = parts.slice(gitIdx + 1);
-  const dashJoined = prefix + '/' + projectParts.join('-');
-  try { if ((await stat(dashJoined)).isDirectory()) return dashJoined; } catch {}
-  if (projectParts.length >= 2) {
-    const lastPart = projectParts[projectParts.length - 1];
-    if (['com', 'net', 'org', 'io', 'dev', 'ai', 'app'].includes(lastPart)) {
-      const dotted = prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + lastPart;
-      try { if ((await stat(dotted)).isDirectory()) return dotted; } catch {}
-    }
-  }
-  return null;
-}
-
-async function resolveRepoPath(projectName: string): Promise<string | null> {
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    if (index.originalPath) return index.originalPath;
-  } catch {}
-  return resolvePathFromName(projectName);
 }
 
 interface ProjectGitStatus {
@@ -88,7 +61,7 @@ export async function GET() {
     // Resolve all paths in parallel
     const entries = await Promise.all(
       dirs.map(async (dir) => {
-        const repoPath = await resolveRepoPath(dir);
+        const repoPath = repoPathForProject(dir);
         return { dir, repoPath };
       })
     );

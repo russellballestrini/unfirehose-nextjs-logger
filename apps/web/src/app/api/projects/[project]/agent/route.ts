@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { execFile, spawn } from 'child_process';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
-import { claudePaths } from '@unturf/unfirehose/claude-paths';
-import { resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
+import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -14,17 +13,6 @@ function gitExec(cwd: string, args: string[], timeout = 10000): Promise<string> 
       if (err) reject(err);
       else resolve(stdout.trim());
     });
-  });
-}
-
-async function resolveRepoPath(projectName: string): Promise<string | null> {
-  const db = getDb();
-  return resolveProjectPath(projectName, {
-    dbLookup: (name) => {
-      const row = db.prepare('SELECT path FROM projects WHERE name = ?').get(name) as any;
-      return row?.path || null;
-    },
-    sessionsIndexPath: claudePaths.sessionsIndex(projectName),
   });
 }
 
@@ -100,7 +88,7 @@ export async function POST(
     return NextResponse.json({ error: 'action must be status, finish, blockers, or nudge' }, { status: 400 });
   }
 
-  const repoPath = await resolveRepoPath(project);
+  const repoPath = repoPathForProject(project);
   if (!repoPath) {
     return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
   }
