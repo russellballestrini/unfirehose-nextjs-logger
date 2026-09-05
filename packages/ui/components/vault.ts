@@ -82,6 +82,50 @@ async function decrypt(blob: string, password: string, salt: Uint8Array): Promis
   }
 }
 
+/**
+ * Encrypting under a key that is already a key.
+ *
+ * The session mechanism protects the vault password with a freshly generated
+ * 256-bit random value. Running PBKDF2 over that was 600,000 iterations of
+ * nothing: the whole point of a KDF is to make brute-forcing a low-entropy
+ * human password expensive, and there is no brute-forcing 256 bits of
+ * randomness. It cost 725ms in a browser, on every page load, and bought no
+ * security at all.
+ *
+ * The vault password itself still goes through PBKDF2 at the full count.
+ * That one is guarding something a person chose.
+ */
+async function rawKey(keyB64: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'raw', base64ToBuf(keyB64) as BufferSource, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'],
+  );
+}
+
+async function encryptWithKey(data: string, keyB64: string): Promise<string> {
+  const iv = getRandomBytes(12);
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    await rawKey(keyB64),
+    new TextEncoder().encode(data) as BufferSource,
+  );
+  return bufToBase64(iv) + '.' + bufToBase64(ct);
+}
+
+async function decryptWithKey(blob: string, keyB64: string): Promise<string | null> {
+  try {
+    const [ivB64, ctB64] = blob.split('.');
+    if (!ivB64 || !ctB64) return null;
+    const pt = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: base64ToBuf(ivB64) as BufferSource },
+      await rawKey(keyB64),
+      base64ToBuf(ctB64) as BufferSource,
+    );
+    return new TextDecoder().decode(pt);
+  } catch {
+    return null;
+  }
+}
+
 // --- Vault data structure ---
 
 export interface VaultData {
@@ -150,12 +194,16 @@ export const Vault = {
     if (!sessionRaw) return null;
     try {
       const session = JSON.parse(sessionRaw);
-      // Session key is stored as random bytes, password encrypted with it
-      const sessionSalt = base64ToBuf(session.salt);
-      const password = await decrypt(session.data, session.sessionKey, sessionSalt);
+      const password = session.v === 2
+        ? await decryptWithKey(session.data, session.sessionKey)
+        // v1 sessions ran the session key through PBKDF2, which is why a
+        // page load used to cost two derivations instead of one.
+        : await decrypt(session.data, session.sessionKey, base64ToBuf(session.salt));
       if (!password) { this.clearSession(); return null; }
       const data = await this.unlock(password);
       if (!data) { this.clearSession(); return null; }
+      // Carry a v1 session forward so the old cost is paid once, not daily.
+      if (session.v !== 2) await this.createSession(password);
       return { data, password };
     } catch {
       this.clearSession();
@@ -165,13 +213,14 @@ export const Vault = {
 
   /** Create a session for auto-unlock persistence. */
   async createSession(password: string): Promise<void> {
+    // The session key is 256 bits of randomness, so it is used as an AES key
+    // directly rather than fed to a KDF. `v: 2` marks the format; a v1
+    // session still restores, once, and is rewritten on the way through.
     const sessionKey = bufToBase64(getRandomBytes(32));
-    const sessionSalt = getRandomBytes(16);
-    const encPassword = await encrypt(password, sessionKey, sessionSalt);
     localStorage.setItem(SESSION_KEY, JSON.stringify({
+      v: 2,
       sessionKey,
-      salt: bufToBase64(sessionSalt),
-      data: encPassword,
+      data: await encryptWithKey(password, sessionKey),
       created: Date.now(),
     }));
   },

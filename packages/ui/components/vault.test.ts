@@ -174,3 +174,90 @@ describe('Vault', () => {
     });
   });
 });
+
+describe('session cost', () => {
+  /**
+   * A session protects the vault password with a freshly generated 256-bit
+   * random value. Running PBKDF2 over that was 600,000 iterations of
+   * nothing — a KDF exists to make brute-forcing a low-entropy human
+   * password expensive, and there is no brute-forcing 256 bits. It cost
+   * 725ms in a browser on every page load and bought no security at all.
+   */
+  const SESSION = 'unfirehose_vault_session';
+  const session = () => JSON.parse(localStorage.getItem(SESSION) ?? 'null');
+
+  it('stores a session without running the password KDF over a random key', async () => {
+    await Vault.create('correct horse battery');
+    expect(session().v).toBe(2);
+    // No salt, because a KDF salt is meaningless when there is no KDF.
+    expect(session().salt).toBeUndefined();
+  });
+
+  it('keeps the session key at 256 bits, which is what makes the KDF pointless', async () => {
+    // If this ever shrinks, the reasoning above stops holding and the raw
+    // key becomes something worth attacking.
+    await Vault.create('correct horse battery');
+    expect(Buffer.from(session().sessionKey, 'base64')).toHaveLength(32);
+  });
+
+  it('still restores the password it stored', async () => {
+    await Vault.create('correct horse battery');
+    const restored = await Vault.tryRestoreSession();
+    expect(restored?.password).toBe('correct horse battery');
+  });
+
+  it('does not leave the password readable beside its key', async () => {
+    // The session key sits in localStorage next to the ciphertext, which is
+    // the trade a "remember me" always makes. What must not happen is the
+    // password sitting there in the clear.
+    await Vault.create('correct horse battery');
+    expect(localStorage.getItem(SESSION)).not.toContain('correct horse battery');
+  });
+
+  it('refuses a session whose key has been swapped, and clears it', async () => {
+    await Vault.create('correct horse battery');
+    const raw = session();
+    raw.sessionKey = Buffer.from(new Uint8Array(32).fill(7)).toString('base64');
+    localStorage.setItem(SESSION, JSON.stringify(raw));
+    expect(await Vault.tryRestoreSession()).toBeNull();
+    // Cleared rather than retried on every page load.
+    expect(localStorage.getItem(SESSION)).toBeNull();
+  });
+
+  it('refuses a session whose ciphertext has been tampered with', async () => {
+    await Vault.create('correct horse battery');
+    const raw = session();
+    const [iv] = raw.data.split('.');
+    raw.data = `${iv}.${Buffer.from(new Uint8Array(48).fill(9)).toString('base64')}`;
+    localStorage.setItem(SESSION, JSON.stringify(raw));
+    expect(await Vault.tryRestoreSession()).toBeNull();
+  });
+
+  it('still opens a session written by the previous version, and upgrades it', async () => {
+    // Anybody upgrading has a v1 session in localStorage already, and it
+    // must not lock them out. Built here with the same algorithm the old
+    // code used, at the iteration count this suite runs at.
+    const password = 'correct horse battery';
+    await Vault.create(password);
+
+    const enc = new TextEncoder();
+    const sessionKey = Buffer.from(new Uint8Array(32).fill(3)).toString('base64');
+    const salt = new Uint8Array(16).fill(5);
+    const km = await crypto.subtle.importKey('raw', enc.encode(sessionKey), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: Number(process.env.UNFIREHOSE_TEST_KDF_ROUNDS), hash: 'SHA-256' },
+      km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(password));
+    const b64 = (b: ArrayBuffer | Uint8Array) => Buffer.from(b as ArrayBuffer).toString('base64');
+    localStorage.setItem(SESSION, JSON.stringify({
+      sessionKey, salt: b64(salt), data: `${b64(iv)}.${b64(ct)}`, created: Date.now(),
+    }));
+
+    const restored = await Vault.tryRestoreSession();
+    expect(restored?.password).toBe(password);
+    // Rewritten in the new format, so the old cost is paid once, not daily.
+    expect(session().v).toBe(2);
+  });
+});
