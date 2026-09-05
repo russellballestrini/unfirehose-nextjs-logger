@@ -15,6 +15,11 @@ export default defineConfig({
       include: ['quality/**/*.ts'],
       exclude: ['**/*.test.*'],
     },
+    // A report walks every source file in the repo and parses each one, so
+    // a single call is seconds of real work. The default 5s budget is below
+    // that, and a report that has to scan the tree cannot be made faster by
+    // being given less time.
+    testTimeout: 60_000,
     restoreMocks: true,
     clearMocks: true,
   },
