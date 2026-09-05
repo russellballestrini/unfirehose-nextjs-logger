@@ -1,3 +1,4 @@
+import { matchPromptsToCommits, type GitContext } from '@/lib/prompt-commits';
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { getProjectActivity, getProjectModelActivity, getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
@@ -31,13 +32,6 @@ const ACTIVITY_TTL = 60_000;
  */
 const costCache = new Map<number, { data: Map<string, { cost: number; market: number; avoided: number }>; ts: number }>();
 
-interface GitContext {
-  isDirty: boolean;
-  unpushedCount: number;
-  recentCommits: Array<{ hash: string; subject: string; date: string }>;
-  remoteUrl: string | null;
-}
-
 async function getGitContext(projectName: string): Promise<GitContext | null> {
   const repoPath = repoPathForProject(projectName);
   if (!repoPath) return null;
@@ -67,65 +61,6 @@ async function getGitContext(projectName: string): Promise<GitContext | null> {
   } catch {
     return null;
   }
-}
-
-function matchPromptsToCommits(
-  prompts: Array<{ prompt: string; timestamp: string; session_uuid: string; response: string | null }>,
-  gitCtx: GitContext | null
-) {
-  if (!gitCtx) {
-    return prompts.map((p) => ({
-      prompt: (p.prompt ?? '').slice(0, 200),
-      timestamp: p.timestamp,
-      sessionId: p.session_uuid,
-      response: (p.response ?? '').slice(0, 2000) || null,
-      gitStatus: null as string | null,
-      commitHash: null as string | null,
-      commitSubject: null as string | null,
-    }));
-  }
-
-  const commits = gitCtx.recentCommits.map((c) => ({
-    ...c,
-    ts: new Date(c.date).getTime(),
-  }));
-
-  return prompts.map((p) => {
-    const promptTs = new Date(p.timestamp).getTime();
-    // Find commits that happened AFTER this prompt within a 2-hour window
-    // (agent works on prompt, then commits the result)
-    const WINDOW_MS = 2 * 60 * 60 * 1000;
-    const candidates = commits.filter(
-      (c) => c.ts >= promptTs && c.ts - promptTs < WINDOW_MS
-    );
-    // Pick the closest commit after the prompt
-    const match = candidates.length > 0
-      ? candidates.reduce((a, b) => (a.ts < b.ts ? a : b))
-      : null;
-
-    let gitStatus: string | null = null;
-    if (match) {
-      gitStatus = 'committed';
-    } else {
-      // Check if this is a very recent prompt that might still be in flight
-      const ageMs = Date.now() - promptTs;
-      if (ageMs < WINDOW_MS) {
-        // Recent prompt, check if working tree is dirty
-        gitStatus = gitCtx.isDirty ? 'uncommitted' : (gitCtx.unpushedCount > 0 ? 'unpushed' : null);
-      }
-      // Older prompts with no matching commit — might be conversation/planning, leave null
-    }
-
-    return {
-      prompt: (p.prompt ?? '').slice(0, 200),
-      timestamp: p.timestamp,
-      sessionId: p.session_uuid,
-      response: (p.response ?? '').slice(0, 2000) || null,
-      gitStatus,
-      commitHash: match?.hash ?? null,
-      commitSubject: match?.subject ?? null,
-    };
-  });
 }
 
 export async function GET(request: NextRequest) {

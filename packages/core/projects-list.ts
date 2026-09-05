@@ -22,6 +22,7 @@ import {
 } from './project-rollup';
 import type { ProjectInfo, SessionsIndex } from './types';
 import { storePayload, readPayload } from './precomputed';
+import { classifyProjectRows, cleanPath } from './project-classify';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -217,73 +218,12 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
       fsDirs.map((d) => loadOneFsProject(d, pathByName.get(d))),
     )).filter(Boolean) as ProjectInfo[];
 
-    // A "repo" is somewhere real work lives: it has a Claude directory, or the
-    // database resolved it to a git root or a filesystem path. Everything else
-    // is an agent scratch workspace and folds into whichever repo contains it.
-    const repoNames = new Set<string>(fsProjects.map((p) => p.name));
-    for (const r of dbRows) {
-      if (r.is_repo) repoNames.add(r.name);
-    }
-
-    // Container directories. `~/git` and `/tmp` are tracked projects — agents
-    // do run with those as cwd — but they are also the parent of dozens of
-    // unrelated projects. Letting them absorb by path or name prefix ate
-    // ~/git/contra into "fox-git" and turned /tmp into a 5,648-session
-    // "project". A real repo that happens to contain scratch dirs (arborist
-    // holds its bench workspaces) is exempt: it has a git root.
-    const clean = (s: string) => s.replace(/\/+$/, '');
-    const pathed = dbRows.filter((r) => r.path);
-    const allPaths = pathed.map((r) => clean(r.path as string));
-    const childCount = countPathChildren(allPaths);
-    // Scratch space: never a project, never a parent of one, and never kept as
-    // a row. It folds into the repo its name identifies, or it is dropped.
-    const ephemeral = new Set<string>();
-    for (const r of dbRows) {
-      // A fleet worker's directory is where one run of one agent happened, not
-      // a project. Treated exactly like /tmp: it folds into whatever owns the
-      // directory above it, or it is left off the list. Its sessions and
-      // messages are untouched and still queryable everywhere else.
-      if (isEphemeralPath(r.path) || isWorkspacePath(r.path)) ephemeral.add(r.name);
-    }
-    for (const n of ephemeral) repoNames.delete(n);
-
-    const containers = new Set<string>();
-    for (const r of pathed) {
-      if (ephemeral.has(r.name)) continue;
-      if (r.is_repo) continue;                       // a git root is never a container
-      const self = clean(r.path as string);
-      if ((childCount.get(self) ?? 0) >= 2) containers.add(r.name);
-    }
-
-    // A project can be a real working directory without being a git root —
-    // ~/git/contra has nine uncloseai sessions and no .git yet. It counts as
-    // top-level when nothing except a container contains it. Agent scratch
-    // dirs fail this because their repo's path is an ancestor
-    // (/home/fox/git/arborist/bench/... lives under /home/fox/git/arborist).
-    const containerPaths = new Set(
-      pathed.filter((r) => containers.has(r.name)).map((r) => clean(r.path as string)),
+    // Which of these rows is a project at all, and who may absorb whom.
+    // The rules and the reasons behind each of them live next door.
+    const { repoNames, ephemeral, foldTargets } = classifyProjectRows(
+      dbRows, new Set(fsProjects.map((p) => p.name)),
     );
-    // Promotion candidates are judged against the repos we already trust,
-    // never against each other.
-    const baseFoldTargets = new Set([...repoNames].filter((n) => !containers.has(n)));
-    for (const r of pathed) {
-      if (repoNames.has(r.name) || ephemeral.has(r.name)) continue;
-      const self = clean(r.path as string);
-      const nested = allPaths.some(
-        (q) => q.length < self.length && self.startsWith(`${q}/`) && !containerPaths.has(q),
-      );
-      if (nested) continue;
-      // Living directly under a container is not enough on its own. A
-      // /tmp/claude-1000--home-fox-git-uncloseai-cli-<uuid>-scratchpad sits
-      // under /tmp exactly like ~/git/contra sits under ~/git, but it names
-      // the repo it belongs to and should fold there instead of being
-      // promoted beside it.
-      if (rollupTarget(r.name, baseFoldTargets)) continue;
-      repoNames.add(r.name);
-    }
-
-    // Containers keep their own row but may not swallow anyone.
-    const foldTargets = new Set([...repoNames].filter((n) => !containers.has(n)));
+    const clean = cleanPath;
 
     // Identity fold. `projects` is scoped per harness slot by design, so one
     // repo can hold several rows — `-home-fox-git-uncloseai-cli`,
@@ -365,6 +305,9 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
     // ephemeral container (unsandbox `sandbox-*`, `uncloseai:tmp-*`), not a
     // project. Keeping them turned this list into 2,166 entries where ~100 are
     // real. Their sessions are untouched and still queryable everywhere else.
+    // One merge, used by both folds. Two copies of this had to agree about
+    // every field a project carries; the day they stopped agreeing, one fold
+    // would silently lose tokens the other kept.
     const mergeInto = (repo: ProjectInfo, child: ProjectInfo) => {
       repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
       repo.sessionCount += child.sessionCount;
@@ -389,20 +332,7 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
       afterPathFold.push(row);
     }
 
-    const { rows, orphans } = rollupProjects(afterPathFold, repoNames, (repo, child) => {
-      repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
-      repo.sessionCount += child.sessionCount;
-      repo.totalMessages += child.totalMessages;
-      if (child.tokens) {
-        repo.tokens = repo.tokens ?? zeroTokens();
-        repo.tokens.input += child.tokens.input;
-        repo.tokens.output += child.tokens.output;
-        repo.tokens.cacheRead += child.tokens.cacheRead;
-        repo.tokens.cacheWrite += child.tokens.cacheWrite;
-      }
-      repo.foldedCount = (repo.foldedCount ?? 0) + 1 + (child.foldedCount ?? 0);
-      repo.harnesses = Array.from(new Set([...(repo.harnesses ?? []), ...(child.harnesses ?? [])]));
-    }, { unmatched: 'drop', foldTargets });
+    const { rows, orphans } = rollupProjects(afterPathFold, repoNames, mergeInto, { unmatched: 'drop', foldTargets });
 
     if (orphans.length || pathFolded) {
       console.log(`[projects] ${pathFolded} workspace row(s) folded by path, ${orphans.length} ephemeral row(s) dropped (no containing repo)`);
