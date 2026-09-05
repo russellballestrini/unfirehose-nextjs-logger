@@ -207,7 +207,7 @@ const SECTION_MARKERS = [
   'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
 ];
 
-function parseSection(output: string, marker: string): string {
+export function parseSection(output: string, marker: string): string {
   const tag = `===SECTION:${marker}===`;
   const start = output.indexOf(tag);
   if (start === -1) return '';
@@ -228,14 +228,14 @@ function round(n: number, d = 1): number {
   return Math.round(n * f) / f;
 }
 
-function parseCpuInfo(raw: string) {
+export function parseCpuInfo(raw: string) {
   const model = raw.match(/model name\s*:\s*(.+)/i)?.[1]?.trim() ?? 'Unknown';
   const mhz = raw.match(/cpu MHz\s*:\s*([\d.]+)/i)?.[1];
   const cacheSize = raw.match(/cache size\s*:\s*(.+)/i)?.[1]?.trim();
   return { model, mhz: mhz ? parseFloat(mhz) : undefined, cacheSize };
 }
 
-function parseMeminfo(raw: string) {
+export function parseMeminfo(raw: string) {
   const get = (key: string) => parseInt(raw.match(new RegExp(`${key}:\\s+(\\d+)`))?.[1] ?? '0') / 1024 / 1024;
   return {
     totalGB: round(get('MemTotal')),
@@ -252,7 +252,7 @@ function parseMeminfo(raw: string) {
   };
 }
 
-function parseProcesses(raw: string) {
+export function parseProcesses(raw: string) {
   if (!raw || raw === 'n/a') return [];
   const lines = raw.split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
@@ -277,7 +277,7 @@ function parseProcesses(raw: string) {
 }
 
 
-function parseNvidiaGpu(raw: string) {
+export function parseNvidiaGpu(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const p = line.split(',').map(s => s.trim());
@@ -299,7 +299,7 @@ function parseNvidiaGpu(raw: string) {
   }).filter(Boolean);
 }
 
-function parseNvidiaProcesses(raw: string) {
+export function parseNvidiaProcesses(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const p = line.split(',').map(s => s.trim());
@@ -308,7 +308,7 @@ function parseNvidiaProcesses(raw: string) {
   }).filter(Boolean);
 }
 
-function parseAmdGpu(raw: string) {
+export function parseAmdGpu(raw: string) {
   if (!raw || raw === 'none') return [];
   const lines = raw.split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
@@ -321,7 +321,7 @@ function parseAmdGpu(raw: string) {
   });
 }
 
-function parseDisk(raw: string) {
+export function parseDisk(raw: string) {
   if (!raw || raw === 'n/a') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.trim().split(/\s+/);
@@ -337,7 +337,7 @@ function parseDisk(raw: string) {
   }).filter(Boolean);
 }
 
-function parseNetInterfaces(raw: string) {
+export function parseNetInterfaces(raw: string) {
   if (!raw || raw === 'n/a') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.trim().split(/\s+/);
@@ -345,7 +345,7 @@ function parseNetInterfaces(raw: string) {
   });
 }
 
-function parseNetDev(raw: string) {
+export function parseNetDev(raw: string) {
   if (!raw || raw === 'n/a') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.trim().split(/[:\s]+/);
@@ -360,7 +360,7 @@ function parseNetDev(raw: string) {
   }).filter(Boolean).filter(n => n!.rxBytes > 0 || n!.txBytes > 0);
 }
 
-function parseDocker(raw: string) {
+export function parseDocker(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.split('\t');
