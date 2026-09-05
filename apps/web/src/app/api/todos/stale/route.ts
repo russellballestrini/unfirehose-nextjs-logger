@@ -1,3 +1,4 @@
+import { buildWhere } from '@/lib/sql-filters';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
@@ -22,13 +23,11 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50'), 500);
     const project = url.searchParams.get('project');
 
-    const params: any[] = [days];
-    let where = `t.status ${OPEN_TODO_SQL} AND t.updated_at < datetime('now', '-' || ? || ' days')`;
-
-    if (project) {
-      where += ' AND p.name = ?';
-      params.push(project);
-    }
+    const { where, params } = buildWhere(
+      `t.status ${OPEN_TODO_SQL} AND t.updated_at < datetime('now', '-' || ? || ' days')`,
+      [['p.name = ?', project]],
+    );
+    params.unshift(days);
 
     const rows = db.prepare(`
       SELECT t.id, t.uuid, t.content, t.status, t.source, t.estimated_minutes,

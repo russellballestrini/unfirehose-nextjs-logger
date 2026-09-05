@@ -1,3 +1,4 @@
+import { buildWhere } from '@/lib/sql-filters';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
@@ -27,14 +28,11 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50'), 200);
     const status = url.searchParams.get('status') ?? 'active';
 
-    const params: any[] = [];
-    let where = `(s.status IS NULL OR s.status = ?) AND COALESCE(s.last_message_at, s.updated_at) < datetime('now', ?)`;
-    params.push(status, `-${days} days`);
-
-    if (project) {
-      where += ' AND p.name = ?';
-      params.push(project);
-    }
+    const { where, params } = buildWhere(
+      `(s.status IS NULL OR s.status = ?) AND COALESCE(s.last_message_at, s.updated_at) < datetime('now', ?)`,
+      [['p.name = ?', project]],
+    );
+    params.unshift(status, `-${days} days`);
 
     const sessions = db.prepare(`
       SELECT

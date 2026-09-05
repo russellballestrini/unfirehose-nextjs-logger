@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { complexityOf, bandOf } from './complexity.ts';
+import { branchKinds, branchKind, complexityOf, bandOf } from './complexity.ts';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 /** Score a snippet without writing it to disk. */
 const cc = (source: string, name = 'f') => {
@@ -91,3 +94,61 @@ describe('cyclomatic complexity', () => {
     expect(cc(source, 'Row')).toBe(2);
   });
 });
+
+describe('branchKind', () => {
+  /** Score one snippet and read back what kinds it found. */
+  const kinds = (src: string) => {
+    const file = path.join(os.tmpdir(), `kinds-${process.pid}-${n++}.ts`);
+    fs.writeFileSync(file, src);
+    try { return Object.fromEntries(branchKinds([file])); } finally { fs.rmSync(file); }
+  };
+  let n = 0;
+
+  it('names each kind of decision, so a total can be acted on', () => {
+    // "10,371" is a number you cannot do anything with. "1,274 of them are
+    // null coalescings" is a plan — that is defensiveness that belongs at a
+    // boundary, where an if is usually the logic itself.
+    expect(kinds('export function f(a?: number) { if (a) return a ?? 0; return 1; }'))
+      .toMatchObject({ 'function baseline': 1, if: 1, '??': 1 });
+  });
+
+  it('tells the three logical operators apart', () => {
+    expect(kinds('export const f = (a: unknown, b: unknown) => (a && b) || (a ?? b);'))
+      .toMatchObject({ '&&': 1, '||': 1, '??': 1 });
+  });
+
+  it('counts every loop as one kind', () => {
+    const k = kinds(`
+      export function f(xs: number[]) {
+        for (const x of xs) void x;
+        for (let i = 0; i < 1; i++) void i;
+        while (false) { break; }
+      }
+    `);
+    expect(k.loop).toBe(3);
+  });
+
+  it('counts a function before it counts any branch in it', () => {
+    // Every function costs 1. It is 30% of our total and the only part that
+    // cannot be reduced without removing a function.
+    expect(kinds('export function a() {} export function b() {}')['function baseline']).toBe(2);
+  });
+
+  it('does not count a fall-through case, which adds no path', () => {
+    const k = kinds(`
+      export function f(x: number) {
+        switch (x) {
+          case 1:
+          case 2: return 'low';
+          default: return 'high';
+        }
+      }
+    `);
+    expect(k.case).toBe(1);
+  });
+
+  it('counts nothing for code with no decisions in it', () => {
+    expect(branchKind({ kind: -1 } as never)).toBeNull();
+  });
+});
+

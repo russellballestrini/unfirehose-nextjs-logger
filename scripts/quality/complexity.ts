@@ -52,6 +52,53 @@ function isFunctionNode(node: ts.Node): node is FunctionNode {
   );
 }
 
+/**
+ * What kind of decision a node is, or null if it is not one.
+ *
+ * Named rather than merely counted, because "10,371" is a number you cannot
+ * act on and "2,139 ifs, 1,355 ternaries, 1,280 ??" is a plan. Reducing
+ * complexity means knowing which of those is redundant defensiveness that
+ * belongs at a boundary and which is the logic itself.
+ */
+export function branchKind(node: ts.Node): string | null {
+  switch (node.kind) {
+    case ts.SyntaxKind.IfStatement: return 'if';
+    case ts.SyntaxKind.ForStatement:
+    case ts.SyntaxKind.ForInStatement:
+    case ts.SyntaxKind.ForOfStatement:
+    case ts.SyntaxKind.WhileStatement:
+    case ts.SyntaxKind.DoStatement: return 'loop';
+    case ts.SyntaxKind.CatchClause: return 'catch';
+    case ts.SyntaxKind.ConditionalExpression: return 'ternary';
+    case ts.SyntaxKind.CaseClause:
+      // An empty `case` falls through to the next one — same path, no branch.
+      return (node as ts.CaseClause).statements.length > 0 ? 'case' : null;
+    case ts.SyntaxKind.BinaryExpression: {
+      const op = (node as ts.BinaryExpression).operatorToken.kind;
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken) return '&&';
+      if (op === ts.SyntaxKind.BarBarToken) return '||';
+      if (op === ts.SyntaxKind.QuestionQuestionToken) return '??';
+      return null;
+    }
+    default: return null;
+  }
+}
+
+/** Count each kind of decision across these files. */
+export function branchKinds(files: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    const src = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+    const walk = (n: ts.Node) => {
+      const kind = isFunctionNode(n) ? 'function baseline' : branchKind(n);
+      if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      ts.forEachChild(n, walk);
+    };
+    walk(src);
+  }
+  return counts;
+}
+
 /** A decision point: one more path through the body. */
 function isBranch(node: ts.Node): boolean {
   switch (node.kind) {

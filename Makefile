@@ -51,8 +51,16 @@ cov-scripts:
 # in <workspace>/coverage/index.html for line-by-line reading.
 #   make coverage
 #   make coverage ARGS="--worst 40 --json reports/coverage.json"
+# Two of these do not tolerate company. cov-web instruments ~1,500 tests and
+# runs out of memory beside two other coverage jobs; cov-scripts reads the
+# other workspaces' reports off disk, so running it beside the jobs that
+# write them means reading them half-written — which it now correctly
+# refuses to do. Both used to fail silently under -j4 and leave a report
+# missing, which made the totals look better than they were.
 coverage:
-	@$(MAKE) -j4 --no-print-directory cov-core cov-ui cov-web cov-scripts
+	@$(MAKE) -j2 --no-print-directory cov-core cov-ui
+	@$(MAKE) --no-print-directory cov-web
+	@$(MAKE) --no-print-directory cov-scripts
 	@npx tsx scripts/quality/report-coverage.ts $(ARGS)
 
 # Every ceiling in one target, for CI. Coverage is a floor per workspace;

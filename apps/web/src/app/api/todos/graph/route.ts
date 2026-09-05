@@ -1,3 +1,4 @@
+import { buildWhere, inClause } from '@/lib/sql-filters';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { execSync } from 'child_process';
@@ -12,18 +13,10 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    let where = 'WHERE 1=1';
-    const params: string[] = [];
-
-    if (projectFilter) {
-      where += ' AND p.name = ?';
-      params.push(projectFilter);
-    }
-    if (statusFilter) {
-      const statuses = statusFilter.split(',').map(s => s.trim());
-      where += ` AND t.status IN (${statuses.map(() => '?').join(',')})`;
-      params.push(...statuses);
-    }
+    const { where, params } = buildWhere('WHERE 1=1', [
+      ['p.name = ?', projectFilter],
+      inClause('t.status', statusFilter?.split(',').map((x) => x.trim()).filter(Boolean) ?? []),
+    ]);
 
     const rows = db.prepare(`
       SELECT t.id, t.uuid, t.external_id, t.content, t.status, t.blocked_by, p.name as project_name, p.display_name as project_display

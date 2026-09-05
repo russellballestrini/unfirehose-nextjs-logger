@@ -1,3 +1,4 @@
+import { buildWhere, likeClause } from '@/lib/sql-filters';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
@@ -20,6 +21,9 @@ import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
  *
  * Returns plain array — no nesting, no grouping.
  */
+/** Over this many minutes, a todo wants a ticket rather than just doing it. */
+const TICKET_MINUTES = 15;
+
 export async function GET(request: NextRequest) {
   try {
     const db = getDb();
@@ -31,27 +35,21 @@ export async function GET(request: NextRequest) {
     const needsTicket = url.searchParams.get('needs_ticket') === 'true';
     const quick = url.searchParams.get('quick') === 'true';
 
-    const params: any[] = [];
-    let where = `t.status ${OPEN_TODO_SQL} AND t.status != 'deleted'`;
-
-    if (project) {
-      where += ' AND p.name = ?';
-      params.push(project);
-    }
-    if (source) {
-      where += ' AND t.source = ?';
-      params.push(source);
-    }
-    if (search) {
-      where += ' AND t.content LIKE ?';
-      params.push(`%${search}%`);
-    }
-    if (needsTicket) {
-      where += ' AND t.estimated_minutes > 15';
-    }
-    if (quick) {
-      where += ' AND (t.estimated_minutes IS NULL OR t.estimated_minutes <= 15)';
-    }
+    // Our ticket threshold, from CLAUDE.md: under fifteen minutes, just do
+    // it; over, it wants a ticket. A todo with no estimate has not been
+    // sized, and an unsized todo is a quick win until somebody says
+    // otherwise — which is why `quick` accepts a null estimate and
+    // `needs_ticket` does not.
+    const { where, params } = buildWhere(
+      `t.status ${OPEN_TODO_SQL} AND t.status != 'deleted'`,
+      [
+        ['p.name = ?', project],
+        ['t.source = ?', source],
+        likeClause('t.content', search),
+        needsTicket ? `t.estimated_minutes > ${TICKET_MINUTES}` : null,
+        quick ? `(t.estimated_minutes IS NULL OR t.estimated_minutes <= ${TICKET_MINUTES})` : null,
+      ],
+    );
 
     const rows = db.prepare(`
       SELECT t.id, t.uuid, t.content, t.status, t.source, t.external_id,

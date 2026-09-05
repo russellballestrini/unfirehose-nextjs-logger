@@ -12,7 +12,7 @@
  */
 
 import { WORKSPACES, sourcesOf, workspaceOf, ROOT } from './workspaces.ts';
-import { complexityOfAll, bandOf, type FunctionComplexity } from './complexity.ts';
+import { branchKinds, complexityOfAll, bandOf, type FunctionComplexity } from './complexity.ts';
 import { args, table, heading, dim, bold, grade, paint, writeJson } from './render.ts';
 import path from 'path';
 
@@ -98,6 +98,23 @@ export function main(argv: string[] = process.argv.slice(2)): void {
     `${paint(String(bands.complex), 'red')} complex ${dim('(21–50)')}  ` +
     `${paint(String(bands.unmaintainable), 'magenta')} unmaintainable ${dim('(>50)')}`,
   );
+
+  // `--kinds` answers the question that makes a total actionable: not how
+  // much complexity there is, but what it is made of. A thousand null
+  // coalescings spread over every use site is redundant defensiveness that
+  // belongs at a boundary; a thousand ifs is the logic.
+  if (flags.has('kinds')) {
+    const counts = branchKinds(files);
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    console.log(heading('What the complexity is made of'));
+    console.log(table(
+      [{ header: 'kind' }, { header: 'count', align: 'right' }, { header: 'share', align: 'right' }],
+      [...counts].sort((a, b) => b[1] - a[1]).map(([kind, n]) => [
+        kind, String(n), `${((n / total) * 100).toFixed(1)}%`,
+      ]),
+    ));
+    console.log(`  ${dim('a function costs 1 before any branch; every other row is one more path')}`);
+  }
 
   if (flags.has('json')) {
     writeJson(flags.str('json', 'reports/cc.json'), {
