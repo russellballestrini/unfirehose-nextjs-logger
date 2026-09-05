@@ -37,6 +37,9 @@ type Calibration = {
   results: Array<{ id: number; window_minutes: number; metric: string; previous: number; p95: number; threshold: number; samples: number; acknowledged: number }>;
 };
 
+/** How long after starting a pass to re-read, so its first rows show. */
+const INGEST_REFRESH_MS = 8000;
+
 /** The right-hand panel: recent alerts by default, the rules table on request. */
 const PANEL_TABS = ['recent', 'rules'] as const;
 type Panel = typeof PANEL_TABS[number];
@@ -62,13 +65,23 @@ export default function UsageMonitorPage() {
     mutateAlerts(); mutateDaily(); mutateRecent(); mutateThresholds();
   }, [mutateAlerts, mutateDaily, mutateRecent, mutateThresholds]);
 
+  // The route answers 202 and the pass runs in the worker's process, so
+  // there is nothing to await. Refresh once a little later, when the first
+  // rows of the pass have had time to land; the worker's own timer covers
+  // everything after that.
+  const [ingestNote, setIngestNote] = useState<string | null>(null);
   const runIngest = useCallback(async () => {
     setIngesting(true);
     try {
-      await fetch('/api/ingest', { method: 'POST' });
-      refreshAll();
+      const res = await fetch('/api/ingest', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.detail ?? `HTTP ${res.status}`);
+      setIngestNote(body?.alreadyRunning ? 'A pass is already running.' : 'Pass started in the worker.');
+      setTimeout(() => { refreshAll(); setIngesting(false); setIngestNote(null); }, INGEST_REFRESH_MS);
+      return;
     } catch (err) {
       console.error('Ingest failed:', err);
+      setIngestNote(`Failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     setIngesting(false);
   }, [refreshAll]);
@@ -165,13 +178,16 @@ export default function UsageMonitorPage() {
       {/* Header */}
       <div className="grid grid-cols-[1fr_auto] items-center">
         <h2 className="text-lg font-bold">Usage Monitor</h2>
-        <button
-          onClick={runIngest}
-          disabled={ingesting}
-          className="bg-[var(--color-accent)] text-black px-3 py-1.5 rounded text-base font-bold disabled:opacity-50"
-        >
-          {ingesting ? 'Ingesting...' : 'Ingest Now'}
-        </button>
+        <div className="flex items-center gap-3">
+          {ingestNote && <span className="text-sm text-[var(--color-muted)]">{ingestNote}</span>}
+          <button
+            onClick={runIngest}
+            disabled={ingesting}
+            className="bg-[var(--color-accent)] text-black px-3 py-1.5 rounded text-base font-bold disabled:opacity-50"
+          >
+            {ingesting ? 'Ingesting...' : 'Ingest Now'}
+          </button>
+        </div>
       </div>
       {/* Alert banner — grouped by metric + window */}
       {alerts && alerts.length > 0 && (() => {

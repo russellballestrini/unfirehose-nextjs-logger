@@ -112,6 +112,27 @@ describe('usage monitor', () => {
     expect(posts().filter((p) => p.url === '/api/ingest')).toHaveLength(1);
   });
 
+  it('says the pass started elsewhere, and re-reads a little later rather than waiting on it', async () => {
+    // The route answers 202; the pass runs in the worker's process. Awaiting
+    // it here is what used to hold the page — and the server — for minutes.
+    await show();
+    // Fake timers only after the page is up: SWR and waitFor need real ones
+    // to settle, and a leaked fake clock times out every test after this.
+    vi.useFakeTimers();
+    try {
+      const thresholdsMutate = mutateFor('/api/alerts?filter=thresholds') as ReturnType<typeof vi.fn>;
+      const callsBefore = thresholdsMutate.mock.calls.length;
+      await act(async () => { button(/Ingest Now/)!.click(); });
+      expect(document.body.textContent).toContain('Pass started in the worker');
+      // Not re-read yet: there is nothing to read until the pass has landed.
+      expect(thresholdsMutate.mock.calls.length).toBe(callsBefore);
+      await act(async () => { vi.advanceTimersByTime(8000); });
+      expect(thresholdsMutate.mock.calls.length).toBe(callsBefore + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('groups alerts by metric and window', async () => {
     // Twenty alerts on one threshold is one thing that happened.
     alerts = [alert({ id: 1 }), alert({ id: 2 }), alert({ id: 3, metric: 'cost_usd' })];
