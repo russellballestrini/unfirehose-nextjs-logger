@@ -1,6 +1,8 @@
 import { readGitState } from '@/lib/git-state';
 import { matchPromptsToCommits, type GitContext } from '@/lib/prompt-commits';
 import { NextRequest, NextResponse } from 'next/server';
+import { readProjectList } from '@unturf/unfirehose/projects-list';
+import { rollupTarget } from '@unturf/unfirehose/project-rollup';
 import { execFile } from 'child_process';
 import { getProjectActivity, getProjectModelActivity, getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { calcCostBreakdown, isSelfHosted } from '@unturf/unfirehose/pricing';
@@ -62,6 +64,42 @@ async function getGitContext(projectName: string): Promise<GitContext | null> {
   }
 }
 
+/**
+ * Collapse activity rows onto the projects a reader actually has.
+ *
+ * The path filter above catches scratch directories that carry a path. Most
+ * do not — 6,961 rows came back for thirty days, at 2.4MB, when the folded
+ * project list holds about a hundred. Each row here is folded into the repo
+ * its name identifies, the same rule the Projects page uses, so the two
+ * pages agree about what a project is and a workspace's work still counts
+ * toward its repo rather than vanishing or standing beside it.
+ */
+function foldToProjects(rows: any[]): any[] {
+  const folded = readProjectList()?.payload;
+  // Before the worker has ever built the list there is nothing to fold onto;
+  // the path filter alone is what we had, and is what we return.
+  if (!folded?.length) return rows;
+  const names = new Set(folded.map((p) => p.name));
+  const out = new Map<string, any>();
+  for (const r of rows) {
+    const target = names.has(r.name) ? r.name : rollupTarget(r.name, names);
+    if (!target) continue;
+    const acc = out.get(target);
+    if (!acc) { out.set(target, { ...r, name: target }); continue; }
+    for (const k of ['user_messages', 'assistant_messages', 'session_count', 'active_days',
+                     'total_input', 'total_output', 'total_cache_read', 'total_cache_write']) {
+      acc[k] = (acc[k] ?? 0) + (r[k] ?? 0);
+    }
+    if ((r.last_activity ?? '') > (acc.last_activity ?? '')) acc.last_activity = r.last_activity;
+  }
+  // A folded row keeps the repo's own display name and path, not a child's.
+  for (const p of folded) {
+    const acc = out.get(p.name);
+    if (acc) { acc.display_name = p.displayName; acc.path = p.path || acc.path; }
+  }
+  return [...out.values()];
+}
+
 export async function GET(request: NextRequest) {
   const t = new Timing();
   try {
@@ -85,7 +123,7 @@ export async function GET(request: NextRequest) {
     // Asking for one by name still returns it; only the list is filtered.
     const listed = project
       ? activity
-      : activity.filter((r: any) => !isWorkspacePath(r.path) && !isEphemeralPath(r.path));
+      : foldToProjects(activity.filter((r: any) => !isWorkspacePath(r.path) && !isEphemeralPath(r.path)));
 
     // Per-project cost, summed over each model that actually ran there.
     const cachedCost = costCache.get(days);

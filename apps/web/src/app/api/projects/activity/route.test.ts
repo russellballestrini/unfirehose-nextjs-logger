@@ -7,6 +7,13 @@ import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 const db = createTestDb();
 vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 
+// The folded project list, as the worker would have left it. Null means
+// the worker has never run, and the route falls back to the path filter.
+let projectList: { name: string; displayName: string; path: string }[] | null = null;
+vi.mock('@unturf/unfirehose/projects-list', () => ({
+  readProjectList: () => (projectList ? { payload: projectList, at: '2026-09-05T00:00:00Z' } : null),
+}));
+
 vi.mock('@unturf/unfirehose/db/ingest', () => ({
   getProjectActivity: vi.fn().mockReturnValue([
     { name: 'proj-1', display_name: 'Project 1', user_messages: 20, assistant_messages: 18, total_input: 1000000, total_output: 500000, total_cache_read: 100000, total_cache_write: 50000 },
@@ -46,5 +53,28 @@ describe('GET /api/projects/activity', () => {
     const data = await res.json();
     expect(data.recentPrompts).toHaveLength(1);
     expect(data.recentPrompts[0].prompt).toContain('status');
+  });
+
+  it('folds a scratch workspace onto the repo its name identifies', async () => {
+    // Thirty days of activity came back as 6,961 rows, at 2.4MB, when the
+    // folded project list holds about a hundred. A workspace's work must
+    // count toward its repo rather than stand beside it or vanish.
+    projectList = [{ name: '-home-fox-git-repo', displayName: 'repo', path: '/home/fox/git/repo' }];
+    const { getProjectActivity } = await import('@unturf/unfirehose/db/ingest');
+    (getProjectActivity as ReturnType<typeof vi.fn>).mockReturnValueOnce([
+      { name: '-home-fox-git-repo', display_name: 'repo', path: '/home/fox/git/repo', user_messages: 2, assistant_messages: 2, session_count: 1, active_days: 1, last_activity: '2026-09-01T00:00:00Z', total_input: 10, total_output: 10, total_cache_read: 0, total_cache_write: 0 },
+      { name: 'tmp-claude-1000--home-fox-git-repo-abc-scratchpad', display_name: 'scratch', path: null, user_messages: 5, assistant_messages: 5, session_count: 2, active_days: 1, last_activity: '2026-09-04T00:00:00Z', total_input: 100, total_output: 100, total_cache_read: 0, total_cache_write: 0 },
+      { name: 'sandbox-zzz', display_name: 'nobody', path: null, user_messages: 1, assistant_messages: 1, session_count: 1, active_days: 1, last_activity: '2026-09-02T00:00:00Z', total_input: 1, total_output: 1, total_cache_read: 0, total_cache_write: 0 },
+    ]);
+    const res = await GET(new NextRequest('http://localhost:3000/api/projects/activity?days=99'));
+    const body = await res.json();
+    const names = body.map((r: { name: string }) => r.name);
+    expect(names).toEqual(['-home-fox-git-repo']);
+    const repo = body[0];
+    expect(repo.user_messages).toBe(7);
+    expect(repo.session_count).toBe(3);
+    expect(repo.last_activity).toBe('2026-09-04T00:00:00Z');
+    expect(repo.display_name).toBe('repo');
+    projectList = null;
   });
 });

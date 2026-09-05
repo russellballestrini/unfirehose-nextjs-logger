@@ -36,7 +36,6 @@
     "./useCurrency": "./components/useCurrency.tsx",
     "./vault": "./components/vault.ts",
     "./VaultProvider": "./components/VaultProvider.tsx",
-    "./VaultGate": "./components/VaultGate.tsx",
     "./HarnessPicker": "./components/HarnessPicker.tsx",
     "./useStickyState": "./components/useStickyState.tsx",
     "./TokenSplit": "./components/TokenSplit.tsx",

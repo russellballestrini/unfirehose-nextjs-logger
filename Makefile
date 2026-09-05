@@ -84,6 +84,15 @@ DUPE_BUDGET  ?= 1100
 vitals:
 	@node scripts/perf/vitals.mjs $(ARGS)
 
+# The same, against a production build: build, start on :3100, measure,
+# stop. Dev bundles are unminified and several times the size, so numbers
+# from `next dev` say how slow development is, not how slow the app is.
+vitals-prod:
+	@cd apps/web && npx next build >/dev/null
+	@PORT=3100 scripts/perf/prod-server.sh start
+	@node scripts/perf/vitals.mjs --base http://localhost:3100 --runs 3 --json reports/vitals-prod.json $(ARGS); \
+	  rc=$$?; PORT=3100 scripts/perf/prod-server.sh stop >/dev/null; exit $$rc
+
 quality-gate: coverage-check
 	@npx tsx scripts/quality/report-crap.ts --budget $(CRAP_BUDGET)
 	@npx tsx scripts/quality/report-dupes.ts --budget $(DUPE_BUDGET)

@@ -1,6 +1,7 @@
 import { parseRemoteForCheck } from '@/lib/forges';
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { readProjectList } from '@unturf/unfirehose/projects-list';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -70,31 +71,48 @@ export async function GET() {
   try {
     const db = getDb();
 
-    // Get all projects with their visibility in one query
-    const projects = db.prepare(`
-      SELECT p.id, p.name, p.display_name, p.path,
-             COALESCE(pv.visibility, 'private') as visibility,
-             pv.auto_detected,
-             pv.updated_at as vis_updated_at,
-             COUNT(DISTINCT s.id) as session_count,
-             COUNT(m.id) as message_count,
-             SUM(m.input_tokens) as total_input,
-             SUM(m.output_tokens) as total_output,
-             MIN(m.timestamp) as first_activity,
-             MAX(m.timestamp) as last_activity
-      FROM projects p
-      LEFT JOIN project_visibility pv ON pv.project_id = p.id
-      LEFT JOIN sessions s ON s.project_id = p.id
-      LEFT JOIN messages m ON m.session_id = s.id
-      GROUP BY p.id
-      ORDER BY p.display_name
-    `).all() as any[];
+    // The folded project list our worker already keeps — about a hundred
+    // real projects. This used to run a GROUP BY across every row in
+    // `projects` joined through sessions to messages: 9,455 rows out, most
+    // of them agent scratch directories, serialised to 4.3MB and rendered
+    // one by one into the DOM. The Projects page had solved this months
+    // ago; the preview was the last caller still doing it the long way.
+    const folded = readProjectList()?.payload ?? [];
+    const names = folded.map((p) => p.name);
+    const visByName = new Map<string, { id: number; path: string | null; visibility: string; auto_detected: string | null; vis_updated_at: string | null }>();
+    if (names.length) {
+      const rows = db.prepare(`
+        SELECT p.id, p.name, p.path,
+               COALESCE(pv.visibility, 'private') AS visibility,
+               pv.auto_detected, pv.updated_at AS vis_updated_at
+        FROM projects p
+        LEFT JOIN project_visibility pv ON pv.project_id = p.id
+        WHERE p.name IN (${names.map(() => '?').join(',')})
+      `).all(...names) as any[];
+      for (const r of rows) visByName.set(r.name, r);
+    }
+    const projects = folded.map((f) => {
+      const v = visByName.get(f.name);
+      return {
+        id: v?.id ?? null,
+        name: f.name,
+        display_name: f.displayName,
+        path: v?.path ?? f.path ?? null,
+        visibility: v?.visibility ?? 'private',
+        auto_detected: v?.auto_detected ?? null,
+        vis_updated_at: v?.vis_updated_at ?? null,
+        session_count: f.sessionCount,
+        message_count: f.totalMessages,
+        total_input: f.tokens?.input ?? 0,
+        total_output: f.tokens?.output ?? 0,
+      };
+    });
 
     // Re-check projects with no auto_detected, or where detection is >24h stale
     // Limit batch size so the request stays fast; remaining projects get checked on subsequent requests.
     const staleThreshold = new Date(Date.now() - 24 * 3600000).toISOString();
     const unchecked = projects
-      .filter(p => p.path && (!p.auto_detected || (p.vis_updated_at && p.vis_updated_at < staleThreshold)))
+      .filter(p => p.id != null && p.path && (!p.auto_detected || (p.vis_updated_at && p.vis_updated_at < staleThreshold)))
       .slice(0, MAX_RECHECK_BATCH);
 
     if (unchecked.length > 0) {
@@ -170,8 +188,6 @@ export async function GET() {
         messageCount: p.message_count ?? 0,
         totalInput: p.total_input ?? 0,
         totalOutput: p.total_output ?? 0,
-        firstActivity: p.first_activity,
-        lastActivity: p.last_activity,
       })),
       included,
       excluded,
