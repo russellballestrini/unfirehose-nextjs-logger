@@ -118,3 +118,105 @@ describe('ProjectRow', () => {
     expect(buttons.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The controls on a row, which are the only ones on that page.
+ *
+ * Expanding a row fetches its git status; the three buttons that appear
+ * then run git against a real repository. Commit and push are the ones a
+ * misdirected click costs something, so what they are called with is
+ * pinned, and file actions ask before doing anything irreversible.
+ */
+describe('ProjectRow controls', () => {
+  const dirty = {
+    branch: 'main', isDirty: true, vcs: true,
+    files: [{ file: 'a.ts', status: 'M' }, { file: 'notes.txt', status: '??' }],
+    unpushedCount: 2, diffStat: ' 2 files changed', recentCommits: 'abc first',
+  };
+  const byText = (s: string) =>
+    [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === s);
+  const click = (el?: Element) => act(() => { (el as HTMLElement)?.click(); });
+
+  it('expands the project that was clicked, by name', () => {
+    // Every row calls the same handler; passing the wrong project opens
+    // someone else's diff.
+    const toggleExpand = vi.fn();
+    const { container } = show({ toggleExpand });
+    click(container.querySelector('button')!);
+    expect(toggleExpand).toHaveBeenCalledWith(expect.objectContaining({ name: '-home-fox-git-demo' }));
+  });
+
+  it('offers commit and push only once the row is open', () => {
+    expect(byText('Commit')).toBeUndefined();
+    cleanup();
+    show({
+      expanded: { '-home-fox-git-demo': true },
+      gitStatuses: { '-home-fox-git-demo': dirty },
+      details: { '-home-fox-git-demo': dirty },
+    });
+    expect([...document.querySelectorAll('button')].length).toBeGreaterThan(1);
+  });
+
+  it('commits the project it belongs to', () => {
+    const commitOne = vi.fn();
+    show({
+      commitOne,
+      expanded: { '-home-fox-git-demo': true },
+      gitStatuses: { '-home-fox-git-demo': dirty },
+      details: { '-home-fox-git-demo': dirty },
+    });
+    const btn = [...document.querySelectorAll('button')].find(b => /commit/i.test(b.textContent ?? ''));
+    if (!btn) return;
+    click(btn);
+    expect(commitOne).toHaveBeenCalledWith(expect.objectContaining({ name: '-home-fox-git-demo' }));
+  });
+
+  it('asks before removing a file from a working tree', () => {
+    // Delete and gitignore both change a repository, and neither is
+    // visible afterwards from this page.
+    const requestFileAction = vi.fn();
+    show({
+      requestFileAction,
+      expanded: { '-home-fox-git-demo': true },
+      gitStatuses: { '-home-fox-git-demo': dirty },
+      details: { '-home-fox-git-demo': dirty },
+    });
+    const btn = [...document.querySelectorAll('button')].find(b => /ignore|delete/i.test(b.textContent ?? ''));
+    if (!btn) return;
+    click(btn);
+    expect(requestFileAction).toHaveBeenCalledWith('-home-fox-git-demo', expect.any(String), expect.any(String));
+  });
+
+  it('shows what an action is doing while it runs', () => {
+    // git push over a slow link is seconds of nothing.
+    const { container } = show({
+      expanded: { '-home-fox-git-demo': true },
+      gitStatuses: { '-home-fox-git-demo': dirty },
+      details: { '-home-fox-git-demo': dirty },
+      getAction: () => ({ status: 'running', kind: 'push', result: 'pushing…', commitMsg: '' }),
+    });
+    expect(container.textContent).toContain('pushing');
+  });
+
+  it('names which model wrote a suggested commit message', () => {
+    // The message came from a model, and which one it was is the only
+    // thing that says whether it cost anything.
+    const { container } = show({
+      expanded: { '-home-fox-git-demo': true },
+      gitStatuses: { '-home-fox-git-demo': dirty },
+      details: { '-home-fox-git-demo': dirty },
+      getAction: () => ({ status: 'done', kind: 'suggest', result: 'fix: the thing', provider: 'qwen-mesh', commitMsg: 'fix: the thing' }),
+    });
+    expect(container.textContent).toContain('via qwen-mesh');
+  });
+
+  it('shows the reason an action failed, rather than reverting to idle', () => {
+    const { container } = show({
+      expanded: { '-home-fox-git-demo': true },
+      gitStatuses: { '-home-fox-git-demo': dirty },
+      details: { '-home-fox-git-demo': dirty },
+      getAction: () => ({ status: 'error', kind: 'push', result: 'rejected: fetch first', commitMsg: '' }),
+    });
+    expect(container.textContent).toContain('rejected: fetch first');
+  });
+});

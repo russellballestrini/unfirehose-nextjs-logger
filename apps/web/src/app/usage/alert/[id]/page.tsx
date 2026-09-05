@@ -104,7 +104,10 @@ function RepoContext({ projectName }: { projectName: string }) {
   );
 
   if (!meta) return <div className="text-base text-[var(--color-muted)] animate-pulse">loading git data...</div>;
-  if (!meta.branch && meta.remotes.length === 0 && meta.recentCommits.length === 0) {
+  // Every list here is optional: this endpoint answers with an error body
+  // for a project it cannot resolve, and reading .length off that took the
+  // whole alert page down rather than one panel on it.
+  if (!meta.branch && !meta.remotes?.length && !meta.recentCommits?.length) {
     return <div className="text-base text-[var(--color-muted)] italic">no git repository</div>;
   }
 
