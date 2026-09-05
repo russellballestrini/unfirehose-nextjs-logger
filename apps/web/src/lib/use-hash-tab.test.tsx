@@ -40,12 +40,24 @@ describe('readHash', () => {
 });
 
 describe('useHashTab', () => {
-  it('opens on a deep-linked tab from the very first render', () => {
-    // Read in the useState initialiser, not an effect: an effect would
-    // paint the default first and visibly flash the wrong tab.
+  it('opens on a deep-linked tab before anything is painted', () => {
+    // Adopted in a layout effect — after hydration, before paint — rather
+    // than in the useState initialiser. Reading the hash in the initialiser
+    // made the first client render disagree with the server's HTML, and
+    // React threw the tree away and rebuilt it: "Hydration failed".
     window.location.hash = '#Processes';
     const { result } = renderHook(() => useHashTab<Tab>(TABS, 'Overview'));
     expect(result.current[0]).toBe('Processes');
+  });
+
+  it('renders the fallback first, the same as the server did', () => {
+    // What hydration compares is the first render. It has to match the
+    // HTML, which was produced with no hash to read.
+    window.location.hash = '#Processes';
+    const seen: string[] = [];
+    renderHook(() => { const [t] = useHashTab<Tab>(TABS, 'Overview'); seen.push(t); return t; });
+    expect(seen[0]).toBe('Overview');
+    expect(seen.at(-1)).toBe('Processes');
   });
 
   it('falls back when the hash names nothing we have', () => {
