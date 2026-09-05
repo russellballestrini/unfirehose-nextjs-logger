@@ -50,6 +50,124 @@ const FIXTURE: Record<string, unknown> = {
   db: { projects: 1, sessions: 1, messages: 1 },
 };
 
+
+/**
+ * Per-page data, merged over the shared fixture.
+ *
+ * The shared payload keeps every list empty, which renders each page's
+ * shell and nothing else — a table's header without a row, a chart's frame
+ * without a series. That is the half of a page that has never been wrong.
+ * The formatting, the per-row branches and the totals are what break, and
+ * they only run when there is something in the list.
+ *
+ * Shapes below are taken from the live endpoints, not invented, because a
+ * fixture that does not match what the API returns tests our fixture.
+ */
+const PAGE_DATA: Record<string, Record<string, unknown>> = {
+  './todos/page.tsx': {
+    todos: [
+      { id: 1, project_id: 1, session_id: 1, external_id: '1', content: 'cover the ingest path',
+        status: 'pending', active_form: 'covering the ingest path', source: 'claude',
+        source_session_uuid: 's1', blocked_by: null, created_at: '2026-09-01T10:00:00Z',
+        updated_at: '2026-09-02T10:00:00Z', completed_at: null, estimated_minutes: 30 },
+      { id: 2, project_id: 1, session_id: 1, external_id: '2', content: 'delete the dead report',
+        status: 'in_progress', active_form: 'deleting', source: 'claude',
+        source_session_uuid: 's1', blocked_by: '[1]', created_at: '2026-09-01T11:00:00Z',
+        updated_at: '2026-09-03T11:00:00Z', completed_at: null, estimated_minutes: null },
+      { id: 3, project_id: 2, session_id: 2, external_id: null, content: 'push the tag',
+        status: 'completed', active_form: null, source: 'manual', source_session_uuid: null,
+        blocked_by: null, created_at: '2026-08-20T09:00:00Z', updated_at: '2026-08-21T09:00:00Z',
+        completed_at: '2026-08-21T09:00:00Z', estimated_minutes: 5 },
+    ],
+    byProject: [
+      { project: '-home-fox-git-demo', display: 'demo', projectPath: '/home/fox/git/demo', todos: 2 },
+      { project: 'agnt:-home-fox-git-other', display: 'other', projectPath: null, todos: 1 },
+    ],
+    counts: { pending: 1, inProgress: 1, completed: 1, total: 3 },
+    limit: 500, truncated: false,
+  },
+
+  './projects/page.tsx': {
+    projects: [
+      { name: '-home-fox-git-demo', displayName: 'demo', path: '/home/fox/git/demo',
+        sessionCount: 12, totalMessages: 480, latestActivity: '2026-09-04T12:00:00Z',
+        hasMemory: true, harnesses: ['claude'], foldedCount: 0,
+        tokens: { input: 12_000, output: 4_000, cacheRead: 900_000, cacheWrite: 30_000 } },
+      { name: 'agnt:-home-fox-git-other', displayName: 'agnt: other', path: null,
+        sessionCount: 1, totalMessages: 3, latestActivity: '2026-06-01T12:00:00Z',
+        hasMemory: false, harnesses: ['agnt', 'uncloseai'], foldedCount: 2,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+    ],
+  },
+
+  './projects/[project]/page.tsx': {
+    visibility: 'private',
+    project: { name: '-home-fox-git-demo', displayName: 'demo', path: '/home/fox/git/demo',
+               firstSeen: '2026-01-01T00:00:00Z' },
+    stats: { sessionCount: 12, messageCount: 480, totalInput: 12_000, totalOutput: 4_000,
+             totalCacheRead: 900_000, totalCacheWrite: 30_000, totalCost: 4.25,
+             costSplit: { input: 1, output: 2, cacheRead: 1, cacheWrite: 0.25 },
+             firstActivity: '2026-01-01T00:00:00Z', lastActivity: '2026-09-04T12:00:00Z',
+             activeDays: 40 },
+    models: [{ model: 'claude-opus-4-6-20260301', messages: 300, cost: 4.0 },
+             { model: 'qwen3-coder', messages: 180, cost: 0.25 }],
+    prompts: [{ text: 'add a test', timestamp: '2026-09-04T12:00:00Z', sessionUuid: 's1',
+                sessionDisplay: 'demo #1', model: 'claude-opus-4-6-20260301' }],
+    toolUsage: [{ tool_name: 'Bash', count: 120 }, { tool_name: 'Edit', count: 44 }],
+  },
+
+  './tokens/page.tsx': {
+    modelBreakdown: [
+      { model: 'claude-opus-4-6-20260301', inputTokens: 12_000, outputTokens: 4_000,
+        cacheReadTokens: 900_000, cacheCreationTokens: 30_000, totalTokens: 946_000,
+        inputCostUSD: 0.18, outputCostUSD: 0.30, cacheReadCostUSD: 1.35,
+        cacheWriteCostUSD: 0.56, costUSD: 2.39 },
+      // An unpriced model: every cost field is zero and the page must not
+      // divide by the total to get a share.
+      { model: 'local/stub', inputTokens: 500, outputTokens: 100, cacheReadTokens: 0,
+        cacheCreationTokens: 0, totalTokens: 600, inputCostUSD: 0, outputCostUSD: 0,
+        cacheReadCostUSD: 0, cacheWriteCostUSD: 0, costUSD: 0 },
+    ],
+    totalTokens: 946_600, totalCost: 2.39, totalInputCost: 0.18, totalOutputCost: 0.30,
+    totalCacheReadCost: 1.35, totalCacheWriteCost: 0.56, totalInput: 12_500,
+    totalOutput: 4_100, totalCacheRead: 900_000, totalCacheWrite: 30_000,
+    toolCalls: [{ tool_name: 'Bash', count: 120 }],
+    toolsByModel: [{ model: 'claude-opus-4-6-20260301', count: 120 }],
+    dailyActivity: [
+      { date: '2026-09-03', messageCount: 40, sessionCount: 2, toolCallCount: 12 },
+      { date: '2026-09-04', messageCount: 55, sessionCount: 3, toolCallCount: 20 },
+    ],
+  },
+
+  './permacomputer/page.tsx': {
+    localHostname: 'neoblanka',
+    nodes: [
+      { hostname: 'neoblanka', reachable: true, cpuModel: 'AMD Ryzen 9 5950X', cpuTdpWatts: 105,
+        spinningDisks: 1, ssdCount: 2, cpuCores: 32, memTotalGB: 64, memCapGB: 128,
+        memUsedGB: 18.5, memAvailableGB: 45.5, loadAvg: [1.2, 0.9, 0.7], uptime: '12 days',
+        uptimeSeconds: 1_036_800, cpuYear: 2020, claudeProcesses: 2,
+        harnessCounts: { claude: 2, uncloseai: 1 }, swapTotalGB: 8, swapUsedGB: 0,
+        powerWatts: 142.5, arch: 'x86_64', powerSource: 'rapl' },
+      // An unreachable node: every number is missing and the summary still
+      // has to add up.
+      { hostname: 'cammy.foxhop.net', reachable: false, cpuModel: '', cpuTdpWatts: 0,
+        spinningDisks: 0, ssdCount: 0, cpuCores: 0, memTotalGB: 0, memCapGB: 0,
+        memUsedGB: 0, memAvailableGB: 0, loadAvg: [], uptime: '', uptimeSeconds: 0,
+        cpuYear: 0, claudeProcesses: 0, harnessCounts: {}, swapTotalGB: 0, swapUsedGB: 0,
+        powerWatts: 0, arch: '', powerSource: 'tdp' },
+    ],
+    summary: { totalNodes: 2, reachableNodes: 1, totalClaudes: 2, totalAgents: 3,
+               totalHarnessCounts: { claude: 2, uncloseai: 1 }, totalCores: 32,
+               totalMemGB: 64, totalMemUsedGB: 18.5, totalPowerWatts: 143 },
+  },
+
+  './usage/alert/[id]/page.tsx': {
+    alerts: [{ id: 1, triggered_at: '2026-09-04T12:00:00Z', alert_type: 'threshold',
+               window_minutes: 15, metric: 'output_tokens', threshold_value: 50,
+               actual_value: 100, project_name: null, details: '{}', acknowledged: 0 }],
+  },
+};
+
 /**
  * An array that also carries every object field.
  *
@@ -59,6 +177,16 @@ const FIXTURE: Record<string, unknown> = {
  * would be a second copy of the API to keep in step.
  */
 const PAYLOAD = Object.assign([] as unknown[], FIXTURE);
+
+/** The shared payload with one page's own data merged over it. */
+const payloadFor = (path: string) => {
+  const extra = PAGE_DATA[path];
+  if (!extra) return PAYLOAD;
+  // A page whose endpoint answers with a bare list gets that list as the
+  // array half, so `data.map` and `data.projects` both work.
+  const list = (extra.projects ?? extra.todos ?? extra.nodes ?? extra.alerts ?? []) as unknown[];
+  return Object.assign([...list], FIXTURE, extra);
+};
 
 /** What every useSWR call answers. Reassigned per test to change the state. */
 let swrAnswer: Record<string, unknown>;
@@ -142,6 +270,7 @@ describe('every page renders', () => {
   for (const [path, load] of Object.entries(pages)) {
     it(`renders ${path.replace('./', '')}`, async () => {
       const mod = (await load()) as { default: (props: never) => React.ReactNode };
+      swrAnswer = { data: payloadFor(path), error: undefined, isLoading: false, isValidating: false, mutate: vi.fn() };
       expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
     });
   }

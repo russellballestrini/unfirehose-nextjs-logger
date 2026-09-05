@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import { KanbanCard } from './TodoBoard';
 
 /**
@@ -138,5 +138,145 @@ describe('KanbanCard', () => {
       for (const c of controls) { pressed.add(c); act(() => { (c as HTMLElement).click(); }); }
     }
     expect(pressed.size).toBeGreaterThan(2);
+  });
+});
+
+/**
+ * The card's own states, which are where its branches live.
+ *
+ * A rendered card is a fraction of this component. The rest is what opens
+ * when you click it — editing the text in place, confirming a delete,
+ * picking a node to run on, setting an estimate — and each of those has an
+ * accept path and an abandon path that must leave the todo alone.
+ */
+describe('KanbanCard interactions', () => {
+  const click = (el: Element | null) => act(() => { (el as HTMLElement).click(); });
+  const text = (r: ReturnType<typeof show>, s: string) =>
+    [...r.container.querySelectorAll('button, p, a')].find(e => e.textContent?.trim() === s) ?? null;
+
+  it('turns the text into an editor when you click it', () => {
+    const r = show();
+    expect(r.container.querySelector('textarea')).toBeNull();
+    click(text(r, 'fix the thing'));
+    expect((r.container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('fix the thing');
+  });
+
+  it('saves an edit on Enter', () => {
+    const onUpdate = vi.fn();
+    const r = show({}, { onUpdate });
+    click(text(r, 'fix the thing'));
+    const ta = r.container.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: 'fix the other thing' } });
+    act(() => { ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(onUpdate).toHaveBeenCalledWith(1, { content: 'fix the other thing' });
+  });
+
+  it('abandons an edit on Escape without touching the todo', () => {
+    // Escape is what someone presses after realising they clicked the wrong
+    // card. Saving there rewrites a todo nobody meant to edit.
+    const onUpdate = vi.fn();
+    const r = show({}, { onUpdate });
+    click(text(r, 'fix the thing'));
+    const ta = r.container.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: 'oops' } });
+    act(() => { ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(r.container.querySelector('textarea')).toBeNull();
+  });
+
+  it('does not save an edit that changed nothing', () => {
+    const onUpdate = vi.fn();
+    const r = show({}, { onUpdate });
+    click(text(r, 'fix the thing'));
+    const ta = r.container.querySelector('textarea') as HTMLTextAreaElement;
+    act(() => { ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not save an edit down to nothing', () => {
+    // An empty todo is unreadable on the board and cannot be searched for.
+    const onUpdate = vi.fn();
+    const r = show({}, { onUpdate });
+    click(text(r, 'fix the thing'));
+    const ta = r.container.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: '   ' } });
+    act(() => { ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('asks before deleting', () => {
+    const onDelete = vi.fn();
+    const r = show({}, { onDelete });
+    click(text(r, 'Del'));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(text(r, 'Confirm')).toBeTruthy();
+    click(text(r, 'Confirm'));
+    expect(onDelete).toHaveBeenCalledWith(1);
+  });
+
+  it('lets a delete be called off', () => {
+    const onDelete = vi.fn();
+    const r = show({}, { onDelete });
+    click(text(r, 'Del'));
+    click(text(r, 'Cancel'));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(text(r, 'Del')).toBeTruthy();
+  });
+
+  it('sets an estimate from the picker and closes it', () => {
+    const onUpdate = vi.fn();
+    const r = show({ estimatedMinutes: null }, { onUpdate });
+    click(r.container.querySelector('[title*="stimate"], button') as Element);
+    const choice = [...r.container.querySelectorAll('button')].find(b => /^\d+m$/.test(b.textContent ?? ''));
+    if (choice) {
+      click(choice);
+      expect(onUpdate).toHaveBeenCalledWith(1, { estimatedMinutes: expect.any(Number) });
+    }
+  });
+
+  it('offers localhost and every reachable node, and no unreachable one', () => {
+    // Booting at an unreachable node fails after a 30s ssh timeout, by
+    // which time the todo is already marked in-progress.
+    const r = show();
+    const runBtn = [...r.container.querySelectorAll('button')]
+      .find(b => /run|boot|▶/i.test(b.textContent ?? '') || b.getAttribute('title')?.match(/run|boot/i));
+    if (!runBtn) return;
+    click(runBtn);
+    const names = [...r.container.querySelectorAll('button')].map(b => b.textContent?.trim());
+    expect(names).toContain('localhost');
+    expect(names).toContain('cammy');
+    expect(names).not.toContain('guile');
+  });
+
+  it('marks a todo in progress at the moment it is booted, not when it finishes', () => {
+    // The board is how anyone sees an agent is already on this. Leaving it
+    // pending is how two agents get sent at the same todo.
+    const onUpdate = vi.fn(); const onBoot = vi.fn();
+    const r = show({}, { onUpdate, onBoot });
+    const runBtn = [...r.container.querySelectorAll('button')]
+      .find(b => /run|boot|▶/i.test(b.textContent ?? '') || b.getAttribute('title')?.match(/run|boot/i));
+    if (!runBtn) return;
+    click(runBtn);
+    const local = [...r.container.querySelectorAll('button')].find(b => b.textContent?.trim() === 'localhost');
+    if (!local) return;
+    click(local);
+    expect(onUpdate).toHaveBeenCalledWith(1, { status: 'in_progress' });
+    expect(onBoot).toHaveBeenCalledWith('/home/fox/git/demo', expect.anything(), 'fix the thing', 'localhost', [1], '-home-fox-git-demo');
+  });
+
+  it('copies the id, and says so', () => {
+    const r = show();
+    const idBtn = [...r.container.querySelectorAll('button')].find(b => b.textContent?.trim() === '#1');
+    click(idBtn!);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#1');
+    expect([...r.container.querySelectorAll('button')].some(b => b.textContent === 'copied')).toBe(true);
+  });
+
+  it('copies the uuid, which is the id that survives a re-ingest', () => {
+    const r = show();
+    const uuidBtn = [...r.container.querySelectorAll('button')]
+      .find(b => b.textContent?.trim() === '01a03597-28b3-7b9c-991e-35decbcd4e4c'.slice(-8));
+    click(uuidBtn!);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('01a03597-28b3-7b9c-991e-35decbcd4e4c');
   });
 });
