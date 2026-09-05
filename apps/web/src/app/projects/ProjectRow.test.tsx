@@ -128,6 +128,9 @@ describe('ProjectRow', () => {
  * pinned, and file actions ask before doing anything irreversible.
  */
 describe('ProjectRow controls', () => {
+  // gitStatuses carries counts — that is what /api/projects/git-status
+  // returns and what the row reads. details carries the file list.
+  const status = { dirty: 2, unpushed: 2, branch: 'main' };
   const dirty = {
     branch: 'main', isDirty: true, vcs: true,
     files: [{ file: 'a.ts', status: 'M' }, { file: 'notes.txt', status: '??' }],
@@ -151,7 +154,7 @@ describe('ProjectRow controls', () => {
     cleanup();
     show({
       expanded: { '-home-fox-git-demo': true },
-      gitStatuses: { '-home-fox-git-demo': dirty },
+      gitStatuses: { '-home-fox-git-demo': status },
       details: { '-home-fox-git-demo': dirty },
     });
     expect([...document.querySelectorAll('button')].length).toBeGreaterThan(1);
@@ -162,11 +165,17 @@ describe('ProjectRow controls', () => {
     show({
       commitOne,
       expanded: { '-home-fox-git-demo': true },
-      gitStatuses: { '-home-fox-git-demo': dirty },
+      gitStatuses: { '-home-fox-git-demo': status },
       details: { '-home-fox-git-demo': dirty },
+      getAction: () => ({ status: 'idle', kind: null, result: null, commitMsg: 'fix: the thing' }),
     });
-    const btn = [...document.querySelectorAll('button')].find(b => /commit/i.test(b.textContent ?? ''));
-    if (!btn) return;
+    // The button appears only once a message exists, because commitOne
+    // returns early without one and a live button that does nothing is
+    // worse than a disabled one.
+    const btn = [...document.querySelectorAll('button')]
+      .find(b => b.textContent?.trim() === 'Commit + Push');
+    if (!btn) throw new Error('no Commit + Push button');
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
     click(btn);
     expect(commitOne).toHaveBeenCalledWith(expect.objectContaining({ name: '-home-fox-git-demo' }));
   });
@@ -178,11 +187,11 @@ describe('ProjectRow controls', () => {
     show({
       requestFileAction,
       expanded: { '-home-fox-git-demo': true },
-      gitStatuses: { '-home-fox-git-demo': dirty },
+      gitStatuses: { '-home-fox-git-demo': status },
       details: { '-home-fox-git-demo': dirty },
     });
     const btn = [...document.querySelectorAll('button')].find(b => /ignore|delete/i.test(b.textContent ?? ''));
-    if (!btn) return;
+    if (!btn) throw new Error('missing control: btn');
     click(btn);
     expect(requestFileAction).toHaveBeenCalledWith('-home-fox-git-demo', expect.any(String), expect.any(String));
   });
@@ -191,7 +200,7 @@ describe('ProjectRow controls', () => {
     // git push over a slow link is seconds of nothing.
     const { container } = show({
       expanded: { '-home-fox-git-demo': true },
-      gitStatuses: { '-home-fox-git-demo': dirty },
+      gitStatuses: { '-home-fox-git-demo': status },
       details: { '-home-fox-git-demo': dirty },
       getAction: () => ({ status: 'running', kind: 'push', result: 'pushing…', commitMsg: '' }),
     });
@@ -203,7 +212,7 @@ describe('ProjectRow controls', () => {
     // thing that says whether it cost anything.
     const { container } = show({
       expanded: { '-home-fox-git-demo': true },
-      gitStatuses: { '-home-fox-git-demo': dirty },
+      gitStatuses: { '-home-fox-git-demo': status },
       details: { '-home-fox-git-demo': dirty },
       getAction: () => ({ status: 'done', kind: 'suggest', result: 'fix: the thing', provider: 'qwen-mesh', commitMsg: 'fix: the thing' }),
     });
@@ -213,7 +222,7 @@ describe('ProjectRow controls', () => {
   it('shows the reason an action failed, rather than reverting to idle', () => {
     const { container } = show({
       expanded: { '-home-fox-git-demo': true },
-      gitStatuses: { '-home-fox-git-demo': dirty },
+      gitStatuses: { '-home-fox-git-demo': status },
       details: { '-home-fox-git-demo': dirty },
       getAction: () => ({ status: 'error', kind: 'push', result: 'rejected: fetch first', commitMsg: '' }),
     });

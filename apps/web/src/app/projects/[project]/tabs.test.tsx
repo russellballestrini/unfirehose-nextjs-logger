@@ -219,7 +219,14 @@ describe('committing from the code tab', () => {
   let answers: Record<string, unknown>[];
   const posts = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
     .filter(([, init]) => (init as { method?: string } | undefined)?.method === 'POST')
-    .map(([url, init]) => ({ url: String(url), body: JSON.parse((init as { body: string }).body) }));
+    // The suggest call carries no body, so this cannot assume one.
+    .map(([url, init]) => ({
+      url: String(url),
+      body: (() => {
+        try { return JSON.parse((init as { body?: string }).body ?? 'null'); }
+        catch { return null; }
+      })(),
+    }));
 
   const dirty = {
     branch: 'main', isDirty: true, vcs: true, unpushedCount: 0,
@@ -228,14 +235,36 @@ describe('committing from the code tab', () => {
     recentCommits: 'abc first',
   };
 
-  const open = () => render(
-    <CodeTab gitData={dirty} mutateGit={vi.fn()} project="demo"
-             treeData={treeData} treePath="" setTreePath={vi.fn()} />,
-  );
+  /**
+   * The commit box lives in the Changes view and the tab opens on Files.
+   * These tests used to render, find no box, and return — passing without
+   * asserting anything, which is worse than failing. Nothing is optional
+   * here now: a missing control throws.
+   */
+  const open = () => {
+    const view = render(
+      <CodeTab gitData={dirty} mutateGit={vi.fn()} project="demo"
+               treeData={treeData} treePath="" setTreePath={vi.fn()} />,
+    );
+    const changes = [...view.container.querySelectorAll('button')]
+      .find(b => b.textContent?.trim().startsWith('Changes'));
+    if (!changes) throw new Error('no Changes tab — the code view moved');
+    act(() => { changes.click(); });
+    return view;
+  };
+
+  const need = <T,>(el: T | null | undefined, what: string): T => {
+    if (!el) throw new Error(`no ${what} — the Changes view moved`);
+    return el;
+  };
   const box = (c: HTMLElement) =>
-    c.querySelector('input[placeholder*="ommit"], textarea[placeholder*="ommit"]') as HTMLInputElement;
-  const button = (re: RegExp) =>
-    [...document.querySelectorAll('button')].find(b => re.test(b.textContent ?? ''));
+    need(c.querySelector('input[placeholder*="ommit"]'), 'commit box') as HTMLInputElement;
+  const button = (label: string) =>
+    need([...document.querySelectorAll('button')]
+      .find(b => b.textContent?.trim().startsWith(label)), `${label} button`);
+
+  const type = (c: HTMLElement, msg: string) =>
+    fireEvent.change(box(c), { target: { value: msg } });
 
   beforeEach(() => {
     answers = [
@@ -248,23 +277,36 @@ describe('committing from the code tab', () => {
     })) as never;
   });
 
-  it('will not commit an empty message', async () => {
+  it('will not commit an empty message', () => {
     const { container } = open();
-    const commit = button(/^commit$/i);
-    if (!commit || !box(container)) return;
-    await act(async () => { commit.click(); });
-    expect(posts()).toEqual([]);
+    expect((button('Commit all') as HTMLButtonElement).disabled).toBe(true);
+    type(container, '   ');
+    expect((button('Commit all') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('offers staging as two buttons rather than a checkbox nobody reads', async () => {
+    // 'Commit tracked' leaves scratch.txt alone; 'Commit all' sweeps it
+    // in. When agents work in parallel, what else is in the tree is their
+    // half-written files, so this is a choice worth making explicit.
+    const { container } = open();
+    type(container, 'fix: the thing');
+    await act(async () => { button('Commit tracked').click(); });
+    await waitFor(() => expect(posts()[0].body.addAll).toBe(false));
+  });
+
+  it('sweeps everything in when asked to', async () => {
+    const { container } = open();
+    type(container, 'fix: the thing');
+    await act(async () => { button('Commit all').click(); });
+    await waitFor(() => expect(posts()[0].body.addAll).toBe(true));
   });
 
   it('commits without pushing, then pushes separately', async () => {
     // skipPush on the commit is what lets the page say 'committed' before
     // it knows whether the push worked.
     const { container } = open();
-    if (!box(container)) return;
-    fireEvent.change(box(container), { target: { value: 'fix: the thing' } });
-    const commit = button(/^commit$/i);
-    if (!commit) return;
-    await act(async () => { commit.click(); });
+    type(container, 'fix: the thing');
+    await act(async () => { button('Commit all').click(); });
     await waitFor(() => expect(posts()).toHaveLength(2));
     expect(posts()[0].body).toMatchObject({ message: 'fix: the thing', skipPush: true });
     expect(posts()[1].body).toEqual({ action: 'push' });
@@ -278,44 +320,57 @@ describe('committing from the code tab', () => {
       { success: false, error: 'rejected: fetch first' },
     ];
     const { container } = open();
-    if (!box(container)) return;
-    fireEvent.change(box(container), { target: { value: 'a commit' } });
-    await act(async () => { button(/^commit$/i)?.click(); });
-    await waitFor(() => expect(container.textContent).toContain('push failed'));
-    expect(container.textContent).toContain('def5678');
+    type(container, 'a commit');
+    await act(async () => { button('Commit all').click(); });
+    // It says the commit landed and why the push did not. The hash is not
+    // repeated here, which is a small loss — the recent-commits list above
+    // already shows it.
+    await waitFor(() => expect(container.textContent).toContain('Committed — push failed'));
+    expect(container.textContent).toContain('rejected: fetch first');
   });
 
   it('says when the push had to rebase first', async () => {
-    // Somebody else pushed in between. Silently rebasing is a history
+    // Somebody else pushed in between. Silently rewriting history is a
     // change nobody was told about.
     answers = [
       { success: true, commit: 'def5678 the commit' },
       { success: true, pushed: true, rebased: true },
     ];
     const { container } = open();
-    if (!box(container)) return;
-    fireEvent.change(box(container), { target: { value: 'a commit' } });
-    await act(async () => { button(/^commit$/i)?.click(); });
+    type(container, 'a commit');
+    await act(async () => { button('Commit all').click(); });
     await waitFor(() => expect(container.textContent).toContain('rebased'));
   });
 
   it('reports a refused commit without claiming to have pushed', async () => {
     answers = [{ success: false, error: 'Nothing staged to commit' }];
     const { container } = open();
-    if (!box(container)) return;
-    fireEvent.change(box(container), { target: { value: 'a commit' } });
-    await act(async () => { button(/^commit$/i)?.click(); });
+    type(container, 'a commit');
+    await act(async () => { button('Commit all').click(); });
     await waitFor(() => expect(container.textContent).toContain('Nothing staged'));
     expect(posts()).toHaveLength(1);
+  });
+
+  it('clears the box once the commit has landed', async () => {
+    // Leaving it invites a second commit of the same text.
+    const { container } = open();
+    type(container, 'a commit');
+    await act(async () => { button('Commit all').click(); });
+    await waitFor(() => expect(box(container).value).toBe(''));
   });
 
   it('asks the model for a message and puts it in the box', async () => {
     answers = [{ message: 'fix: the gauge thresholds' }];
     const { container } = open();
-    const suggest = button(/suggest|generate/i);
-    if (!suggest || !box(container)) return;
-    await act(async () => { suggest.click(); });
+    await act(async () => { button('Generate').click(); });
     await waitFor(() => expect(box(container).value).toBe('fix: the gauge thresholds'));
     expect(posts().some(p => p.url.includes('/git/suggest'))).toBe(true);
+  });
+
+  it('pushes on its own when there is nothing left to commit', async () => {
+    answers = [{ success: true, pushed: true }];
+    open();
+    await act(async () => { button('Push').click(); });
+    await waitFor(() => expect(posts()[0].body).toEqual({ action: 'push' }));
   });
 });

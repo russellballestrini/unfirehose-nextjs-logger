@@ -154,6 +154,20 @@ describe('KanbanCard interactions', () => {
   const text = (r: ReturnType<typeof show>, s: string) =>
     [...r.container.querySelectorAll('button, p, a')].find(e => e.textContent?.trim() === s) ?? null;
 
+  /** The button that opens the node picker. Throws rather than skipping. */
+  const deployButton = (r: ReturnType<typeof show>) => {
+    const el = [...r.container.querySelectorAll('button')]
+      .find(b => b.textContent?.trim() === 'Deploy');
+    if (!el) throw new Error('no Deploy button');
+    return el;
+  };
+  const node = (r: ReturnType<typeof show>, name: string) => {
+    const el = [...r.container.querySelectorAll('button')]
+      .find(b => b.textContent?.trim() === name);
+    if (!el) throw new Error(`no ${name} in the node picker`);
+    return el;
+  };
+
   it('turns the text into an editor when you click it', () => {
     const r = show();
     expect(r.container.querySelector('textarea')).toBeNull();
@@ -238,14 +252,15 @@ describe('KanbanCard interactions', () => {
     // Booting at an unreachable node fails after a 30s ssh timeout, by
     // which time the todo is already marked in-progress.
     const r = show();
-    const runBtn = [...r.container.querySelectorAll('button')]
-      .find(b => /run|boot|▶/i.test(b.textContent ?? '') || b.getAttribute('title')?.match(/run|boot/i));
-    if (!runBtn) return;
-    click(runBtn);
-    const names = [...r.container.querySelectorAll('button')].map(b => b.textContent?.trim());
-    expect(names).toContain('localhost');
-    expect(names).toContain('cammy');
-    expect(names).not.toContain('guile');
+    click(deployButton(r));
+    const btn = (name: string) => [...r.container.querySelectorAll('button')]
+      .find(b => b.textContent?.trim() === name) as HTMLButtonElement | undefined;
+    expect(btn('localhost')?.disabled).toBe(false);
+    expect(btn('cammy')?.disabled).toBe(false);
+    // Still listed, because a node that vanishes from the list reads as a
+    // node that is gone — but not choosable.
+    expect(btn('guile')).toBeTruthy();
+    expect(btn('guile')?.disabled).toBe(true);
   });
 
   it('marks a todo in progress at the moment it is booted, not when it finishes', () => {
@@ -253,12 +268,9 @@ describe('KanbanCard interactions', () => {
     // pending is how two agents get sent at the same todo.
     const onUpdate = vi.fn(); const onBoot = vi.fn();
     const r = show({}, { onUpdate, onBoot });
-    const runBtn = [...r.container.querySelectorAll('button')]
-      .find(b => /run|boot|▶/i.test(b.textContent ?? '') || b.getAttribute('title')?.match(/run|boot/i));
-    if (!runBtn) return;
-    click(runBtn);
+    click(deployButton(r));
     const local = [...r.container.querySelectorAll('button')].find(b => b.textContent?.trim() === 'localhost');
-    if (!local) return;
+    if (!local) throw new Error('missing control: local');
     click(local);
     expect(onUpdate).toHaveBeenCalledWith(1, { status: 'in_progress' });
     expect(onBoot).toHaveBeenCalledWith('/home/fox/git/demo', expect.anything(), 'fix the thing', 'localhost', [1], '-home-fox-git-demo');

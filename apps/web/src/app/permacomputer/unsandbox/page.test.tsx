@@ -116,7 +116,7 @@ describe('the cloud node page', () => {
     answer = () => ({ ok: true, stdout: '---JSON---\n{"cores":4,"memTotal":8}' });
     await show();
     const probe = button(/probe/i);
-    if (!probe) return;
+    if (!probe) throw new Error('missing control: probe');
     await act(async () => { probe.click(); });
     await waitFor(() => expect(posts().some(p => p.action === 'probe')).toBe(true));
   });
@@ -125,7 +125,7 @@ describe('the cloud node page', () => {
     global.fetch = vi.fn(async () => { throw new Error('ECONNREFUSED'); }) as never;
     const { container } = await show();
     const probe = button(/probe/i);
-    if (!probe) return;
+    if (!probe) throw new Error('missing control: probe');
     await act(async () => { probe.click(); });
     await waitFor(() => expect(container.textContent).toMatch(/ECONNREFUSED|failed/i));
   });
@@ -144,7 +144,7 @@ describe('the cloud node page', () => {
     await tab('Services');
     const destroy = [...container.querySelectorAll('button')]
       .filter(b => /destroy/i.test(b.textContent ?? ''));
-    if (!destroy.length) return;
+    if (!destroy.length) throw new Error('missing control: destroy.length');
     await act(async () => { (destroy[1] as HTMLElement).click(); });
     await waitFor(() => {
       const call = posts().find(p => p.action === 'destroy-service');
@@ -157,7 +157,7 @@ describe('the cloud node page', () => {
     await tab('Sessions');
     expect(container.textContent).toContain('sess-1');
     const kill = [...container.querySelectorAll('button')].find(b => /kill/i.test(b.textContent ?? ''));
-    if (!kill) return;
+    if (!kill) throw new Error('missing control: kill');
     await act(async () => { kill.click(); });
     await waitFor(() => {
       const call = posts().find(p => p.action === 'kill-session');
@@ -170,10 +170,10 @@ describe('the cloud node page', () => {
     const { container } = await show();
     await tab('Ephemeral');
     const box = container.querySelector('textarea, input[type="text"]') as HTMLInputElement;
-    if (!box) return;
+    if (!box) throw new Error('missing control: box');
     fireEvent.change(box, { target: { value: 'echo hi' } });
     const run = button(/run|execute/i);
-    if (!run) return;
+    if (!run) throw new Error('missing control: run');
     await act(async () => { run.click(); });
     await waitFor(() => expect(container.textContent).toContain('hello from the container'));
   });
@@ -186,10 +186,12 @@ describe('the cloud node page', () => {
   });
 
   it('deploys our own dashboard as a service', async () => {
+    // It lives on Overview, under the unfirehose Service section, and
+    // only when no such service exists yet.
     const { container } = await show();
-    await tab('Bootstrap');
-    const deploy = button(/deploy/i);
-    if (!deploy) return;
+    const deploy = [...document.querySelectorAll('button')]
+      .find(b => b.textContent?.trim().startsWith('Deploy unfirehose'));
+    if (!deploy) throw new Error('no Deploy unfirehose button');
     await act(async () => { deploy.click(); });
     await waitFor(() => expect(posts().some(p => p.action === 'create-service')).toBe(true));
     expect(container.textContent!.length).toBeGreaterThan(50);
@@ -198,11 +200,13 @@ describe('the cloud node page', () => {
   it('installs a harness by running its script in an ephemeral container', async () => {
     // The install runs where the network is: a semitrusted ephemeral box,
     // not the service itself, which may have no egress at all.
+    // The harness grid is on Bootstrap; Harnesses lists what is already
+    // running.
     const { container } = await show();
-    await tab('Harnesses');
+    await tab('Bootstrap');
     const install = [...container.querySelectorAll('button')]
       .filter(b => /verify & install/i.test(b.textContent ?? ''));
-    if (!install.length) return;
+    if (!install.length) throw new Error('no Verify & Install buttons');
     await act(async () => { (install[0] as HTMLElement).click(); });
     await waitFor(() => {
       const call = posts().find(p => p.action === 'execute');

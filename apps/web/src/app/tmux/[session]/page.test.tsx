@@ -186,7 +186,7 @@ describe('leaving', () => {
     host = 'unsandbox';
     await showAttached();
     const btn = button(/disconnect/i);
-    if (!btn) return;
+    if (!btn) throw new Error('missing control: btn');
     await act(async () => { btn.click(); });
     await waitFor(() => {
       const kill = posts().find(p => p.body?.action === 'kill-session');
@@ -199,7 +199,7 @@ describe('leaving', () => {
     // window onto it, not its owner.
     await show();
     const btn = button(/disconnect/i);
-    if (!btn) return;
+    if (!btn) throw new Error('missing control: btn');
     await act(async () => { btn.click(); });
     expect(posts().some(p => p.body?.action === 'kill-session')).toBe(false);
   });
@@ -227,7 +227,7 @@ describe('the controls', () => {
     const { container } = await frozen();
     await waitFor(() => expect(container.textContent).toContain('FROZEN'));
     const wake = button(/wake/i);
-    if (!wake) return;
+    if (!wake) throw new Error('missing control: wake');
     await act(async () => { wake.click(); });
     await waitFor(() => expect(posts().find(p => p.body?.action === 'service-wake')).toBeTruthy());
   });
@@ -240,7 +240,7 @@ describe('the controls', () => {
     })) as never;
     const { container } = await frozen();
     const logs = button(/logs/i);
-    if (!logs) return;
+    if (!logs) throw new Error('missing control: logs');
     await act(async () => { logs.click(); });
     await waitFor(() => expect(container.textContent).toContain('command not found'));
   });
@@ -251,7 +251,7 @@ describe('the controls', () => {
     const { container } = await frozen();
     await waitFor(() => expect(container.textContent).toContain('FROZEN'));
     const redeploy = button(/redeploy/i);
-    if (!redeploy) return;
+    if (!redeploy) throw new Error('missing control: redeploy');
     await act(async () => { redeploy.click(); });
     await waitFor(() => expect(posts().find(p => p.body?.action === 'service-redeploy')).toBeTruthy());
   });
@@ -314,7 +314,7 @@ describe('the controls', () => {
     const { container } = await show();
     await waitFor(() => expect(container.textContent).toContain('agent'));
     const tab = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('agent'));
-    if (!tab) return;
+    if (!tab) throw new Error('missing control: tab');
     await act(async () => { tab.click(); });
     await waitFor(() => expect(streams.some(s => s.url.includes('window=1'))).toBe(true));
   });

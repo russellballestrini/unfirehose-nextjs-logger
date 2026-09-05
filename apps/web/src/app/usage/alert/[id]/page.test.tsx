@@ -167,7 +167,7 @@ describe('alert detail', () => {
     await show();
     const btn = [...document.querySelectorAll('button')]
       .find(b => /acknowledge/i.test(b.textContent ?? ''));
-    if (!btn) return;
+    if (!btn) throw new Error('missing control: btn');
     Object.defineProperty(window, 'location', { value: { reload: vi.fn() }, writable: true });
     await act(async () => { btn.click(); });
     await waitFor(() => {

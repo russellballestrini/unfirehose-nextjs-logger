@@ -940,9 +940,15 @@ export function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, boot
                   <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
                   localhost
                 </button>
+                {/* Unreachable nodes stay listed but cannot be chosen. Hiding
+                    them reads as a node that vanished; offering them means an
+                    ssh timeout with the todo already flipped to in-progress
+                    and no agent behind it. */}
                 {meshNodes.filter(n => n.hostname !== 'localhost').map(n => (
                   <button
                     key={n.hostname}
+                    disabled={n.reachable === false}
+                    title={n.reachable === false ? `${n.hostname} did not answer its last probe` : undefined}
                     onClick={() => { onUpdate(todo.id, { status: 'in_progress' }); onBoot(projectPath, bootKey, todo.content, n.hostname, [todo.id], todo.projectName); setShowNodePicker(false); }}
                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--color-surface-hover)] flex items-center gap-2 cursor-pointer"
                   >

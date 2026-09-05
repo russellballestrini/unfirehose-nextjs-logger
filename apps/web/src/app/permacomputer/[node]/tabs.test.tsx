@@ -208,7 +208,7 @@ describe('node tab controls', () => {
     render(<BootstrapTab {...bag({ bootHarness })} />);
     const install = [...document.querySelectorAll('button')]
       .filter(b => /install|verify|boot/i.test(b.textContent ?? ''));
-    if (!install.length) return;
+    if (!install.length) throw new Error('missing control: install.length');
     act(() => { install[install.length - 1].click(); });
     expect(bootHarness).toHaveBeenCalledTimes(1);
     expect(bootHarness.mock.calls[0][0]).toBeTruthy();
@@ -228,13 +228,27 @@ describe('node tab controls', () => {
     expect(container.textContent).not.toMatch(/claude code/i);
   });
 
-  it('opens a preview of the tmux session that was clicked', async () => {
+  it('opens a preview of the tmux session that was clicked', () => {
+    // The session cards are divs carrying a click handler, not buttons.
     const setPreviewSession = vi.fn();
-    render(<HarnessesTab {...bag({ setPreviewSession })} />);
-    const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('claude'));
-    if (!btn) return;
-    act(() => { btn.click(); });
-    expect(setPreviewSession).toHaveBeenCalled();
+    const { container } = render(<HarnessesTab {...bag({ setPreviewSession })} />);
+    const card = [...container.querySelectorAll('div')]
+      .find(d => d.textContent?.trim() === 'claude');
+    if (!card) throw new Error('no tmux session card');
+    act(() => { (card as HTMLElement).click(); });
+    expect(setPreviewSession).toHaveBeenCalledWith('claude');
+  });
+
+  it('closes a preview that is already open, since it is a toggle', () => {
+    const setPreviewSession = vi.fn();
+    const { container } = render(
+      <HarnessesTab {...bag({ setPreviewSession, previewSession: 'claude' })} />,
+    );
+    const card = [...container.querySelectorAll('div')]
+      .find(d => d.textContent?.trim() === 'claude');
+    if (!card) throw new Error('no tmux session card');
+    act(() => { (card as HTMLElement).click(); });
+    expect(setPreviewSession).toHaveBeenCalledWith(null);
   });
 });
 
@@ -270,22 +284,35 @@ describe('the node chart controls', () => {
 
   const withChart = (over: Record<string, unknown> = {}) => {
     const z = zoomState();
-    render(<OverviewTab {...bag({ setZoomDomain: z.setZoomDomain, ...over })} />);
-    return z;
+    // Zooming goes through applyZoom (which refetches at the new range);
+    // panning and reset go through setZoomDomain. Both are watched.
+    const applyZoom = vi.fn();
+    render(<OverviewTab {...bag({ setZoomDomain: z.setZoomDomain, applyZoom, ...over })} />);
+    return { ...z, applyZoom };
   };
 
-  it('zooms out from a full view by taking half of it', () => {
+  it('zooming out from a full view clears the domain rather than inventing one', () => {
+    // Doubling a full span reaches past both ends of the data. Clamping it
+    // to the data and calling that a zoom would leave the chart claiming
+    // to be zoomed while showing everything.
     const z = withChart();
     click(byTitle('Zoom out 2×'));
-    expect(z.setZoomDomain).toHaveBeenCalled();
+    expect(z.setZoomDomain).toHaveBeenCalledWith(null);
+    expect(z.applyZoom).not.toHaveBeenCalled();
   });
 
   it('zooms in around what is on screen', () => {
-    const z = withChart();
+    // From a full view, zooming in has to choose a window; from a zoomed
+    // one it halves the span it already has. Either way it must produce a
+    // domain, or the chart silently stays where it was.
+    // Zooming refetches at the narrower range, so it goes through
+    // applyZoom rather than setting the domain directly.
+    const z = withChart({ zoomDomain: [1_757_000_000_000, 1_757_000_120_000] });
     click(byTitle('Zoom in 2×'));
-    const d = z.get();
-    if (!d) return;
-    expect(d[1]).toBeGreaterThan(d[0]);
+    expect(z.applyZoom).toHaveBeenCalledTimes(1);
+    const [a, b] = z.applyZoom.mock.calls[0] as [number, number];
+    expect(b).toBeGreaterThan(a);
+    expect(b - a).toBeLessThan(120_000);
   });
 
   it('will not offer to reset a chart that is not zoomed', () => {
@@ -305,7 +332,7 @@ describe('the node chart controls', () => {
     const z = withChart();
     click(byTitle('Pan left ½ screen'));
     const d = z.get();
-    if (!d) return;
+    if (!d) throw new Error('pan left produced no domain');
     expect(d[0]).toBeLessThan(d[1]);
   });
 

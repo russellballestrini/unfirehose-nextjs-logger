@@ -54,8 +54,12 @@ const show = async () => {
   await act(async () => { await Promise.resolve(); });
   return view;
 };
-const button = (re: RegExp) =>
-  [...document.querySelectorAll('button')].find(b => re.test(b.textContent ?? ''));
+/** The "Reasoning only" filter, which is a checkbox rather than a button. */
+const reasoningOnly = () => {
+  const el = document.querySelector('input[type="checkbox"]');
+  if (!el) throw new Error('no reasoning-only checkbox');
+  return el as HTMLInputElement;
+};
 
 describe('active sessions', () => {
   it('lists a running session', async () => {
@@ -87,9 +91,7 @@ describe('active sessions', () => {
     ];
     const { container } = await show();
     expect(container.textContent).toContain('quiet');
-    const filter = button(/reasoning/i);
-    if (!filter) return;
-    await act(async () => { filter.click(); });
+    await act(async () => { reasoningOnly().click(); });
     expect(container.textContent).not.toContain('quiet');
   });
 
@@ -98,12 +100,12 @@ describe('active sessions', () => {
     // sessions stopped reasoning when they were merely hidden.
     sessions = [session({ reasoningCount: 3 }), session({ sessionUuid: 's2', reasoningCount: 0, readableReasoningCount: 0 })];
     const { container } = await show();
-    const before = container.textContent;
-    const filter = button(/reasoning/i);
-    if (!filter) return;
-    await act(async () => { filter.click(); });
+    // Two sessions, three reasoning blocks between them. Hiding the quiet
+    // one must not change that three.
     expect(container.textContent).toContain('3');
-    expect(before).toBeTruthy();
+    await act(async () => { reasoningOnly().click(); });
+    expect(container.textContent).toContain('3');
+    expect(container.textContent).not.toContain('quiet');
   });
 
   it('renders a session that reported no reasoning at all', async () => {

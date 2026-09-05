@@ -49,10 +49,12 @@ const project = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const dirty = (over: Record<string, unknown> = {}) => ({
-  branch: 'main', isDirty: true, vcs: true, unpushedCount: 0,
-  files: [{ file: 'a.ts', status: 'M' }],
-  diffStat: ' 1 file changed', diff: '', recentCommits: 'abc first', ...over,
+/**
+ * What /api/projects/git-status returns: counts, not a file list. The
+ * page filters its Dynamic Commits tab on these two numbers.
+ */
+const status = (over: Record<string, unknown> = {}) => ({
+  dirty: 2, unpushed: 0, branch: 'main', ...over,
 });
 
 let answer: Record<string, unknown>;
@@ -75,8 +77,8 @@ beforeEach(() => {
   ];
   activity = [{ project: '-home-fox-git-demo', days: [{ date: '2026-09-04', messages: 40 }] }];
   gitStatuses = {
-    '-home-fox-git-demo': dirty(),
-    '-home-fox-git-other': dirty({ isDirty: false, files: [], unpushedCount: 2 }),
+    '-home-fox-git-demo': status(),
+    '-home-fox-git-other': status({ dirty: 0, unpushed: 2 }),
   };
   answer = { success: true, commit: 'def5678 the commit', pushed: true };
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => answer })) as never;
@@ -118,7 +120,7 @@ describe('the projects list', () => {
     const before = cards();
     expect(before).toBeGreaterThan(1);
     const box = container.querySelector('input[type="text"], input[type="search"]') as HTMLInputElement;
-    if (!box) return;
+    if (!box) throw new Error('missing control: box');
     fireEvent.change(box, { target: { value: 'other' } });
     await waitFor(() => expect(cards()).toBeLessThan(before));
   });
@@ -126,7 +128,7 @@ describe('the projects list', () => {
   it('clears the search, and everything comes back', async () => {
     const { container } = await show();
     const box = container.querySelector('input[type="text"], input[type="search"]') as HTMLInputElement;
-    if (!box) return;
+    if (!box) throw new Error('missing control: box');
     fireEvent.change(box, { target: { value: 'other' } });
     const clear = button(/^✕$/);
     if (clear) await act(async () => { clear.click(); });
@@ -141,83 +143,80 @@ describe('the projects list', () => {
 });
 
 describe('the dirty repositories tab', () => {
+  /**
+   * This tab's own controls are batch operations: generate a message for
+   * every dirty repo, commit every one that has a message, push every one
+   * that is ahead. A single misfire here touches the whole fleet at once,
+   * which is why what each one skips matters as much as what it does.
+   *
+   * Nothing here is optional — a missing control throws, because five of
+   * these tests used to look for per-row buttons that were never on this
+   * tab and pass by returning early.
+   */
   const openDirty = async () => {
     const view = await show();
-    const t = [...document.querySelectorAll('button')].find(b => /dirty/i.test(b.textContent ?? ''));
-    if (t) await act(async () => { t.click(); });
+    const t = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Dynamic Commits'));
+    if (!t) throw new Error('no Dynamic Commits tab');
+    await act(async () => { t.click(); });
     return view;
   };
+  const button = (label: string) => {
+    const el = [...document.querySelectorAll('button')]
+      .find(b => b.textContent?.trim().startsWith(label));
+    if (!el) throw new Error(`no ${label} button`);
+    return el;
+  };
 
-  it('shows only repositories with something to do', async () => {
-    // A clean repository on this tab is a row nobody can act on. One with
-    // unpushed commits belongs here even though its tree is clean.
+  it('counts what each batch would touch, before anyone presses it', async () => {
+    // 'Commit All (3)' is the only warning you get that it is three.
     const { container } = await openDirty();
-    expect(container.textContent).toContain('demo');
+    expect(container.textContent).toMatch(/Commit All \(\d+\)/);
+    expect(container.textContent).toMatch(/Push All \(\d+\)/);
   });
 
-  it('commits the project whose row it was, with a message from that row', async () => {
-    // Every row shares one handler and one action map keyed by name.
-    // Committing the wrong project from a list of thirty cannot be undone.
-    const { container } = await openDirty();
-    const box = container.querySelector('input[placeholder*="ommit"]') as HTMLInputElement;
-    if (!box) return;
-    fireEvent.change(box, { target: { value: 'fix: the thing' } });
-    const commit = button(/^commit$/i);
-    if (!commit) return;
-    await act(async () => { commit.click(); });
-    await waitFor(() => {
-      const call = posts().find(p => p.url.includes('/git'));
-      expect(call?.url).toContain('-home-fox-git-demo');
-      expect(call?.body).toMatchObject({ message: 'fix: the thing', addAll: true });
-    });
+  it('will not commit when nothing has a message yet', async () => {
+    // Every batch commit needs a message per repo, and none has been
+    // written. The button being live would commit nothing, slowly.
+    await openDirty();
+    expect((button('Commit All') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('will not commit an empty message', async () => {
+  it('pushes only the repositories that are actually ahead', async () => {
+    // demo is dirty but level; other is clean with two unpushed commits.
+    // A push-all that included demo would be a no-op per repo and a
+    // string of confusing failures.
     const { container } = await openDirty();
-    const commit = button(/^commit$/i);
-    if (!commit) return;
-    await act(async () => { commit.click(); });
-    expect(posts().some(p => p.url.includes('/git'))).toBe(false);
+    expect(container.textContent).toContain('Push All (1)');
+  });
+
+  it('offers to write every message with a model in one go', async () => {
+    const { container } = await openDirty();
+    expect(button('Generate All Messages')).toBeTruthy();
     expect(container).toBeTruthy();
   });
 
-  it('says a commit landed and whether it was pushed', async () => {
+  it('says there is nothing to do rather than showing empty batch buttons', async () => {
+    // Four disabled batch actions over an empty list is a page that looks
+    // broken; this is the state most of the fleet is in most of the time.
+    gitStatuses = { '-home-fox-git-demo': status({ dirty: 0, unpushed: 0 }) };
     const { container } = await openDirty();
-    const box = container.querySelector('input[placeholder*="ommit"]') as HTMLInputElement;
-    if (!box) return;
-    fireEvent.change(box, { target: { value: 'a commit' } });
-    const commit = button(/^commit$/i);
-    if (!commit) return;
-    await act(async () => { commit.click(); });
-    await waitFor(() => expect(container.textContent).toContain('def5678'));
+    expect(container.textContent).toContain('No dirty or unpushed repos');
   });
 
-  it('says a push failed without claiming the commit did', async () => {
-    // The commit is made and is not lost. Reporting the whole thing as a
-    // failure invites someone to run it again and commit twice.
-    answer = { success: true, commit: 'def5678 the commit', pushed: false, pushError: 'rejected: fetch first' };
+  it('expands and collapses every repository at once', async () => {
+    // Thirty repos of diff is a page nobody can read, so the default is
+    // collapsed and this is the way back.
     const { container } = await openDirty();
-    const box = container.querySelector('input[placeholder*="ommit"]') as HTMLInputElement;
-    if (!box) return;
-    fireEvent.change(box, { target: { value: 'a commit' } });
-    await act(async () => { button(/^commit$/i)?.click(); });
-    await waitFor(() => expect(container.textContent).toContain('push failed'));
-  });
-
-  it('pushes without committing when that is all that is left', async () => {
-    const { container } = await openDirty();
-    const push = button(/^push$/i);
-    if (!push) return;
-    await act(async () => { push.click(); });
-    await waitFor(() => {
-      const call = posts().find(p => p.body?.action === 'push');
-      expect(call).toBeTruthy();
-    });
-    expect(container).toBeTruthy();
+    const toggle = [...container.querySelectorAll('button')]
+      .find(b => /Expand All|Collapse All/.test(b.textContent ?? ''));
+    if (!toggle) throw new Error('no expand toggle');
+    const before = toggle.textContent;
+    await act(async () => { toggle.click(); });
+    expect(toggle.textContent).not.toBe(before);
   });
 
   it('draws a fleet with nothing uncommitted anywhere', async () => {
-    gitStatuses = { '-home-fox-git-demo': dirty({ isDirty: false, files: [] }) };
+    gitStatuses = { '-home-fox-git-demo': status({ dirty: 0, unpushed: 0 }) };
     const { container } = await openDirty();
     expect(container.textContent).not.toContain('undefined');
   });
