@@ -83,7 +83,7 @@ export default function SchemaPage() {
   );
 }
 
-function MarkdownRenderer({ content, onNavigate }: { content: string; onNavigate?: (href: string) => void }) {
+export function MarkdownRenderer({ content, onNavigate }: { content: string; onNavigate?: (href: string) => void }) {
   const lines = content.split('\n');
   const elements: React.ReactNode[] = [];
   let i = 0;

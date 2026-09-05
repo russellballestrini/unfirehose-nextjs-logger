@@ -489,7 +489,7 @@ function heatColor(heat: number): string {
 }
 
 // ─── PROJECT CARD ───
-function ProjectCard({
+export function ProjectCard({
   project,
   activity,
   rangeDays,

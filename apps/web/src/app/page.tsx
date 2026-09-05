@@ -45,6 +45,131 @@ const DAY_COLORS = [
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * One model's row in the dashboard breakdown.
+ *
+ * A hundred-line callback inside the table's map: token split, cost split,
+ * cache rate, power, and what running it ourselves saved against buying the
+ * same tokens. None of it reachable without rendering the whole dashboard.
+ */
+export function ModelRow({ m }: { m: any }) {
+  return (
+                <tr className="border-t border-[var(--color-border)]">
+                  <td className="py-1.5 flex items-center gap-2">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full"
+                      style={{ background: getModelColor(m.fullName) }}
+                    />
+                    <span>{m.name}</span>
+                    {m.selfHosted && (
+                      <span
+                        className="text-xs text-[var(--color-muted)] opacity-70"
+                        title={
+                          m.host && m.meshObservedUSD != null
+                            ? `self-hosted on ${m.host}. cost = watts × GPU-seconds × $/kWh, prefill and decode billed at their own rates. mesh-observed during window: $${m.meshObservedUSD.toFixed(4)} (sparse polling under-counts)`
+                            : m.host
+                              ? `self-hosted on ${m.host}. cost from peak-watt estimate.`
+                              : `self-hosted, node unknown — no endpoint URL logged. Cost from peak-watt estimate.`
+                        }
+                      >
+                        ⚡{m.host ?? 'local'}
+                      </span>
+                    )}
+                    {m.costSource === 'synthetic' && (
+                      <span
+                        className="text-xs text-[var(--color-muted)] opacity-70"
+                        title="Test fixture, not a real model. $0 by construction."
+                      >
+                        test
+                      </span>
+                    )}
+                    {m.costSource === 'invoice' && (
+                      <span
+                        className="text-xs text-[var(--color-muted)] opacity-70"
+                        title="Billed figure, quoted by the gateway. Not tokens times list price — a cached prefix or a batch tier bills below list and cannot be recovered from token counts."
+                      >
+                        billed
+                      </span>
+                    )}
+                    {m.promo && (
+                      <span
+                        className="text-xs text-[var(--color-muted)] opacity-70"
+                        title={`List price. ${m.promo.reason} — noted ${m.promo.notedOn}. The provider bills less than this today; a temporary discount is the wrong basis for deciding where work should run.`}
+                      >
+                        list
+                      </span>
+                    )}
+                    {m.pricedAgainst && m.pricedAgainst.toLowerCase() !== m.fullName.toLowerCase() && (
+                      <span
+                        className="text-xs text-[var(--color-muted)] opacity-70"
+                        title={`No own price — shadow-priced against ${m.pricedAgainst}.`}
+                      >
+                        ≈{m.pricedAgainst}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1.5 text-right" title={m.inputCost != null ? `${formatCost(m.inputCost)} at API rates` : undefined}>
+                    {formatTokens(m.inputTokens)}
+                  </td>
+                  <td
+                    className="py-1.5 text-right"
+                    title={
+                      m.cacheReadTokens + m.cacheWriteTokens > 0
+                        ? `cache read ${formatTokens(m.cacheReadTokens)} · ` +
+                          `cache write ${formatTokens(m.cacheWriteTokens)}` +
+                          (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
+                        : m.structuralReuseTokens != null
+                          ? `~${formatTokens(m.structuralReuseTokens)} of ${formatTokens(m.inputTokens)} prompt tokens were a re-send of a prompt we had already delivered` +
+                            ` — ${((m.structuralReuseRate ?? 0) * 100).toFixed(1)}% of this model's prompt is prefix a cache could serve.` +
+                            `\n\nDERIVED, not measured — the ~ marks it. vLLM's V1 engine never maps num_cached_tokens into prompt_tokens_details (vllm#44961, open since 2025), so a model we serve ourselves reports no cache at all. This is computed from our own sessions: an agent loop appends, so the prefix shared with the previous call is that call's whole prompt, floored to vLLM's 16-token block. It is a CEILING — real hits are lower by whatever eviction takes.` +
+                            (m.measuredCacheHits != null
+                              ? `\n\nFor comparison, vLLM's own counters on ${(m.measuredCacheNodes ?? []).join(', ')} report ${formatTokens(m.measuredCacheHits)} hits over ${formatTokens(m.measuredCacheQueries ?? 0)} queries this window. That describes the NODE, every client of it — not our traffic — so it is context, not our hit rate.`
+                              : '')
+                          : 'This provider reported no cache detail for these tokens. Not zero — unknown. An aggregator often returns it only when the request asks for detailed usage accounting.'
+                    }
+                  >
+                    {m.cacheReadTokens + m.cacheWriteTokens > 0
+                      ? formatTokens(m.cacheReadTokens + m.cacheWriteTokens)
+                      : m.structuralReuseTokens != null
+                        ? <span className="text-[var(--color-muted)]">
+                            ~{formatTokens(m.structuralReuseTokens)}
+                          </span>
+                        : <span className="text-[var(--color-muted)]">—</span>}
+                  </td>
+                  <td className="py-1.5 text-right" title={m.outputCost != null ? `${formatCost(m.outputCost)} at API rates` : undefined}>
+                    {formatTokens(m.outputTokens)}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {formatTokens(m.tokens)}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {/* An unpriced model must never render as $0 — that is the
+                        defect this panel had. Show it as unknown instead. */}
+                    {m.costSource === 'unknown'
+                      ? <span className="text-[var(--color-muted)]" title="No price from either oracle. Not free — unknown.">—</span>
+                      : m.costSource === 'synthetic'
+                        ? <span className="text-[var(--color-muted)]" title="Test fixture. $0 by construction, not by measurement.">—</span>
+                        : `$${m.cost.toFixed(2)}`}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {/* Cost is now the buy price for every row, so the old
+                        Market column would repeat it. What a self-hosted row
+                        adds is the power bill — the money that actually
+                        left the account. */}
+                    {m.energy > 0
+                      ? <span title="Electricity: watts × GPU-seconds × $/kWh. What serving this ourselves actually cost.">${m.energy.toFixed(2)}</span>
+                      : <span title="Bought from a provider — no power bill of ours.">—</span>}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {m.avoided > 0
+                      ? <span className="text-[var(--color-success,#4ade80)]">${m.avoided.toFixed(2)}</span>
+                      : <span className="text-[var(--color-muted)]">—</span>}
+                  </td>
+                </tr>
+  );
+}
+
+
 export default function DashboardPage() {
   const [range, setRange] = useTimeRange('dashboard_range', '7d');
   const { data, error } = useSWR(`/api/dashboard?range=${range}`, fetcher, {
@@ -390,118 +515,7 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {modelData.map((m: any) => (
-                  <tr key={m.fullName} className="border-t border-[var(--color-border)]">
-                    <td className="py-1.5 flex items-center gap-2">
-                      <span
-                        className="inline-block w-2 h-2 rounded-full"
-                        style={{ background: getModelColor(m.fullName) }}
-                      />
-                      <span>{m.name}</span>
-                      {m.selfHosted && (
-                        <span
-                          className="text-xs text-[var(--color-muted)] opacity-70"
-                          title={
-                            m.host && m.meshObservedUSD != null
-                              ? `self-hosted on ${m.host}. cost = watts × GPU-seconds × $/kWh, prefill and decode billed at their own rates. mesh-observed during window: $${m.meshObservedUSD.toFixed(4)} (sparse polling under-counts)`
-                              : m.host
-                                ? `self-hosted on ${m.host}. cost from peak-watt estimate.`
-                                : `self-hosted, node unknown — no endpoint URL logged. Cost from peak-watt estimate.`
-                          }
-                        >
-                          ⚡{m.host ?? 'local'}
-                        </span>
-                      )}
-                      {m.costSource === 'synthetic' && (
-                        <span
-                          className="text-xs text-[var(--color-muted)] opacity-70"
-                          title="Test fixture, not a real model. $0 by construction."
-                        >
-                          test
-                        </span>
-                      )}
-                      {m.costSource === 'invoice' && (
-                        <span
-                          className="text-xs text-[var(--color-muted)] opacity-70"
-                          title="Billed figure, quoted by the gateway. Not tokens times list price — a cached prefix or a batch tier bills below list and cannot be recovered from token counts."
-                        >
-                          billed
-                        </span>
-                      )}
-                      {m.promo && (
-                        <span
-                          className="text-xs text-[var(--color-muted)] opacity-70"
-                          title={`List price. ${m.promo.reason} — noted ${m.promo.notedOn}. The provider bills less than this today; a temporary discount is the wrong basis for deciding where work should run.`}
-                        >
-                          list
-                        </span>
-                      )}
-                      {m.pricedAgainst && m.pricedAgainst.toLowerCase() !== m.fullName.toLowerCase() && (
-                        <span
-                          className="text-xs text-[var(--color-muted)] opacity-70"
-                          title={`No own price — shadow-priced against ${m.pricedAgainst}.`}
-                        >
-                          ≈{m.pricedAgainst}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-1.5 text-right" title={m.inputCost != null ? `${formatCost(m.inputCost)} at API rates` : undefined}>
-                      {formatTokens(m.inputTokens)}
-                    </td>
-                    <td
-                      className="py-1.5 text-right"
-                      title={
-                        m.cacheReadTokens + m.cacheWriteTokens > 0
-                          ? `cache read ${formatTokens(m.cacheReadTokens)} · ` +
-                            `cache write ${formatTokens(m.cacheWriteTokens)}` +
-                            (m.cacheCost != null ? `\n${formatCost(m.cacheCost)} at API rates` : '')
-                          : m.structuralReuseTokens != null
-                            ? `~${formatTokens(m.structuralReuseTokens)} of ${formatTokens(m.inputTokens)} prompt tokens were a re-send of a prompt we had already delivered` +
-                              ` — ${((m.structuralReuseRate ?? 0) * 100).toFixed(1)}% of this model's prompt is prefix a cache could serve.` +
-                              `\n\nDERIVED, not measured — the ~ marks it. vLLM's V1 engine never maps num_cached_tokens into prompt_tokens_details (vllm#44961, open since 2025), so a model we serve ourselves reports no cache at all. This is computed from our own sessions: an agent loop appends, so the prefix shared with the previous call is that call's whole prompt, floored to vLLM's 16-token block. It is a CEILING — real hits are lower by whatever eviction takes.` +
-                              (m.measuredCacheHits != null
-                                ? `\n\nFor comparison, vLLM's own counters on ${(m.measuredCacheNodes ?? []).join(', ')} report ${formatTokens(m.measuredCacheHits)} hits over ${formatTokens(m.measuredCacheQueries ?? 0)} queries this window. That describes the NODE, every client of it — not our traffic — so it is context, not our hit rate.`
-                                : '')
-                            : 'This provider reported no cache detail for these tokens. Not zero — unknown. An aggregator often returns it only when the request asks for detailed usage accounting.'
-                      }
-                    >
-                      {m.cacheReadTokens + m.cacheWriteTokens > 0
-                        ? formatTokens(m.cacheReadTokens + m.cacheWriteTokens)
-                        : m.structuralReuseTokens != null
-                          ? <span className="text-[var(--color-muted)]">
-                              ~{formatTokens(m.structuralReuseTokens)}
-                            </span>
-                          : <span className="text-[var(--color-muted)]">—</span>}
-                    </td>
-                    <td className="py-1.5 text-right" title={m.outputCost != null ? `${formatCost(m.outputCost)} at API rates` : undefined}>
-                      {formatTokens(m.outputTokens)}
-                    </td>
-                    <td className="py-1.5 text-right">
-                      {formatTokens(m.tokens)}
-                    </td>
-                    <td className="py-1.5 text-right">
-                      {/* An unpriced model must never render as $0 — that is the
-                          defect this panel had. Show it as unknown instead. */}
-                      {m.costSource === 'unknown'
-                        ? <span className="text-[var(--color-muted)]" title="No price from either oracle. Not free — unknown.">—</span>
-                        : m.costSource === 'synthetic'
-                          ? <span className="text-[var(--color-muted)]" title="Test fixture. $0 by construction, not by measurement.">—</span>
-                          : `$${m.cost.toFixed(2)}`}
-                    </td>
-                    <td className="py-1.5 text-right text-[var(--color-muted)]">
-                      {/* Cost is now the buy price for every row, so the old
-                          Market column would repeat it. What a self-hosted row
-                          adds is the power bill — the money that actually
-                          left the account. */}
-                      {m.energy > 0
-                        ? <span title="Electricity: watts × GPU-seconds × $/kWh. What serving this ourselves actually cost.">${m.energy.toFixed(2)}</span>
-                        : <span title="Bought from a provider — no power bill of ours.">—</span>}
-                    </td>
-                    <td className="py-1.5 text-right">
-                      {m.avoided > 0
-                        ? <span className="text-[var(--color-success,#4ade80)]">${m.avoided.toFixed(2)}</span>
-                        : <span className="text-[var(--color-muted)]">—</span>}
-                    </td>
-                  </tr>
+                  <ModelRow key={m.fullName} m={m} />
                 ))}
               </tbody>
               {avoidedTotal > 0 && (
