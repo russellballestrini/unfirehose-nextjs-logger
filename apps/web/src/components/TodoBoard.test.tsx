@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, act, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, act, waitFor, fireEvent } from '@testing-library/react';
 import { TodoBoard } from './TodoBoard';
 
 /**
@@ -136,5 +136,120 @@ describe('TodoBoard', () => {
       }
     }
     expect(pressed.size).toBeGreaterThan(3);
+  });
+});
+
+/**
+ * Dragging a card between columns.
+ *
+ * A drop is not a status change. Dropping onto in-progress boots an agent
+ * against that todo, and dropping onto completed tells the boot route to
+ * retire the agent's tmux window. Both are actions on a machine, driven by
+ * a gesture, and neither is visible in the resulting board — which is why
+ * the rules about which drops are allowed matter as much as what a drop
+ * does.
+ */
+describe('TodoBoard — dragging', () => {
+  /** Every request the board made, as method + path + parsed body. */
+  const calls = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    .map(([url, init]) => ({
+      url: String(url),
+      method: (init as { method?: string } | undefined)?.method ?? 'GET',
+      body: (() => {
+        try { return JSON.parse((init as { body?: string } | undefined)?.body ?? 'null'); }
+        catch { return null; }
+      })(),
+    }));
+
+  const card = (text: string) => {
+    const el = [...document.querySelectorAll('[data-kanban-col] [draggable="true"]')]
+      .find(e => e.textContent?.includes(text));
+    if (!el) throw new Error(`no card for ${text}`);
+    return el;
+  };
+
+  const column = (key: string) => document.querySelector(`[data-kanban-col="${key}"]`);
+
+  const dataTransfer = () => ({
+    setData() {}, getData: () => '', setDragImage() {},
+    effectAllowed: '', dropEffect: '', files: [],
+  });
+
+  const drag = async (from: string, to: string) => {
+    const target = column(to);
+    if (!target) throw new Error(`no column ${to}`);
+    await act(async () => { fireEvent.dragStart(card(from), { dataTransfer: dataTransfer() }); });
+    await act(async () => {
+      fireEvent.drop(target, { dataTransfer: dataTransfer(), clientX: 100, clientY: 100 });
+    });
+  };
+
+  it('starts the work when a pending todo is dragged into progress', async () => {
+    // The drop is the whole gesture — nobody presses a second button — so
+    // if this does not boot, the card moves and nothing happens.
+    await mount();
+    await waitFor(() => expect(card('fix the thing')).toBeTruthy());
+    await drag('fix the thing', 'in_progress');
+
+    await waitFor(() => {
+      const patched = calls().find(c => c.url.includes('/api/todos') && c.method === 'PATCH');
+      expect(patched?.body).toMatchObject({ id: 1, status: 'in_progress' });
+    });
+    await waitFor(() => {
+      const booted = calls().find(c => c.url.includes('/api/boot') && c.method === 'POST');
+      expect(booted?.body).toMatchObject({
+        projectPath: '/home/fox/git/demo', prompt: 'fix the thing', todoIds: [1],
+      });
+    });
+  });
+
+  it('retires the agent when its todo is dragged to done', async () => {
+    // Otherwise the tmux window stays open on whichever machine ran it,
+    // and nothing on this board says so.
+    response = board([todo({
+      status: 'in_progress',
+      deployment: { tmuxSession: 'demo', tmuxWindow: '120000', status: 'running', startedAt: '2026-09-04T12:00:00.000Z' },
+    })]);
+    await mount();
+    await waitFor(() => expect(card('fix the thing')).toBeTruthy());
+    await drag('fix the thing', 'completed');
+
+    await waitFor(() => {
+      const finished = calls().find(c => c.url.includes('/api/boot/finished'));
+      expect(finished?.body).toEqual({ tmuxSession: 'demo', tmuxWindow: '120000' });
+    });
+  });
+
+  it('does not boot again when a todo is dragged back out of progress', async () => {
+    // Moving work back to pending is someone saying it is not being worked
+    // on. Starting an agent there is the opposite.
+    response = board([todo({ status: 'in_progress' })]);
+    await mount();
+    await waitFor(() => expect(card('fix the thing')).toBeTruthy());
+    await drag('fix the thing', 'pending');
+
+    await waitFor(() => {
+      expect(calls().find(c => c.url.includes('/api/todos') && c.method === 'PATCH')?.body)
+        .toMatchObject({ status: 'pending' });
+    });
+    expect(calls().some(c => c.url.includes('/api/boot') && c.method === 'POST')).toBe(false);
+  });
+
+  it('ignores a drop onto the column the card is already in', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText('fix the thing')).toBeInTheDocument());
+    const before = calls().length;
+    await drag('fix the thing', 'pending');
+    expect(calls().length).toBe(before);
+  });
+
+  it('will not let a pending todo be dropped straight onto done', async () => {
+    // Skipping in-progress skips the boot, so the todo would be closed
+    // with the work never started.
+    await mount();
+    await waitFor(() => expect(screen.getByText('fix the thing')).toBeInTheDocument());
+    const before = calls().length;
+    await drag('fix the thing', 'completed');
+    expect(calls().length).toBe(before);
   });
 });
