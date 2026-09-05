@@ -7,13 +7,14 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-function fmtNum(n: number | null): string {
-  if (n === null) return '—';
+/** A dash for anything we do not have, including a field the API stopped sending. */
+function fmtNum(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
   return n.toLocaleString();
 }
 
-function fmtBytes(n: number | null): string {
-  if (n === null) return '—';
+function fmtBytes(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
   if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
   if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
   if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
