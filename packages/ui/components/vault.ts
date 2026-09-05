@@ -25,11 +25,31 @@ function base64ToBuf(b64: string): Uint8Array {
   return buf;
 }
 
+/**
+ * PBKDF2 rounds, the OWASP figure for SHA-256.
+ *
+ * Exported so a test can assert what ships, and overridable through an env
+ * var so a suite need not pay for it thirteen times. One derivation is
+ * 1.5-2.5s here, which made the ui suite a hundred seconds — almost all of
+ * it spent proving the same arithmetic over and over rather than exercising
+ * the vault. The parameter is asserted once, at its real value; the logic is
+ * exercised at a cost that lets the suite run.
+ *
+ * There is no way to set this from a browser, and no caller passes it: the
+ * only reader is a test runner's environment.
+ */
+export const PBKDF2_ITERATIONS = 600_000;
+
+const iterations = (): number => {
+  const override = Number(process.env.UNFIREHOSE_TEST_KDF_ROUNDS);
+  return Number.isFinite(override) && override > 0 ? override : PBKDF2_ITERATIONS;
+};
+
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 600_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: iterations(), hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,

@@ -7,6 +7,13 @@ export default defineConfig({
     include: ['**/*.test.{ts,tsx}'],
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
+    env: {
+      // See PBKDF2_ITERATIONS in components/vault.ts: the shipped count is
+      // asserted by a test, and the rest of the suite exercises vault logic
+      // without paying 2s per derivation. This took the suite from 101s to
+      // roughly a tenth of that.
+      UNFIREHOSE_TEST_KDF_ROUNDS: '1000',
+    },
     coverage: {
       provider: 'v8',
       include: ['components/**/*.{ts,tsx}', 'hooks/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],

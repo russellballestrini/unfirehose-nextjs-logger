@@ -1,4 +1,6 @@
 .PHONY: all clean test coverage coverage-check coverage-report cc crap dupes orphans report \
+        test-core test-ui test-web test-scripts \
+        cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report
 
 # Everything a change should pass before it is pushed.
@@ -20,19 +22,37 @@ COVERAGE_REPORTERS := --coverage.reporter=text-summary --coverage.reporter=json 
 NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=0 \
                  --coverage.thresholds.functions=0 --coverage.thresholds.branches=0
 
+# The four suites are independent, so they run at once. Serially this was a
+# minute and a half of mostly-idle waiting. Target names cannot carry the
+# workspace path — make reads a slash as a directory — so each has a short
+# name and cd's itself.
 test:
-	@for d in $(COVERED); do \
-	  echo "==> $$d"; (cd $$d && npx vitest run) || exit 1; \
-	done
+	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts
+
+test-core:
+	@echo "==> packages/core"; cd packages/core && npx vitest run
+test-ui:
+	@echo "==> packages/ui"; cd packages/ui && npx vitest run
+test-web:
+	@echo "==> apps/web"; cd apps/web && npx vitest run
+test-scripts:
+	@echo "==> scripts"; cd scripts && npx vitest run
+
+cov-core:
+	@echo "==> packages/core"; cd packages/core && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+cov-ui:
+	@echo "==> packages/ui"; cd packages/ui && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+cov-web:
+	@echo "==> apps/web"; cd apps/web && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+cov-scripts:
+	@echo "==> scripts"; cd scripts && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
 
 # Run every suite under coverage, then print what they reached. HTML lands
 # in <workspace>/coverage/index.html for line-by-line reading.
 #   make coverage
 #   make coverage ARGS="--worst 40 --json reports/coverage.json"
 coverage:
-	@for d in $(COVERED); do \
-	  echo "==> $$d"; (cd $$d && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)) || exit 1; \
-	done
+	@$(MAKE) -j4 --no-print-directory cov-core cov-ui cov-web cov-scripts
 	@npx tsx scripts/quality/report-coverage.ts $(ARGS)
 
 # The gate: fail where a workspace sits under the thresholds its own

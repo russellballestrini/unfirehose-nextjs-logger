@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Vault, type VaultData } from './vault';
+import { Vault, PBKDF2_ITERATIONS, type VaultData } from './vault';
 
 beforeEach(() => {
   localStorage.clear();
 });
 
 describe('Vault', () => {
+  it('derives at the iteration count OWASP asks for', () => {
+    // The rest of this suite runs at a lower count so it can finish, set
+    // through UNFIREHOSE_TEST_KDF_ROUNDS in vitest.config.ts. This is the
+    // assertion that keeps the shipped figure honest — without it, lowering
+    // the cost for the tests would quietly lower it for everyone.
+    expect(PBKDF2_ITERATIONS).toBe(600_000);
+  });
+
   describe('hasVault', () => {
     it('returns false when no vault exists', () => {
       expect(Vault.hasVault()).toBe(false);
