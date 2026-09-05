@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
-import { LiveEntry } from './page';
+import { LiveEntry, formatOutput } from './page';
 
 /**
  * One row of the live feed.
@@ -142,5 +142,43 @@ describe('LiveEntry', () => {
 
   it('renders without a harness, which older rows lack', () => {
     expect(() => show({ harness: undefined })).not.toThrow();
+  });
+});
+
+describe('formatOutput', () => {
+  it('leaves plain text exactly as it arrived', () => {
+    // Most tool results are shell output, and the feed shows it verbatim.
+    expect(formatOutput('a.ts  b.ts\n')).toEqual({ formatted: 'a.ts  b.ts\n', isJson: false });
+  });
+
+  it('indents JSON, which is unreadable in the feed otherwise', () => {
+    const r = formatOutput('{"ok":true,"count":2}');
+    expect(r.isJson).toBe(true);
+    expect(r.formatted).toBe('{\n  "ok": true,\n  "count": 2\n}');
+  });
+
+  it('indents a JSON array too', () => {
+    expect(formatOutput('[1,2]').isJson).toBe(true);
+  });
+
+  it('leaves alone a string that only looks like JSON', () => {
+    // A brace at each end is not a guarantee. Reformatting this would
+    // mangle it, and the feed is the only record of what a tool returned.
+    const brace = '{ this is prose in braces }';
+    expect(formatOutput(brace)).toEqual({ formatted: brace, isJson: false });
+  });
+
+  it('leaves alone JSON that was cut off mid-write', () => {
+    const partial = '{"ok":true,"items":[1,2';
+    expect(formatOutput(partial).isJson).toBe(false);
+  });
+
+  it('sees through surrounding whitespace to decide, and keeps it when it cannot', () => {
+    expect(formatOutput('  {"a":1}  ').isJson).toBe(true);
+    expect(formatOutput('  not json  ').formatted).toBe('  not json  ');
+  });
+
+  it('treats an empty result as plain', () => {
+    expect(formatOutput('')).toEqual({ formatted: '', isJson: false });
   });
 });

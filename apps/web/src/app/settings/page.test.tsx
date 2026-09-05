@@ -185,3 +185,83 @@ describe('LLM providers', () => {
     expect(byText('Clear')).toBeTruthy();
   });
 });
+
+/**
+ * The Connection tab, where what we ingest is turned on and off.
+ *
+ * Each toggle decides whether a whole class of record is read at all, so
+ * an off switch here is a source of data that silently stops appearing —
+ * the same shape of failure as a dead worker, and the reason those
+ * switches are worth a test.
+ */
+describe('the connection tab', () => {
+  /**
+   * The hoses only appear once the firehose is enabled and keyed, which
+   * is right — there is nothing to receive without a connection — and is
+   * itself worth asserting.
+   */
+  const connected = {
+    unfirehose_enabled: 'true',
+    unfirehose_api_key: 'fake-key-for-tests',
+    unfirehose_public_key: 'fake-public-key',
+    unfirehose_endpoint: 'https://unfirehose.com',
+  };
+  const openConnection = async () => {
+    settings = { ...connected, ...settings };
+    const view = await show();
+    await tab('Connection');
+    return view;
+  };
+  /** A hose is a clickable card, not a checkbox — the whole card toggles. */
+  const hose = (label: string) => {
+    const el = [...document.querySelectorAll('div')].find(
+      d => d.className.includes('cursor-pointer')
+        && d.querySelector('span')?.textContent?.trim() === label,
+    );
+    if (!el) throw new Error(`no hose card for ${label}`);
+    return el as HTMLElement;
+  };
+  const isOn = (label: string) => hose(label).textContent?.includes('on') ?? false;
+
+  it('offers no hoses at all until there is a connection to receive on', async () => {
+    settings = {};
+    const view = await show();
+    await tab('Connection');
+    expect(view.container.textContent).not.toContain('Social Timeline');
+  });
+
+  it('shows each hose with what it carries', async () => {
+    const { container } = await openConnection();
+    expect(container.textContent).toContain('Social Timeline');
+    expect(container.textContent).toContain('Posts, status, blogs from network');
+  });
+
+  it('reads a hose as off unless the setting says the word true', async () => {
+    // Settings are a text table. Anything but 'true' is off, so a stray
+    // '1' or 'yes' must not read as enabled.
+    settings = { unfirehose_hose_social: '1' };
+    const { container } = await openConnection();
+    expect(container.textContent).toContain('Social Timeline');
+    expect(isOn('Social Timeline')).toBe(false);
+  });
+
+  it('turns a hose on, and writes it as a string', async () => {
+    await openConnection();
+    await act(async () => { hose('Social Timeline').click(); });
+    await waitFor(() => expect(saved()).toContainEqual(['unfirehose_hose_social', 'true']));
+  });
+
+  it('turns one off again', async () => {
+    settings = { unfirehose_hose_social: 'true' };
+    await openConnection();
+    await act(async () => { hose('Social Timeline').click(); });
+    await waitFor(() => expect(saved()).toContainEqual(['unfirehose_hose_social', 'false']));
+  });
+
+  it('draws before settings have arrived', async () => {
+    settings = undefined;
+    const view = await show();
+    await tab('Connection');
+    expect(view.container.textContent).not.toContain('undefined');
+  });
+});

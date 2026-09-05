@@ -143,7 +143,15 @@ function renderInline(text: string): React.ReactNode[] {
 }
 
 // Try to pretty-print if it looks like JSON
-function formatOutput(text: string): { formatted: string; isJson: boolean } {
+/**
+ * A tool result, ready to show.
+ *
+ * Most are plain text and go through untouched. A few are JSON, and the
+ * feed is unreadable without indentation — but a string that merely
+ * starts with a brace is not JSON, and reformatting it would mangle it,
+ * so anything that will not parse is left exactly as it arrived.
+ */
+export function formatOutput(text: string): { formatted: string; isJson: boolean } {
   const trimmed = text.trim();
   if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
     try {
