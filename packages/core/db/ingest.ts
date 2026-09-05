@@ -1557,6 +1557,23 @@ async function ingestJsonlSource(
   return result;
 }
 
+/** Settings key holding the ISO time ingestion last completed. */
+export const INGEST_HEARTBEAT_KEY = 'last_ingest_at';
+
+/**
+ * How long ago ingestion last finished, in minutes, or null if it never has.
+ *
+ * Null and zero are different answers: a fresh install has never ingested,
+ * which is not the same as one whose worker died an hour ago.
+ */
+export function ingestLagMinutes(): number | null {
+  const raw = getSetting(INGEST_HEARTBEAT_KEY);
+  if (!raw) return null;
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, Math.round((Date.now() - at) / 60_000));
+}
+
 export async function ingestAll(): Promise<IngestResult> {
   // Re-discover native harness directories (picks up newly created ones)
   refreshNativeHarnesses();
@@ -1980,6 +1997,17 @@ export async function ingestAll(): Promise<IngestResult> {
   // sessions/todos re-pointed, loser row dropped. See docs/architecture/project-identity.md.
   const merged = autoMergeIdenticalProjects(db);
   if (merged > 0) console.log(`[ingest] auto-merged ${merged} duplicate project row(s)`);
+
+  // When we last read the harnesses, so a dashboard can say how old what it
+  // is showing might be.
+  //
+  // Every failure mode of ingestion looks the same from a page: no new
+  // rows. A harness nobody ran, a worker that died overnight, a watcher
+  // that never saw a new directory — all of them render as a quiet
+  // dashboard. This is the one fact that separates them, and it is
+  // recorded here rather than in the worker because a manual run through
+  // /api/ingest counts too.
+  setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
 
   return result;
 }

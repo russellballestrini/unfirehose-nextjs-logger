@@ -14,6 +14,7 @@ import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceFor
 import { ensurePricingHydrated } from './pricing-sync';
 import { usageCacheHitRate, cacheHitRate } from './vllm-metrics';
 import { VLLM_BLOCK_TOKENS } from './prefix-reuse';
+import { ingestLagMinutes } from './db/ingest';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -440,6 +441,11 @@ export function buildDashboard(range: string): any {
     const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return {
       range,
+      // How stale what follows might be. Every failure of ingestion looks
+      // identical from here — no new rows — so a quiet dashboard is either
+      // a quiet day or a worker that died overnight, and only this tells
+      // them apart.
+      ingestLagMinutes: ingestLagMinutes(),
       summary: {
         sessions: summary?.sessions ?? 0,
         messages: summary?.messages ?? 0,

@@ -170,6 +170,35 @@ export function ModelRow({ m }: { m: any }) {
 }
 
 
+/**
+ * How old what this page shows might be.
+ *
+ * Every way ingestion can stop looks the same from here: no new rows. A
+ * quiet afternoon and a worker that died overnight render identically, and
+ * the second one cost ten hours of a session that had already happened.
+ *
+ * Silent below the threshold, because a dashboard that always warns is a
+ * dashboard nobody reads.
+ */
+const STALE_AFTER_MINUTES = 30;
+
+function IngestLag({ minutes }: { minutes: number | null | undefined }) {
+  if (minutes == null || minutes < STALE_AFTER_MINUTES) return null;
+  const hours = Math.floor(minutes / 60);
+  const ago = hours >= 1 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+  return (
+    <div
+      className="rounded border border-[var(--color-error)]/40 bg-[var(--color-error)]/5 px-4 py-2 text-sm"
+      title="Nothing has been read from the harness logs since then, so work done since is not on this page yet."
+    >
+      <span className="font-bold text-[var(--color-error)]">Last ingest {ago} ago.</span>
+      <span className="text-[var(--color-muted)]">
+        {' '}Anything logged since is not shown yet — check the worker is running.
+      </span>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [range, setRange] = useTimeRange('dashboard_range', '7d');
   const { data, error } = useSWR(`/api/dashboard?range=${range}`, fetcher, {
@@ -301,6 +330,8 @@ export default function DashboardPage() {
         summary={`Dashboard (${range}). ${data.summary.sessions} sessions, ${data.summary.messages} messages, ${formatTokens(data.summary.totalTokens ?? 0)} tokens (${cacheShare == null ? 'n/a' : (cacheShare * 100).toFixed(0) + '%'} cache), $${data.summary.totalCost} equiv cost.`}
         metrics={data.summary}
       />
+
+      <IngestLag minutes={data.ingestLagMinutes} />
 
       {/* Header with time range dropdown */}
       <div className="flex items-center justify-between">
