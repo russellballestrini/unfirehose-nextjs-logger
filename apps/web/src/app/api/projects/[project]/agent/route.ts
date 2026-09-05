@@ -22,6 +22,10 @@ async function getGitSnapshot(repoPath: string): Promise<GitSnapshot | null> {
       gitExec(repoPath, ['log', '-1', '--format=%aI']).catch(() => null),
     ]);
 
+    // gitExec hands back git's stdout verbatim, newline included, and this
+    // branch name is interpolated into every summary line below.
+    const branchName = branch.trim();
+
     const dirtyFiles = statusRaw.split('\n').filter(Boolean).map(l => l.trim());
     const unpushedCommits = unpushedRaw ? unpushedRaw.split('\n').filter(Boolean) : [];
 
@@ -35,7 +39,7 @@ async function getGitSnapshot(repoPath: string): Promise<GitSnapshot | null> {
     }
 
     return {
-      branch,
+      branch: branchName,
       isDirty: dirtyFiles.length > 0,
       dirtyFiles,
       unpushedCount: unpushedCommits.length,
