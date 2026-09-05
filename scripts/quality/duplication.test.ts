@@ -213,3 +213,55 @@ describe('a template placeholder outside a template literal', () => {
     expect(right.some(t => t.shape === 'ID')).toBe(true);
   });
 });
+
+describe('two tables are not one duplicated table', () => {
+  let dir: string;
+  const write = (name: string, source: string) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, source);
+    return file;
+  };
+  const rows = (prefix: string, n = 12) =>
+    Array.from({ length: n }, (_, i) =>
+      `  { value: '${prefix}${i}', label: '${prefix} ${i}', cmd: '${prefix}-${i}' },`).join('\n');
+
+  beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-two-')); });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('ignores two unrelated lists that merely share a row shape', () => {
+    // A harness list and a nav list have the same brackets and commas and
+    // nothing else in common. Reporting them asks somebody to fold two
+    // different sets of facts into one.
+    const a = write('harnesses.ts', `export const H = [\n${rows('harness')}\n];\n`);
+    const b = write('nav.ts', `export const N = [\n${rows('nav')}\n];\n`);
+    expect(findClones([a, b], 60)).toEqual([]);
+  });
+
+  it('still reports the same list living in two files', () => {
+    // This is the case the report exists for, and the one that paid off:
+    // sixteen harness rows in three files, two of which had drifted.
+    const body = `export const H = [\n${rows('harness')}\n];\n`;
+    const clones = findClones([write('one.ts', body), write('two.ts', body)], 60);
+    expect(clones.length).toBeGreaterThan(0);
+  });
+
+  it('still reports duplicated code whose names were changed', () => {
+    // For code, structure is the signal — renaming a variable does not
+    // undo a copy-paste.
+    const fn = (name: string, v: string) => `
+export function ${name}(input: string[]): number {
+  let ${v} = 0;
+  for (const item of input) {
+    if (!item) continue;
+    if (item.startsWith('#')) continue;
+    const parsed = Number.parseFloat(item);
+    if (!Number.isFinite(parsed)) continue;
+    ${v} += parsed > 0 ? parsed : 0;
+  }
+  return ${v};
+}
+`;
+    const file = write('renamed.ts', fn('a', 'total') + '\nconst SPACER = 1;\n' + fn('b', 'sum'));
+    expect(findClones([file], 40).length).toBeGreaterThan(0);
+  });
+});

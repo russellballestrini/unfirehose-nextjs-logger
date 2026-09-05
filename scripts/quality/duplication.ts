@@ -22,6 +22,12 @@ export const MIN_TOKENS = 60;
 interface Token {
   /** The normalised form: keywords and punctuation kept, names blanked. */
   shape: string;
+  /**
+   * What was actually written. Kept only to tell two tables apart: for
+   * code, a renamed variable is still a copy, but two lists of different
+   * values are two lists however alike their punctuation.
+   */
+  text: string;
   line: number;
 }
 
@@ -43,7 +49,7 @@ export function tokenise(source: string, fileName = 'x.tsx'): Token[] {
     else if (kind === ts.SyntaxKind.NumericLiteral) shape = 'NUM';
     else shape = String(kind);
 
-    out.push({ shape, line });
+    out.push({ shape, text: scanner.getTokenText(), line });
   }
   return out;
 }
@@ -101,14 +107,29 @@ function isDataOnly(tokens: Token[], at: number, length: number): boolean {
     if (shape === 'ID' || shape === 'STR' || shape === 'NUM') continue;
     const kind = Number(shape);
     if (Number.isNaN(kind)) continue;
-    // Anything that opens a call or a tag, and every keyword, is code.
+    // A call, a tag, or an arrow is code.
     if (kind === ts.SyntaxKind.OpenParenToken) return false;
     if (kind === ts.SyntaxKind.LessThanToken) return false;
     if (kind === ts.SyntaxKind.EqualsGreaterThanToken) return false;
-    if (kind >= ts.SyntaxKind.FirstKeyword && kind <= ts.SyntaxKind.LastKeyword) return false;
+    // So is anything that branches or jumps. Declaration keywords are
+    // not: `export const X = [` is how a table is written down.
+    if (CODE_KEYWORDS.has(kind)) return false;
   }
   return true;
 }
+
+/** Keywords that mean control flow rather than declaration. */
+const CODE_KEYWORDS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.IfKeyword, ts.SyntaxKind.ElseKeyword,
+  ts.SyntaxKind.ForKeyword, ts.SyntaxKind.WhileKeyword, ts.SyntaxKind.DoKeyword,
+  ts.SyntaxKind.SwitchKeyword, ts.SyntaxKind.CaseKeyword,
+  ts.SyntaxKind.ReturnKeyword, ts.SyntaxKind.FunctionKeyword,
+  ts.SyntaxKind.ClassKeyword, ts.SyntaxKind.NewKeyword,
+  ts.SyntaxKind.AwaitKeyword, ts.SyntaxKind.YieldKeyword,
+  ts.SyntaxKind.TryKeyword, ts.SyntaxKind.CatchKeyword, ts.SyntaxKind.ThrowKeyword,
+  ts.SyntaxKind.TypeOfKeyword, ts.SyntaxKind.DeleteKeyword,
+  ts.SyntaxKind.InstanceOfKeyword,
+]);
 
 export function findClones(files: string[], minTokens = MIN_TOKENS): Clone[] {
   const indexed: Indexed[] = files
@@ -191,8 +212,19 @@ export function findClones(files: string[], minTokens = MIN_TOKENS): Clone[] {
     // Repeated literals inside one file are a table however short the run
     // is. Across files they are worth reporting — the same constant list
     // in two places is exactly the drift this looks for.
-    const oneFile = collapsed.every((h) => h.file === collapsed[0].file);
-    if (oneFile && collapsed.every((h) => isDataOnly(indexed[h.file].tokens, h.at, length))) continue;
+    // Repeated literals inside one file are a table however short the run
+    // is. Across files they are only duplication if the values match too:
+    // a harness list and a nav list can share every bracket and comma and
+    // still be two different lists. For code the shapes are enough —
+    // renaming a variable does not undo a copy-paste — but for data,
+    // sameness is what the words say.
+    if (collapsed.every((h) => isDataOnly(indexed[h.file].tokens, h.at, length))) {
+      const oneFile = collapsed.every((h) => h.file === collapsed[0].file);
+      const literal = (h: (typeof collapsed)[number]) =>
+        indexed[h.file].tokens.slice(h.at, h.at + length).map((t) => t.text).join('\u0000');
+      const first = literal(collapsed[0]);
+      if (oneFile || !collapsed.every((h) => literal(h) === first)) continue;
+    }
 
     const instances = collapsed.map((h) => ({
       path: indexed[h.file].path,

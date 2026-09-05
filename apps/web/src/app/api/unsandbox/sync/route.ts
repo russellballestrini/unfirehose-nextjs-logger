@@ -1,31 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac } from 'crypto';
 import { writeFile, mkdir, unlink, readdir, stat } from 'fs/promises';
 import path from 'path';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
 import { getSetting, setSetting } from '@unturf/unfirehose/db/ingest';
+import { authHeaders } from '@/lib/unsandbox-auth';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const API_BASE = 'https://api.unsandbox.com';
 
-function sign(secretKey: string, method: string, apiPath: string, body: string) {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const message = `${timestamp}:${method}:${apiPath}:${body}`;
-  const signature = createHmac('sha256', secretKey).update(message).digest('hex');
-  return { timestamp, signature };
-}
 
-function authHeaders(publicKey: string, secretKey: string, method: string, apiPath: string, body = '') {
-  const { timestamp, signature } = sign(secretKey, method, apiPath, body);
-  return {
-    'Authorization': `Bearer ${publicKey}`,
-    'X-Timestamp': timestamp,
-    'X-Signature': signature,
-    'Content-Type': 'application/json',
-  };
-}
 
 /**
  * Build a delta-aware sync script.

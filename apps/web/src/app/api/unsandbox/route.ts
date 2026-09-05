@@ -1,29 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac, createHash } from 'crypto';
+import { createHash } from 'crypto';
 import { readFile, stat } from 'fs/promises';
 import path from 'path';
 import { homedir } from 'os';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
+import { authHeaders } from '@/lib/unsandbox-auth';
 
 // Auth pattern matches official un.ts CLI: https://unsandbox.com/cli/typescript
 const API_BASE = 'https://api.unsandbox.com';
 
-function sign(secretKey: string, method: string, path: string, body: string): { timestamp: string; signature: string } {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const message = `${timestamp}:${method}:${path}:${body}`;
-  const signature = createHmac('sha256', secretKey).update(message).digest('hex');
-  return { timestamp, signature };
-}
 
-function authHeaders(publicKey: string, secretKey: string, method: string, path: string, body: string = ''): Record<string, string> {
-  const { timestamp, signature } = sign(secretKey, method, path, body);
-  return {
-    'Authorization': `Bearer ${publicKey}`,
-    'X-Timestamp': timestamp,
-    'X-Signature': signature,
-    'Content-Type': 'application/json',
-  };
-}
 
 // Turn opaque server errors into a hint the user can act on. Both HTTP 401
 // and `:invalid_signature` mean "server rejected the HMAC" — almost always

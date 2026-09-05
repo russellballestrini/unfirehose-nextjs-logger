@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { createHmac } from 'crypto';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import WebSocket from 'ws';
+import { authHeaders } from '@/lib/unsandbox-auth';
 
 const API_BASE = 'https://api.unsandbox.com';
 const WSS_BASE = 'wss://api.unsandbox.com';
@@ -9,22 +9,7 @@ const WSS_BASE = 'wss://api.unsandbox.com';
 // Service IDs start with 'unsb-service-'
 const IS_SERVICE_RE = /^unsb-service-/;
 
-function sign(secretKey: string, method: string, path: string, body = ''): { timestamp: string; signature: string } {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const message = `${timestamp}:${method}:${path}:${body}`;
-  const signature = createHmac('sha256', secretKey).update(message).digest('hex');
-  return { timestamp, signature };
-}
 
-function authHeaders(publicKey: string, secretKey: string, method: string, path: string, body = ''): Record<string, string> {
-  const { timestamp, signature } = sign(secretKey, method, path, body);
-  return {
-    'Authorization': `Bearer ${publicKey}`,
-    'X-Timestamp': timestamp,
-    'X-Signature': signature,
-    'Content-Type': 'application/json',
-  };
-}
 
 // Global map: session_id → WebSocket  (lives for the lifetime of the Node process)
 const shells = new Map<string, WebSocket>();
