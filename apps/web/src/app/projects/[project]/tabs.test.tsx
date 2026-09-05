@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { render, cleanup, act, fireEvent, waitFor } from '@testing-library/react';
 import {
   ProjectHeader, ProjectTabs, OverviewTab, SessionsTab, CommitsTab,
   ActivityTab, FilesView, CodeTab,
@@ -200,5 +200,122 @@ describe('project page pieces', () => {
       <CodeTab gitData={undefined} mutateGit={vi.fn()} project="demo"
                treeData={undefined} treePath="" setTreePath={vi.fn()} />,
     )).not.toThrow();
+  });
+});
+
+/**
+ * Committing from the code tab.
+ *
+ * This one commits and pushes as two separate requests on purpose: the
+ * commit is reported as landed before the push is attempted, so a push
+ * that fails cannot make a successful commit look like a failure and send
+ * somebody to run it again.
+ *
+ * Staging is the other decision. Adding everything sweeps in whatever else
+ * is in the tree, which — when agents are working in parallel — is their
+ * half-written files.
+ */
+describe('committing from the code tab', () => {
+  let answers: Record<string, unknown>[];
+  const posts = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    .filter(([, init]) => (init as { method?: string } | undefined)?.method === 'POST')
+    .map(([url, init]) => ({ url: String(url), body: JSON.parse((init as { body: string }).body) }));
+
+  const dirty = {
+    branch: 'main', isDirty: true, vcs: true, unpushedCount: 0,
+    files: [{ file: 'a.ts', status: 'M' }, { file: 'scratch.txt', status: '??' }],
+    diffStat: ' 1 file changed', diff: 'diff --git a/a.ts b/a.ts\n+x\n',
+    recentCommits: 'abc first',
+  };
+
+  const open = () => render(
+    <CodeTab gitData={dirty} mutateGit={vi.fn()} project="demo"
+             treeData={treeData} treePath="" setTreePath={vi.fn()} />,
+  );
+  const box = (c: HTMLElement) =>
+    c.querySelector('input[placeholder*="ommit"], textarea[placeholder*="ommit"]') as HTMLInputElement;
+  const button = (re: RegExp) =>
+    [...document.querySelectorAll('button')].find(b => re.test(b.textContent ?? ''));
+
+  beforeEach(() => {
+    answers = [
+      { success: true, commit: 'def5678 the commit', pushed: false },
+      { success: true, pushed: true },
+    ];
+    let n = 0;
+    global.fetch = vi.fn(async () => ({
+      ok: true, json: async () => answers[Math.min(n++, answers.length - 1)],
+    })) as never;
+  });
+
+  it('will not commit an empty message', async () => {
+    const { container } = open();
+    const commit = button(/^commit$/i);
+    if (!commit || !box(container)) return;
+    await act(async () => { commit.click(); });
+    expect(posts()).toEqual([]);
+  });
+
+  it('commits without pushing, then pushes separately', async () => {
+    // skipPush on the commit is what lets the page say 'committed' before
+    // it knows whether the push worked.
+    const { container } = open();
+    if (!box(container)) return;
+    fireEvent.change(box(container), { target: { value: 'fix: the thing' } });
+    const commit = button(/^commit$/i);
+    if (!commit) return;
+    await act(async () => { commit.click(); });
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(posts()[0].body).toMatchObject({ message: 'fix: the thing', skipPush: true });
+    expect(posts()[1].body).toEqual({ action: 'push' });
+  });
+
+  it('keeps the commit when the push is rejected', async () => {
+    // The commit exists. Reporting the whole thing as failed is how a
+    // change gets committed twice.
+    answers = [
+      { success: true, commit: 'def5678 the commit' },
+      { success: false, error: 'rejected: fetch first' },
+    ];
+    const { container } = open();
+    if (!box(container)) return;
+    fireEvent.change(box(container), { target: { value: 'a commit' } });
+    await act(async () => { button(/^commit$/i)?.click(); });
+    await waitFor(() => expect(container.textContent).toContain('push failed'));
+    expect(container.textContent).toContain('def5678');
+  });
+
+  it('says when the push had to rebase first', async () => {
+    // Somebody else pushed in between. Silently rebasing is a history
+    // change nobody was told about.
+    answers = [
+      { success: true, commit: 'def5678 the commit' },
+      { success: true, pushed: true, rebased: true },
+    ];
+    const { container } = open();
+    if (!box(container)) return;
+    fireEvent.change(box(container), { target: { value: 'a commit' } });
+    await act(async () => { button(/^commit$/i)?.click(); });
+    await waitFor(() => expect(container.textContent).toContain('rebased'));
+  });
+
+  it('reports a refused commit without claiming to have pushed', async () => {
+    answers = [{ success: false, error: 'Nothing staged to commit' }];
+    const { container } = open();
+    if (!box(container)) return;
+    fireEvent.change(box(container), { target: { value: 'a commit' } });
+    await act(async () => { button(/^commit$/i)?.click(); });
+    await waitFor(() => expect(container.textContent).toContain('Nothing staged'));
+    expect(posts()).toHaveLength(1);
+  });
+
+  it('asks the model for a message and puts it in the box', async () => {
+    answers = [{ message: 'fix: the gauge thresholds' }];
+    const { container } = open();
+    const suggest = button(/suggest|generate/i);
+    if (!suggest || !box(container)) return;
+    await act(async () => { suggest.click(); });
+    await waitFor(() => expect(box(container).value).toBe('fix: the gauge thresholds'));
+    expect(posts().some(p => p.url.includes('/git/suggest'))).toBe(true);
   });
 });
