@@ -5,11 +5,8 @@ import { useState, useRef, Fragment } from 'react';
 import { HexColorPicker, RED_PRESETS } from '@/components/HexColorPicker';
 import useSWR from 'swr';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
-  AreaChart, Area,
-} from 'recharts';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { groupNavItems } from '@unturf/unfirehose-ui/layout/nav-items';
@@ -881,14 +878,7 @@ export default function StyleguidePage() {
           {/* BarChart (Recharts — vertical) */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <div className="text-base text-[var(--color-muted)] mb-3">BarChart — Messages / Day</div>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={barData}>
-                <XAxis dataKey="name" tick={{ fontSize: 16 }} />
-                <YAxis tick={{ fontSize: 16 }} />
-                <Tooltip />
-                <Bar dataKey="value" fill="#d40000" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <UPlotCategoryChart data={barData} labelKey="name" series={[{ key: 'value', label: 'value', color: '#d40000' }]} height={160} />
           </div>
           {/* PieChart (donut) */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -922,14 +912,7 @@ export default function StyleguidePage() {
           {/* AreaChart */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 md:col-span-2">
             <div className="text-base text-[var(--color-muted)] mb-3">AreaChart — Token Volume</div>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={areaData}>
-                <XAxis dataKey="date" tick={{ fontSize: 16 }} />
-                <YAxis tick={{ fontSize: 16 }} />
-                <Tooltip />
-                <Area type="monotone" dataKey="tokens" stroke="#d40000" fill="#d4000030" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <UPlotCategoryChart kind="lines" data={areaData} labelKey="date" series={[{ key: 'tokens', label: 'tokens', color: '#d40000', fill: '#d4000030' }]} height={160} />
           </div>
           {/* Horizontal Bar Chart — CSS Grid */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 md:col-span-2">

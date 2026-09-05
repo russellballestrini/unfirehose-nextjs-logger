@@ -198,7 +198,9 @@ export async function main(argv = process.argv.slice(2)) {
       process.stderr.write(`  ${path} ${ms(pickOf('dataOnScreen'))}ms\n`);
     }
   } finally {
-    await browser.close();
+    // Close, but never let closing decide the run's fate: the results are in
+    // hand, and a browser that argues about its own shutdown is not news.
+    await browser.close().catch(() => {});
   }
 
   results.sort((a, b) => (b.dataOnScreen ?? 0) - (a.dataOnScreen ?? 0));

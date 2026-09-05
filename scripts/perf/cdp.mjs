@@ -58,10 +58,20 @@ export async function launch({ port = 9333, headless = true } = {}) {
     // degrades what it measures is worse than none.
   ].filter(Boolean), { stdio: 'ignore', detached: true });
 
+  // Cleanup must never take a finished measurement down with it. Chromium
+  // is still writing its profile as it dies, and rmSync on a directory that
+  // is changing underneath it throws ENOTEMPTY — which once discarded five
+  // minutes of results at the very last line. So: kill, then remove with
+  // retries, and swallow whatever the last attempt says. A stale profile in
+  // /tmp is a nuisance; a lost run is the failure.
+  const rmProfile = (attempt = 0) => {
+    try { rmSync(profile, { recursive: true, force: true }); }
+    catch { if (attempt < 5) setTimeout(() => rmProfile(attempt + 1), 400).unref(); }
+  };
   const killAll = () => {
     try { process.kill(-proc.pid, 'SIGTERM'); } catch { /* already gone */ }
     setTimeout(() => { try { process.kill(-proc.pid, 'SIGKILL'); } catch { /* gone */ } }, 1500).unref();
-    rmSync(profile, { recursive: true, force: true });
+    setTimeout(() => rmProfile(), 600).unref();
   };
   // An aborted run — Ctrl-C, a thrown error, a killed shell — must not leave
   // a browser behind either.

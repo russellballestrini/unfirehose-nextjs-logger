@@ -162,3 +162,86 @@ describe('lifecycle', () => {
     expect(built.at(-1)!.inst.destroyed).toBe(true);
   });
 });
+
+describe('stacking, a second axis, and a line over bars', () => {
+  const rows = [{ d: 'a', x: 1, y: 10, total: 11 }, { d: 'b', x: 2, y: 20, total: 33 }];
+
+  it('sums each bar series onto the ones before it', () => {
+    // uPlot has no stacking; the second series carries first+second so the
+    // segments read as heights rather than overlapping from zero.
+    render(<UPlotCategoryChart stacked data={rows} labelKey="d" series={[{ key: 'x', label: 'x', color: '#1' }, { key: 'y', label: 'y', color: '#2' }]} height={100} />);
+    const d = built.at(-1)!.data;
+    // Drawn back-to-front: the tallest (summed) series comes first.
+    expect(d[1]).toEqual([11, 22]);
+    expect(d[2]).toEqual([1, 2]);
+    expect(opts().series[1].label).toBe('y');
+    expect(opts().series[2].label).toBe('x');
+  });
+
+  it('shows the real value in the readout, not the stacked sum', () => {
+    render(<UPlotCategoryChart stacked data={rows} labelKey="d" series={[{ key: 'x', label: 'x', color: '#1' }, { key: 'y', label: 'y', color: '#2' }]} height={100} />);
+    expect(hover(1).innerHTML).toContain('y: 20');
+    expect(hover(1).innerHTML).not.toContain('22');
+  });
+
+  it('puts a series on a right-hand axis with its own scale and format', () => {
+    // A running total beside a daily figure: the same axis would flatten
+    // the daily bars to nothing.
+    render(<UPlotCategoryChart data={rows} labelKey="d"
+      series={[{ key: 'x', label: 'daily', color: '#1' }, { key: 'total', label: 'total', color: '#2', kind: 'lines', axis: 'right' }]}
+      height={100} formatRight={(v) => `$${v}`} />);
+    expect(opts().scales.r).toBeDefined();
+    expect(opts().series[2].scale).toBe('r');
+    expect(opts().axes).toHaveLength(3);
+    expect(opts().axes[2].side).toBe(1);
+    expect(opts().axes[2].values(null, [33])).toEqual(['$33']);
+    expect(hover(1).innerHTML).toContain('total: $33');
+  });
+
+  it('draws one series as a line over the bars', () => {
+    render(<UPlotCategoryChart data={rows} labelKey="d"
+      series={[{ key: 'x', label: 'daily', color: '#1' }, { key: 'total', label: 'total', color: '#2', kind: 'lines' }]} height={100} />);
+    expect(opts().series[1].paths).toBe('BARS');
+    expect(opts().series[2].paths).toBeUndefined();
+    expect(opts().series[2].stroke).toBe('#2');
+  });
+
+  it('adds no right axis when nobody asked for one', () => {
+    render(<UPlotCategoryChart data={rows} labelKey="d" series={[{ key: 'x', label: 'x', color: '#1' }]} height={100} />);
+    expect(opts().scales.r).toBeUndefined();
+    expect(opts().axes).toHaveLength(2);
+  });
+});
+
+describe('guide lines and the legend', () => {
+  const rows = [{ d: 'a', v: 1 }, { d: 'b', v: 5 }];
+
+  it('draws a dashed guide at the value asked for, on the axis asked for', () => {
+    render(<UPlotCategoryChart data={rows} labelKey="d" series={[{ key: 'v', label: 'v', color: '#1' }]} height={100}
+      refLines={[{ value: 3, color: '#f00', label: '$3 actual' }]} />);
+    const draw = opts().hooks.draw[0];
+    const calls: string[] = [];
+    const ctx = new Proxy({}, { get: (_t, k) => (k === 'canvas' ? undefined : (..._a: unknown[]) => { calls.push(String(k)); }) });
+    const u = { ctx, bbox: { left: 0, width: 100 }, valToPos: vi.fn(() => 42) };
+    draw(u);
+    expect(u.valToPos).toHaveBeenCalledWith(3, 'y', true);
+    expect(calls).toEqual(expect.arrayContaining(['setLineDash', 'moveTo', 'lineTo', 'stroke', 'fillText']));
+  });
+
+  it('registers no draw hook when there are no guides', () => {
+    render(<UPlotCategoryChart data={rows} labelKey="d" series={[{ key: 'v', label: 'v', color: '#1' }]} height={100} />);
+    expect(opts().hooks.draw).toEqual([]);
+  });
+
+  it('names each series in a legend when asked', () => {
+    render(<UPlotCategoryChart legend data={rows} labelKey="d" series={[{ key: 'v', label: 'opus', color: '#1' }, { key: 'v', label: 'sonnet', color: ['#2', '#3'] }]} height={100} />);
+    const items = document.querySelectorAll('[role=listitem]');
+    expect([...items].map((i) => i.textContent)).toEqual(['opus', 'sonnet']);
+  });
+
+  it('shows no legend by default, since a single series names itself in the hover', () => {
+    render(<UPlotCategoryChart data={rows} labelKey="d" series={[{ key: 'v', label: 'v', color: '#1' }]} height={100} />);
+    expect(document.querySelector('[role=list]')).toBeNull();
+  });
+});
+

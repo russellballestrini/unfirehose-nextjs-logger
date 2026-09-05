@@ -11,21 +11,8 @@ import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  ReferenceLine,
-} from 'recharts';
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import { AXIS_TICK } from '@unturf/unfirehose-ui/chart-theme';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
@@ -822,33 +809,16 @@ export default function TokensPage() {
                 return row;
               });
               return (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={barData} layout="vertical" margin={{ left: 10 }}>
-                    <XAxis
-                      type="number"
-                      tick={AXIS_TICK}
-                      tickFormatter={(v: number) => formatTokens(v)}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="harness"
-                      tick={{ fill: '#a1a1aa', fontSize: 16 }}
-                      width={100}
-                      interval={0}
-                    />
-                    <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
-                    <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-                    {models.map((m) => (
-                      <Bar
-                        key={m}
-                        dataKey={m}
-                        name={shortModel(m)}
-                        stackId="a"
-                        fill={getModelColor(m)}
-                      />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
+                <UPlotCategoryChart
+                  data={barData}
+                  labelKey="harness"
+                  horizontal
+                  stacked
+                  legend
+                  series={models.map((m) => ({ key: m, label: shortModel(m), color: getModelColor(m) }))}
+                  height={200}
+                  format={formatTokens}
+                />
               );
             })()}
           </div>
@@ -875,24 +845,16 @@ export default function TokensPage() {
             }
             const chartData = Object.values(byDate).slice(-30);
             return (
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={chartData}>
-                  <XAxis
-                    dataKey="date"
-                    tick={AXIS_TICK}
-                    tickFormatter={(d: string) => d.slice(5)}
-                  />
-                  <YAxis
-                    tick={AXIS_TICK}
-                    tickFormatter={(v: number) => formatTokens(v)}
-                  />
-                  <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
-                  <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-                  {harnesses.map((h) => (
-                    <Bar key={h} dataKey={h} stackId="a" fill={getHarnessColor(h)} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
+              <UPlotCategoryChart
+                data={chartData as Array<Record<string, unknown>>}
+                labelKey="date"
+                stacked
+                legend
+                series={harnesses.map((h) => ({ key: h, label: h, color: getHarnessColor(h) }))}
+                height={250}
+                format={formatTokens}
+                tick={(d) => d.slice(5)}
+              />
             );
           })()}
         </div>
@@ -1072,31 +1034,14 @@ export default function TokensPage() {
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls by Type
           </h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart
-              data={toolCalls.slice(0, 15)}
-              layout="vertical"
-              margin={{ left: 10 }}
-            >
-              <XAxis
-                type="number"
-                tick={AXIS_TICK}
-                tickFormatter={(v: number) => v.toLocaleString()}
-              />
-              <YAxis
-                type="category"
-                dataKey="tool_name"
-                tick={{ fill: '#a1a1aa', fontSize: 16 }}
-                width={140}
-                interval={0}
-              />
-              <Tooltip
-
-                formatter={(v) => Number(v ?? 0).toLocaleString()}
-              />
-              <Bar dataKey="count" fill="#fbbf24" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <UPlotCategoryChart
+            data={toolCalls.slice(0, 15)}
+            labelKey="tool_name"
+            horizontal
+            series={[{ key: 'count', label: 'calls', color: '#fbbf24' }]}
+            height={280}
+            format={(v) => v.toLocaleString()}
+          />
         </div>
       </div>
 
@@ -1441,53 +1386,20 @@ export default function TokensPage() {
                 <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
                   Daily & Cumulative Cost — {periodStart?.slice(0, 7)}
                 </h3>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={cumulativeData}>
-                    <XAxis
-                      dataKey="date"
-                      tick={AXIS_TICK}
-                      tickFormatter={(d: string) => d.slice(5)}
-                    />
-                    <YAxis
-                      yAxisId="left"
-                      tick={AXIS_TICK}
-                      tickFormatter={(v: number) => formatCost(v)}
-                    />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      tick={AXIS_TICK}
-                      tickFormatter={(v: number) => formatCost(v)}
-                    />
-                    <Tooltip formatter={(v) => formatCost(Number(v ?? 0))} />
-                    <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-                    <Bar
-                      yAxisId="left"
-                      dataKey="daily"
-                      name="Daily cost"
-                      fill={isOver ? '#ef4444' : '#10b981'}
-                      opacity={0.7}
-                    />
-                    <Line
-                      yAxisId="right"
-                      type="monotone"
-                      dataKey="cumulative"
-                      name="Cumulative"
-                      stroke="#a78bfa"
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                    {extraSpent !== null && (
-                      <ReferenceLine
-                        yAxisId="right"
-                        y={extraSpent}
-                        stroke="#ef4444"
-                        strokeDasharray="4 3"
-                        label={{ value: `$${extraSpent.toFixed(0)} actual`, fill: '#ef4444', fontSize: 13, position: 'insideTopRight' }}
-                      />
-                    )}
-                  </BarChart>
-                </ResponsiveContainer>
+                <UPlotCategoryChart
+                  data={cumulativeData}
+                  labelKey="date"
+                  legend
+                  series={[
+                    { key: 'daily', label: 'Daily cost', color: isOver ? '#ef4444' : '#10b981' },
+                    { key: 'cumulative', label: 'Cumulative', color: '#a78bfa', kind: 'lines', axis: 'right' },
+                  ]}
+                  height={260}
+                  format={formatCost}
+                  formatRight={formatCost}
+                  tick={(d) => d.slice(5)}
+                  refLines={extraSpent !== null ? [{ value: extraSpent, color: '#ef4444', label: `$${extraSpent.toFixed(0)} actual`, axis: 'right' }] : undefined}
+                />
               </div>
             )}
           </div>
