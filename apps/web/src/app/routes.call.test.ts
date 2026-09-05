@@ -42,6 +42,7 @@ const OUTBOUND = [
   './api/harness/verify/route.ts',    // ssh
   './api/projects/[project]/agent/route.ts',
   './api/apmonitor/route.ts',         // reads statefiles from every mesh node
+  './api/ingest/route.ts',            // POST runs a real pass over $HOME
 ];
 
 const routes = Object.entries(import.meta.glob('./api/**/route.ts'))
@@ -52,12 +53,14 @@ const urlFor = (modulePath: string) =>
   'http://localhost:3000' +
   modulePath.replace(/^\./, '').replace(/\/route\.ts$/, '').replace(/\[[^\]]+\]/g, 'demo');
 
-const request = (path: string) => ({
+const request = (path: string, method = 'GET') => ({
   url: urlFor(path),
+  method,
   nextUrl: new URL(urlFor(path)),
   headers: new Headers(),
   json: async () => ({}),
   text: async () => '',
+  formData: async () => new FormData(),
 }) as never;
 
 /** Next 15 hands params in as a promise; the values are per-route noise. */
@@ -68,23 +71,36 @@ const context = {
   }),
 };
 
-describe('every GET handler answers on an empty database', () => {
+const METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as const;
+
+describe('every handler answers on an empty database', () => {
   it('finds the routes, so this cannot quietly cover nothing', () => {
     expect(routes.length).toBeGreaterThanOrEqual(60);
   });
 
   for (const [path, load] of routes) {
-    it(`GET ${path.replace('./api', '').replace('/route.ts', '')}`, async () => {
-      const mod = (await load()) as { GET?: (req: never, ctx: never) => Promise<Response> };
-      if (typeof mod.GET !== 'function') return;
+    const name = path.replace('./api', '').replace('/route.ts', '');
 
-      const res = await mod.GET(request(path), context as never);
+    it(`answers on ${name}`, async () => {
+      const mod = (await load()) as Record<string, unknown>;
 
-      // Any answer is fine, including a 4xx or a 500 body it chose to send.
-      // What must not happen is a throw, which reaches a browser as a blank
-      // page rather than as a message.
-      expect(res).toBeTruthy();
-      expect(typeof res.status).toBe('number');
+      for (const method of METHODS) {
+        const handler = mod[method];
+        if (typeof handler !== 'function') continue;
+
+        // An empty body is what a malformed client sends, and the reply to
+        // it is a route's own validation — the part most likely to have
+        // been written once and never run.
+        const res = await (handler as (req: never, ctx: never) => Promise<Response>)(
+          request(path, method), context as never,
+        );
+
+        // Any answer is fine, including a 4xx or a 500 body it chose to
+        // send. What must not happen is a throw, which reaches a browser as
+        // a blank page rather than as a message.
+        expect(res, `${method} ${name}`).toBeTruthy();
+        expect(typeof res.status, `${method} ${name}`).toBe('number');
+      }
     });
   }
 });
