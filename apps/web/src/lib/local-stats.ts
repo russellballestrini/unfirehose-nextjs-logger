@@ -21,6 +21,7 @@ import {
   calcSystemWatts, calcNonCpuWatts, formatUptime, round, memCapGB, countSsds,
   parseMeminfo, parseLoadavg,
 } from '@/lib/mesh-probe';
+import { num, int } from '@/lib/num';
 
 function readRaplWatts(): number | null {
   try {
@@ -159,9 +160,9 @@ export function getLocalStats(): MeshNode {
         for (const line of nvOut.split('\n')) {
           const parts = line.split(',').map(s => s.trim());
           if (!gpuModel && parts[0]) gpuModel = parts[0];
-          if (parts[1]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (parseFloat(parts[1]) || 0);
-          if (parts[2]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (parseFloat(parts[2]) || 0);
-          if (parts[3]) gpuUtil = Math.max(gpuUtil ?? 0, parseFloat(parts[3]) || 0);
+          if (parts[1]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (num(parts[1]));
+          if (parts[2]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (num(parts[2]));
+          if (parts[3]) gpuUtil = Math.max(gpuUtil ?? 0, num(parts[3]));
         }
       }
     } catch { /* no nvidia-smi */ }

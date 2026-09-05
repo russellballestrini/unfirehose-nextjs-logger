@@ -4,6 +4,8 @@ import {
   parseTemperatures, parseHwmon, mergeSensors, parseThrottle,
   parseNvidiaClocks, parseCpuTopology,
 } from '@/lib/sensors';
+import { num, int } from '@/lib/num';
+
 /**
  * Parsers for our node probe's output.
  *
@@ -102,15 +104,15 @@ export function parseNvidiaGpu(raw: string) {
     return {
       index: parseInt(p[0]),
       name: p[1],
-      tempC: parseFloat(p[2]) || 0,
-      gpuUtil: parseFloat(p[3]) || 0,
-      memUtil: parseFloat(p[4]) || 0,
-      memTotalMB: parseFloat(p[5]) || 0,
-      memUsedMB: parseFloat(p[6]) || 0,
-      memFreeMB: parseFloat(p[7]) || 0,
-      powerDrawW: parseFloat(p[8]) || 0,
-      powerLimitW: parseFloat(p[9]) || 0,
-      fanPct: parseFloat(p[10]) || 0,
+      tempC: num(p[2]),
+      gpuUtil: num(p[3]),
+      memUtil: num(p[4]),
+      memTotalMB: num(p[5]),
+      memUsedMB: num(p[6]),
+      memFreeMB: num(p[7]),
+      powerDrawW: num(p[8]),
+      powerLimitW: num(p[9]),
+      fanPct: num(p[10]),
       pstate: p[11],
     };
   }).filter(Boolean);
@@ -121,7 +123,7 @@ export function parseNvidiaProcesses(raw: string) {
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const p = line.split(',').map(s => s.trim());
     if (p.length < 3) return null;
-    return { pid: parseInt(p[0]), name: p[1], memMB: parseFloat(p[2]) || 0 };
+    return { pid: parseInt(p[0]), name: p[1], memMB: num(p[2]) };
   }).filter(Boolean);
 }
 
@@ -148,7 +150,7 @@ export function parseDisk(raw: string) {
       size: parts[1],
       used: parts[2],
       avail: parts[3],
-      usePct: parseInt(parts[4]) || 0,
+      usePct: int(parts[4]),
       mount: parts[5],
     };
   }).filter(Boolean);
@@ -169,10 +171,10 @@ export function parseNetDev(raw: string) {
     if (parts.length < 17) return null;
     return {
       iface: parts[0],
-      rxBytes: parseInt(parts[1]) || 0,
-      rxPackets: parseInt(parts[2]) || 0,
-      txBytes: parseInt(parts[9]) || 0,
-      txPackets: parseInt(parts[10]) || 0,
+      rxBytes: int(parts[1]),
+      rxPackets: int(parts[2]),
+      txBytes: int(parts[9]),
+      txPackets: int(parts[10]),
     };
   }).filter(Boolean).filter(n => n!.rxBytes > 0 || n!.txBytes > 0);
 }
@@ -217,15 +219,15 @@ export function parseProbeOutput(raw: string, host: string) {
   const kernel = parseSection(raw, 'KERNEL') || 'unknown';
   const osRaw = parseSection(raw, 'OS');
   const osName = osRaw.match(/PRETTY_NAME="?([^"\n]+)"?/)?.[1] ?? 'Linux';
-  const cpuCores = parseInt(parseSection(raw, 'NPROC')) || 0;
+  const cpuCores = int(parseSection(raw, 'NPROC'));
   const memory = parseMeminfo(parseSection(raw, 'MEMINFO'));
 
   const loadRaw = parseSection(raw, 'LOADAVG').split(/\s+/);
-  const loadAvg = [parseFloat(loadRaw[0]) || 0, parseFloat(loadRaw[1]) || 0, parseFloat(loadRaw[2]) || 0];
+  const loadAvg = [num(loadRaw[0]), num(loadRaw[1]), num(loadRaw[2])];
   const runnable = loadRaw[3] ?? '0/0';
 
   const uptimeRaw = parseSection(raw, 'UPTIME').split(/\s+/);
-  const uptimeSeconds = parseFloat(uptimeRaw[0]) || 0;
+  const uptimeSeconds = num(uptimeRaw[0]);
 
   const disk = parseDisk(parseSection(raw, 'DISK'));
   const processes = parseProcesses(parseSection(raw, 'PS'));

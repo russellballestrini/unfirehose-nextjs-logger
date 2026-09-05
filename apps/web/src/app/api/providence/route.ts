@@ -48,6 +48,36 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * Every column we store, with what to write when a caller omits it.
+ *
+ * This was three parallel lists — the column names, a row of thirty-four
+ * question marks, and thirty-four values each with its own default —
+ * which had to be kept in the same order and the same length by counting.
+ * Miscounting the placeholders is a runtime error on a route that only
+ * fails when somebody is trying to record something.
+ *
+ * A missing optional field is null rather than absent, because these rows
+ * are read back as a provenance record: "we did not capture the seed" and
+ * "the seed was zero" are different claims.
+ */
+const COLUMNS: ReadonlyArray<readonly [string, unknown]> = [
+  ['cache_key', null], ['document_root', null], ['document_uri', null],
+  ['question_hash', null], ['question_text', null],
+  ['model_id', ''], ['model_revision', null], ['quantization', null],
+  ['conversation_hash', null], ['seed', null],
+  ['answer_text', null], ['merkle_proof', '[]'],
+  ['base_uri', ''], ['temperature', null], ['top_p', null], ['top_k', null],
+  ['repetition_penalty', null], ['frequency_penalty', null],
+  ['presence_penalty', null], ['max_tokens', null], ['context_window', null],
+  ['backend', null], ['node_id', null], ['inference_ms', null],
+  ['source_type', 'web'], ['git_commit', null],
+  ['chain_tip', null], ['token_root', null], ['code_hash', null],
+  ['privacy_mode', 'transparent'],
+  ['signature', null], ['public_key', null],
+  ['poly_session_id', null], ['turn_number', null],
+];
+
 // POST /api/providence
 export async function POST(request: NextRequest) {
   try {
@@ -80,34 +110,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ id: existing.id, cache_key, hit: true });
     }
 
-    const result = db.prepare(`
-      INSERT INTO providence_cache (
-        cache_key, document_root, document_uri, question_hash, question_text,
-        model_id, model_revision, quantization, conversation_hash, seed,
-        answer_text, merkle_proof,
-        base_uri, temperature, top_p, top_k, repetition_penalty, frequency_penalty,
-        presence_penalty, max_tokens, context_window, backend, node_id, inference_ms,
-        source_type, git_commit,
-        chain_tip, token_root, code_hash, privacy_mode,
-        signature, public_key, poly_session_id, turn_number
-      ) VALUES (
-        ?,?,?,?,?, ?,?,?,?,?, ?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?,?,?, ?,?,?,?
-      )
-    `).run(
-      cache_key, b.document_root, b.document_uri, question_hash, b.question_text,
-      b.model_id ?? '', b.model_revision ?? null, b.quantization ?? null,
-      b.conversation_hash ?? null, b.seed ?? null,
-      b.answer_text, JSON.stringify(b.merkle_proof ?? []),
-      b.base_uri ?? '', b.temperature ?? null, b.top_p ?? null, b.top_k ?? null,
-      b.repetition_penalty ?? null, b.frequency_penalty ?? null,
-      b.presence_penalty ?? null, b.max_tokens ?? null, b.context_window ?? null,
-      b.backend ?? null, b.node_id ?? null, b.inference_ms ?? null,
-      b.source_type ?? 'web', b.git_commit ?? null,
-      b.chain_tip ?? null, b.token_root ?? null, b.code_hash ?? null,
-      b.privacy_mode ?? 'transparent',
-      b.signature ?? null, b.public_key ?? null,
-      b.poly_session_id ?? null, b.turn_number ?? null,
-    );
+    const result = db.prepare(
+      `INSERT INTO providence_cache (${COLUMNS.map((c) => c[0]).join(', ')})
+       VALUES (${COLUMNS.map(() => '?').join(', ')})`,
+    ).run(...COLUMNS.map(([col, fallback]) => {
+      if (col === 'cache_key') return cache_key;
+      if (col === 'question_hash') return question_hash;
+      if (col === 'merkle_proof') return JSON.stringify(b.merkle_proof ?? []);
+      return b[col] ?? fallback;
+    }));
 
     return NextResponse.json({ id: result.lastInsertRowid, cache_key, hit: false }, { status: 201 });
   } catch (err) {

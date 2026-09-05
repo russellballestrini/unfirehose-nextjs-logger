@@ -14,6 +14,7 @@
  */
 
 import { parseHarnessProcesses, countByHarness } from '@unturf/unfirehose/harness-procs';
+import { num, int } from '@/lib/num';
 
 export interface MeshNode {
   hostname: string;
@@ -392,7 +393,7 @@ export function parseMeminfo(text: string): {
 /** The three figures at the head of /proc/loadavg. */
 export function parseLoadavg(text: string): [number, number, number] {
   const parts = text.trim().split(/\s+/);
-  return [0, 1, 2].map((i) => parseFloat(parts[i]) || 0) as [number, number, number];
+  return [0, 1, 2].map((i) => num(parts[i])) as [number, number, number];
 }
 
 export function countSpinningDisks(lsblkOutput: string): number {
@@ -589,9 +590,9 @@ export function parseRemoteProbe(host: string, stdout: string): MeshNode {
       const w = parseFloat(parts[0]);
       if (!isNaN(w)) totalPower += w;
       if (!gpuModel && parts[1]) gpuModel = parts[1];
-      if (parts[2]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (parseFloat(parts[2]) || 0);
-      if (parts[3]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (parseFloat(parts[3]) || 0);
-      if (parts[4]) gpuUtil = Math.max(gpuUtil ?? 0, parseFloat(parts[4]) || 0);
+      if (parts[2]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (num(parts[2]));
+      if (parts[3]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (num(parts[3]));
+      if (parts[4]) gpuUtil = Math.max(gpuUtil ?? 0, num(parts[4]));
     }
     if (totalPower > 0) gpuPowerWatts = round(totalPower);
   }

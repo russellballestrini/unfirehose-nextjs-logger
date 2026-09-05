@@ -237,3 +237,140 @@ describe('node tab controls', () => {
     expect(setPreviewSession).toHaveBeenCalled();
   });
 });
+
+/**
+ * The chart's own controls, and the panels that need hardware to appear.
+ *
+ * Panning and zooming are a state machine over a time domain, and it has
+ * one genuinely difficult rule: panning past the oldest data we have
+ * loaded must widen the range and refetch rather than stopping at a wall,
+ * because the wall is an artefact of what happens to be in memory, not of
+ * what exists.
+ *
+ * The GPU and container panels only render when the probe found any, so a
+ * fixture without them renders the tab's shell and none of its content —
+ * which is how a GPU section once read every field by the wrong name and
+ * showed undefined for all of them.
+ */
+describe('the node chart controls', () => {
+  /** setZoomDomain, behaving like the real setState it stands in for. */
+  const zoomState = () => {
+    let domain: [number, number] | null = null;
+    const setZoomDomain = vi.fn((next: unknown) => {
+      domain = typeof next === 'function'
+        ? (next as (p: unknown) => [number, number] | null)(domain)
+        : next as [number, number] | null;
+    });
+    return { setZoomDomain, get: () => domain };
+  };
+
+  const byTitle = (t: string) =>
+    document.querySelector(`button[title="${t}"]`) as HTMLButtonElement | null;
+  const click = (el: Element | null) => act(() => { (el as HTMLElement)?.click(); });
+
+  const withChart = (over: Record<string, unknown> = {}) => {
+    const z = zoomState();
+    render(<OverviewTab {...bag({ setZoomDomain: z.setZoomDomain, ...over })} />);
+    return z;
+  };
+
+  it('zooms out from a full view by taking half of it', () => {
+    const z = withChart();
+    click(byTitle('Zoom out 2×'));
+    expect(z.setZoomDomain).toHaveBeenCalled();
+  });
+
+  it('zooms in around what is on screen', () => {
+    const z = withChart();
+    click(byTitle('Zoom in 2×'));
+    const d = z.get();
+    if (!d) return;
+    expect(d[1]).toBeGreaterThan(d[0]);
+  });
+
+  it('will not offer to reset a chart that is not zoomed', () => {
+    withChart({ zoomDomain: null });
+    expect(byTitle('Reset zoom to full range')?.disabled).toBe(true);
+  });
+
+  it('resets to the whole range by clearing the domain, not by guessing one', () => {
+    // Guessing means picking bounds from whatever is loaded, which is
+    // narrower than the data as soon as anything is paged out.
+    const z = withChart({ zoomDomain: [1_757_000_000_000, 1_757_000_060_000] });
+    click(byTitle('Reset zoom to full range'));
+    expect(z.setZoomDomain).toHaveBeenCalledWith(null);
+  });
+
+  it('pans left into the half of the window it has not shown', () => {
+    const z = withChart();
+    click(byTitle('Pan left ½ screen'));
+    const d = z.get();
+    if (!d) return;
+    expect(d[0]).toBeLessThan(d[1]);
+  });
+
+  it('pans right the same way', () => {
+    const z = withChart({ zoomDomain: [1_757_000_000_000, 1_757_000_030_000] });
+    click(byTitle('Pan right ½ screen'));
+    expect(z.setZoomDomain).toHaveBeenCalled();
+  });
+
+  it('offers the other chart engine, since one of them is a canvas', () => {
+    const toggleEngine = vi.fn();
+    render(<OverviewTab {...bag({ toggleEngine })} />);
+    click(byTitle('Toggle chart engine'));
+    expect(toggleEngine).toHaveBeenCalled();
+  });
+});
+
+describe('panels that need the hardware to exist', () => {
+  const gpu = {
+    hasGpu: true,
+    nvidia: [{
+      index: 0, name: 'NVIDIA GeForce RTX 3090', tempC: 62, gpuUtil: 30, memUtil: 55,
+      memTotalMB: 24576, memUsedMB: 14000, powerDrawW: 320.5, powerLimitW: 350,
+      fanPct: 60, pstate: 'P2',
+    }],
+    nvidiaProcesses: [{ pid: 4242, name: 'python', memMB: 12000 }],
+    amd: [],
+  };
+
+  it('reads every GPU field by the name the parser emits', () => {
+    // This block once read g.temp, g.utilization, g.memUsed and g.power
+    // against a parser emitting tempC, gpuUtil, memUsedMB and powerDrawW,
+    // so every number rendered as undefined and only the name survived.
+    const { container } = render(<OverviewTab {...bag({ probe: { ...bag().probe, gpu } })} />);
+    const text = container.textContent!;
+    expect(text).toContain('NVIDIA GeForce RTX 3090');
+    expect(text).toContain('62');
+    expect(text).toMatch(/320|321/);
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('NaN');
+  });
+
+  it('draws no GPU section for a machine without one', () => {
+    const { container } = render(<OverviewTab {...bag()} />);
+    expect(container.textContent).not.toContain('RTX');
+  });
+
+  it('survives a card that reported no limits to divide by', () => {
+    // An eGPU or a passed-through card can report zeros, and a percentage
+    // of zero is NaN in every gauge on the panel.
+    const bare = { ...gpu, nvidia: [{ ...gpu.nvidia[0], memTotalMB: 0, powerLimitW: 0 }] };
+    const { container } = render(<OverviewTab {...bag({ probe: { ...bag().probe, gpu: bare } })} />);
+    expect(container.textContent).not.toContain('NaN');
+  });
+
+  it('lists containers when the node runs any', () => {
+    // They sit under Overview with the rest of what the probe found, not
+    // with the processes — a container is a machine's tenant, not its
+    // process table.
+    const { container } = render(<OverviewTab {...bag()} />);
+    expect(container.textContent).toContain('open-webui');
+  });
+
+  it('says so plainly when a node reported no processes', () => {
+    const { container } = render(<ProcessesTab {...bag({ probe: null })} />);
+    expect(container.textContent).toContain('No process data available');
+  });
+});

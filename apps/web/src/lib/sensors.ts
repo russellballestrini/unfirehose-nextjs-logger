@@ -1,3 +1,5 @@
+import { int } from '@/lib/num';
+
 /**
  * Thermal, fan, and throttle parsing for our node probe.
  *
@@ -262,8 +264,8 @@ export function parseCpuTopology(raw: string): CpuTopology | null {
     const cpu = parseInt(cpuS);
     const coreId = parseInt(coreS);
     if (!Number.isFinite(cpu) || !Number.isFinite(coreId)) continue;
-    const pkg = parseInt(pkgS) || 0;
-    const die = parseInt(dieS) || 0;
+    const pkg = int(pkgS);
+    const die = int(dieS);
     const khz = parseFloat(khzS);
     pkgs.add(pkg);
     dies.add(`${pkg}/${die}`);
