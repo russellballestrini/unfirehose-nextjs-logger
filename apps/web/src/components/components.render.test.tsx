@@ -82,6 +82,11 @@ const PROPS = {
   onClose: vi.fn(), onSave: vi.fn(), onChange: vi.fn(), onSelect: vi.fn(),
   onRun: vi.fn(), onHide: vi.fn(), mutate: vi.fn(), setValue: vi.fn(),
   children: null,
+  // HarnessPicker takes a filter string and a catalogue. Its own suite
+  // covers the grid; this one only proves the module mounts, and a
+  // component whose type says `filter: string` should not have to defend
+  // against not being given one.
+  harnesses: [], filter: '', setFilter: vi.fn(), statuses: {}, header: null,
 } as never;
 
 describe('every shared component mounts', () => {

@@ -9,6 +9,7 @@ import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
 import { KV } from '@unturf/unfirehose-ui/KV';
 import { harnessesFor } from '@/lib/harnesses';
+import { HarnessPicker } from '@/components/HarnessPicker';
 
 const HARNESSES = harnessesFor('container');
 
@@ -389,75 +390,29 @@ export function HarnessesTab(props: TabProps) {
 
 /** The Bootstrap tab. */
 export function BootstrapTab(props: TabProps) {
-  const { bootFilter, bootHarness, bootStatuses, network, setBootFilter } = props;
+  const { bootFilter, bootHarness, bootStatuses, setBootFilter } = props;
   return (
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm text-[var(--color-muted)]">
-            target: <span className="font-mono text-[var(--color-foreground)]">unsandbox</span>
-            <span className="ml-2 text-xs opacity-60">(each install runs in an ephemeral container with semitrusted network)</span>
-          </div>
-          <input
-            type="text"
-            placeholder="Filter..."
-            value={bootFilter}
-            onChange={(e) => setBootFilter(e.target.value)}
-            className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 w-32"
-          />
+    <HarnessPicker
+      harnesses={HARNESSES}
+      filter={bootFilter}
+      setFilter={setBootFilter}
+      statuses={bootStatuses}
+      onBoot={bootHarness}
+      header={
+        <div className="text-sm text-[var(--color-muted)]">
+          target: <span className="font-mono text-[var(--color-foreground)]">unsandbox</span>
+          <span className="ml-2 text-xs opacity-60">
+            (each install runs in an ephemeral container with semitrusted network)
+          </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {HARNESSES
-            .filter(h => !bootFilter || h.name.toLowerCase().includes(bootFilter.toLowerCase()) || h.tags.some(t => t.includes(bootFilter.toLowerCase())))
-            .map(h => {
-            const bStatus = bootStatuses[h.id] ?? { state: 'idle' };
-            return (
-              <div
-                key={h.id}
-                className={`rounded border p-3 space-y-2 ${
-                  bStatus.state === 'success' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
-                  : bStatus.state === 'error' ? 'border-[var(--color-error)] bg-red-950/20'
-                  : 'border-[var(--color-border)] bg-[var(--color-background)]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold">{h.name}</span>
-                  <div className="flex gap-1">
-                    {h.tags.slice(0, 2).map(t => (
-                      <span key={t} className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
-                <div className="text-xs text-[var(--color-muted)] font-mono space-y-0.5">
-                  <div className="truncate">install: {h.install}</div>
-                  <div className="truncate">verify: {h.verify}</div>
-                  {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => bootHarness(h)}
-                    disabled={bStatus.state === 'verifying'}
-                    className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
-                  >
-                    {bStatus.state === 'verifying' ? 'Installing...' : bStatus.state === 'success' ? 'Re-verify' : 'Verify & Install'}
-                  </button>
-                  {bStatus.state === 'success' && (
-                    <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-60">{bStatus.version}</span>
-                  )}
-                  {bStatus.state === 'error' && (
-                    <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{bStatus.detail}</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="text-xs text-[var(--color-muted)] mt-3">
-          Each install runs in an ephemeral unsandbox container. The container self-destructs after verification.
-          For persistent harnesses, deploy via the Services tab.
-        </p>
-      </div>
+      }
+      footer={
+        <>
+          Each install runs in an ephemeral unsandbox container. The container self-destructs after
+          verification. For persistent harnesses, deploy via the Services tab.
+        </>
+      }
+    />
   );
 }
 

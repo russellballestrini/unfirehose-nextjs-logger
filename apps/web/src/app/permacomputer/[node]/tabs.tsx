@@ -14,6 +14,7 @@ import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { harnessesFor } from '@/lib/harnesses';
+import { HarnessPicker } from '@/components/HarnessPicker';
 
 const HARNESSES = harnessesFor('node');
 
@@ -154,70 +155,24 @@ export function SettingsTab(props: TabProps) {
 export function BootstrapTab(props: TabProps) {
   const { bootFilter, bootHarness, bootHost, bootStatuses, isLocal, setBootFilter } = props;
   return (
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-sm text-[var(--color-muted)]">target: <span className="font-mono text-[var(--color-foreground)]">{bootHost}</span></span>
-          <input
-            type="text"
-            placeholder="Filter..."
-            value={bootFilter}
-            onChange={(e) => setBootFilter(e.target.value)}
-            className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 w-32"
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {HARNESSES
-            .filter(h => !bootFilter || h.name.toLowerCase().includes(bootFilter.toLowerCase()) || h.tags.some(t => t.includes(bootFilter.toLowerCase())))
-            .map(h => {
-            const status = bootStatuses[h.id] ?? { state: 'idle' };
-            return (
-              <div
-                key={h.id}
-                className={`rounded border p-3 space-y-2 ${
-                  status.state === 'success' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
-                  : status.state === 'error' ? 'border-[var(--color-error)] bg-red-950/20'
-                  : 'border-[var(--color-border)] bg-[var(--color-background)]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold">{h.name}</span>
-                  <div className="flex gap-1">
-                    {h.tags.slice(0, 2).map(t => (
-                      <span key={t} className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
-                <div className="text-xs text-[var(--color-muted)] font-mono space-y-0.5">
-                  <div className="truncate">install: {h.install}</div>
-                  <div className="truncate">verify: {h.verify}</div>
-                  {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => bootHarness(h)}
-                    disabled={status.state === 'verifying'}
-                    className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
-                  >
-                    {status.state === 'verifying' ? 'Verifying...' : status.state === 'success' ? 'Re-verify' : 'Verify & Install'}
-                  </button>
-                  {status.state === 'success' && (
-                    <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-60">{status.version}</span>
-                  )}
-                  {status.state === 'error' && (
-                    <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{status.detail}</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="text-xs text-[var(--color-muted)] mt-3">
+    <HarnessPicker
+      harnesses={HARNESSES}
+      filter={bootFilter}
+      setFilter={setBootFilter}
+      statuses={bootStatuses}
+      onBoot={bootHarness}
+      header={
+        <span className="text-sm text-[var(--color-muted)]">
+          target: <span className="font-mono text-[var(--color-foreground)]">{bootHost}</span>
+        </span>
+      }
+      footer={
+        <>
           Installs and verifies harnesses on {bootHost}. For claude-code, also syncs OAuth credentials.
           {!isLocal && ' Requires SSH key access.'}
-        </p>
-      </div>
+        </>
+      }
+    />
   );
 }
 
