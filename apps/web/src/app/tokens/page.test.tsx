@@ -69,6 +69,35 @@ const payload = () => ({
     { date: '2026-09-03', messageCount: 40, sessionCount: 2, toolCallCount: 12 },
     { date: '2026-09-04', messageCount: 55, sessionCount: 3, toolCallCount: 20 },
   ],
+  blockTypes: [
+    { block_type: 'text', count: 5_000 },
+    { block_type: 'tool-call', count: 4_400 },
+    { block_type: 'reasoning', count: 1_300 },
+  ],
+  // The harness tab exists because a token spent by claude-code and one
+  // spent by a local model are not the same money.
+  harnessData: [
+    { harness: 'claude-code', totalTokens: 900_000, costUSD: 2.39, cacheEfficiency: 30.2,
+      inputTokens: 12_000, outputTokens: 4_000, cacheReadTokens: 880_000, cacheCreationTokens: 4_000 },
+    { harness: 'uncloseai', totalTokens: 46_600, costUSD: 0, cacheEfficiency: 0,
+      inputTokens: 40_000, outputTokens: 6_600, cacheReadTokens: 0, cacheCreationTokens: 0 },
+  ],
+  harnessSessions: [
+    { harness: 'claude-code', sessions: 12 },
+    { harness: 'uncloseai', sessions: 3 },
+  ],
+  harnessModelBreakdown: [
+    { harness: 'claude-code', model: 'claude-opus-4-6-20260301', totalTokens: 900_000, costUSD: 2.39 },
+    { harness: 'uncloseai', model: 'qwen3-coder', totalTokens: 46_600, costUSD: 0 },
+  ],
+  toolsByHarness: [
+    { harness: 'claude-code', tool_name: 'Bash', count: 120 },
+    { harness: 'uncloseai', tool_name: 'Read', count: 8 },
+  ],
+  dailyByHarness: [
+    { date: '2026-09-04', harness: 'claude-code', totalTokens: 500_000 },
+    { date: '2026-09-04', harness: 'uncloseai', totalTokens: 20_000 },
+  ],
 });
 
 beforeAll(() => {
@@ -158,6 +187,42 @@ describe('tokens page', () => {
     await act(async () => { chip!.click(); });
     expect(keys.some(k => k.includes('project='))).toBe(false);
     expect(window.location.search).toBe('');
+  });
+
+  it('splits usage by harness, which is not the same money', async () => {
+    // A token spent through claude-code costs; one spent on a model
+    // running on our own mesh does not. One total for both is a number
+    // nobody can act on.
+    const { container } = await show();
+    await tab('harness');
+    expect(container.textContent).toContain('claude-code');
+    expect(container.textContent).toContain('uncloseai');
+  });
+
+  it('leaves out a harness that spent nothing in the period', async () => {
+    // Sixteen harnesses are installable and most people run two. A card
+    // per idle harness is a page of zeroes.
+    tokens = { ...payload(), harnessData: [
+      { harness: 'claude-code', totalTokens: 900_000, costUSD: 2.39, cacheEfficiency: 30.2 },
+      { harness: 'aider', totalTokens: 0, costUSD: 0, cacheEfficiency: 0 },
+    ] };
+    const { container } = await show();
+    await tab('harness');
+    expect(container.textContent).not.toContain('aider');
+  });
+
+  it('says a harness ran no sessions rather than showing nothing', async () => {
+    tokens = { ...payload(), harnessSessions: [] };
+    const { container } = await show();
+    await tab('harness');
+    expect(container.textContent).toContain('claude-code');
+    expect(container.textContent).not.toContain('undefined');
+  });
+
+  it('breaks tools down by harness on the tools tab', async () => {
+    const { container } = await show();
+    await tab('tools');
+    expect(container.textContent).toContain('Bash');
   });
 
   it('survives a payload that has not arrived', async () => {
