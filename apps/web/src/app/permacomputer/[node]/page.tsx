@@ -1,5 +1,6 @@
 'use client';
 
+import { useHashTab } from '@/lib/use-hash-tab';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { DEFAULT_KWH_RATE as PRICING_DEFAULT_KWH_RATE } from '@unturf/unfirehose/pricing';
@@ -31,17 +32,7 @@ const HARNESSES = harnessesFor('node');
 export default function NodeDetailPage() {
   const { node: nodeParam } = useParams<{ node: string }>();
   const host = decodeURIComponent(nodeParam);
-  const [activeTab, setActiveTabRaw] = useState<Tab>(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.slice(1);
-      if (TABS.includes(hash as Tab)) return hash as Tab;
-    }
-    return 'Overview';
-  });
-  const setActiveTab = (tab: Tab) => {
-    setActiveTabRaw(tab);
-    window.location.hash = tab;
-  };
+  const [activeTab, setActiveTab] = useHashTab<Tab>(TABS, 'Overview');
 
   const [range, setRange] = useTimeRange('node_chart_range', '24h');
   const chartHours = (() => {

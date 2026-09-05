@@ -1,8 +1,10 @@
 'use client';
 
+import { useHashTab } from '@/lib/use-hash-tab';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { HexColorPicker } from '@/components/HexColorPicker';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { AVAILABLE_CURRENCIES } from '@unturf/unfirehose-ui/useCurrency';
@@ -106,15 +108,7 @@ export default function SettingsPage() {
 
   const TABS = ['General', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];
-  const [activeTab, setActiveTabRaw] = useState<SettingsTab>(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.slice(1);
-      if (TABS.includes(hash as SettingsTab)) return hash as SettingsTab;
-    }
-    return 'General';
-  });
-  const setActiveTab = (tab: SettingsTab) => { setActiveTabRaw(tab); };
-  useEffect(() => { window.location.hash = activeTab; }, [activeTab]);
+  const [activeTab, setActiveTab] = useHashTab<SettingsTab>(TABS, 'General');
   const vault = useVault();
 
   return (
@@ -580,157 +574,6 @@ function GeoRegionOverrides({ settings, saveSetting }: {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function hslToHex(h: number, s: number, l: number): string {
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    return Math.round(255 * color).toString(16).padStart(2, '0');
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-function hexToHue(hex: string): number {
-  const h = hex.replace('#', '');
-  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
-  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  if (max === min) return 0;
-  const d = max - min;
-  let hue = 0;
-  if (max === r) hue = ((g - b) / d + (g < b ? 6 : 0)) * 60;
-  else if (max === g) hue = ((b - r) / d + 2) * 60;
-  else hue = ((r - g) / d + 4) * 60;
-  return Math.round(hue);
-}
-
-const RED_PRESETS = [
-  { label: 'unfirehose', hex: '#d40000', desc: 'Deep vermilion — our pivot' },
-  { label: 'Netflix', hex: '#e50914', desc: 'Streaming red' },
-  { label: 'YouTube', hex: '#ff0000', desc: 'Pure saturated' },
-  { label: 'Oxblood', hex: '#800020', desc: 'Dark, luxurious' },
-  { label: 'Crimson', hex: '#dc143c', desc: 'Classic warm red' },
-  { label: 'Brick', hex: '#cb4154', desc: 'Earthy, grounded' },
-];
-
-function HexColorPicker({ value, settingKey }: { value: string; settingKey: string }) {
-  const [color, setColor] = useState(value);
-  const [hexText, setHexText] = useState(value.replace('#', ''));
-  const hexRef = useRef(value.replace('#', ''));
-  const { mutate: mutateSettings } = useSWR('/api/settings', fetcher);
-
-  const hue = hexToHue(color);
-
-  function save(hex: string) {
-    const clean = hex.startsWith('#') ? hex : '#' + hex;
-    setColor(clean);
-    setHexText(clean.replace('#', ''));
-    hexRef.current = clean.replace('#', '');
-    document.documentElement.style.setProperty('--color-accent', clean);
-    document.documentElement.style.setProperty('--color-assistant', clean);
-    // Optimistic SWR update — prevents ThemeProvider from overwriting with stale value
-    // revalidate: false avoids refetch that would cause parent re-render / scroll jump
-    mutateSettings((prev: Record<string, string> | undefined) => ({ ...prev, [settingKey]: clean }), { revalidate: false });
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key: settingKey, value: clean }),
-    });
-  }
-
-  function tryCommit(text: string) {
-    const clean = text.replace(/[^0-9a-fA-F]/g, '');
-    if (clean.length === 6) {
-      save('#' + clean.toLowerCase());
-    } else if (clean.length === 3) {
-      save('#' + clean.split('').map(c => c + c).join('').toLowerCase());
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: color }} />
-        <div className="flex items-center gap-1">
-          <span className="text-base text-[var(--color-muted)]">#</span>
-          <input
-            type="text"
-            value={hexText}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
-              setHexText(v);
-              hexRef.current = v;
-            }}
-            onBlur={() => tryCommit(hexRef.current)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') tryCommit(hexRef.current);
-            }}
-            className="w-24 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1.5 text-base font-mono"
-            maxLength={6}
-            spellCheck={false}
-          />
-        </div>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={360}
-        value={hue}
-        onChange={(e) => save(hslToHex(Number(e.target.value), 0.7, 0.55))}
-        className="w-full h-3 rounded-full appearance-none cursor-pointer"
-        style={{
-          background: `linear-gradient(to right, ${Array.from({ length: 13 }, (_, i) => hslToHex(i * 30, 0.7, 0.55)).join(', ')})`,
-        }}
-      />
-      {/* Brand red presets */}
-      <div className="space-y-2">
-        <span className="text-sm text-[var(--color-muted)]">Brand reds</span>
-        <div className="flex flex-wrap gap-2">
-          {RED_PRESETS.map((p) => (
-            <button
-              key={p.hex}
-              onClick={() => save(p.hex)}
-              title={`${p.label} — ${p.desc}`}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-sm cursor-pointer transition-colors ${
-                color.toLowerCase() === p.hex.toLowerCase()
-                  ? 'border-[var(--color-accent)] text-[var(--color-foreground)]'
-                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
-              }`}
-            >
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: p.hex }} />
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {/* Tonal scale preview */}
-      <div className="space-y-2">
-        <span className="text-sm text-[var(--color-muted)]">Tonal scale</span>
-        <div className="flex gap-0.5 rounded overflow-hidden">
-          {[
-            ['50', 'var(--color-red-50)'],
-            ['100', 'var(--color-red-100)'],
-            ['200', 'var(--color-red-200)'],
-            ['300', 'var(--color-red-300)'],
-            ['400', 'var(--color-red-400)'],
-            ['500', 'var(--color-red-500)'],
-            ['600', 'var(--color-red-600)'],
-            ['700', 'var(--color-red-700)'],
-            ['800', 'var(--color-red-800)'],
-            ['900', 'var(--color-red-900)'],
-            ['950', 'var(--color-red-950)'],
-          ].map(([step, cssVar]) => (
-            <div key={step} className="flex-1 text-center" title={`red-${step}`}>
-              <div className="h-6" style={{ backgroundColor: cssVar }} />
-              <div className="text-xs text-[var(--color-muted)] mt-0.5">{step}</div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

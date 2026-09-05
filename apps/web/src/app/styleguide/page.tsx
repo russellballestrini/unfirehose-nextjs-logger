@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, Fragment } from 'react';
+import { HexColorPicker, RED_PRESETS } from '@/components/HexColorPicker';
 import useSWR from 'swr';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import {
@@ -85,39 +86,7 @@ function formatTokens(n: number): string {
 
 const sgFetcher = (url: string) => fetch(url).then((r) => r.json());
 
-function hslToHex(h: number, s: number, l: number): string {
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    return Math.round(255 * color).toString(16).padStart(2, '0');
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-function hexToHue(hex: string): number {
-  const h = hex.replace('#', '');
-  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
-  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  if (max === min) return 0;
-  const d = max - min;
-  let hue = 0;
-  if (max === r) hue = ((g - b) / d + (g < b ? 6 : 0)) * 60;
-  else if (max === g) hue = ((b - r) / d + 2) * 60;
-  else hue = ((r - g) / d + 4) * 60;
-  return Math.round(hue);
-}
-
-const RED_PRESETS = [
-  { label: 'unfirehose', hex: '#d40000', desc: 'Deep vermilion — our pivot' },
-  { label: 'Netflix', hex: '#e50914', desc: 'Streaming red' },
-  { label: 'YouTube', hex: '#ff0000', desc: 'Pure saturated' },
-  { label: 'Oxblood', hex: '#800020', desc: 'Dark, luxurious' },
-  { label: 'Crimson', hex: '#dc143c', desc: 'Classic warm red' },
-  { label: 'Brick', hex: '#cb4154', desc: 'Earthy, grounded' },
-];
-
+/** The hexes our CSS tonal scale is built from, shown here as documentation. */
 const RED_TONAL_SCALE = [
   { step: '50', hex: '#fef2f2' },
   { step: '100', hex: '#fde3e3' },
@@ -133,94 +102,15 @@ const RED_TONAL_SCALE = [
 ];
 
 function ThemeChooser() {
-  const { data: settings, mutate } = useSWR('/api/settings', sgFetcher, {
+  const { data: settings } = useSWR('/api/settings', sgFetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
   });
-  const accent = settings?.theme_accent_color ?? '#d40000';
-  const [color, setColor] = useState(accent);
-  const [hexText, setHexText] = useState(accent.replace('#', ''));
-  const hexRef = useRef(accent.replace('#', ''));
-  const hue = hexToHue(color);
-
-  function save(hex: string) {
-    const clean = hex.startsWith('#') ? hex : '#' + hex;
-    setColor(clean);
-    setHexText(clean.replace('#', ''));
-    hexRef.current = clean.replace('#', '');
-    document.documentElement.style.setProperty('--color-accent', clean);
-    document.documentElement.style.setProperty('--color-assistant', clean);
-    mutate((prev: Record<string, string> | undefined) => ({ ...prev, theme_accent_color: clean }), { revalidate: false });
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key: 'theme_accent_color', value: clean }),
-    });
-  }
-
-  function tryCommit(text: string) {
-    const clean = text.replace(/[^0-9a-fA-F]/g, '');
-    if (clean.length === 6) save('#' + clean.toLowerCase());
-    else if (clean.length === 3) save('#' + clean.split('').map(c => c + c).join('').toLowerCase());
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg border border-[var(--color-border)]" style={{ backgroundColor: color }} />
-        <div className="flex items-center gap-1">
-          <span className="text-base text-[var(--color-muted)]">#</span>
-          <input
-            type="text"
-            value={hexText}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
-              setHexText(v);
-              hexRef.current = v;
-            }}
-            onBlur={() => tryCommit(hexRef.current)}
-            onKeyDown={(e) => { if (e.key === 'Enter') tryCommit(hexRef.current); }}
-            className="w-24 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1.5 text-base font-mono"
-            maxLength={6}
-            spellCheck={false}
-          />
-        </div>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={360}
-        value={hue}
-        onChange={(e) => save(hslToHex(Number(e.target.value), 0.7, 0.55))}
-        className="w-full h-3 rounded-full appearance-none cursor-pointer"
-        style={{
-          background: `linear-gradient(to right, ${Array.from({ length: 13 }, (_, i) => hslToHex(i * 30, 0.7, 0.55)).join(', ')})`,
-        }}
-      />
-      {/* Brand red presets */}
-      <div className="space-y-2">
-        <span className="text-sm text-[var(--color-muted)]">Brand reds</span>
-        <div className="flex flex-wrap gap-2">
-          {RED_PRESETS.map((p) => (
-            <button
-              key={p.hex}
-              onClick={() => save(p.hex)}
-              title={`${p.label} — ${p.desc}`}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-sm cursor-pointer transition-colors ${
-                color.toLowerCase() === p.hex.toLowerCase()
-                  ? 'border-[var(--color-accent)] text-[var(--color-foreground)]'
-                  : 'border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'
-              }`}
-            >
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: p.hex }} />
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  // Our styleguide shows the real picker, not a copy of it — a reference
+  // that has forked from what it documents is worse than no reference.
+  return <HexColorPicker value={settings?.theme_accent_color ?? '#d40000'} settingKey="theme_accent_color" />;
 }
+
 
 function ViewerSandbox() {
   const [showThinking, setShowThinking] = useState(true);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useHashTab } from '@/lib/use-hash-tab';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useMemo, useState } from 'react';
@@ -181,17 +182,7 @@ export default function TokensPage() {
     return sp.toString() ? `?${sp}` : '';
   }, [from, projectFilter]);
 
-  const [activeTab, setActiveTabRaw] = useState<TokensTab>(() => {
-    if (typeof globalThis !== 'undefined' && globalThis.location) {
-      const hash = globalThis.location.hash.slice(1) as TokensTab;
-      if (tokensTabs.includes(hash)) return hash;
-    }
-    return 'overview';
-  });
-  const setActiveTab = (tab: TokensTab) => {
-    setActiveTabRaw(tab);
-    if (typeof window !== 'undefined') window.history.replaceState(null, '', `#${tab}`);
-  };
+  const [activeTab, setActiveTab] = useHashTab<TokensTab>(tokensTabs, 'overview');
 
   const { data, error } = useSWR(`/api/tokens${qs}`, fetcher);
   const { data: planData } = useSWR('/api/usage/plan', fetcher);

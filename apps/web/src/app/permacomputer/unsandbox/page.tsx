@@ -1,5 +1,6 @@
 'use client';
 
+import { useHashTab } from '@/lib/use-hash-tab';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -747,14 +748,7 @@ export default function UnsandboxNodePage() {
   const { data: services, mutate: mutateServices } = useSWR('/api/unsandbox?action=services', fetcher, { refreshInterval: 10000 });
   const { data: sessions, mutate: mutateSessions } = useSWR('/api/unsandbox?action=sessions', fetcher, { refreshInterval: 10000 });
 
-  const [activeTab, setActiveTabRaw] = useState<Tab>(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.slice(1);
-      if (TABS.includes(hash as Tab)) return hash as Tab;
-    }
-    return 'Overview';
-  });
-  const setActiveTab = (tab: Tab) => { setActiveTabRaw(tab); window.location.hash = tab; };
+  const [activeTab, setActiveTab] = useHashTab<Tab>(TABS, 'Overview');
   const [probe, setProbe] = useState<any>(null);
   const [probing, setProbing] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
