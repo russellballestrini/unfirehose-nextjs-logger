@@ -1238,153 +1238,6 @@ function extractProvidenceFromSession(
   return added;
 }
 
-async function ingestFetch(
-  db: ReturnType<typeof getDb>
-): Promise<Omit<IngestResult, 'alertsTriggered'>> {
-  const result = {
-    projectsAdded: 0,
-    sessionsAdded: 0,
-    messagesAdded: 0,
-    blocksAdded: 0,
-    filesScanned: 0,
-    providenceAdded: 0,
-  };
-
-  if (!fetchPaths.root) return result;
-
-  const projectDirs = await readdir(fetchPaths.root).catch(() => []);
-
-  for (const slug of projectDirs) {
-    const projDir = fetchPaths.projectDir(slug);
-    const dirStat = await stat(projDir).catch(() => null);
-    if (!dirStat?.isDirectory()) continue;
-
-    const projectName = `fetch:${slug}`;
-    const displayName = `[fetch] ${decodeProjectName(slug)}`;
-
-    let files: string[];
-    try {
-      files = (await readdir(projDir)).filter((f) => f.endsWith('.jsonl'));
-    } catch {
-      continue;
-    }
-    if (files.length === 0) continue;
-
-    // resolveProjectPath falls back to a filesystem DFS that probes every way
-    // the encoded name could split into directories. Running it per project
-    // per cycle did not scale: ~6,400 uncloseai project dirs turned one pass
-    // into minutes, so the single-flight guard kept skipping the next cycle
-    // and native-harness ingest effectively stopped — measured 2026-08-25,
-    // uncloseai ran 80 minutes behind while Claude Code stayed current, and a
-    // brand new project (~/git/contra, 9 sessions) never landed at all.
-    //
-    // A project we already know needs no probing. The DFS stays as the last
-    // resort for a project we have never seen.
-    const knownProj = db
-      .prepare('SELECT COALESCE(path, last_cwd_seen) AS p FROM projects WHERE name = ?')
-      .get(projectName) as { p: string | null } | undefined;
-    const slugCwd = knownProj?.p ?? (await resolveProjectPath(slug).catch(() => null));
-    const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
-
-    const prevCount = db
-      .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
-      .get(projectId) as { c: number };
-    if (prevCount.c === 0 && files.length > 0) result.projectsAdded++;
-
-    for (const file of files) {
-      const sessionUuid = file.replace('.jsonl', '');
-      const filePath = fetchPaths.sessionFile(slug, sessionUuid);
-      const fstat = await stat(filePath).catch(() => null);
-      if (!fstat) continue;
-
-      const offset = db
-        .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
-        .get(filePath) as { byte_offset: number } | undefined;
-      const startByte = offset?.byte_offset ?? 0;
-
-      if (fstat.size <= startByte) continue;
-
-      result.filesScanned++;
-
-      const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
-        cliVersion: 'fetch',
-        harness: 'fetch',
-      });
-
-      if (!offset) result.sessionsAdded++;
-
-      // Fetch JSONL is in Claude Code format — normalize to unfirehose/1.0
-      const stream = createReadStream(filePath, {
-        start: startByte,
-        encoding: 'utf-8',
-      });
-      const rl = createInterface({ input: stream, crlfDelay: Infinity });
-
-      const batchInsert = db.transaction((lines: string[]) => {
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const entry = JSON.parse(line);
-            const normalized = normalizeClaudeCodeEntry(entry);
-            if (!normalized) continue;
-
-            const messageId = insertMessage(db, sessionId, normalized);
-            if (messageId === null) continue;
-
-            result.messagesAdded++;
-
-            if (Array.isArray(normalized.content)) {
-              result.blocksAdded += insertContentBlocks(db, messageId, normalized.content);
-            }
-
-            // Extract todos from TaskCreate/TaskUpdate/TodoWrite tool calls
-            extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
-
-            const usage = normalized.usage;
-            if (usage && normalized.timestamp) {
-              updateUsageMinutes(db, projectId, normalized.timestamp, {
-                inputTokens: usage.inputTokens ?? 0,
-                outputTokens: usage.outputTokens ?? 0,
-                cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
-                cacheCreationTokens: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
-              });
-            }
-          } catch {
-            // skip malformed lines
-          }
-        }
-      });
-
-      const batch: string[] = [];
-      for await (const line of rl) {
-        batch.push(line);
-        if (batch.length >= 500) {
-          batchInsert(batch.splice(0));
-        }
-      }
-      if (batch.length > 0) {
-        batchInsert(batch);
-      }
-
-      db.prepare(
-        `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(file_path) DO UPDATE SET
-           byte_offset = excluded.byte_offset,
-           last_ingested = excluded.last_ingested`
-      ).run(filePath, fstat.size);
-
-      db.prepare(
-        'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
-      ).run(new Date().toISOString(), sessionUuid);
-
-      // Extract Q&A providence records from this session
-      result.providenceAdded += extractProvidenceFromSession(db, sessionId, decodeProjectName(slug), 'fetch');
-    }
-  }
-
-  return result;
-}
 
 // ── Native harness auto-discovery ────────────────────────────────────────────
 // Any directory matching ~/.{name}/unfirehose/ is treated as a native harness
@@ -1441,9 +1294,34 @@ function refreshNativeHarnesses() {
  * Generic ingestion for any harness that writes unfirehose/1.0 JSONL.
  * Directory structure: {root}/{project-slug}/{session-uuid}.jsonl
  */
-async function ingestNativeHarness(
+/**
+ * One reader for every harness that writes JSONL under a directory.
+ *
+ * Fetch and the native harnesses had a reader each, and they were the
+ * same two hundred lines twice: walk the project directories, resume each
+ * file from its stored byte offset, insert messages, extract todos,
+ * update usage minutes. Only two things genuinely differed — where the
+ * directories are, and what format the lines are in — so those are what
+ * a source names. Everything else was duplication waiting to drift, and
+ * had already started to: only one of the two closed a session on a
+ * session_end record.
+ */
+interface JsonlSource {
+  /** Harness name, which prefixes every project this source creates. */
+  name: string;
+  root: string;
+  projectDir(slug: string): string;
+  /**
+   * One line, as a message we can insert — or null for a line that is
+   * not a message at all. unfirehose/1.0 says so with a type; Claude
+   * Code format has to be translated.
+   */
+  toMessage(entry: any): any | null;
+}
+
+async function ingestJsonlSource(
   db: ReturnType<typeof getDb>,
-  harness: NativeHarness,
+  harness: JsonlSource,
 ): Promise<Omit<IngestResult, 'alertsTriggered'>> {
   const result = {
     projectsAdded: 0,
@@ -1460,7 +1338,7 @@ async function ingestNativeHarness(
   if (projectDirs.length === 0) return result;
 
   for (const slug of projectDirs) {
-    const projDir = path.join(harness.root, slug);
+    const projDir = harness.projectDir(slug);
     const dirStat = await stat(projDir).catch(() => null);
     if (!dirStat?.isDirectory()) continue;
 
@@ -1592,7 +1470,11 @@ async function ingestNativeHarness(
               continue;
             }
 
-            if (entry.type !== 'message') continue;
+            // unfirehose/1.0 entries are already messages; Claude Code
+            // format has to be translated first, and a line that is
+            // neither is not ours to insert.
+            const message = harness.toMessage(entry);
+            if (!message) continue;
 
             // session_end system message — terminal signal that the
             // harness emitted to mark the session closed. Run BEFORE
@@ -1603,11 +1485,11 @@ async function ingestNativeHarness(
             // don't reopen on a later message — the WHERE guards
             // against status downgrades.
             if (
-              entry.role === 'system' &&
-              entry.subtype === 'session_end'
+              message.role === 'system' &&
+              message.subtype === 'session_end'
             ) {
               const closedAt =
-                (typeof entry.timestamp === 'string' && entry.timestamp) ||
+                (typeof message.timestamp === 'string' && message.timestamp) ||
                 new Date().toISOString();
               db.prepare(
                 `UPDATE sessions
@@ -1618,20 +1500,20 @@ async function ingestNativeHarness(
               ).run(closedAt, sessionUuid);
             }
 
-            const messageId = insertMessage(db, sessionId, entry);
+            const messageId = insertMessage(db, sessionId, message);
             if (messageId === null) continue;
 
             result.messagesAdded++;
 
-            if (Array.isArray(entry.content)) {
-              result.blocksAdded += insertContentBlocks(db, messageId, entry.content);
+            if (Array.isArray(message.content)) {
+              result.blocksAdded += insertContentBlocks(db, messageId, message.content);
             }
 
             extractTodosFromEntry(db, projectId, sessionId, entry, sessionUuid);
 
-            const usage = entry.usage;
-            if (usage && entry.timestamp) {
-              updateUsageMinutes(db, projectId, entry.timestamp, {
+            const usage = message.usage;
+            if (usage && message.timestamp) {
+              updateUsageMinutes(db, projectId, message.timestamp, {
                 inputTokens: usage.inputTokens ?? 0,
                 outputTokens: usage.outputTokens ?? 0,
                 cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
@@ -1933,7 +1815,13 @@ export async function ingestAll(): Promise<IngestResult> {
 
   // Ingest Fetch sessions (if FETCH_JSONL_DIR is configured)
   if (fetchPaths.root) {
-    const fetchResult = await ingestFetch(db);
+    const fetchResult = await ingestJsonlSource(db, {
+      name: 'fetch',
+      root: fetchPaths.root,
+      projectDir: (slug) => fetchPaths.projectDir(slug),
+      // Fetch writes Claude Code's format, not ours.
+      toMessage: (entry) => normalizeClaudeCodeEntry(entry),
+    });
     result.projectsAdded += fetchResult.projectsAdded;
     result.sessionsAdded += fetchResult.sessionsAdded;
     result.messagesAdded += fetchResult.messagesAdded;
@@ -1944,7 +1832,13 @@ export async function ingestAll(): Promise<IngestResult> {
 
   // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.)
   for (const harness of nativeHarnesses) {
-    const hResult = await ingestNativeHarness(db, harness);
+    const hResult = await ingestJsonlSource(db, {
+      name: harness.name,
+      root: harness.root,
+      projectDir: (slug) => path.join(harness.root, slug),
+      // unfirehose/1.0: a message says so.
+      toMessage: (entry) => (entry.type === 'message' ? entry : null),
+    });
     result.projectsAdded += hResult.projectsAdded;
     result.sessionsAdded += hResult.sessionsAdded;
     result.messagesAdded += hResult.messagesAdded;
