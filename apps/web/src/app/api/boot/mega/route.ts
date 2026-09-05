@@ -4,6 +4,7 @@ import path from 'path';
 import { tmpdir } from 'os';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { execAsync } from '@unturf/unfirehose/git-exec';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
            GROUP_CONCAT(t.id) as todo_id_list
     FROM todos t
     JOIN projects p ON t.project_id = p.id
-    WHERE t.status IN ('pending', 'in_progress')
+    WHERE t.status ${OPEN_TODO_SQL}
       AND p.path IS NOT NULL
     GROUP BY p.id
     ORDER BY todo_count DESC

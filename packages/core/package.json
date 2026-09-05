@@ -31,6 +31,7 @@
   ],
   "exports": {
     "./db/schema": "./db/schema.ts",
+    "./db/session-facts": "./db/session-facts.ts",
     "./block-types": "./block-types.ts",
     "./db/migrate": "./db/migrate.ts",
     "./db/pragmas": "./db/pragmas.ts",

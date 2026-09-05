@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { Timing } from '@/lib/timing';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -42,7 +43,7 @@ export async function GET() {
         COUNT(*) FILTER (WHERE estimated_minutes > 15) as needs_ticket,
         COUNT(*) FILTER (WHERE updated_at < datetime('now', '-3 days')) as stale
       FROM todos
-      WHERE status IN ('pending', 'in_progress')
+      WHERE status ${OPEN_TODO_SQL}
     `).get() as any;
     t.mark('active_stats');
 
@@ -52,10 +53,10 @@ export async function GET() {
         p.display_name as display,
         COUNT(*) FILTER (WHERE t.status = 'pending') as pending,
         COUNT(*) FILTER (WHERE t.status = 'in_progress') as in_progress,
-        COALESCE(SUM(CASE WHEN t.status IN ('pending', 'in_progress') THEN t.estimated_minutes ELSE 0 END), 0) as minutes
+        COALESCE(SUM(CASE WHEN t.status ${OPEN_TODO_SQL} THEN t.estimated_minutes ELSE 0 END), 0) as minutes
       FROM todos t
       JOIN projects p ON t.project_id = p.id
-      WHERE t.status IN ('pending', 'in_progress')
+      WHERE t.status ${OPEN_TODO_SQL}
       GROUP BY p.id
       HAVING pending + in_progress > 0
       ORDER BY pending + in_progress DESC
@@ -68,7 +69,7 @@ export async function GET() {
         COUNT(*) FILTER (WHERE status = 'pending') as pending,
         COUNT(*) FILTER (WHERE status = 'in_progress') as in_progress
       FROM todos
-      WHERE status IN ('pending', 'in_progress')
+      WHERE status ${OPEN_TODO_SQL}
       GROUP BY source
       ORDER BY pending + in_progress DESC
     `).all() as any[];

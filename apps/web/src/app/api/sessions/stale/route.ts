@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
         p.name as project_name, p.display_name as project_display,
         CAST(julianday('now') - julianday(COALESCE(s.last_message_at, s.updated_at)) AS INTEGER) as inactive_days,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count,
-        (SELECT COUNT(*) FROM todos t WHERE t.session_id = s.id AND t.status IN ('pending', 'in_progress')) as pending_todos,
+        (SELECT COUNT(*) FROM todos t WHERE t.session_id = s.id AND t.status ${OPEN_TODO_SQL}) as pending_todos,
         (SELECT COUNT(*) FROM todos t WHERE t.session_id = s.id) as total_todos
       FROM sessions s
       JOIN projects p ON s.project_id = p.id

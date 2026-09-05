@@ -16,6 +16,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { OPEN_TODO_SQL } from './session-facts';
 
 export interface CloseResult {
   closedSessions: number;
@@ -55,7 +56,7 @@ export function closeSessions(
   const findTodos = db.prepare(
     `SELECT t.id, t.status FROM todos t
      JOIN sessions s ON t.session_id = s.id
-     WHERE s.session_uuid = ? AND t.status IN ('pending', 'in_progress')`,
+     WHERE s.session_uuid = ? AND t.status ${OPEN_TODO_SQL}`,
   );
 
   const result: CloseResult = { closedSessions: 0, obsoletedTodos: 0 };

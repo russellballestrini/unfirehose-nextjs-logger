@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
     const quick = url.searchParams.get('quick') === 'true';
 
     const params: any[] = [];
-    let where = "t.status IN ('pending', 'in_progress') AND t.status != 'deleted'";
+    let where = `t.status ${OPEN_TODO_SQL} AND t.status != 'deleted'`;
 
     if (project) {
       where += ' AND p.name = ?';

@@ -3,6 +3,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { TOOL_CALL_SQL } from '@unturf/unfirehose/block-types';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -89,7 +90,7 @@ export async function GET(
       FROM todos t
       LEFT JOIN sessions s ON t.session_id = s.id
       WHERE t.project_id = ? AND (
-        t.status IN ('pending', 'in_progress')
+        t.status ${OPEN_TODO_SQL}
         OR (t.status = 'completed' AND t.completed_at > datetime('now', '-1 hour'))
       )
       ORDER BY

@@ -44,6 +44,37 @@ export async function getClaudeMaxToken(): Promise<{ accessToken: string; expire
 }
 
 
+/**
+ * Models on our own mesh, in the order we would rather use them.
+ *
+ * Both were written out twice, twenty lines each, differing only in a
+ * hostname and a label — which is how one of them would eventually get a
+ * timeout change the other did not.
+ */
+const MESH_FALLBACKS: ReadonlyArray<readonly [host: string, source: string]> = [
+  ['qwen.ai.unturf.com', 'qwen-mesh'],
+  ['hermes.ai.unturf.com', 'hermes-mesh'],
+];
+
+/**
+ * The first model a mesh box will admit to serving, or null.
+ *
+ * A box that is up but has loaded nothing answers with an empty list, and
+ * that is the same as being down for our purposes: there is no model to
+ * name in a request.
+ */
+async function firstModelOn(host: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://${host}/v1/models`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.data?.[0]?.id ?? null;
+  } catch {
+    // Mesh unreachable. Not an error — this is a fallback.
+    return null;
+  }
+}
+
 export async function resolveProvider(settings: Record<string, string>, vaultKey?: string): Promise<LlmProvider | null> {
   // 1. User-configured provider + vault key takes priority
   if (settings.llm_commit_endpoint) {
@@ -82,41 +113,21 @@ export async function resolveProvider(settings: Record<string, string>, vaultKey
     };
   }
 
-  // 4. Fallback: Qwen 3 Coder on the mesh — code-specialized, best for commit messages/PRs
-  try {
-    const res = await fetch('https://qwen.ai.unturf.com/v1/models', { signal: AbortSignal.timeout(3000) });
-    if (res.ok) {
-      const data = await res.json();
-      const model = data?.data?.[0]?.id;
-      if (model) {
-        return {
-          type: 'openai-compatible',
-          endpoint: 'https://qwen.ai.unturf.com/v1/chat/completions',
-          apiKey: '',
-          model,
-          source: 'qwen-mesh',
-        };
-      }
+  // 4 and 5. Our own mesh, in preference order: the code model first
+  // because these are commit messages, then the general one. Both are
+  // unauthenticated, which is what makes a fresh install work at all.
+  for (const [host, source] of MESH_FALLBACKS) {
+    const model = await firstModelOn(host);
+    if (model) {
+      return {
+        type: 'openai-compatible',
+        endpoint: `https://${host}/v1/chat/completions`,
+        apiKey: '',
+        model,
+        source,
+      };
     }
-  } catch { /* mesh unreachable, skip */ }
-
-  // 5. Fallback: Hermes 3 on the mesh — general purpose
-  try {
-    const res = await fetch('https://hermes.ai.unturf.com/v1/models', { signal: AbortSignal.timeout(3000) });
-    if (res.ok) {
-      const data = await res.json();
-      const model = data?.data?.[0]?.id;
-      if (model) {
-        return {
-          type: 'openai-compatible',
-          endpoint: 'https://hermes.ai.unturf.com/v1/chat/completions',
-          apiKey: '',
-          model,
-          source: 'hermes-mesh',
-        };
-      }
-    }
-  } catch { /* mesh unreachable, skip */ }
+  }
 
   return null;
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
     const project = url.searchParams.get('project');
 
     const params: any[] = [days];
-    let where = "t.status IN ('pending', 'in_progress') AND t.updated_at < datetime('now', '-' || ? || ' days')";
+    let where = `t.status ${OPEN_TODO_SQL} AND t.updated_at < datetime('now', '-' || ? || ' days')`;
 
     if (project) {
       where += ' AND p.name = ?';

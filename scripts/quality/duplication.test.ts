@@ -190,3 +190,26 @@ describe('data is not duplication', () => {
     expect(findClones([file], 40).length).toBeGreaterThan(0);
   });
 });
+
+describe('a template placeholder outside a template literal', () => {
+  let dir: string;
+  const write = (name: string, source: string) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, source);
+    return file;
+  };
+  beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-tpl-')); });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('tokenises a single-quoted string with ${…} in it as one literal', () => {
+    // Folding a repeated SQL predicate into a shared constant means
+    // substituting it into query strings, and a substitution that lands in
+    // a single-quoted string is not a substitution — it reaches SQLite as
+    // a dollar sign and the query fails at runtime, not at build. Two of
+    // ours did exactly that.
+    const wrong = tokenise(`const q = "status \${OPEN} AND x";`);
+    const right = tokenise('const q = `status ${OPEN} AND x`;');
+    expect(wrong.filter(t => t.shape === 'STR')).toHaveLength(1);
+    expect(right.some(t => t.shape === 'ID')).toBe(true);
+  });
+});

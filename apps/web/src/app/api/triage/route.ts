@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { closeSessions, staleSessionUuids, obsoleteTodo } from '@unturf/unfirehose/db/session-close';
+import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,13 +32,13 @@ export async function GET(request: NextRequest) {
       SELECT
         (SELECT COUNT(*) FROM sessions WHERE status IS NULL OR status = 'active') as active_sessions,
         (SELECT COUNT(*) FROM sessions WHERE status = 'closed') as closed_sessions,
-        (SELECT COUNT(*) FROM todos WHERE status IN ('pending', 'in_progress')) as open_todos,
+        (SELECT COUNT(*) FROM todos WHERE status ${OPEN_TODO_SQL}) as open_todos,
         (SELECT COUNT(*) FROM todos WHERE status IN ('completed', 'obsolete')) as closed_todos,
         (SELECT COUNT(*) FROM sessions
          WHERE (status IS NULL OR status = 'active')
          AND COALESCE(last_message_at, updated_at) < datetime('now', ?)) as stale_sessions,
         (SELECT COUNT(*) FROM todos
-         WHERE status IN ('pending', 'in_progress')
+         WHERE status ${OPEN_TODO_SQL}
          AND created_at < datetime('now', ?)) as stale_todos
     `).get(`-${days} days`, `-${days} days`) as any;
 
@@ -57,9 +58,9 @@ export async function GET(request: NextRequest) {
           AND COALESCE(s.last_message_at, s.updated_at) < datetime('now', ?) THEN s.id END) as stale_sessions,
         COUNT(DISTINCT CASE WHEN s.status = 'closed' THEN s.id END) as closed_sessions,
         (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id
-         AND t.status IN ('pending', 'in_progress')) as open_todos,
+         AND t.status ${OPEN_TODO_SQL}) as open_todos,
         (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id
-         AND t.status IN ('pending', 'in_progress')
+         AND t.status ${OPEN_TODO_SQL}
          AND t.created_at < datetime('now', ?)) as stale_todos
       FROM projects p
       LEFT JOIN sessions s ON s.project_id = p.id
@@ -80,9 +81,9 @@ export async function GET(request: NextRequest) {
           CAST(julianday('now') - julianday(COALESCE(s.last_message_at, s.updated_at)) AS INTEGER) as inactive_days,
           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count,
           (SELECT COUNT(*) FROM todos t WHERE t.session_id = s.id
-           AND t.status IN ('pending', 'in_progress')) as pending_todos,
+           AND t.status ${OPEN_TODO_SQL}) as pending_todos,
           (SELECT GROUP_CONCAT(t.id) FROM todos t WHERE t.session_id = s.id
-           AND t.status IN ('pending', 'in_progress')) as pending_todo_ids
+           AND t.status ${OPEN_TODO_SQL}) as pending_todo_ids
         FROM sessions s
         JOIN projects p ON s.project_id = p.id
         WHERE p.name = ? AND (s.status IS NULL OR s.status = 'active')
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
             let count = 0;
             for (const id of (action.todoIds ?? [])) {
               db.prepare(
-                `UPDATE todos SET updated_at = ? WHERE id = ? AND status IN ('pending', 'in_progress')`
+                `UPDATE todos SET updated_at = ? WHERE id = ? AND status ${OPEN_TODO_SQL}`
               ).run(now, id);
               count++;
             }
