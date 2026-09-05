@@ -22,7 +22,14 @@ const PAYLOAD = Object.assign([] as unknown[], {
   stats: {}, totals: {}, summary: {}, project: { displayName: 'demo' },
   value: 0, pct: 50, label: 'demo', title: 'demo', name: 'demo', host: 'localhost',
   count: 0, total: 0, max: 100, min: 0, loading: false, error: null,
+  // A discriminated union a component switches on. Anything keyed by
+  // `kind` needs a real one; undefined is not a state it can be in.
+  state: { kind: 'idle' },
 });
+// `labels` above is an array, which is the right shape for the components
+// that chart. The ones that key labels by state want a record, and both
+// live on the same bag.
+Object.assign(PAYLOAD.labels, { idle: 'do it', pending: 'doing', done: 'done', error: 'failed' });
 
 vi.mock('swr', () => ({
   default: () => ({ data: PAYLOAD, error: undefined, isLoading: false, mutate: vi.fn() }),

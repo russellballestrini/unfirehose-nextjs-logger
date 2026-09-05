@@ -41,6 +41,26 @@ interface NowRow {
  * (5xx, overloaded, timeout, model gone) paint it red — the provider did
  * not serve. Throttles alone paint it amber — it served and said slow down.
  */
+/** How bad things are right now, worst first. */
+type Level = 'outage' | 'throttled' | 'recent' | 'quiet';
+
+/** How loud the headline is, per level. */
+const HEAD_COLOUR: Record<Level, string> = {
+  outage:    'text-red-300',
+  throttled: 'text-amber-300',
+  recent:    'text-[var(--color-foreground)]',
+  quiet:     'text-green-400',
+};
+
+/** Which lamp the status light shows, per level. */
+const LEVEL_INDICATOR: Record<Level, string> = {
+  outage:    'major',
+  throttled: 'minor',
+  recent:    'unknown',
+  quiet:     'none',
+};
+
+
 export function NowBanner({ rows, at }: { rows: NowRow[]; at?: string }) {
   const { data } = useSWR<any>('/api/rate-limits/status', fetcher, { refreshInterval: 60_000 });
   const vendors: any[] = data?.current ?? [];
@@ -48,11 +68,15 @@ export function NowBanner({ rows, at }: { rows: NowRow[]; at?: string }) {
 
   const live = rows.filter((r) => r.m15 > 0);
   const hardLive = live.some((r) => HARD_KINDS.has(r.kind));
-  const level: 'outage' | 'throttled' | 'recent' | 'quiet' =
+  const level: Level =
     live.length === 0 ? (rows.length === 0 ? 'quiet' : 'recent') : hardLive ? 'outage' : 'throttled';
   const total15 = rows.reduce((s, r) => s + r.m15, 0);
   const total60 = rows.reduce((s, r) => s + r.m60, 0);
 
+  // Four fields keyed on the same level. Two of them were already tables
+  // and two were ternary chains, which is four places to remember a level
+  // exists — the day a fifth is added, the chains silently fall through to
+  // whatever the last branch says rather than failing to compile.
   const frame = {
     outage:    'bg-red-950/60 border-red-800',
     throttled: 'bg-amber-950/50 border-amber-800',
@@ -65,14 +89,14 @@ export function NowBanner({ rows, at }: { rows: NowRow[]; at?: string }) {
     recent:    `Quiet for 15 min — ${total60} refusal${total60 === 1 ? '' : 's'} earlier this hour`,
     quiet:     'No refusals in the last hour',
   }[level];
-  const headColor = level === 'outage' ? 'text-red-300' : level === 'throttled' ? 'text-amber-300' : level === 'recent' ? 'text-[var(--color-foreground)]' : 'text-green-400';
+  const headColor = HEAD_COLOUR[level];
 
   const degradedVendors = vendors.filter((v) => v.poll && v.poll.indicator !== 'none' && v.poll.indicator !== 'unknown' && v.poll.indicator !== 'blocked_by_robots');
 
   return (
     <div className={`border rounded p-4 space-y-3 ${frame}`}>
       <div className="flex items-center gap-3 flex-wrap">
-        <Light indicator={level === 'outage' ? 'major' : level === 'throttled' ? 'minor' : level === 'recent' ? 'unknown' : 'none'} size={12} />
+        <Light indicator={LEVEL_INDICATOR[level]} size={12} />
         <span className={`font-bold tracking-wide ${headColor}`}>{headline}</span>
         {at && <span className="ml-auto text-xs text-[var(--color-muted)]">as of {formatRelativeTime(at)}</span>}
       </div>

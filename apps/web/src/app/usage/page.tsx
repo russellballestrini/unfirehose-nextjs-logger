@@ -1,5 +1,6 @@
 'use client';
 
+import { ActionButton } from '@/components/ActionButton';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -170,22 +171,18 @@ export default function UsageMonitorPage() {
                   {alerts.length} unacknowledged across {sorted.length} {sorted.length === 1 ? 'rule' : 'rules'}
                 </span>
               </h3>
-              <button
+              <ActionButton
+                state={ackState}
                 onClick={acknowledgeAll}
-                disabled={ackState.kind === 'pending' || !alerts?.length}
-                className={`text-xs cursor-pointer px-2 py-1 rounded border transition-colors ${
-                  ackState.kind === 'pending' ? 'text-[var(--color-foreground)] border-[var(--color-border)] bg-[var(--color-surface)] cursor-wait'
-                  : ackState.kind === 'done'   ? 'text-green-300 border-green-700 bg-green-950/40'
-                  : ackState.kind === 'error'  ? 'text-red-300 border-red-700 bg-red-950/40'
-                  : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] border-transparent hover:border-[var(--color-border)]'
-                }`}
-                title={ackState.kind === 'error' ? ackState.msg : undefined}
-              >
-                {ackState.kind === 'pending' ? `Acknowledging ${ackState.n}...`
-                : ackState.kind === 'done'   ? `Acknowledged ${ackState.n}`
-                : ackState.kind === 'error'  ? `Failed: ${ackState.msg}`
-                : 'Acknowledge all'}
-              </button>
+                disabled={!alerts?.length}
+                className="text-xs px-2 py-1"
+                labels={{
+                  pending: `Acknowledging ${'n' in ackState ? ackState.n : ''}...`,
+                  done: `Acknowledged ${'n' in ackState ? ackState.n : ''}`,
+                  error: `Failed: ${'msg' in ackState ? ackState.msg : ''}`,
+                  idle: 'Acknowledge all',
+                }}
+              />
             </div>
             <div className="space-y-2">
               {sorted.map(group => {
@@ -253,22 +250,18 @@ export default function UsageMonitorPage() {
                 : <> Thresholds are plan-tier guesses until calibrated.</>}
             </p>
           </div>
-          <button
+          <ActionButton
+            state={calState}
             onClick={calibrate}
-            disabled={calState.kind === 'pending'}
-            className={`shrink-0 text-sm px-3 py-1.5 rounded border transition-colors cursor-pointer ${
-              calState.kind === 'pending' ? 'border-[var(--color-border)] text-[var(--color-muted)] cursor-wait'
-              : calState.kind === 'done'  ? 'border-green-700 text-green-300 bg-green-950/40'
-              : calState.kind === 'error' ? 'border-red-700 text-red-300 bg-red-950/40'
-              : 'border-[var(--color-border)] text-[var(--color-foreground)] hover:border-[var(--color-accent)]'
-            }`}
+            className="shrink-0 text-sm px-3 py-1.5"
             title="Set every threshold to 1.5× the p95 of its own rolling window over the last 7 days. Alerts open against a moved rule are acknowledged."
-          >
-            {calState.kind === 'pending' ? 'Calibrating...'
-            : calState.kind === 'done'   ? `Moved ${calState.moved} rules · acked ${calState.acked}`
-            : calState.kind === 'error'  ? `Failed: ${calState.msg}`
-            : 'Calibrate from last 7 days'}
-          </button>
+            labels={{
+              pending: 'Calibrating...',
+              done: 'moved' in calState ? `Moved ${calState.moved} rules · acked ${calState.acked}` : 'Done',
+              error: `Failed: ${'msg' in calState ? calState.msg : ''}`,
+              idle: 'Calibrate from last 7 days',
+            }}
+          />
         </div>
 
         {thresholds && (
