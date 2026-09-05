@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { createTestDb } from '../test/db-helper';
 
 /**
@@ -19,6 +20,19 @@ import { createTestDb } from '../test/db-helper';
  */
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-home-'));
+
+/**
+ * A real repository for the sessions to have happened in.
+ *
+ * Project identity is the root commit plus the remotes, read by running
+ * git against the cwd a transcript recorded. Without a repo there, every
+ * project is identified by its encoded path alone — which is the thing
+ * renaming a directory breaks, and the case this fixture is here to prove
+ * we survive.
+ */
+const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-repo-'));
+const git = (...args: string[]) =>
+  execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
 vi.mock('os', async (original) => {
   const actual = await original<typeof import('os')>();
@@ -43,6 +57,16 @@ const message = (uuid: string, role: string, text: string, usage?: object) => JS
 });
 
 beforeAll(async () => {
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'test@example.invalid');
+  git('config', 'user.name', 'test');
+  git('config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(repo, 'README.md'), '# demo\n');
+  git('add', 'README.md');
+  git('commit', '-q', '-m', 'first');
+  git('remote', 'add', 'origin', 'ssh://git@git.unturf.com:2222/demo.git');
+  git('remote', 'add', 'github', 'git@github.com:demo/demo.git');
+
   const sessionDir = path.join(home, '.testharness', 'unfirehose', '-home-fox-git-demo');
   fs.mkdirSync(sessionDir, { recursive: true });
   fs.writeFileSync(path.join(sessionDir, 'aaaaaaaa-1111-2222-3333-444444444444.jsonl'), [
@@ -59,10 +83,21 @@ beforeAll(async () => {
   // of ingestAll.
   const claudeDir = path.join(home, '.claude', 'projects', '-home-fox-git-demo');
   fs.mkdirSync(claudeDir, { recursive: true });
+  // Claude Code's own index names the directory the session ran in. That
+  // path is what identity is read from, and it is the only reason a rename
+  // does not create a second project.
+  fs.writeFileSync(path.join(claudeDir, 'sessions-index.json'), JSON.stringify({
+    originalPath: repo,
+    entries: [{
+      sessionId: 'cc111111-1111-2222-3333-444444444444',
+      firstPrompt: 'add a test', gitBranch: 'main',
+      created: '2026-09-04T11:00:00.000Z', isSidechain: false,
+    }],
+  }));
   fs.writeFileSync(path.join(claudeDir, 'cc111111-1111-2222-3333-444444444444.jsonl'), [
     JSON.stringify({
       type: 'user', uuid: 'cc-u1', timestamp: '2026-09-04T11:00:00.000Z',
-      cwd: '/home/fox/git/demo',
+      cwd: repo,
       message: { role: 'user', content: [{ type: 'text', text: 'add a test' }] },
     }),
     JSON.stringify({
@@ -304,6 +339,29 @@ describe('ingestAll over a native harness', () => {
     );
     expect(rows.map(r => r.content)).toEqual(['push', 'run the suite']);
     expect(rows.find(r => r.content === 'run the suite')?.status).toBe('in_progress');
+  });
+
+  it('identifies a project by its root commit, not by its path', () => {
+    // A directory rename gives every harness a new encoded path and so a
+    // new project. The root commit does not move, which is the whole point
+    // of reading it.
+    const row = one<{ root_commit_hash: string; origin_url: string; remotes_json: string }>(
+      'SELECT root_commit_hash, origin_url, remotes_json FROM projects WHERE root_commit_hash IS NOT NULL',
+    );
+    expect(row?.root_commit_hash).toMatch(/^[0-9a-f]{40}$/);
+    expect(row?.origin_url).toBe('ssh://git@git.unturf.com:2222/demo.git');
+  });
+
+  it('records every remote, not just origin', () => {
+    // A mirror clone can have a different origin from the one we know it
+    // by; the set of remotes is what ties those together.
+    const row = one<{ remotes_json: string }>(
+      'SELECT remotes_json FROM projects WHERE remotes_json IS NOT NULL',
+    );
+    expect(JSON.parse(row!.remotes_json)).toEqual([
+      'git@github.com:demo/demo.git',
+      'ssh://git@git.unturf.com:2222/demo.git',
+    ]);
   });
 
   it('adds nothing on a second pass over unchanged files', async () => {
