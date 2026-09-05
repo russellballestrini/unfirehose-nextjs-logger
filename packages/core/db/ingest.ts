@@ -20,6 +20,7 @@ import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
 import { isTriaged } from './triage';
 import type { SessionsIndex } from '../types';
+import { TOOL_CALL_SQL, TOOL_RESULT_SQL, REASONING_SQL } from '../block-types';
 
 const CANONICAL_ROOT = path.join(homedir(), '.unfirehose', 'canonical');
 
@@ -1039,7 +1040,7 @@ function backfillTodosFromContentBlocks(db: ReturnType<typeof getDb>) {
     FROM content_blocks cb
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
-    WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskCreate'
+    WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name = 'TaskCreate'
     ORDER BY m.timestamp ASC
   `).all() as any[];
 
@@ -1072,7 +1073,7 @@ function backfillTodosFromContentBlocks(db: ReturnType<typeof getDb>) {
       FROM content_blocks cb
       JOIN messages m ON cb.message_id = m.id
       JOIN sessions s ON m.session_id = s.id
-      WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskUpdate'
+      WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name = 'TaskUpdate'
       ORDER BY m.timestamp ASC
     `).all() as any[];
 
@@ -1106,7 +1107,7 @@ function backfillTodosFromContentBlocks(db: ReturnType<typeof getDb>) {
       FROM content_blocks cb
       JOIN messages m ON cb.message_id = m.id
       JOIN sessions s ON m.session_id = s.id
-      WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TodoWrite'
+      WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name = 'TodoWrite'
       ORDER BY m.timestamp ASC
     `).all() as any[];
 
@@ -1134,7 +1135,7 @@ function backfillTodosFromContentBlocks(db: ReturnType<typeof getDb>) {
       FROM content_blocks cb
       JOIN messages m ON cb.message_id = m.id
       JOIN sessions s ON m.session_id = s.id
-      WHERE cb.block_type = 'tool_result' AND cb.text_content LIKE '%"subject"%'
+      WHERE cb.block_type ${TOOL_RESULT_SQL} AND cb.text_content LIKE '%"subject"%'
       ORDER BY m.timestamp ASC
       LIMIT 10000
     `).all() as any[];
@@ -2160,7 +2161,7 @@ export async function ingestAll(): Promise<IngestResult> {
       FROM content_blocks cb
       JOIN messages m ON cb.message_id = m.id
       JOIN sessions s ON m.session_id = s.id
-      WHERE cb.block_type = 'tool_use'
+      WHERE cb.block_type ${TOOL_CALL_SQL}
         AND cb.tool_name = 'Agent'
         AND s.project_id = ?
         AND s.session_uuid != ?
@@ -2324,7 +2325,7 @@ export function getDbStats() {
     .prepare('SELECT COUNT(*) as c FROM content_blocks')
     .get() as { c: number };
   const thinkingBlocks = db
-    .prepare("SELECT COUNT(*) as c FROM content_blocks WHERE block_type IN ('thinking', 'reasoning')")
+    .prepare(`SELECT COUNT(*) as c FROM content_blocks WHERE block_type ${REASONING_SQL}`)
     .get() as { c: number };
   const totalTokens = db
     .prepare(
@@ -2777,7 +2778,7 @@ export function getThinkingBlocksInWindow(windowStart: string, windowEnd: string
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
     JOIN projects p ON s.project_id = p.id
-    WHERE cb.block_type IN ('thinking', 'reasoning')
+    WHERE cb.block_type ${REASONING_SQL}
       AND m.timestamp >= ? AND m.timestamp <= ?
     ORDER BY m.timestamp DESC
   `).all(windowStart, windowEnd) as Array<{

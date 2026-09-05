@@ -5,7 +5,7 @@ vi.mock('@unturf/unfirehose/db/schema', () => ({
   UNFIREHOSE_DIR: '/tmp/unfirehose-test',
 }));
 
-const { getLocalStats } = await import('./route');
+const { getLocalStats } = await import('./local-stats');
 
 /**
  * Reading this machine.

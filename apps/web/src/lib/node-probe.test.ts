@@ -1,14 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-
-vi.mock('@unturf/unfirehose/db/schema', () => ({
-  getDb: () => ({ prepare: () => ({ get: () => undefined, all: () => [], run: () => ({}) }) }),
-  UNFIREHOSE_DIR: '/tmp/unfirehose-test',
-}));
-
-const {
+import { describe, it, expect } from 'vitest';
+import {
   parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseNvidiaGpu,
   parseDisk, parseNetInterfaces, parseNetDev, parseDocker,
-} = await import('./route');
+} from './node-probe';
 
 /**
  * Reading a node from the text one SSH call brought back.

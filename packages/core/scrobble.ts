@@ -13,6 +13,7 @@ import { getSetting } from './db/ingest';
 import { costForUsage } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
 import { storePayload, readPayload } from './precomputed';
+import { TOOL_CALL_SQL } from './block-types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -210,7 +211,7 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
     const tools = db.prepare(`
       SELECT tool_name, COUNT(*) as count
       FROM content_blocks
-      WHERE block_type = 'tool_use' AND tool_name IS NOT NULL
+      WHERE block_type ${TOOL_CALL_SQL} AND tool_name IS NOT NULL
       GROUP BY tool_name ORDER BY count DESC LIMIT 30
     `).all() as any[];
     t.mark('tools');

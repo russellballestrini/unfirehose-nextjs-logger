@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { isToolCall } from '@unturf/unfirehose/block-types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -91,7 +92,7 @@ export async function GET(request: NextRequest) {
       SELECT message_id, text_content, block_type, tool_name
       FROM content_blocks
       WHERE message_id IN (${msgIds.map(() => '?').join(',')})
-        AND block_type IN ('text', 'thinking', 'reasoning', 'tool_use')
+        AND block_type IN ('text', 'thinking', 'reasoning', 'tool-call', 'tool_use')
       ORDER BY message_id, position
     `).all(...msgIds) as any[];
 
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
           preview += (preview ? ' ' : '') + b.text_content;
         } else if ((b.block_type === 'thinking' || b.block_type === 'reasoning') && b.text_content) {
           preview += (preview ? ' ' : '') + '[reasoning] ' + b.text_content.slice(0, 200);
-        } else if (b.block_type === 'tool_use' && b.tool_name) {
+        } else if (isToolCall(b.block_type) && b.tool_name) {
           preview += (preview ? ' ' : '') + `[${b.tool_name}]`;
         }
       }

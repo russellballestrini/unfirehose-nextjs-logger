@@ -6,6 +6,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { Timing } from '@/lib/timing';
+import { TOOL_CALL_SQL } from '@unturf/unfirehose/block-types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -264,7 +265,7 @@ export async function GET(request: NextRequest) {
              COUNT(*) as count
       FROM content_blocks cb
       JOIN messages m ON m.id = cb.message_id
-      WHERE cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL${dateFilter}
+      WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name IS NOT NULL${dateFilter}
       GROUP BY cb.tool_name, m.model, m.session_id
     `).all(...dateParams) as Array<{ tool_name: string; model: string; session_id: number; count: number }>;
     t.mark('tools');

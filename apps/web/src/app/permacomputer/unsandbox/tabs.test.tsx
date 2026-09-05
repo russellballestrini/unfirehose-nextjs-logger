@@ -51,7 +51,7 @@ const bag = (over: Record<string, unknown> = {}) => ({
   nicknames: {}, editingNick: null, setEditingNick: vi.fn(), saveNickname: vi.fn(),
   cmd: 'echo hi', setCmd: vi.fn(), cmdResult: null, cmdRunning: false, executeCommand: vi.fn(),
   network: 'semitrusted', setNetwork: vi.fn(),
-  bootFilter: '', setBootFilter: vi.fn(), bootHarness: 'claude-code', bootStatuses: {},
+  bootFilter: '', setBootFilter: vi.fn(), bootHarness: vi.fn(), bootStatuses: {},
   setActiveTab: vi.fn(),
   ...over,
 });

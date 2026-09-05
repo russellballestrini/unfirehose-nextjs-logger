@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
+import { TOOL_CALL_SQL } from '@unturf/unfirehose/block-types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -117,7 +118,7 @@ export async function GET(
       FROM content_blocks cb
       JOIN messages m ON cb.message_id = m.id
       JOIN sessions s ON m.session_id = s.id
-      WHERE s.project_id = ? AND cb.block_type = 'tool_use' AND cb.tool_name IS NOT NULL
+      WHERE s.project_id = ? AND cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name IS NOT NULL
       GROUP BY cb.tool_name ORDER BY count DESC LIMIT 10
     `).all(proj.id) as any[];
 

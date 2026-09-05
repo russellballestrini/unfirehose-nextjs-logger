@@ -1,4 +1,5 @@
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { TOOL_CALL_SQL } from '@unturf/unfirehose/block-types';
 
 const db = getDb();
 
@@ -14,7 +15,7 @@ const taskCreates: any[] = db.prepare(`
   FROM content_blocks cb
   JOIN messages m ON cb.message_id = m.id
   JOIN sessions s ON m.session_id = s.id
-  WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskCreate'
+  WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name = 'TaskCreate'
   ORDER BY m.timestamp ASC
 `).all() as Record<string, unknown>[];
 
@@ -48,7 +49,7 @@ const tx = db.transaction(() => {
     FROM content_blocks cb
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
-    WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TaskUpdate'
+    WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name = 'TaskUpdate'
     ORDER BY m.timestamp ASC
   `).all() as Record<string, unknown>[];
 
@@ -88,7 +89,7 @@ const tx = db.transaction(() => {
     FROM content_blocks cb
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
-    WHERE cb.block_type = 'tool_use' AND cb.tool_name = 'TodoWrite'
+    WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name = 'TodoWrite'
     ORDER BY m.timestamp ASC
   `).all() as Record<string, unknown>[];
 

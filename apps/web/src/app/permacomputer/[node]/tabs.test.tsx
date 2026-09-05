@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
-import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab } from './page';
+import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab } from './tabs';
 
 /**
  * The five tabs of a node's detail page.
@@ -83,7 +83,7 @@ const bag = (over: Record<string, unknown> = {}) => ({
   sshEditing: false, setSshEditing: vi.fn(),
   sshForm: { name: 'cammy', hostname: 'cammy.foxhop.net', port: '22', user: 'fox' },
   setSshForm: vi.fn(),
-  bootHost: 'cammy', bootHarness: 'claude-code', bootFilter: '', setBootFilter: vi.fn(),
+  bootHost: 'cammy', bootHarness: vi.fn(), bootFilter: '', setBootFilter: vi.fn(),
   bootStatuses: {},
   ...over,
 });
