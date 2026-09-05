@@ -1341,7 +1341,9 @@ export default function TokensPage() {
               <StatCard
                 label="Billing Period"
                 value={periodStart ? periodStart.slice(0, 7) : '—'}
-                sub={`${periodStart} → ${periodEnd}`}
+                // The headline already guards for a missing period; this
+                // line did not, and rendered the word "undefined" twice.
+                sub={periodStart && periodEnd ? `${periodStart} → ${periodEnd}` : 'no period reported'}
               />
             </div>
 
