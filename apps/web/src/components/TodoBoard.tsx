@@ -73,15 +73,31 @@ const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
 
 const TIME_PRESETS = [5, 10, 15, 30, 60, 120];
 
-// Pre-computed random particle data (module level to satisfy react-hooks/purity)
-const POWERUP_INNER = Array.from({ length: 16 }, (_, i) => {
-  const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
-  return { angle, dist: 30 + Math.random() * 25, size: 5 + Math.random() * 5, delay: Math.random() * 0.05 };
-});
-const POWERUP_OUTER = Array.from({ length: 24 }, (_, i) => {
-  const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
-  return { angle, dist: 70 + Math.random() * 60, size: 3 + Math.random() * 4, delay: 0.05 + Math.random() * 0.1 };
-});
+/**
+ * One ring of celebration particles, scattered once at module level.
+ *
+ * Module level rather than render, because Math.random() during render is
+ * impure: the server and the client roll different numbers and React
+ * discards the whole tree as a hydration mismatch. Rolling once at import
+ * means both sides see the same ring.
+ */
+function powerupRing(
+  count: number,
+  { jitter, dist, spread, size, sizeVary, delay, delayVary }: {
+    jitter: number; dist: number; spread: number;
+    size: number; sizeVary: number; delay: number; delayVary: number;
+  },
+) {
+  return Array.from({ length: count }, (_, i) => ({
+    angle: (i / count) * Math.PI * 2 + Math.random() * jitter,
+    dist: dist + Math.random() * spread,
+    size: size + Math.random() * sizeVary,
+    delay: delay + Math.random() * delayVary,
+  }));
+}
+
+const POWERUP_INNER = powerupRing(16, { jitter: 0.3, dist: 30, spread: 25, size: 5, sizeVary: 5, delay: 0, delayVary: 0.05 });
+const POWERUP_OUTER = powerupRing(24, { jitter: 0.2, dist: 70, spread: 60, size: 3, sizeVary: 4, delay: 0.05, delayVary: 0.1 });
 const POWERUP_SPARKS = Array.from({ length: 10 }, () => {
   const angle = Math.random() * Math.PI * 2;
   return { angle, dist: 100 + Math.random() * 80, delay: Math.random() * 0.08 };

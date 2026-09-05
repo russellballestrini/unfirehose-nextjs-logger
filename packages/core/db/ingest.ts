@@ -2043,6 +2043,19 @@ export function acknowledgeAlert(id: number) {
   db.prepare('UPDATE alerts SET acknowledged = 1 WHERE id = ?').run(id);
 }
 
+/**
+ * The start of a rolling window, as a `usage_minutes.minute` key.
+ *
+ * Null means "no window" — a lifetime query, which takes no parameter at
+ * all rather than one far enough back to include everything. Sliced to
+ * minute precision because that is the column's own granularity; a longer
+ * string compares as greater than every row for the same minute.
+ */
+export function windowStart(minutes: number): string | null {
+  if (minutes <= 0) return null;
+  return new Date(Date.now() - minutes * 60 * 1000).toISOString().slice(0, 16);
+}
+
 export function getUsageTimeline(minutes = 60) {
   const db = getDb();
 
@@ -2063,54 +2076,30 @@ export function getUsageTimeline(minutes = 60) {
        GROUP BY substr(minute, 1, ${bucket})
        ORDER BY minute`;
 
-  if (minutes === 0) {
-    return db.prepare(query).all();
-  }
-
-  const windowStart = new Date(Date.now() - minutes * 60 * 1000)
-    .toISOString()
-    .slice(0, 16);
-
-  return db.prepare(query).all(windowStart);
+  const start = windowStart(minutes);
+  return start === null ? db.prepare(query).all() : db.prepare(query).all(start);
 }
 
 export function getUsageByProject(minutes = 60) {
   const db = getDb();
 
-  if (minutes === 0) {
-    return db
-      .prepare(
-        `SELECT p.name, p.display_name,
+  // One query with an optional window, the way getUsageTimeline above does
+  // it. This was written out twice — once with the WHERE and once without —
+  // so the two copies of the SUM list had to agree about every column that
+  // is ever added to usage_minutes.
+  const query = `SELECT p.name, p.display_name,
                 SUM(um.input_tokens) as input_tokens,
                 SUM(um.output_tokens) as output_tokens,
                 SUM(um.cache_read_tokens) as cache_read_tokens,
                 SUM(um.message_count) as message_count
          FROM usage_minutes um
          JOIN projects p ON p.id = um.project_id
+         ${minutes > 0 ? 'WHERE um.minute >= ?' : ''}
          GROUP BY p.id
-         ORDER BY SUM(um.input_tokens + um.output_tokens) DESC`
-      )
-      .all();
-  }
+         ORDER BY SUM(um.input_tokens + um.output_tokens) DESC`;
 
-  const windowStart = new Date(Date.now() - minutes * 60 * 1000)
-    .toISOString()
-    .slice(0, 16);
-
-  return db
-    .prepare(
-      `SELECT p.name, p.display_name,
-              SUM(um.input_tokens) as input_tokens,
-              SUM(um.output_tokens) as output_tokens,
-              SUM(um.cache_read_tokens) as cache_read_tokens,
-              SUM(um.message_count) as message_count
-       FROM usage_minutes um
-       JOIN projects p ON p.id = um.project_id
-       WHERE um.minute >= ?
-       GROUP BY p.id
-       ORDER BY SUM(um.input_tokens + um.output_tokens) DESC`
-    )
-    .all(windowStart);
+  const start = windowStart(minutes);
+  return start === null ? db.prepare(query).all() : db.prepare(query).all(start);
 }
 
 export function getDbStats() {

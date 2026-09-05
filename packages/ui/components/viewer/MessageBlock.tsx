@@ -1,5 +1,6 @@
 'use client';
 
+import { tryPrettyJson } from '../../json-output';
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -151,16 +152,10 @@ function ToolCallView({
  */
 function renderToolOutput(output: any): { text: string; isMarkdown: boolean } {
   if (typeof output === 'string') {
-    // Try to parse as JSON — many tools wrap their result in a JSON envelope.
-    const trimmed = output.trim();
-    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        return { text: '```json\n' + JSON.stringify(parsed, null, 2) + '\n```', isMarkdown: true };
-      } catch {
-        // not JSON — fall through
-      }
-    }
+    // Many tools wrap their result in a JSON envelope; the live feed asks
+    // the same question, so the answer lives in one place.
+    const { pretty, isJson } = tryPrettyJson(output);
+    if (isJson) return { text: '```json\n' + pretty + '\n```', isMarkdown: true };
     return { text: output, isMarkdown: true };
   }
   if (output == null) return { text: '(no output)', isMarkdown: false };

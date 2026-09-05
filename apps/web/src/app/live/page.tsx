@@ -1,5 +1,6 @@
 'use client';
 
+import { tryPrettyJson } from '@unturf/unfirehose-ui/json-output';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
@@ -152,14 +153,8 @@ function renderInline(text: string): React.ReactNode[] {
  * so anything that will not parse is left exactly as it arrived.
  */
 export function formatOutput(text: string): { formatted: string; isJson: boolean } {
-  const trimmed = text.trim();
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      return { formatted: JSON.stringify(parsed, null, 2), isJson: true };
-    } catch { /* not valid JSON */ }
-  }
-  return { formatted: text, isJson: false };
+  const { pretty, isJson } = tryPrettyJson(text);
+  return { formatted: pretty, isJson };
 }
 
 

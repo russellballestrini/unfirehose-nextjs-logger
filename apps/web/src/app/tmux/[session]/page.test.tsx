@@ -261,6 +261,10 @@ describe('the controls', () => {
     // nobody else at that keyboard, so there is nothing to guard against.
     host = 'unsandbox';
     await showAttached();
+    // Wait for the automatic `tmux attach` to land before typing. Without
+    // this the two posts race and the assertion on the last one fails
+    // intermittently under load — which is a flaky test, not a flaky page.
+    await waitFor(() => expect(posts().some(p => p.body?.keys)).toBe(true));
     await act(async () => { term.onData?.('ls\r'); });
     await waitFor(() => {
       const typed = posts().filter(p => p.body?.keys).at(-1);

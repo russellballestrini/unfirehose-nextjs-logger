@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   OPEN_TODO_STATUSES, CLOSED_TODO_STATUSES, OPEN_TODO_SQL, CLOSED_TODO_SQL,
   isOpenTodo, INACTIVE_DAYS_SQL, MESSAGE_COUNT_SQL, OPEN_TODO_COUNT_SQL,
@@ -111,5 +111,31 @@ describe('the fragments run', () => {
       `SELECT ${INACTIVE_DAYS_SQL} AS d FROM sessions s WHERE s.id = ?`,
     ).get(touched) as { d: number };
     expect(row.d).toBe(1);
+  });
+});
+
+describe('windowStart', () => {
+  it('has no start for a lifetime query', async () => {
+    // Null means "take no parameter", not "take one far enough back".
+    // A sentinel date would silently exclude anything older than it.
+    const { windowStart } = await import('./ingest');
+    expect(windowStart(0)).toBeNull();
+    expect(windowStart(-1)).toBeNull();
+  });
+
+  it('is precise to the minute, matching the column it compares against', async () => {
+    // usage_minutes.minute is 'YYYY-MM-DDTHH:MM'. A longer string sorts
+    // after every row for that same minute, so the first minute of any
+    // window would be dropped.
+    const { windowStart } = await import('./ingest');
+    expect(windowStart(60)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  });
+
+  it('counts back the minutes it was given', async () => {
+    const { windowStart } = await import('./ingest');
+    vi.useFakeTimers({ now: Date.parse('2026-09-05T12:00:00Z') });
+    expect(windowStart(60)).toBe('2026-09-05T11:00');
+    expect(windowStart(24 * 60)).toBe('2026-09-04T12:00');
+    vi.useRealTimers();
   });
 });

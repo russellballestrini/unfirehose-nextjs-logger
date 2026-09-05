@@ -1,3 +1,4 @@
+import { readGitState } from '@/lib/git-state';
 import { matchPromptsToCommits, type GitContext } from '@/lib/prompt-commits';
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
@@ -37,21 +38,19 @@ async function getGitContext(projectName: string): Promise<GitContext | null> {
   if (!repoPath) return null;
 
   try {
-    const [statusRaw, logRaw, unpushedRaw, remoteRaw] = await Promise.allSettled([
-      gitExec(repoPath, ['status', '--porcelain']),
-      gitExec(repoPath, ['log', '--format=%h|||%s|||%aI', '-20']),
-      gitExec(repoPath, ['log', '--oneline', '@{upstream}..HEAD']).catch(() => ''),
+    const [state, logRaw, remoteRaw] = await Promise.all([
+      // Dirty and unpushed are shared with our agent report, which reports
+      // the same two facts about the same repository.
+      readGitState(repoPath),
+      gitExec(repoPath, ['log', '--format=%h|||%s|||%aI', '-20']).catch(() => ''),
       gitExec(repoPath, ['remote', 'get-url', 'origin']).catch(() => null),
     ]);
-
-    const status = statusRaw.status === 'fulfilled' ? statusRaw.value : '';
-    const log = logRaw.status === 'fulfilled' ? logRaw.value : '';
-    const unpushed = unpushedRaw.status === 'fulfilled' ? unpushedRaw.value : '';
-    const remote = remoteRaw.status === 'fulfilled' ? remoteRaw.value : null;
+    const log = logRaw;
+    const remote = remoteRaw;
 
     return {
-      isDirty: status.length > 0,
-      unpushedCount: unpushed ? unpushed.split('\n').filter(Boolean).length : 0,
+      isDirty: state.isDirty,
+      unpushedCount: state.unpushedCount,
       recentCommits: log.split('\n').filter(Boolean).map((line) => {
         const [hash, subject, date] = line.split('|||');
         return { hash, subject, date };

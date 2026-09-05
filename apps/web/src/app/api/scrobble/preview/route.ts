@@ -1,3 +1,4 @@
+import { parseRemoteForCheck } from '@/lib/forges';
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { exec } from 'child_process';
@@ -12,35 +13,6 @@ const PREVIEW_CACHE_TTL = 300_000; // 5 minutes
 
 /** Max unchecked projects to re-probe per request to bound response time */
 const MAX_RECHECK_BATCH = 7;
-
-/** Parse a remote URL into a forge API check. Returns null if unsupported. */
-function parseRemoteForCheck(url: string): { apiUrl: string; webUrl: string } | null {
-  // GitHub ssh: git@github.com:owner/repo.git
-  let m = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-  if (m) return {
-    apiUrl: `https://api.github.com/repos/${m[1]}`,
-    webUrl: `https://github.com/${m[1]}`,
-  };
-
-  // GitLab (git.unturf.com) ssh: ssh://git@git.unturf.com:2222/path/to/repo.git
-  m = url.match(/git\.unturf\.com(?::\d+)?\/(.+?)(?:\.git)?$/);
-  if (m) {
-    const encoded = encodeURIComponent(m[1]);
-    return {
-      apiUrl: `https://git.unturf.com/api/v4/projects/${encoded}`,
-      webUrl: `https://git.unturf.com/${m[1]}`,
-    };
-  }
-
-  // Codeberg ssh/https
-  m = url.match(/codeberg\.org[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-  if (m) return {
-    apiUrl: `https://codeberg.org/api/v1/repos/${m[1]}`,
-    webUrl: `https://codeberg.org/${m[1]}`,
-  };
-
-  return null;
-}
 
 /** Check if a project has any truly public remotes by hitting forge APIs (unauthenticated = public) */
 async function detectPublicRemotes(projectPath: string | null): Promise<{ isPublic: boolean; remotes: string[]; publicRepo: string | null }> {

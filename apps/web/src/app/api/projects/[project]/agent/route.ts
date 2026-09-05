@@ -1,3 +1,4 @@
+import { readGitState } from '@/lib/git-state';
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile, spawn } from 'child_process';
 import { getDb } from '@unturf/unfirehose/db/schema';
@@ -14,20 +15,19 @@ import {
 
 async function getGitSnapshot(repoPath: string): Promise<GitSnapshot | null> {
   try {
-    const [statusRaw, branch, unpushedRaw, diffStat, lastCommitDate] = await Promise.all([
-      gitExec(repoPath, ['status', '--porcelain']),
+    const [state, branch, diffStat, lastCommitDate] = await Promise.all([
+      // Dirty and unpushed are shared with our activity feed, which reports
+      // the same two facts about the same repository.
+      readGitState(repoPath),
       gitExec(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']),
-      gitExec(repoPath, ['log', '--oneline', '@{upstream}..HEAD']).catch(() => ''),
       gitExec(repoPath, ['diff', '--stat', 'HEAD']).catch(() => ''),
       gitExec(repoPath, ['log', '-1', '--format=%aI']).catch(() => null),
     ]);
+    const { dirtyFiles, unpushedCommits } = state;
 
     // gitExec hands back git's stdout verbatim, newline included, and this
     // branch name is interpolated into every summary line below.
     const branchName = branch.trim();
-
-    const dirtyFiles = statusRaw.split('\n').filter(Boolean).map(l => l.trim());
-    const unpushedCommits = unpushedRaw ? unpushedRaw.split('\n').filter(Boolean) : [];
 
     let lastCommitAge: string | null = null;
     if (lastCommitDate) {

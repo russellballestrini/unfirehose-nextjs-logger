@@ -6,6 +6,22 @@
  *
  * Returns null for event types that should be skipped.
  */
+/**
+ * A tool call's arguments, however uncloseai wrote them.
+ *
+ * The field arrives as a JSON string from the CLI and as an object from the
+ * HTTP path, and either can be absent. Unparseable text is kept under `raw`
+ * rather than dropped: a tool call we cannot read is still evidence the
+ * tool ran, and losing it makes the transcript claim the model did nothing.
+ */
+export function parseToolArgs(args: unknown): Record<string, unknown> {
+  try {
+    return (typeof args === 'string' ? JSON.parse(args) : args ?? {}) as Record<string, unknown>;
+  } catch {
+    return { raw: args };
+  }
+}
+
 export function normalizeUncloseaiEntry(raw: any): any | null {
   switch (raw.type) {
     case 'session_start':
@@ -43,13 +59,7 @@ export function normalizeUncloseaiEntry(raw: any): any | null {
       };
 
     case 'tool_call': {
-      let parsedInput: Record<string, unknown> = {};
-      try {
-        parsedInput = typeof raw.args === 'string' ? JSON.parse(raw.args) : (raw.args ?? {});
-      } catch {
-        parsedInput = { raw: raw.args };
-      }
-
+      const parsedInput = parseToolArgs(raw.args);
       return {
         type: 'assistant',
         uuid: null,

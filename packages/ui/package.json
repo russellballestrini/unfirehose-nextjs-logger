@@ -49,7 +49,8 @@
     "./ansi": "./components/ansi.ts",
     "./StatCard": "./components/StatCard.tsx",
     "./Gauge": "./components/Gauge.tsx",
-    "./KV": "./components/KV.tsx"
+    "./KV": "./components/KV.tsx",
+    "./json-output": "./json-output.ts"
   },
   "scripts": {
     "lint": "tsc --noEmit",

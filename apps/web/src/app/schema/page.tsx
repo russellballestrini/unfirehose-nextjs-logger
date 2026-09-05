@@ -83,6 +83,19 @@ export default function SchemaPage() {
   );
 }
 
+/**
+ * The two kinds of list our schema docs use.
+ *
+ * They differ only in what starts a line and what wraps the result. One
+ * regex per kind, used both to find a run and to strip its marker, so the
+ * two can never disagree about what a list item looks like.
+ */
+const LIST_KINDS = [
+  { starts: /^\s*[-*]\s/, tag: 'ul' as const, marker: 'list-disc' },
+  { starts: /^\s*\d+\.\s/, tag: 'ol' as const, marker: 'list-decimal' },
+];
+
+
 export function MarkdownRenderer({ content, onNavigate }: { content: string; onNavigate?: (href: string) => void }) {
   const lines = content.split('\n');
   const elements: React.ReactNode[] = [];
@@ -144,32 +157,22 @@ export function MarkdownRenderer({ content, onNavigate }: { content: string; onN
       continue;
     }
 
-    // List items
-    if (line.match(/^\s*[-*]\s/)) {
-      const listItems: string[] = [];
-      while (i < lines.length && lines[i].match(/^\s*[-*]\s/)) {
-        listItems.push(lines[i].replace(/^\s*[-*]\s/, ''));
+    // Lists. Bulleted and numbered differ only in what starts a line and
+    // which element wraps it, so the run-gathering is written once — it was
+    // twice, and the two copies each had their own copy of the regex, in
+    // both the test that starts a run and the strip that ends one.
+    const list = LIST_KINDS.find((k) => k.starts.test(line));
+    if (list) {
+      const items: string[] = [];
+      while (i < lines.length && list.starts.test(lines[i])) {
+        items.push(lines[i].replace(list.starts, ''));
         i++;
       }
+      const Tag = list.tag;
       elements.push(
-        <ul key={key++} className="list-disc list-inside my-2 space-y-1 text-sm">
-          {listItems.map((item, j) => <li key={j}>{renderInline(item, onNavigate)}</li>)}
-        </ul>
-      );
-      continue;
-    }
-
-    // Numbered list items
-    if (line.match(/^\s*\d+\.\s/)) {
-      const listItems: string[] = [];
-      while (i < lines.length && lines[i].match(/^\s*\d+\.\s/)) {
-        listItems.push(lines[i].replace(/^\s*\d+\.\s/, ''));
-        i++;
-      }
-      elements.push(
-        <ol key={key++} className="list-decimal list-inside my-2 space-y-1 text-sm">
-          {listItems.map((item, j) => <li key={j}>{renderInline(item, onNavigate)}</li>)}
-        </ol>
+        <Tag key={key++} className={`${list.marker} list-inside my-2 space-y-1 text-sm`}>
+          {items.map((item, j) => <li key={j}>{renderInline(item, onNavigate)}</li>)}
+        </Tag>
       );
       continue;
     }

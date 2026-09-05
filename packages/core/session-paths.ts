@@ -1,3 +1,4 @@
+import { parseToolArgs } from './uncloseai-adapter';
 import path from 'path';
 import { homedir } from 'os';
 import { claudePaths } from './claude-paths';
@@ -77,12 +78,7 @@ function normalizeUncloseaiCli(raw: any): UfMessage | null {
         content: [{ type: 'text', text: raw.content ?? '' }],
       };
     case 'tool_call': {
-      let input: Record<string, unknown> = {};
-      try {
-        input = typeof raw.args === 'string' ? JSON.parse(raw.args) : (raw.args ?? {});
-      } catch {
-        input = { raw: raw.args };
-      }
+      const input = parseToolArgs(raw.args);
       return {
         $schema: 'unfirehose/1.0',
         type: 'message',

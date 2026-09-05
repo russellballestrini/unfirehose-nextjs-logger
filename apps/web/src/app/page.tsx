@@ -269,6 +269,18 @@ export default function DashboardPage() {
   const sleepCenter = findSleepCenter(data.hourCounts ?? []);
   const rotatedHours = rotateHours(data.hourCounts ?? [], sleepCenter);
   const localOffset = getLocalOffsetHours();
+
+  // Both hour charts share an axis: the same ticks, the same interval, the
+  // same dual-timezone label. Recharts wants these as direct children of a
+  // chart, so what is shared is the props rather than the elements.
+  const hourAxis = {
+    dataKey: 'hour',
+    tick: <DualHourTick offset={localOffset} />,
+    interval: 2,
+    height: 40,
+  };
+  const hourTooltip = (h: unknown) => formatDualHourTooltip(h as number);
+
   const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   // Build day-of-week × hour curves for the heatmap
@@ -410,17 +422,9 @@ export default function DashboardPage() {
           </h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={rotatedHours} margin={{ bottom: 16 }}>
-              <XAxis
-                dataKey="hour"
-                tick={<DualHourTick offset={localOffset} />}
-                interval={2}
-                height={40}
-              />
+              <XAxis {...hourAxis} />
               <YAxis tick={AXIS_TICK} />
-              <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                labelFormatter={(h) => formatDualHourTooltip(h as number)}
-              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={hourTooltip} />
               <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -460,17 +464,9 @@ export default function DashboardPage() {
           </h3>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={dowHourData} margin={{ bottom: 16 }}>
-              <XAxis
-                dataKey="hour"
-                tick={<DualHourTick offset={localOffset} />}
-                interval={2}
-                height={40}
-              />
+              <XAxis {...hourAxis} />
               <YAxis tick={AXIS_TICK} />
-              <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                labelFormatter={(h) => formatDualHourTooltip(h as number)}
-              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={hourTooltip} />
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
                 <Area
                   key={day}

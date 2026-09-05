@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { closeSessions, staleSessionUuids, obsoleteTodo } from '@unturf/unfirehose/db/session-close';
-import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
+import { OPEN_TODO_SQL, INACTIVE_DAYS_SQL, MESSAGE_COUNT_SQL, OPEN_TODO_COUNT_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -78,10 +78,9 @@ export async function GET(request: NextRequest) {
         SELECT
           s.session_uuid, s.display_name, s.first_prompt, s.status,
           s.created_at, s.updated_at, s.last_message_at, s.cli_version,
-          CAST(julianday('now') - julianday(COALESCE(s.last_message_at, s.updated_at)) AS INTEGER) as inactive_days,
-          (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count,
-          (SELECT COUNT(*) FROM todos t WHERE t.session_id = s.id
-           AND t.status ${OPEN_TODO_SQL}) as pending_todos,
+          ${INACTIVE_DAYS_SQL} as inactive_days,
+          ${MESSAGE_COUNT_SQL} as message_count,
+          ${OPEN_TODO_COUNT_SQL} as pending_todos,
           (SELECT GROUP_CONCAT(t.id) FROM todos t WHERE t.session_id = s.id
            AND t.status ${OPEN_TODO_SQL}) as pending_todo_ids
         FROM sessions s

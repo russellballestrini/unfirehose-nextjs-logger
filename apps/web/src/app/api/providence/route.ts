@@ -1,30 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { buildCacheKey } from '@/lib/providence-key';
+import { buildWhere } from '@/lib/sql-filters';
 
 // GET /api/providence?uri=...&root=...&git=...&model_id=...&backend=...&node_id=...&limit=50
+/** Which query parameter narrows which column. */
+const LOOKUP_COLUMNS = {
+  uri: 'document_uri',
+  root: 'document_root',
+  git: 'git_commit',
+  model_id: 'model_id',
+  backend: 'backend',
+  node_id: 'node_id',
+} as const;
+
 export async function GET(request: NextRequest) {
-  const uri      = request.nextUrl.searchParams.get('uri');
-  const root     = request.nextUrl.searchParams.get('root');
-  const git      = request.nextUrl.searchParams.get('git');
-  const model_id = request.nextUrl.searchParams.get('model_id');
-  const backend  = request.nextUrl.searchParams.get('backend');
-  const node_id  = request.nextUrl.searchParams.get('node_id');
-  const limit    = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '50'), 200);
+  const q = request.nextUrl.searchParams;
+  const limit = Math.min(parseInt(q.get('limit') ?? '50'), 200);
 
   try {
     const db = getDb();
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
-
-    if (uri)      { conditions.push('document_uri = ?');  params.push(uri); }
-    if (root)     { conditions.push('document_root = ?'); params.push(root); }
-    if (git)      { conditions.push('git_commit = ?');    params.push(git); }
-    if (model_id) { conditions.push('model_id = ?');      params.push(model_id); }
-    if (backend)  { conditions.push('backend = ?');       params.push(backend); }
-    if (node_id)  { conditions.push('node_id = ?');       params.push(node_id); }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    // Six parameters that all narrow one column each. Written out, the
+    // clause and its value sat in separate statements six times over, where
+    // a seventh added to one and missed in the other binds the wrong value
+    // to the wrong placeholder — which answers plausibly rather than failing.
+    const built = buildWhere('1=1', Object.entries(LOOKUP_COLUMNS).map(
+      ([param, column]) => [`${column} = ?`, q.get(param)] as const,
+    ));
+    const params = built.params;
+    const where = `WHERE ${built.where}`;
     const rows = db.prepare(
       `SELECT id, cache_key, document_root, document_uri, question_hash, question_text,
               answer_text, model_id, model_revision, quantization, conversation_hash, seed,

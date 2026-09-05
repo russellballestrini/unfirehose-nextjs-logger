@@ -69,7 +69,7 @@ coverage:
 # gate that stopped guarding, which is what our coverage thresholds had
 # quietly become.
 CRAP_BUDGET  ?= 16900
-DUPE_BUDGET  ?= 1950
+DUPE_BUDGET  ?= 1100
 
 quality-gate: coverage-check
 	@npx tsx scripts/quality/report-crap.ts --budget $(CRAP_BUDGET)
