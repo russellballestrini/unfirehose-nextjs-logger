@@ -1,4 +1,5 @@
 import { buildWhere, inClause } from '@/lib/sql-filters';
+import { summarise } from '@/lib/log-preview';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { isToolCall } from '@unturf/unfirehose/block-types';
@@ -63,19 +64,23 @@ export async function GET(request: NextRequest) {
       // A date with no time means the whole of that day.
       ['m.timestamp <= ?', dateTo && `${dateTo}T23:59:59`],
       SIDECHAIN_CLAUSES[sidechainParam],
-      ['cb_search.text_content LIKE ?', search && `%${search}%`],
+      search ? ['(cb_search.text_content LIKE ? OR cb_search.tool_input LIKE ?)', `%${search}%`, `%${search}%`] : null,
       hasThinking ? HAS_REASONING : null,
     ]);
 
     // Searching needs content_blocks in the query at all, which multiplies a
-    // message by its blocks — hence the DISTINCT below.
+    // message by its blocks — hence the DISTINCT below. Every block type is
+    // searched, and a tool call is searched by its input: the row shows the
+    // command and the result, so a search for either has to find them. It
+    // used to search text and reasoning only, so "src/b.ts" found nothing
+    // while a result naming that file sat on the page.
     const searchJoin = search
-      ? "JOIN content_blocks cb_search ON cb_search.message_id = m.id AND cb_search.block_type IN ('text', 'thinking', 'reasoning')"
+      ? 'JOIN content_blocks cb_search ON cb_search.message_id = m.id'
       : '';
 
     const needsDistinct = !!search;
     const query = `
-      SELECT ${needsDistinct ? 'DISTINCT' : ''} m.id, m.type, m.subtype, m.timestamp, m.model,
+      SELECT ${needsDistinct ? 'DISTINCT' : ''} m.id, m.type, m.subtype, m.timestamp, m.model, m.duration_ms,
              m.input_tokens, m.output_tokens, m.is_sidechain,
              s.session_uuid, s.display_name as session_display, s.is_sidechain as session_is_sidechain,
              p.name as project_name, p.display_name as project_display
@@ -93,35 +98,49 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ entries: [], total: 0, limit, offset });
     }
 
-    // Batch fetch previews for all messages in one query
+    // Every block that can say something about a message, in one query.
+    // Tool results were left out of this for a long time, which is why every
+    // USR row that was a tool result showed as blank: 607 of the last 2,000
+    // messages' blocks were results the page never saw.
     const msgIds = messages.map(m => m.id);
     const previewRows = db.prepare(`
-      SELECT message_id, text_content, block_type, tool_name
+      SELECT message_id, text_content, block_type, tool_name, tool_input, tool_use_id, is_error
       FROM content_blocks
       WHERE message_id IN (${msgIds.map(() => '?').join(',')})
-        AND block_type IN ('text', 'thinking', 'reasoning', 'tool-call', 'tool_use')
+        AND block_type IN ('text', 'thinking', 'reasoning', 'tool-call', 'tool_use', 'tool-result', 'tool_result')
       ORDER BY message_id, position
     `).all(...msgIds) as any[];
 
-    // Group previews by message_id
     const previewMap = new Map<number, any[]>();
     for (const row of previewRows) {
       if (!previewMap.has(row.message_id)) previewMap.set(row.message_id, []);
       previewMap.get(row.message_id)!.push(row);
     }
 
+    // A result names its call by tool_use_id; the call is another message.
+    // Usually the one just before it, so the batch resolves most; the few at
+    // a page boundary are looked up separately rather than left unnamed.
+    const toolByUseId = new Map<string, string>();
+    const unresolved = new Set<string>();
+    for (const row of previewRows) {
+      if (isToolCall(row.block_type) && row.tool_use_id && row.tool_name) toolByUseId.set(row.tool_use_id, row.tool_name);
+      else if (!isToolCall(row.block_type) && row.tool_use_id && !row.tool_name) unresolved.add(row.tool_use_id);
+    }
+    const missing = [...unresolved].filter((id) => !toolByUseId.has(id));
+    if (missing.length) {
+      const rows = db.prepare(`
+        SELECT tool_use_id, tool_name FROM content_blocks
+        WHERE tool_use_id IN (${missing.map(() => '?').join(',')}) AND tool_name IS NOT NULL
+      `).all(...missing) as any[];
+      for (const r of rows) toolByUseId.set(r.tool_use_id, r.tool_name);
+    }
+
     const entries = messages.map(msg => {
-      const blocks = (previewMap.get(msg.id) ?? []).slice(0, 5);
-      let preview = '';
-      for (const b of blocks) {
-        if (b.block_type === 'text' && b.text_content) {
-          preview += (preview ? ' ' : '') + b.text_content;
-        } else if ((b.block_type === 'thinking' || b.block_type === 'reasoning') && b.text_content) {
-          preview += (preview ? ' ' : '') + '[reasoning] ' + b.text_content.slice(0, 200);
-        } else if (isToolCall(b.block_type) && b.tool_name) {
-          preview += (preview ? ' ' : '') + `[${b.tool_name}]`;
-        }
-      }
+      const blocks = (previewMap.get(msg.id) ?? []).slice(0, 8);
+      const summary = summarise(blocks, {
+        type: msg.type, subtype: msg.subtype, durationMs: msg.duration_ms,
+        toolNameFor: (id) => toolByUseId.get(id) ?? null,
+      });
 
       return {
         id: msg.id,
@@ -133,7 +152,13 @@ export async function GET(request: NextRequest) {
         sessionDisplay: msg.session_display,
         projectName: msg.project_name,
         projectDisplay: msg.project_display,
-        preview: preview.slice(0, 500),
+        preview: summary.preview,
+        kind: summary.kind,
+        tool: summary.tool,
+        toolArg: summary.toolArg,
+        isError: summary.isError,
+        hasReasoning: summary.hasReasoning,
+        durationMs: msg.duration_ms ?? null,
         inputTokens: msg.input_tokens,
         outputTokens: msg.output_tokens,
         isSidechain: !!(msg.is_sidechain || msg.session_is_sidechain),

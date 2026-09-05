@@ -192,3 +192,104 @@ describe('what the page asks for', () => {
     expect(lastKey).toContain('from=2026-09-04');
   });
 });
+
+/**
+ * The redesign. For a long time most rows here said nothing; these pin that
+ * every kind of message now says what it did, and that a session's rows sit
+ * under one header instead of repeating the project and session two hundred
+ * times down the page.
+ */
+describe('what a row says', () => {
+  const chips = () => [...document.querySelectorAll('.font-mono.rounded')].map((el) => el.textContent?.trim());
+
+  it('names the tool and shows the command for a call', () => {
+    data = { entries: [entry({ kind: 'tool-call', tool: 'Bash', toolArg: 'make test', preview: 'Bash make test' })], total: 1 };
+    render(<LogsPage />);
+    expect(chips()).toContain('Bash');
+    // The chip says Bash; the row does not say it twice.
+    expect(screen.getByText('make test')).toBeTruthy();
+    expect(screen.queryByText('Bash make test')).toBeNull();
+  });
+
+  it('marks a result as the answer to its tool, and shows its first line', () => {
+    data = { entries: [entry({ type: 'user', kind: 'tool-result', tool: 'Bash', preview: 'M src/a.ts' })], total: 1 };
+    render(<LogsPage />);
+    expect(chips()).toContain('↳ Bash');
+    expect(screen.getByText('M src/a.ts')).toBeTruthy();
+  });
+
+  it('shows an error result as one, in the chip and on the row', () => {
+    data = { entries: [entry({ type: 'user', kind: 'tool-result', tool: 'Bash', isError: true, preview: 'command not found' })], total: 1 };
+    render(<LogsPage />);
+    expect(chips().some((c) => c?.includes('✕'))).toBe(true);
+    expect((document.querySelector('.border-l-2') as HTMLElement).style.borderColor).toBe('var(--color-error)');
+  });
+
+  it('says a message reasoned when that is all it did', () => {
+    data = { entries: [entry({ kind: 'reasoning', hasReasoning: true, preview: '(reasoning, sealed)' })], total: 1 };
+    render(<LogsPage />);
+    expect(chips()).toContain('reasoning');
+  });
+
+  it('labels a system row by its subtype', () => {
+    data = { entries: [entry({ type: 'system', kind: 'system', subtype: 'turn_duration', preview: 'turn duration 4.2s' })], total: 1 };
+    render(<LogsPage />);
+    expect(chips()).toContain('turn duration');
+    expect(screen.getByText('turn duration 4.2s')).toBeTruthy();
+  });
+
+  it('says "no content" rather than leaving a blank row', () => {
+    data = { entries: [entry({ kind: 'empty', preview: '' })], total: 1 };
+    render(<LogsPage />);
+    expect(screen.getByText('no content')).toBeTruthy();
+  });
+
+  it('shows a clock time on each row, with the full stamp on hover', () => {
+    render(<LogsPage />);
+    const t = document.querySelector('[title*="ago"]') as HTMLElement;
+    expect(t).toBeTruthy();
+    expect(t.textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+  });
+});
+
+describe('grouping by session', () => {
+  it('puts consecutive rows from one session under one header', () => {
+    data = { entries: [entry({ id: 1 }), entry({ id: 2 }), entry({ id: 3 })], total: 3 };
+    render(<LogsPage />);
+    expect(document.querySelectorAll('section')).toHaveLength(1);
+    expect(document.querySelector('section')?.textContent).toContain('3');
+  });
+
+  it('starts a new header when the session changes, and again when it comes back', () => {
+    // Grouping is by run, not by identity: interleaved sessions read in
+    // the order they happened.
+    data = { entries: [entry({ id: 1 }), entry({ id: 2, sessionUuid: 'other', sessionDisplay: 'other' }), entry({ id: 3 })], total: 3 };
+    render(<LogsPage />);
+    expect(document.querySelectorAll('section')).toHaveLength(3);
+  });
+
+  it('names the project and session once, in the header, not on every row', () => {
+    data = { entries: [entry({ id: 1 }), entry({ id: 2 })], total: 2 };
+    render(<LogsPage />);
+    expect(screen.getAllByText('unfirehose')).toHaveLength(1);
+    expect(screen.getAllByText('a session')).toHaveLength(1);
+  });
+});
+
+describe('paging honestly', () => {
+  it('asks for a page size the API will actually honour', () => {
+    // The API caps a page at 500. The menu used to offer 30,000, and the
+    // page count was computed against a size the server never returned.
+    render(<LogsPage />);
+    expect(lastKey).toContain('limit=250');
+    const options = [...document.querySelectorAll('option')].map((o) => o.value).filter((v) => /^\d+$/.test(v)).map(Number);
+    expect(Math.max(...options)).toBeLessThanOrEqual(500);
+  });
+
+  it('says which rows are on screen', () => {
+    data = { entries: [entry({ id: 1 }), entry({ id: 2 })], total: 40 };
+    render(<LogsPage />);
+    expect(document.body.textContent).toContain('1–2 of 40');
+  });
+});
+

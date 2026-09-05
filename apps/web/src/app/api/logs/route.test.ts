@@ -256,3 +256,66 @@ describe('paging', () => {
     expect(body.total).toBe(body.entries.length);
   });
 });
+
+describe('what a row says', () => {
+  const idOf = async (text: string) =>
+    (await get(`?search=${encodeURIComponent(text)}`)).body.entries[0];
+
+  it('shows a tool result\'s first line, which used to be an empty row', async () => {
+    const pid = seedProject(db, 'rows', 'Rows');
+    const sid = seedSession(db, pid, 'sess-rows');
+    const callMsg = seedMessage(db, sid, { type: 'assistant', timestamp: '2026-04-01T10:00:00Z' });
+    seedContentBlock(db, callMsg, { blockType: 'tool-call', toolName: 'Bash', toolInput: JSON.stringify({ command: 'git status --porcelain' }), toolUseId: 'tu_rows_1' });
+    const resMsg = seedMessage(db, sid, { type: 'user', timestamp: '2026-04-01T10:00:01Z' });
+    seedContentBlock(db, resMsg, { blockType: 'tool-result', textContent: '\n M src/a.ts\n?? src/b.ts\n', toolUseId: 'tu_rows_1' });
+
+    const { body } = await get('?session=sess-rows');
+    const rows = body.entries;
+    const res = rows.find((r: any) => r.type === 'user');
+    expect(res.kind).toBe('tool-result');
+    expect(res.preview).toBe('M src/a.ts');
+    // Named after the call that produced it, which is a different message.
+    expect(res.tool).toBe('Bash');
+  });
+
+  it('shows the command for a tool call, not just its name', async () => {
+    const { body } = await get('?session=sess-rows&types=assistant');
+    const call = body.entries.find((r: any) => r.kind === 'tool-call');
+    expect(call.tool).toBe('Bash');
+    expect(call.toolArg).toBe('git status --porcelain');
+    expect(call.preview).toContain('git status --porcelain');
+  });
+
+  it('flags an error result', async () => {
+    const pid = seedProject(db, 'errs', 'Errs');
+    const sid = seedSession(db, pid, 'sess-errs');
+    const m = seedMessage(db, sid, { type: 'user', timestamp: '2026-04-02T10:00:00Z' });
+    seedContentBlock(db, m, { blockType: 'tool-result', textContent: 'command not found: foo', isError: 1, toolUseId: 'tu_x' });
+    const { body } = await get('?session=sess-errs');
+    expect(body.entries[0]).toMatchObject({ kind: 'tool-result', isError: true, preview: 'command not found: foo' });
+  });
+
+  it('labels a system row by its subtype and carries its duration', async () => {
+    const pid = seedProject(db, 'sys', 'Sys');
+    const sid = seedSession(db, pid, 'sess-sys');
+    const m = seedMessage(db, sid, { type: 'system', timestamp: '2026-04-03T10:00:00Z' });
+    db.prepare("UPDATE messages SET subtype = 'turn_duration', duration_ms = 4200 WHERE id = ?").run(m);
+    const { body } = await get('?session=sess-sys');
+    expect(body.entries[0]).toMatchObject({ kind: 'system', preview: 'turn duration 4.2s', durationMs: 4200 });
+  });
+
+  it('says a message reasoned even when the reasoning is sealed', async () => {
+    const pid = seedProject(db, 'sealed', 'Sealed');
+    const sid = seedSession(db, pid, 'sess-sealed');
+    const m = seedMessage(db, sid, { type: 'assistant', timestamp: '2026-04-04T10:00:00Z' });
+    seedContentBlock(db, m, { blockType: 'reasoning', textContent: '' });
+    const { body } = await get('?session=sess-sealed');
+    expect(body.entries[0]).toMatchObject({ kind: 'reasoning', hasReasoning: true, preview: '(reasoning, sealed)' });
+  });
+
+  it('finds a tool result by its text, since results are now part of the row', async () => {
+    const e = await idOf('src/b.ts');
+    expect(e?.kind).toBe('tool-result');
+  });
+});
+
