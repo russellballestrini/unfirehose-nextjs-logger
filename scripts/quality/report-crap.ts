@@ -45,6 +45,22 @@ export function main(argv: string[] = process.argv.slice(2)): void {
     process.exit(1);
   }
 
+  // A workspace with no coverage on disk is silently not scored, and its
+  // complexity leaves the total with it. That reads as an improvement: this
+  // report once showed 9,778 instead of 10,366 because one of four suites
+  // had not finished writing its report when `make -j4` reached this line.
+  // Say so, and refuse outright when a budget is riding on the number — a
+  // gate that passes because it measured less is worse than no gate.
+  if (cov.missing.length > 0) {
+    const names = cov.missing.map((ws) => ws.dir).join(', ');
+    console.error(`\n  no coverage report for: ${names}`);
+    console.error('  their complexity is not in this total. Run `make coverage`.');
+    if (Number.isFinite(flags.num('budget', Infinity))) {
+      console.error('  refusing to check a budget against a partial measurement.');
+      process.exit(1);
+    }
+  }
+
   const measured = WORKSPACES.filter((ws) => cov.found.some((f) => f.dir === ws.dir));
   const files = measured.flatMap((ws) => sourcesOf(ws));
 
@@ -132,7 +148,7 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   );
 
   if (flags.has('json')) {
-    writeJson(path.resolve(ROOT, flags.str('json', 'reports/crap.json')), {
+    writeJson(flags.str('json', 'reports/crap.json'), {
       generatedAt: new Date().toISOString(),
       threshold,
       total,

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { table, bar, grade, args, paint } from './render.ts';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { table, bar, grade, args, paint, writeJson } from './render.ts';
+import { ROOT } from './workspaces.ts';
 
 // Colour is off under NO_COLOR / non-TTY, which is how tests and CI run, so
 // these assert the text these tools actually emit into a log.
@@ -83,3 +87,42 @@ describe('args', () => {
     expect(a.num('top', 0)).toBe(5);
   });
 });
+
+describe('writeJson', () => {
+  it('resolves a relative path against the repository, not the cwd', async () => {
+    // Four of our five reports resolved against ROOT and one did not, so the
+    // same `--json reports/x.json` landed in two different places depending
+    // on which report ran and which directory make happened to be in. Under
+    // `make test -j4` that surfaced as EACCES on a path four levels above
+    // the repo — a wrong answer that only showed up in parallel.
+    const rel = `reports/.render-test-${process.pid}.json`;
+    writeJson(rel, { ok: true });
+    const abs = path.resolve(ROOT, rel);
+    expect(fs.existsSync(abs)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(abs, 'utf8'))).toEqual({ ok: true });
+    fs.rmSync(abs);
+  });
+
+  it('writes an absolute path where it was told to', () => {
+    const abs = path.join(os.tmpdir(), `render-test-${process.pid}.json`);
+    writeJson(abs, { ok: true });
+    expect(fs.existsSync(abs)).toBe(true);
+    fs.rmSync(abs);
+  });
+
+  it('creates the directory rather than failing on a fresh checkout', () => {
+    const dir = path.join(os.tmpdir(), `render-test-dir-${process.pid}`, 'deep', 'er');
+    const file = path.join(dir, 'out.json');
+    writeJson(file, { ok: true });
+    expect(fs.existsSync(file)).toBe(true);
+    fs.rmSync(path.join(os.tmpdir(), `render-test-dir-${process.pid}`), { recursive: true });
+  });
+
+  it('ends the file with a newline, so a diff of two runs is one line', () => {
+    const abs = path.join(os.tmpdir(), `render-test-nl-${process.pid}.json`);
+    writeJson(abs, { ok: true });
+    expect(fs.readFileSync(abs, 'utf8').endsWith('}\n')).toBe(true);
+    fs.rmSync(abs);
+  });
+});
+

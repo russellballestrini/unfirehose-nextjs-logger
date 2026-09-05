@@ -100,7 +100,7 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   );
 
   if (flags.has('json')) {
-    writeJson(path.resolve(ROOT, flags.str('json', 'reports/cc.json')), {
+    writeJson(flags.str('json', 'reports/cc.json'), {
       generatedAt: new Date().toISOString(),
       bands,
       functions: ranked.map((f: FunctionComplexity) => ({

@@ -60,7 +60,7 @@ coverage:
 # whenever the real number drops — a ceiling left where it was written is a
 # gate that stopped guarding, which is what our coverage thresholds had
 # quietly become.
-CRAP_BUDGET  ?= 21100
+CRAP_BUDGET  ?= 16900
 DUPE_BUDGET  ?= 1950
 
 quality-gate: coverage-check

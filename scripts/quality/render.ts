@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { ROOT } from './workspaces.ts';
 
 const NO_COLOUR = process.env.NO_COLOR !== undefined || !process.stdout.isTTY;
 
@@ -109,10 +110,18 @@ export function args(argv = process.argv.slice(2)) {
   };
 }
 
-/** Write a machine-readable copy next to the printed one. */
+/**
+ * Write a machine-readable copy next to the printed one.
+ *
+ * A relative path is relative to the repository, never to wherever the tool
+ * was invoked from. Four of these reports resolved against ROOT and one did
+ * not, so the same `--json reports/x.json` wrote to two different places
+ * depending on which report and which directory `make` happened to be in.
+ */
 export function writeJson(file: string, data: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+  const target = path.resolve(ROOT, file);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 /**

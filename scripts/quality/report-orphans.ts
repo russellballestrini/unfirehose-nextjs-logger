@@ -250,7 +250,7 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   );
 
   if (flags.has('json')) {
-    writeJson(path.resolve(ROOT, flags.str('json', 'reports/orphans.json')), {
+    writeJson(flags.str('json', 'reports/orphans.json'), {
       generatedAt: new Date().toISOString(),
       files: sources.length,
       orphaned: orphaned.map((f) => ({ path: rel(f), lines: linesOf(f) })),

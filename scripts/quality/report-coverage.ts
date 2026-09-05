@@ -34,6 +34,13 @@ export function main(argv: string[] = process.argv.slice(2)): void {
     process.exit(1);
   }
 
+  // A workspace with no report is not a workspace at 0% — it is one nobody
+  // measured, and averaging over what is left flatters the total.
+  if (cov.missing.length > 0) {
+    console.error(`\n  no coverage report for: ${cov.missing.map((ws) => ws.dir).join(', ')}`);
+    console.error('  these are not counted below. Run `make coverage`.');
+  }
+
   const pctCell = (c: { covered: number; total: number }) => {
     const p = percent(c);
     return grade(`${p.toFixed(1)}%`, p, 70, 50, false);

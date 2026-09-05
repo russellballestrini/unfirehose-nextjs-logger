@@ -74,7 +74,7 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   );
 
   if (flags.has('json')) {
-    writeJson(path.resolve(ROOT, flags.str('json', 'reports/dupes.json')), {
+    writeJson(flags.str('json', 'reports/dupes.json'), {
       generatedAt: new Date().toISOString(),
       minTokens: min,
       redundantTokens: saved,
