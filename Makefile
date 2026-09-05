@@ -90,7 +90,7 @@ vitals:
 vitals-prod:
 	@cd apps/web && npx next build >/dev/null
 	@PORT=3100 scripts/perf/prod-server.sh start
-	@node scripts/perf/vitals.mjs --base http://localhost:3100 --runs 3 --json reports/vitals-prod.json $(ARGS); \
+	@node scripts/perf/vitals.mjs --base http://localhost:3100 --runs 5 --pick min --wait-load 600 --json reports/vitals-prod.json $(ARGS); \
 	  rc=$$?; PORT=3100 scripts/perf/prod-server.sh stop >/dev/null; exit $$rc
 
 quality-gate: coverage-check

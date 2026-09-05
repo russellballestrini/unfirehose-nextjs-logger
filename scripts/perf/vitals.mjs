@@ -52,9 +52,25 @@ async function pages(base) {
     .sort();
 }
 
+/** The server's floor: a trivial route, five times, median. */
+const CONTROL_MS = 40;
+async function controlTtfb(base) {
+  const t = [];
+  for (let i = 0; i < 5; i++) {
+    const t0 = performance.now();
+    await fetch(`${base}/api/metrics`).then((r) => r.arrayBuffer()).catch(() => {});
+    t.push(performance.now() - t0);
+  }
+  return Math.round(median(t));
+}
+
 const median = (xs) => {
   const s = xs.filter((x) => x != null).sort((a, b) => a - b);
   return s.length ? s[Math.floor(s.length / 2)] : null;
+};
+const min = (xs) => {
+  const s = xs.filter((x) => x != null);
+  return s.length ? Math.min(...s) : null;
 };
 
 const ms = (n) => (n == null ? '—' : `${Math.round(n)}`);
@@ -93,6 +109,12 @@ export async function main(argv = process.argv.slice(2)) {
   const base = flags.str('base', BASE);
   const runs = flags.num('runs', 1);
   const budget = flags.num('budget', Infinity);
+  // `--pick min` reports the best of N rather than the median. On a machine
+  // that is also running a dev server, a worker and somebody's test suite,
+  // the median describes the contention; the minimum is the nearest thing to
+  // what the page costs when nothing else is in the way. Neither is wrong —
+  // they answer different questions, and the header says which was asked.
+  const pick = flags.str('pick', 'median') === 'min' ? min : median;
 
   // Cold by default: a first visit is what people mean by "slow". A warm run
   // measures the second visit to the same page in the same browser, which is
@@ -105,14 +127,39 @@ export async function main(argv = process.argv.slice(2)) {
   // A run taken at load 20 read three times worse than the same build at
   // load 2 — and the load was this tool's own leaked renderers. Record it,
   // and refuse to call a result a regression when the machine was busy.
-  const load1 = Number(readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
   const cores = cpus().length;
+  const readLoad = () => Number(readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
+  let load1 = readLoad();
+  // `--wait-load N` waits up to N seconds for the box to go quiet before
+  // measuring. `make vitals-prod` needs this: it has just run a build, which
+  // by itself pushes load past the guard, so refusing straight afterwards
+  // would refuse every time.
+  const waitFor = flags.num('wait-load', 0);
+  if (waitFor > 0 && load1 > cores) {
+    process.stderr.write(`load ${load1.toFixed(1)} on ${cores} cores — waiting up to ${waitFor}s for it to settle`);
+    const deadline = Date.now() + waitFor * 1000;
+    while (load1 > cores && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5000));
+      load1 = readLoad();
+      process.stderr.write('.');
+    }
+    process.stderr.write(`\n  load now ${load1.toFixed(1)}\n`);
+  }
   const busy = load1 > cores;
   if (busy && !flags.has('force')) {
     console.error(`\n  load average ${load1.toFixed(1)} on ${cores} cores — a measurement now would say the machine is slow, not the pages.`);
     console.error('  Wait for it to settle, or pass --force to record it anyway (it will be marked).');
     process.exit(2);
   }
+
+  // Load average is a poor guard for this: it counts the box, and the thing
+  // that slows a page is whether *this server* is busy. So a control — the
+  // time a trivial route takes to answer, sampled five times. /api/metrics
+  // does almost nothing; when its median passes 40ms the server is fighting
+  // for a core and every number below is inflated by roughly that fight.
+  const control = await controlTtfb(base);
+  const contended = control > CONTROL_MS;
+  if (contended) console.error(`\n  control: ${control}ms for a trivial route (limit ${CONTROL_MS}ms) — the server is contended; numbers below are inflated`);
 
   const browser = await launch({ headless: !flags.has('headed') });
   const results = [];
@@ -138,15 +185,15 @@ export async function main(argv = process.argv.slice(2)) {
       for (let i = 0; i < runs; i++) {
         takes.push(await measurePage(browser, base + path, { cold }));
       }
-      const pick = (k) => median(takes.map((t) => t[k]));
+      const pickOf = (k) => pick(takes.map((t) => t[k]));
       const last = takes[takes.length - 1];
       results.push({
         ...last,
         url: path,
-        dataOnScreen: pick('dataOnScreen'),
-        lcp: pick('lcp'), fcp: pick('fcp'), ttfb: pick('ttfb'), blocking: pick('blocking'),
+        dataOnScreen: pickOf('dataOnScreen'),
+        lcp: pickOf('lcp'), fcp: pickOf('fcp'), ttfb: pickOf('ttfb'), blocking: pickOf('blocking'),
       });
-      process.stderr.write(`  ${path} ${ms(pick('dataOnScreen'))}ms\n`);
+      process.stderr.write(`  ${path} ${ms(pickOf('dataOnScreen'))}ms\n`);
     }
   } finally {
     await browser.close();
@@ -155,7 +202,8 @@ export async function main(argv = process.argv.slice(2)) {
   results.sort((a, b) => (b.dataOnScreen ?? 0) - (a.dataOnScreen ?? 0));
 
   const failed = results.filter((r) => r.failed);
-  console.log(`\n  Time to data on screen — ${base} · ${cold ? 'first visit, cache empty' : 'return visit, cache warm'}${runs > 1 ? ` · median of ${runs}` : ''} · load ${load1.toFixed(1)}/${cores}${busy ? ' \x1b[31mBUSY MACHINE — not comparable\x1b[0m' : ''}\n`);
+  const pickName = pick === min ? 'best' : 'median';
+  console.log(`\n  Time to data on screen — ${base} · ${cold ? 'first visit, cache empty' : 'return visit, cache warm'}${runs > 1 ? ` · ${pickName} of ${runs}` : ''} · load ${load1.toFixed(1)}/${cores} · control ${control}ms${busy || contended ? ' \x1b[31mCONTENDED — not comparable\x1b[0m' : ''}\n`);
   console.log(table(results, Number.isFinite(budget) ? budget : 2000));
 
   if (failed.length) {
@@ -175,7 +223,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (flags.has('json')) {
     const out = resolve(process.cwd(), flags.str('json', 'reports/vitals.json'));
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, `${JSON.stringify({ generatedAt: new Date().toISOString(), base, runs, cold, load1, cores, busy, results }, null, 2)}\n`);
+    writeFileSync(out, `${JSON.stringify({ generatedAt: new Date().toISOString(), base, runs, pick: pickName, cold, load1, cores, control, contended: busy || contended, results }, null, 2)}\n`);
     console.log(`\n  wrote ${out}`);
   }
 
