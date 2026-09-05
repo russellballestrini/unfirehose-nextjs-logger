@@ -74,6 +74,17 @@ secondary panels filling in beneath content already on screen, and on
 `/api/tmux/stream` at 491ms) that the page waits for last. The shared script
 chunk fell from 437k to 293k when recharts left; `/tokens` from 360k to 193k.
 
+## Found later: the usage page froze the server on every visit
+
+`/usage` fired `POST /api/ingest` on arrival, and that route runs
+`ingestAll()` synchronously inside the Next process — better-sqlite3 runs on
+the event loop. Measured on a busy box, one POST did not return in 120
+seconds, during which the server answered nothing at all: not other pages,
+not the usage page's own reads, which is why its rules table sat empty behind
+the tab. The worker already ingests every sixty seconds. The arrival ingest
+is gone; the manual button remains, and if it needs to stop blocking too, the
+fix is to run ingest out of process rather than in the web server.
+
 ## Four ways the instrument lied first
 
 Each is fixed in code; each flattered the numbers.

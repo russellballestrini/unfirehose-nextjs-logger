@@ -98,9 +98,18 @@ const button = (re: RegExp) =>
   [...document.querySelectorAll('button')].find(b => re.test(b.textContent ?? ''));
 
 describe('usage monitor', () => {
-  it('ingests on arrival, so the page is not showing yesterday', async () => {
+  it('does not ingest on arrival — the worker does, and a visit must not stall the server', async () => {
+    // POST /api/ingest runs ingestAll() synchronously inside the Next
+    // process, measured at over two minutes on a busy box. Firing it on
+    // every visit froze every other request, this page's included.
     await show();
-    await waitFor(() => expect(posts().some(p => p.url === '/api/ingest')).toBe(true));
+    expect(posts().filter((p) => p.url === '/api/ingest')).toHaveLength(0);
+  });
+
+  it('still offers a manual ingest for when a minute is too long to wait', async () => {
+    await show();
+    await act(async () => { button(/Ingest Now/)!.click(); });
+    expect(posts().filter((p) => p.url === '/api/ingest')).toHaveLength(1);
   });
 
   it('groups alerts by metric and window', async () => {
@@ -190,6 +199,9 @@ describe('usage monitor', () => {
     expect(button(/^Rules$/)?.getAttribute('aria-selected')).toBe('true');
     expect(document.body.textContent).toContain('Alert Rules');
     expect(button(/Calibrate/)).toBeTruthy();
+    // The rules themselves, not just the heading above them.
+    expect(document.querySelectorAll('table tbody tr')).toHaveLength(1);
+    expect(document.body.textContent).toContain('output_tokens');
   });
 
   it('lays history and the panel side by side on a wide screen', async () => {

@@ -4,7 +4,7 @@ import { useHashTab } from '@/lib/use-hash-tab';
 import { ActionButton } from '@/components/ActionButton';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTokens } from '@unturf/unfirehose/format';
@@ -73,8 +73,13 @@ export default function UsageMonitorPage() {
     setIngesting(false);
   }, [refreshAll]);
 
-  // Auto-ingest on mount (file watcher handles ongoing ingestion server-side)
-  useEffect(() => { runIngest(); }, [runIngest]);
+  // No ingest on arrival. This page used to POST /api/ingest on every visit,
+  // and ingestAll() is synchronous — better-sqlite3 runs on the event loop —
+  // so for as long as it ran (measured at over two minutes on a busy box)
+  // the Next process answered nothing, including this page's own reads: the
+  // rules table sat empty behind the tab while the server was busy on its
+  // behalf. The worker ingests every sixty seconds and the dashboard says
+  // when the last one was. The button remains for when a minute is too long.
 
   // --- Acknowledge all ---
   const [ackState, setAckState] = useState<{ kind: 'idle' } | { kind: 'pending'; n: number } | { kind: 'done'; n: number } | { kind: 'error'; msg: string }>({ kind: 'idle' });
