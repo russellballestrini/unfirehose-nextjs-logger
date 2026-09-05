@@ -45,7 +45,7 @@ function ProgressBar({ value, max, label, detail }: { value: number; max: number
 }
 
 /** Breadcrumb, title, remotes and the boot-session control. */
-function ProjectHeader(props: any) {
+export function ProjectHeader(props: any) {
   const { decodedProject, derivedProjectPath, full, meta, fetchRemotes, booting, bootSession, bootResult, bootTmux, yolo, setYolo } = props;
   return (
   <div>
@@ -117,7 +117,7 @@ function ProjectHeader(props: any) {
 }
 
 /** The tab strip, with a count on the tabs that have one. */
-function ProjectTabs(props: any) {
+export function ProjectTabs(props: any) {
   const { tab, setTab, data, todoCount, commitCount } = props;
   return (
   <div className="flex items-center gap-1 border-b border-[var(--color-border)] overflow-x-auto">
@@ -438,7 +438,7 @@ export default function ProjectPage({
 
 /* ─── OVERVIEW TAB ─── */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets, model, setModel, harnessModels }: any) {
+export function OverviewTab({ full, data, meta, project, decodedProject: _decodedProject, thisActivity, globalTotals, fetchRemotes, newTask, setNewTask, addTask, taskSubmitting, harness, setHarness, customCmd, setCustomCmd, target, setTarget, targets, model, setModel, harnessModels }: any) {
   // Every token this project moved, by type. Input and output alone
   // described about 8% of it.
   const projectTokens = {
@@ -717,7 +717,7 @@ function OverviewTab({ full, data, meta, project, decodedProject: _decodedProjec
 }
 
 /* ─── SESSIONS TAB ─── */
-function SessionsTab({ data, project }: { data: any; project: string }) {
+export function SessionsTab({ data, project }: { data: any; project: string }) {
   const [search, setSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
 
@@ -800,7 +800,7 @@ function SessionsTab({ data, project }: { data: any; project: string }) {
 }
 
 /* ─── COMMITS TAB ─── */
-function CommitsTab({ meta, fetchRemotes, activityData, project }: any) {
+export function CommitsTab({ meta, fetchRemotes, activityData, project }: any) {
   const commits = meta?.recentCommits ?? [];
   const prompts = activityData?.recentPrompts ?? [];
 
@@ -904,7 +904,7 @@ function OverviewTodoRow({ todo }: { todo: any }) {
 
 /* ─── ACTIVITY TAB ─── */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function ActivityTab({ activityData, project, decodedProject: _decodedProject }: any) {
+export function ActivityTab({ activityData, project, decodedProject: _decodedProject }: any) {
   const prompts = activityData?.recentPrompts ?? [];
 
   return (
@@ -995,7 +995,7 @@ function fmtSize(bytes: number) {
  * Its own component because nothing here touches git state — it needs a
  * tree, a path, and a way to change the path.
  */
-function FilesView({ treeData, treePath, setTreePath }: any) {
+export function FilesView({ treeData, treePath, setTreePath }: any) {
 const lineNumbers = useMemo(() => {
   const n = (treeData?.content ?? '').split('\n').length;
   let out = '';
@@ -1319,7 +1319,7 @@ export function ChangesView(props: any) {
 }
 
 
-function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath }: any) {
+export function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath }: any) {
   const [commitMsg, setCommitMsg] = useState('');
   const [commitPhase, setCommitPhase] = useState<null | 'committing' | 'pushing' | 'done' | 'error'>(null);
   const [commitResult, setCommitResult] = useState<string | null>(null);
