@@ -103,3 +103,47 @@ describe('findClones', () => {
     }
   });
 });
+
+describe('tables are not duplication', () => {
+  let dir: string;
+  const write = (name: string, source: string) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, source);
+    return file;
+  };
+  beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-tables-')); });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('reports a table of same-shaped rows once, not once per row', () => {
+    // Fifty currency rows are all the same shape because that is what a
+    // table is. Tiling a sixty-token window across them used to report
+    // eighteen copies of something nobody had duplicated, and it was the
+    // single largest entry in our duplication report.
+    const rows = Array.from({ length: 40 }, (_, i) =>
+      `  { code: 'C${i}', label: 'Currency ${i}', group: 'Major', symbol: 'S${i}' },`);
+    const file = write('table.ts', `export const T = [\n${rows.join('\n')}\n];\n`);
+    const clones = findClones([file], 60);
+    expect(clones).toEqual([]);
+  });
+
+  it('still catches the same block written out twice with code between', () => {
+    // Copy-paste is separated by other code; periodic structure is not.
+    const block = (n: string) => `
+export function ${n}(input: string[]): number {
+  let total = 0;
+  for (const item of input) {
+    if (!item) continue;
+    if (item.startsWith('#')) continue;
+    const value = Number.parseFloat(item);
+    if (!Number.isFinite(value)) continue;
+    total += value > 0 ? value : 0;
+  }
+  return total;
+}
+`;
+    const file = write('twice.ts', block('a') + '\nconst SPACER = 1;\n' + block('b'));
+    const clones = findClones([file], 40);
+    expect(clones.length).toBeGreaterThan(0);
+    expect(clones[0].instances).toHaveLength(2);
+  });
+});

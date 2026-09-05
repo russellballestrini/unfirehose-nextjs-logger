@@ -137,7 +137,29 @@ export function findClones(files: string[], minTokens = MIN_TOKENS): Clone[] {
       for (let i = 0; i < length; i += 1) covered[hit.file].add(hit.at + i);
     }
 
-    const instances = distinct.map((h) => ({
+    // A run of back-to-back matches inside one file is a table, not a
+    // copy. Fifty currency rows or sixteen harness rows are all the same
+    // shape by design — that is what a table IS — and tiling a 60-token
+    // window across them reports eighteen copies of something nobody
+    // duplicated. Copy-paste is separated by other code; periodic
+    // structure is not, so a run collapses to the one place it lives.
+    // Group back-to-back matches in one file into runs, then keep one
+    // member of any run long enough to be periodic. Three or more
+    // instances tiling a region is a table — fifty currency rows share a
+    // shape because that is what a table IS — while two adjacent copies
+    // is somebody pasting a function and editing it, which is exactly
+    // what we want reported.
+    const runs: (typeof distinct)[] = [];
+    for (const hit of distinct) {
+      const run = runs[runs.length - 1];
+      const prev = run?.[run.length - 1];
+      if (prev && prev.file === hit.file && hit.at - prev.at <= length * 2) run.push(hit);
+      else runs.push([hit]);
+    }
+    const collapsed = runs.flatMap((run) => (run.length >= 3 ? [run[0]] : run));
+    if (collapsed.length < 2) continue;
+
+    const instances = collapsed.map((h) => ({
       path: indexed[h.file].path,
       startLine: indexed[h.file].tokens[h.at].line,
       endLine: indexed[h.file].tokens[Math.min(h.at + length - 1, indexed[h.file].tokens.length - 1)].line,
