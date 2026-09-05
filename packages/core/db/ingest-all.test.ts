@@ -70,6 +70,21 @@ beforeAll(async () => {
   const sessionDir = path.join(home, '.testharness', 'unfirehose', '-home-fox-git-demo');
   fs.mkdirSync(sessionDir, { recursive: true });
   fs.writeFileSync(path.join(sessionDir, 'aaaaaaaa-1111-2222-3333-444444444444.jsonl'), [
+    // Line 1 of every native file: a header carrying what the session row
+    // could not have at creation time, when all we had was the filename.
+    JSON.stringify({
+      $schema: 'unfirehose/1.0', type: 'session',
+      harness: 'testharness', firstPrompt: 'add a test for russell@unturf.com',
+      gitBranch: 'main', sidechain: false, createdAt: '2026-09-04T11:59:00.000Z',
+    }),
+    // A refusal, which is not a message and lands in its own table.
+    JSON.stringify({
+      $schema: 'unfirehose/1.0', type: 'throttle',
+      timestamp: '2026-09-04T12:00:30.000Z', kind: 'rate_limit',
+      harness: 'testharness', upstream: 'anthropic', operation: 'messages',
+      model: 'claude-opus-4-6-20260301', httpStatus: 429, retryAfterSeconds: 30,
+      message: 'rate_limit_error: please slow down',
+    }),
     message('m1', 'user', 'add a test'),
     message('m2', 'assistant', 'done', {
       inputTokens: 120,
@@ -362,6 +377,36 @@ describe('ingestAll over a native harness', () => {
       'git@github.com:demo/demo.git',
       'ssh://git@git.unturf.com:2222/demo.git',
     ]);
+  });
+
+  it('backfills a session from the header on line one', () => {
+    // The session row is created from the filename alone — uuid and
+    // harness. Everything a person reads about it arrives here.
+    const row = one<{ git_branch: string; first_prompt: string; created_at: string }>(
+      "SELECT git_branch, first_prompt, created_at FROM sessions WHERE session_uuid = 'aaaaaaaa-1111-2222-3333-444444444444'",
+    );
+    expect(row?.git_branch).toBe('main');
+    expect(row?.created_at).toBe('2026-09-04T11:59:00.000Z');
+  });
+
+  it('strips an address out of a first prompt before storing it', () => {
+    // The first prompt is shown on every list of sessions. It is the one
+    // field of a transcript we surface without anyone asking for it.
+    const row = one<{ first_prompt: string }>(
+      "SELECT first_prompt FROM sessions WHERE session_uuid = 'aaaaaaaa-1111-2222-3333-444444444444'",
+    );
+    expect(row?.first_prompt).not.toContain('russell@unturf.com');
+    expect(row?.first_prompt).toContain('add a test');
+  });
+
+  it('records a refusal, which is not a message', () => {
+    // A 429 is the provider declining to serve. Counting it as a turn
+    // would inflate every message total; dropping it loses the only
+    // record that we were throttled at all.
+    const row = one<{ kind: string; upstream: string; http_status: number }>(
+      "SELECT kind, upstream, http_status FROM rate_limit_events WHERE rule = 'harness-reported' ORDER BY id DESC LIMIT 1",
+    );
+    expect(row).toMatchObject({ kind: 'rate_limit', upstream: 'anthropic', http_status: 429 });
   });
 
   it('adds nothing on a second pass over unchanged files', async () => {
