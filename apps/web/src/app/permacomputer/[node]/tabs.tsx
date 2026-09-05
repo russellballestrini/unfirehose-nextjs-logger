@@ -1200,7 +1200,7 @@ export function Section({ title, children }: { title: string | React.ReactNode; 
   );
 }
 
-export function SshField({ label, value, placeholder, onChange }: {
+function SshField({ label, value, placeholder, onChange }: {
   label: string;
   value: string;
   placeholder?: string;
@@ -1220,7 +1220,7 @@ export function SshField({ label, value, placeholder, onChange }: {
   );
 }
 
-export function TunableRow({ label, unit, step, value, placeholder, onChange }: {
+function TunableRow({ label, unit, step, value, placeholder, onChange }: {
   label: string;
   unit: string;
   step: number;
