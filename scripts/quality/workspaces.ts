@@ -43,11 +43,20 @@ const SKIP_DIRS = new Set([
 
 const CODE = /\.(ts|tsx)$/;
 
-/** A file we count as ours: source, not a test, not generated. */
+/**
+ * A file we count as ours: source, not a test, not generated.
+ *
+ * Test scaffolding — a fixture builder, a database helper — is excluded
+ * along with the tests themselves. It is only ever run by tests, so
+ * grading its coverage measures whether our helpers exercise each other,
+ * and every line of it that no test happens to need reads as untested
+ * shipped code that somebody should go and cover.
+ */
 export function isSource(file: string): boolean {
   if (!CODE.test(file)) return false;
   if (file.endsWith('.d.ts')) return false;
   if (/\.test\.(ts|tsx)$/.test(file)) return false;
+  if (/(^|\/)(test|__tests__|__fixtures__|__mocks__)\//.test(file)) return false;
   return true;
 }
 

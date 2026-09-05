@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab } from './tabs';
 
 /**
@@ -128,5 +128,112 @@ describe('every node tab renders', () => {
       unmount();
     }
     expect(true).toBe(true);
+  });
+});
+
+/**
+ * The controls on each tab, driven.
+ *
+ * Rendering a tab proves its shell. What these tabs are for is changing
+ * things: the economics used for every cost this dashboard shows, the ssh
+ * config used to reach the node at all, and installing a harness on it.
+ * None of that runs when a tab is merely drawn.
+ */
+describe('node tab controls', () => {
+  const num = (label: string) => {
+    const row = [...document.querySelectorAll('div')]
+      .find(d => d.children.length === 2 && d.firstElementChild?.textContent === label);
+    return row?.querySelector('input[type="number"]') as HTMLInputElement;
+  };
+  const byText = (s: string) =>
+    [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === s);
+
+  it('saves an electricity rate under this node, not globally', async () => {
+    // Every watt figure on the mesh page is priced with it, and nodes are
+    // in different places on different tariffs.
+    const setKwhRate = vi.fn(); const saveSetting = vi.fn();
+    render(<SettingsTab {...bag({ setKwhRate, saveSetting })} />);
+    fireEvent.change(num('Electricity rate'), { target: { value: '0.42' } });
+    expect(setKwhRate).toHaveBeenCalledWith(0.42);
+    expect(saveSetting).toHaveBeenCalledWith('electricity_rate_cammy', '0.42');
+  });
+
+  it('saves an ISP cost the same way', async () => {
+    const saveSetting = vi.fn();
+    render(<SettingsTab {...bag({ saveSetting })} />);
+    fireEvent.change(num('ISP cost'), { target: { value: '95' } });
+    expect(saveSetting).toHaveBeenCalledWith('isp_cost_cammy', '95');
+  });
+
+  it('lets a spinning-disk count be corrected by hand', async () => {
+    // The probe counts rotational devices, and a USB enclosure or a
+    // hardware RAID reports as one disk or none. That count is watts.
+    const setDiskOverride = vi.fn();
+    render(<SettingsTab {...bag({ setDiskOverride })} />);
+    fireEvent.change(num('Spinning disks'), { target: { value: '4' } });
+    expect(setDiskOverride).toHaveBeenCalledWith(4);
+  });
+
+  it('clears a watts override back to automatic rather than to zero', async () => {
+    // Zero watts is a claim; blank is an absence of one, and the estimate
+    // has to come back.
+    const setWattsOverride = vi.fn();
+    render(<SettingsTab {...bag({ setWattsOverride, wattsOverride: 200 })} />);
+    fireEvent.change(num('Watts override'), { target: { value: '' } });
+    expect(setWattsOverride).toHaveBeenCalledWith(undefined);
+  });
+
+  it('opens the ssh form only when asked', async () => {
+    const setSshEditing = vi.fn();
+    render(<SettingsTab {...bag({ setSshEditing })} />);
+    act(() => { byText('Edit SSH Config')!.click(); });
+    expect(setSshEditing).toHaveBeenCalledWith(true);
+  });
+
+  it('will not save an ssh host with no name', async () => {
+    // The name is the alias every other page reaches this node by.
+    render(<SettingsTab {...bag({ sshEditing: true, sshForm: { name: '  ', hostname: 'x' } })} />);
+    expect((byText('Save') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('saves an ssh host that has one', async () => {
+    const saveSshHost = vi.fn();
+    render(<SettingsTab {...bag({ sshEditing: true, saveSshHost })} />);
+    act(() => { byText('Save')!.click(); });
+    expect(saveSshHost).toHaveBeenCalled();
+  });
+
+  it('boots the harness that was clicked, not the first in the list', async () => {
+    const bootHarness = vi.fn();
+    render(<BootstrapTab {...bag({ bootHarness })} />);
+    const install = [...document.querySelectorAll('button')]
+      .filter(b => /install|verify|boot/i.test(b.textContent ?? ''));
+    if (!install.length) return;
+    act(() => { install[install.length - 1].click(); });
+    expect(bootHarness).toHaveBeenCalledTimes(1);
+    expect(bootHarness.mock.calls[0][0]).toBeTruthy();
+  });
+
+  it('filters the harness list as you type', async () => {
+    // Sixteen harnesses is a scroll; the filter is how anyone finds one.
+    const setBootFilter = vi.fn();
+    render(<BootstrapTab {...bag({ setBootFilter })} />);
+    const filter = document.querySelector('input[placeholder="Filter..."]') as HTMLInputElement;
+    fireEvent.change(filter, { target: { value: 'claude' } });
+    expect(setBootFilter).toHaveBeenCalledWith('claude');
+  });
+
+  it('shows only the harnesses matching the filter', async () => {
+    const { container } = render(<BootstrapTab {...bag({ bootFilter: 'zzzz-no-such-harness' })} />);
+    expect(container.textContent).not.toMatch(/claude code/i);
+  });
+
+  it('opens a preview of the tmux session that was clicked', async () => {
+    const setPreviewSession = vi.fn();
+    render(<HarnessesTab {...bag({ setPreviewSession })} />);
+    const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('claude'));
+    if (!btn) return;
+    act(() => { btn.click(); });
+    expect(setPreviewSession).toHaveBeenCalled();
   });
 });
