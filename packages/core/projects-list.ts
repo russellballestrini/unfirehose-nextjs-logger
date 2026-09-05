@@ -111,6 +111,39 @@ function addTokens(target: any, r: DbRow) {
   target.tokens.cacheWrite += t.cacheWrite;
 }
 
+/**
+ * One name per repository, chosen from the rows that share its root commit.
+ *
+ * `projects` is scoped per harness slot by design, so one repo holds
+ * several rows — `-home-fox-git-uncloseai-cli`,
+ * `arborist:-home-fox-git-uncloseai-cli` and
+ * `uncloseai:home-fox-git-uncloseai-cli` all carry root commit 527c965.
+ * That separation is right for ingestion and wrong for a project list,
+ * where it renders as the same repo listed three times.
+ *
+ * The winner is the row with a Claude directory on disk, because that is
+ * the name every link and every boot already uses; failing that, the
+ * shortest, since a harness-prefixed name is strictly longer than the bare
+ * one it prefixes.
+ */
+export function canonicalNamesByRootCommit(
+  rows: ReadonlyArray<{ name: string; root_commit_hash: string | null }>,
+  onDisk: ReadonlySet<string>,
+): Map<string, string> {
+  const byHash = new Map<string, string>();
+  for (const r of rows) {
+    if (!r.root_commit_hash) continue;
+    const cur = byHash.get(r.root_commit_hash);
+    if (!cur) { byHash.set(r.root_commit_hash, r.name); continue; }
+    const curIsFs = onDisk.has(cur);
+    const newIsFs = onDisk.has(r.name);
+    if ((newIsFs && !curIsFs) || (newIsFs === curIsFs && r.name.length < cur.length)) {
+      byHash.set(r.root_commit_hash, r.name);
+    }
+  }
+  return byHash;
+}
+
 export async function buildProjectList(): Promise<ProjectInfo[]> {
   {
     try {
@@ -261,17 +294,9 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
     // root commit collapse onto one canonical name, preferring the row that
     // has a Claude directory, then the shortest (harness-prefixed names are
     // strictly longer than the bare one).
-    const canonicalByHash = new Map<string, string>();
-    for (const r of dbRows) {
-      if (!r.root_commit_hash) continue;
-      const cur = canonicalByHash.get(r.root_commit_hash);
-      if (!cur) { canonicalByHash.set(r.root_commit_hash, r.name); continue; }
-      const curIsFs = fsProjects.some((p) => p.name === cur);
-      const newIsFs = fsProjects.some((p) => p.name === r.name);
-      if ((newIsFs && !curIsFs) || (newIsFs === curIsFs && r.name.length < cur.length)) {
-        canonicalByHash.set(r.root_commit_hash, r.name);
-      }
-    }
+    const canonicalByHash = canonicalNamesByRootCommit(
+      dbRows, new Set(fsProjects.map((p) => p.name)),
+    );
     const canonicalName = (r: { name: string; root_commit_hash: string | null }) =>
       (r.root_commit_hash && canonicalByHash.get(r.root_commit_hash)) || r.name;
 
