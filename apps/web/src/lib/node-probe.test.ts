@@ -172,6 +172,33 @@ describe('parseDocker', () => {
     const [c] = parseDocker('id\tmy container\timage\tUp 2 days\t');
     expect(c!.name).toBe('my container');
   });
+
+  /**
+   * Through parseSection, not around it.
+   *
+   * The test above hands parseDocker one line and passes, because a
+   * trailing tab still splits into five fields. The page does not call
+   * parseDocker that way: it calls parseSection first, and that trims
+   * the section -- which eats the trailing tab of the last line only.
+   *
+   * So the last host-network container silently vanished while the
+   * unit test stayed green. A fleet of eight rendered as seven, and
+   * the missing peer was alive, listening and in the roster.
+   */
+  it('keeps every host-network container, including the last one', () => {
+    const probe = [
+      '===SECTION:DOCKER===',
+      'aaa\tpeer-000\tarborist-peer\tUp 20 minutes\t',
+      'bbb\tpeer-001\tarborist-peer\tUp 20 minutes\t',
+      'ccc\tpeer-002\tarborist-peer\tUp 20 minutes\t',
+      '===SECTION:TMUX===',
+      'none',
+    ].join('\n');
+    const containers = parseDocker(parseSection(probe, 'DOCKER'));
+    expect(containers.map(c => c!.name))
+      .toEqual(['peer-000', 'peer-001', 'peer-002']);
+    expect(containers[2]!.ports).toBe('');
+  });
 });
 
 /**

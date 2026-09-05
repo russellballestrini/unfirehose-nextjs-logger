@@ -4,16 +4,16 @@
  * The dashboard's charts, loaded after the numbers.
  *
  * Four of the five draw on uPlot, which is 49KB and already on the page for
- * the node charts; recharts (326KB) remains only for the model-share pie,
- * which uPlot does not draw. Even so the module loads through next/dynamic
- * with ssr:false, so the stats cards a reader came for paint from the first
- * bundle and the charts fill in below them, where the eye gets to second.
+ * the node charts; the model-share pie draws on our own canvas donut, built
+ * in uPlot's image. Nothing here is recharts any more. The module still
+ * loads through next/dynamic with ssr:false, so the stats cards a reader
+ * came for paint from the first bundle and the charts fill in below them.
  *
  * ssr:false is not a shortcut: recharts measures its container to size
  * itself and renders nothing useful on the server anyway.
  */
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { Donut } from '@/components/Donut';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens } from '@unturf/unfirehose/format';
@@ -120,43 +120,12 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
 /** The token-share pie beside the model table. */
 export function ModelUsagePie({ modelData }: { modelData: any[] }) {
   return (
-    <ResponsiveContainer width={200} height={200}>
-      <PieChart>
-        <Pie
-          data={modelData}
-          dataKey="tokens"
-          nameKey="name"
-          cx="50%"
-          cy="50%"
-          innerRadius={40}
-          outerRadius={80}
-          strokeWidth={0}
-        >
-          {modelData.map((entry: any) => (
-            <Cell
-              key={entry.fullName}
-              fill={getModelColor(entry.fullName)}
-            />
-          ))}
-        </Pie>
-        <Tooltip
-          contentStyle={{
-            background: '#18181b',
-            border: '1px solid #3f3f46',
-            borderRadius: 4,
-            color: '#fafafa',
-            fontSize: 16,
-          }}
-          formatter={(value: any, _n: any, entry: any) => {
-            const p = entry?.payload ?? {};
-            return [
-              `${formatTokens(Number(value ?? 0))} (in ${formatTokens(p.inputTokens ?? 0)} · out ${formatTokens(p.outputTokens ?? 0)} · cache ${formatTokens((p.cacheReadTokens ?? 0) + (p.cacheWriteTokens ?? 0))})`,
-              'tokens',
-            ];
-          }}
-        />
-      </PieChart>
-    </ResponsiveContainer>
+    <Donut
+      data={modelData.map((m: any) => ({ name: m.name, fullName: m.fullName, value: m.tokens, color: getModelColor(m.fullName) }))}
+      format={formatTokens}
+      height={200}
+      className="w-[220px] shrink-0"
+    />
   );
 }
 

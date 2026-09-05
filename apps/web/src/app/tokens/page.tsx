@@ -11,10 +11,9 @@ import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
+import { Donut } from '@/components/Donut';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
-import { AXIS_TICK } from '@unturf/unfirehose-ui/chart-theme';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -88,63 +87,10 @@ function ModelDonut({
   data: Array<{ name: string; fullName?: string; value: number; color: string }>;
   format: (n: number) => string;
 }) {
-  const sorted = [...data].sort((a, b) => b.value - a.value);
-  const top = sorted.slice(0, MODEL_DONUT_TOP_N);
-  const rest = sorted.slice(MODEL_DONUT_TOP_N);
-  const restTotal = rest.reduce((s, d) => s + d.value, 0);
-  const slices =
-    restTotal > 0
-      ? [
-          ...top,
-          {
-            name: `other (${rest.length})`,
-            fullName: `${rest.length} smaller models`,
-            value: restTotal,
-            color: 'var(--color-muted)',
-          },
-        ]
-      : top;
-
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
       <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">{title}</h3>
-      <ResponsiveContainer width="100%" height={160}>
-        <PieChart>
-          <Pie
-            data={slices}
-            dataKey="value"
-            nameKey="name"
-            cx="50%"
-            cy="50%"
-            innerRadius={35}
-            outerRadius={70}
-            strokeWidth={0}
-          >
-            {slices.map((d, i) => (
-              <Cell key={i} fill={d.color} />
-            ))}
-          </Pie>
-          <Tooltip formatter={(v) => format(Number(v ?? 0))} />
-        </PieChart>
-      </ResponsiveContainer>
-      <ul className="mt-2 max-h-24 overflow-y-auto text-sm space-y-1 pr-1">
-        {slices.map((d, i) => (
-          <li
-            key={i}
-            className="flex items-center gap-1.5"
-            title={d.fullName ?? d.name}
-          >
-            <span
-              className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
-              style={{ background: d.color }}
-            />
-            <span className="truncate">{d.name}</span>
-            <span className="ml-auto shrink-0 text-[var(--color-muted)] tabular-nums">
-              {format(d.value)}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <Donut data={data} format={format} height={160} topN={MODEL_DONUT_TOP_N} />
     </div>
   );
 }
@@ -534,32 +480,7 @@ export default function TokensPage() {
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tokens by Type
           </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={tokenTypePie}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={35}
-                outerRadius={75}
-                strokeWidth={0}
-              >
-                {tokenTypePie.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip
-
-                formatter={(v) => formatTokens(Number(v ?? 0))}
-              />
-              <Legend
-                iconSize={8}
-                wrapperStyle={{ fontSize: 16 }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          <Donut data={tokenTypePie} format={formatTokens} height={200} />
         </div>
 
         {/* Cost type breakdown */}
@@ -567,26 +488,7 @@ export default function TokensPage() {
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Cost by Type
           </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={costTypePie}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={35}
-                outerRadius={75}
-                strokeWidth={0}
-              >
-                {costTypePie.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v) => formatCost(Number(v ?? 0))} />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <Donut data={costTypePie} format={formatCost} height={200} />
         </div>
 
         {/* Model token breakdown donut */}
@@ -733,30 +635,11 @@ export default function TokensPage() {
             <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
               Tokens by Harness
             </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={harnessData.filter((h: any) => h.totalTokens > 0).map((h: any) => ({
-                    name: h.harness,
-                    value: h.totalTokens,
-                    color: getHarnessColor(h.harness),
-                  }))}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={35}
-                  outerRadius={75}
-                  strokeWidth={0}
-                >
-                  {harnessData.filter((h: any) => h.totalTokens > 0).map((h: any, i: number) => (
-                    <Cell key={i} fill={getHarnessColor(h.harness)} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => formatTokens(Number(v ?? 0))} />
-                <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <Donut
+              data={harnessData.filter((h: any) => h.totalTokens > 0).map((h: any) => ({ name: h.harness, value: h.totalTokens, color: getHarnessColor(h.harness) }))}
+              format={formatTokens}
+              height={200}
+            />
           </div>
 
           {/* Cost by Harness donut */}
@@ -764,30 +647,11 @@ export default function TokensPage() {
             <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
               Cost by Harness
             </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={harnessData.filter((h: any) => h.costUSD > 0).map((h: any) => ({
-                    name: h.harness,
-                    value: h.costUSD,
-                    color: getHarnessColor(h.harness),
-                  }))}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={35}
-                  outerRadius={75}
-                  strokeWidth={0}
-                >
-                  {harnessData.filter((h: any) => h.costUSD > 0).map((h: any, i: number) => (
-                    <Cell key={i} fill={getHarnessColor(h.harness)} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => formatCost(Number(v ?? 0))} />
-                <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <Donut
+              data={harnessData.filter((h: any) => h.costUSD > 0).map((h: any) => ({ name: h.harness, value: h.costUSD, color: getHarnessColor(h.harness) }))}
+              format={formatCost}
+              height={200}
+            />
           </div>
 
           {/* Harness × Model stacked bar */}
@@ -998,35 +862,7 @@ export default function TokensPage() {
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls ({totalToolCalls.toLocaleString()} total)
           </h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie
-                data={toolPieData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={40}
-                outerRadius={90}
-                strokeWidth={0}
-              >
-                {toolPieData.map((d: any, i: number) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip
-
-                formatter={(v) => Number(v ?? 0).toLocaleString()}
-              />
-              <Legend
-                iconSize={8}
-                wrapperStyle={{ fontSize: 16 }}
-                layout="vertical"
-                align="right"
-                verticalAlign="middle"
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          <Donut data={toolPieData} format={(v) => v.toLocaleString()} height={280} />
         </div>
 
         {/* Tool calls horizontal bar */}
@@ -1052,33 +888,11 @@ export default function TokensPage() {
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls by Model
           </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={toolsByModel.map((t: any) => ({
-                  name: shortModel(t.model ?? 'unknown'),
-                  value: t.count,
-                  color: getModelColor(t.model ?? ''),
-                }))}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={30}
-                outerRadius={70}
-                strokeWidth={0}
-              >
-                {toolsByModel.map((t: any, i: number) => (
-                  <Cell key={i} fill={getModelColor(t.model ?? '')} />
-                ))}
-              </Pie>
-              <Tooltip
-
-                formatter={(v) => Number(v ?? 0).toLocaleString()}
-              />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <Donut
+            data={toolsByModel.map((t: any) => ({ name: shortModel(t.model ?? 'unknown'), fullName: t.model ?? 'unknown', value: t.count, color: getModelColor(t.model ?? '') }))}
+            format={(v) => v.toLocaleString()}
+            height={200}
+          />
         </div>
 
         {/* Content block types */}
@@ -1086,33 +900,11 @@ export default function TokensPage() {
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Content Block Types
           </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={blockTypes.map((b: any, i: number) => ({
-                  name: b.block_type,
-                  value: b.count,
-                  color: TOOL_COLORS[i % TOOL_COLORS.length],
-                }))}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={30}
-                outerRadius={70}
-                strokeWidth={0}
-              >
-                {blockTypes.map((_: any, i: number) => (
-                  <Cell key={i} fill={TOOL_COLORS[i % TOOL_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-
-                formatter={(v) => Number(v ?? 0).toLocaleString()}
-              />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 16 }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <Donut
+            data={blockTypes.map((b: any, i: number) => ({ name: b.block_type, value: b.count, color: TOOL_COLORS[i % TOOL_COLORS.length] }))}
+            format={(v) => v.toLocaleString()}
+            height={200}
+          />
         </div>
       </div>
 

@@ -48,6 +48,32 @@ drew a chart.
   pies, which uPlot does not draw — see `ShareBars` on the styleguide for the
   candidate replacement.
 
+## After (2026-09-05, production, control 10ms, best of five)
+
+| page | first data | last data | before (last data) |
+|---|---|---|---|
+| `/todos` | 102 | 111 | 2,528 |
+| `/projects` | 107 | 113 | 2,065 |
+| `/active` | 114 | 163 | 2,202 |
+| `/settings` | 123 | 392 | 2,156 |
+| `/schema` | 101 | 418 | 1,872 |
+| `/tmux` | 101 | 443 | 1,901 |
+| `/tokens` | 115 | 522 | 3,007 |
+| `/scrobble` | 97 | 542 | 2,358 |
+| `/permacomputer` | 152 | 588 | 2,629 |
+| `/rate-limits` | 111 | 676 | 2,071 |
+| `/usage` | 276 | 770 | 3,239 |
+| `/live` | 561 | 931 | 2,506 |
+| `/` | 148 | 979 | 2,861 |
+| `/logs` | 179 | 1,014 | 2,842 |
+
+Milliseconds. "First data" is when a reader has something to read; on the
+pages where "last data" trails it by several hundred milliseconds, the gap
+is charts and secondary panels filling in below content that is already on
+screen. `/live` and `/logs` are the two still worth work: `/live` waits on
+`/api/metrics` (972ms on this run — the server was contended for that one
+call) and `/logs` fetches 1,000 rows on its first request.
+
 ## Four ways the instrument lied first
 
 Each is fixed in code; each flattered the numbers.

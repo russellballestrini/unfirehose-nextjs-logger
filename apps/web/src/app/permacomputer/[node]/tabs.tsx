@@ -7,7 +7,6 @@ import React from 'react';
 import { TimeRangeSelect } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { ThermalPanel } from '@/components/ThermalPanel';
-import { AXIS_TICK_SM } from '@unturf/unfirehose-ui/chart-theme';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
 import { KV } from '@unturf/unfirehose-ui/KV';

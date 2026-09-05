@@ -183,8 +183,21 @@ export function parseDocker(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
     const parts = line.split('\t');
-    if (parts.length < 5) return null;
-    return { id: parts[0], name: parts[1], image: parts[2], status: parts[3], ports: parts[4] };
+    // Ports is EMPTY for a --network host container, so its line ends
+    // in a tab -- and parseSection trims the section, which eats the
+    // trailing tab of the LAST line only. Requiring five fields
+    // therefore dropped exactly one container, always the last one
+    // listed, on any host running host-network containers. Observed
+    // 2026-09-05: a fleet of eight rendered as seven.
+    //
+    // Ports is the only optional field, so four is the real minimum
+    // and the fifth defaults to absent rather than deciding the row
+    // is unreadable.
+    if (parts.length < 4) return null;
+    return {
+      id: parts[0], name: parts[1], image: parts[2], status: parts[3],
+      ports: parts[4] ?? '',
+    };
   }).filter(Boolean);
 }
 

@@ -5,7 +5,7 @@ import { useState, useRef, Fragment } from 'react';
 import { HexColorPicker, RED_PRESETS } from '@/components/HexColorPicker';
 import useSWR from 'swr';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { Donut } from '@/components/Donut';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
@@ -883,23 +883,7 @@ export default function StyleguidePage() {
           {/* PieChart (donut) */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <div className="text-base text-[var(--color-muted)] mb-3">PieChart (donut) — Model Split</div>
-            <ResponsiveContainer width="100%" height={160}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  innerRadius={40}
-                  outerRadius={65}
-                  paddingAngle={2}
-                  dataKey="value"
-                  label={({ name, value }) => `${name} ${value}%`}
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            <Donut data={pieData.map((d, i) => ({ ...d, color: PIE_COLORS[i % PIE_COLORS.length] }))} format={(v) => `${v}%`} height={160} />
             {/* The same three numbers as a share list. This is the proposed replacement
                 for every donut in the app: uPlot does not draw pies, recharts costs 326KB
                 to, and a sorted list answers what a pie is asked — which ones matter and

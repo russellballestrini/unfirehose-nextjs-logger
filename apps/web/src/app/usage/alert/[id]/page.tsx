@@ -6,14 +6,11 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Link from 'next/link';
-import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
-} from 'recharts';
+import { Donut } from '@/components/Donut';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import type { ProjectMetadata } from '@unturf/unfirehose/types';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { formatTokens, formatCost, formatRelativeTime, formatTimestamp, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
-import { AXIS_TICK, TOOLTIP_STYLE } from '@unturf/unfirehose-ui/chart-theme';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -437,25 +434,7 @@ export default function AlertDetailPage() {
             {/* Donut */}
             {projectPie.length > 1 && (
               <div className="shrink-0 w-44">
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={projectPie}
-                      innerRadius={40}
-                      outerRadius={65}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {projectPie.map((_: any, i: number) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 16 }}
-                      formatter={(v) => formatCost(Number(v ?? 0))}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <Donut data={projectPie.map((d: any, i: number) => ({ ...d, color: PIE_COLORS[i % PIE_COLORS.length] }))} format={formatCost} height={160} />
               </div>
             )}
           </div>
@@ -507,25 +486,7 @@ export default function AlertDetailPage() {
 
             {modelPie.length > 1 && (
               <div className="shrink-0 w-44">
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={modelPie}
-                      innerRadius={40}
-                      outerRadius={65}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {modelPie.map((_: any, i: number) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 16 }}
-                      formatter={(v) => formatCost(Number(v ?? 0))}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <Donut data={modelPie.map((d: any, i: number) => ({ ...d, color: PIE_COLORS[i % PIE_COLORS.length] }))} format={formatCost} height={160} />
               </div>
             )}
           </div>
