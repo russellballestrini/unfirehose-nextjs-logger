@@ -62,6 +62,676 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** The Overview tab. */
+function OverviewTab(props: any) {
+  const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
+  return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          <Section title="System">
+            {probe ? (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <KV hideEmpty align label="CPU" value={probe.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim()} />
+                <KV hideEmpty align label="Cores" value={cpuCores} />
+                <KV hideEmpty align label="Memory" value={`${memTotal.toFixed(1)}GB`} />
+                <KV hideEmpty align label="Uptime" value={probe.uptime} />
+                {probe.gpuModel && <KV hideEmpty align label="GPU" value={probe.gpuModel} />}
+                {probe.gpuMemTotalMB > 0 && <KV hideEmpty align label="GPU Memory" value={`${(probe.gpuMemTotalMB / 1024).toFixed(1)}GB`} />}
+              </div>
+            ) : probing ? (
+              <div className="text-sm text-[var(--color-muted)] animate-pulse">Probing sandbox...</div>
+            ) : probeError ? (
+              <div className="space-y-2">
+                <div className="text-sm text-[var(--color-error)]">{probeError}</div>
+                <button onClick={runProbe} className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer">Retry probe</button>
+              </div>
+            ) : null}
+          </Section>
+
+          {probe && (
+            <Section title="CPU Load">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-[var(--color-muted)]">
+                  <span>Load: {load[0].toFixed(2)} / {load[1].toFixed(2)} / {load[2].toFixed(2)}</span>
+                  <span>{cpuCores} cores</span>
+                </div>
+                <GaugeTrack height="h-2.5" pct={loadPct} color={loadPerCore > 2 ? 'var(--color-error)' : loadPerCore > 1 ? '#f97316' : 'var(--color-accent)'} />
+                <div className="text-xs text-[var(--color-muted)]">
+                  {loadPct.toFixed(0)}% per-core utilization
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {probe && memTotal > 0 && (
+            <Section title="Memory">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-[var(--color-muted)]">
+                  <span>{memUsed.toFixed(1)}GB / {memTotal.toFixed(1)}GB ({memPct.toFixed(0)}%)</span>
+                  <span>{memAvail.toFixed(1)}G available</span>
+                </div>
+                <GaugeTrack height="h-2.5" pct={memPct} color={memPct > 85 ? 'var(--color-error)' : '#60a5fa'} />
+                {probe.swapTotalGB > 0 && (
+                  <div className="text-xs text-[var(--color-muted)]">
+                    Swap: {probe.swapUsedGB}GB / {probe.swapTotalGB}GB
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          {/* Account info */}
+          <Section title="Account">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <KV hideEmpty align label="Tier" value={status.tier} />
+              <KV hideEmpty align label="Rate Limit" value={`${status.rateLimit} rpm`} />
+              <KV hideEmpty align label="Max Sessions" value={status.maxSessions} />
+              <KV hideEmpty align label="Burst" value={status.burst} />
+              <KV hideEmpty align label="Expires" value={status.expiresAtHuman} />
+            </div>
+          </Section>
+
+          {/* Unfirehose service status */}
+          <Section title="unfirehose Service">
+            {unfirehoseService ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${unfirehoseService.state === 'running' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
+                  <span className="font-bold">{unfirehoseService.state || 'unknown'}</span>
+                  <span className="text-xs text-[var(--color-muted)] font-mono">{unfirehoseService.service_id || unfirehoseService.id}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Link href={`/tmux/${encodeURIComponent(unfirehoseService.service_id || unfirehoseService.id)}?host=unsandbox`}
+                    className="px-3 py-1.5 rounded border border-violet-500 text-violet-300 text-sm font-bold hover:bg-violet-500/10 transition-colors">
+                    → terminal
+                  </Link>
+                  {unfirehoseService.domain && (
+                    <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
+                      Open Dashboard ↗
+                    </a>
+                  )}
+                </div>
+                {unfirehoseService.domain && (
+                  <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-[var(--color-accent)] hover:underline font-mono block">
+                    https://{unfirehoseService.domain}
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-[var(--color-muted)]">
+                  No unfirehose service deployed. Deploy to add unsandbox as a mesh node.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={serviceLabel}
+                    onChange={e => setServiceLabel(e.target.value)}
+                    placeholder="label (optional, e.g. 2)"
+                    className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] font-mono w-40"
+                  />
+                  <button onClick={deployUnfirehose} disabled={deploying}
+                    className="px-4 py-2 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+                    {deploying ? 'Deploying...' : 'Deploy unfirehose'}
+                  </button>
+                </div>
+                {deployResult && (
+                  <div className="text-xs text-green-400 font-mono">Deployed: {deployResult.resolvedName || deployResult.service_id || deployResult.name}</div>
+                )}
+                {deployError && <div className="text-xs text-red-400">{deployError}</div>}
+              </div>
+            )}
+          </Section>
+
+          {/* Quick stats */}
+          <Section title="Quick Stats">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[var(--color-muted)]">Services</span>
+                <button onClick={() => setActiveTab('Services')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{serviceList.length}</button>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--color-muted)]">Active Sessions</span>
+                <button onClick={() => setActiveTab('Sessions')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{sessionList.length}</button>
+              </div>
+              <KV hideEmpty align label="Type" value="ephemeral" />
+              <KV hideEmpty align label="Provider" value="unsandbox.com" />
+            </div>
+          </Section>
+
+          {/* Probe refresh */}
+          <button onClick={runProbe} disabled={probing}
+            className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer disabled:opacity-50">
+            {probing ? 'Probing...' : 'Re-probe system'}
+          </button>
+        </div>
+      </div>
+  );
+}
+
+/** The Harnesses tab. */
+function HarnessesTab(props: any) {
+  const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
+      // Combine sessions + services, find claude/harness processes in each
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entries: { id: string; name: string; type: string; state: string; procs: any[]; subtitle?: string | null; serviceName?: string | null }[] = [];
+
+      for (const svc of serviceList) {
+        const id = svc.id;
+        const procs = sessionProcs[id] ?? [];
+        const claudeProcs = procs.filter((proc: any) => /claude|anthropic|node.*claude/i.test(proc.command));
+        entries.push({
+          id, name: svc.name || id, type: 'service',
+          state: svc.state || 'unknown', procs,
+        });
+        // Count claudes for this service
+        if (claudeProcs.length > 0) {
+          // Tag them
+        }
+      }
+
+      for (const sess of sessionList) {
+        const id = sess.session_id || sess.id;
+        // Skip if already covered by a service
+        if (entries.some(e => e.id === id)) continue;
+        const procs = sessionProcs[id] ?? [];
+        const nick = nicknames[id];
+        entries.push({
+          id,
+          name: nick?.nickname || id,
+          subtitle: nick?.nickname ? id : (nick?.service_name || null),
+          serviceName: nick?.service_name || null,
+          type: 'session',
+          state: sess.status || 'active', procs,
+        });
+      }
+
+      const totalClaudes = Object.values(sessionProcs).flat().filter((proc: any) => /claude|anthropic/i.test(proc.command)).length;
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-[var(--color-muted)]">
+              Running Harnesses
+              {totalClaudes > 0 && <span className="ml-2 text-[var(--color-accent)]">({totalClaudes} claude{totalClaudes !== 1 ? 's' : ''})</span>}
+            </h2>
+            <button onClick={probeSessionProcesses} disabled={probingSessions}
+              className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer disabled:opacity-50">
+              {probingSessions ? 'Probing...' : 'Refresh'}
+            </button>
+          </div>
+
+          {entries.length === 0 && !probingSessions && (
+            <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
+              No active sessions or services on unsandbox.
+            </div>
+          )}
+
+          {probingSessions && Object.keys(sessionProcs).length === 0 && (
+            <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)] animate-pulse">
+              Probing sessions for running processes...
+            </div>
+          )}
+
+          {entries.map(entry => {
+            const claudeProcs = entry.procs.filter(p => /claude|anthropic/i.test(p.command));
+            const nodeProcs = entry.procs.filter(p => /\bnode\b/i.test(p.command) && !/claude/i.test(p.command));
+            const pythonProcs = entry.procs.filter(p => /\bpython/i.test(p.command));
+            const interesting = [...claudeProcs, ...nodeProcs, ...pythonProcs];
+            const isService = entry.type === 'service';
+
+            return (
+              <div key={entry.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/40 transition-colors p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Link href={`/tmux/${encodeURIComponent(entry.id)}?host=unsandbox`} className="flex items-center gap-2 min-w-0 flex-1 group/link">
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${entry.state === 'running' || entry.state === 'active' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
+                    <div className="min-w-0">
+                      <span className="font-bold font-mono text-sm group-hover/link:text-violet-300 transition-colors">{entry.name}</span>
+                      {entry.subtitle && (
+                        <span className="ml-2 text-xs text-[var(--color-muted)] font-mono">{entry.subtitle}</span>
+                      )}
+                      {entry.serviceName && (
+                        <span className="ml-2 text-xs text-violet-400/70 font-mono">⬡ {entry.serviceName}</span>
+                      )}
+                      <span className="ml-2 text-[10px] text-violet-400/50 group-hover/link:text-violet-400 transition-colors">→ terminal</span>
+                    </div>
+                    <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{entry.type}</span>
+                  </Link>
+                  <div className="flex items-center gap-3">
+                    {claudeProcs.length > 0 && (
+                      <span className="text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
+                        {claudeProcs.length} claude{claudeProcs.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {nodeProcs.length > 0 && (
+                      <span className="text-xs text-green-400">{nodeProcs.length} node</span>
+                    )}
+                    {pythonProcs.length > 0 && (
+                      <span className="text-xs text-blue-400">{pythonProcs.length} python</span>
+                    )}
+                    {isService && (
+                      <span className="text-xs text-[var(--color-muted)]">{entry.state}</span>
+                    )}
+                  </div>
+                </div>
+
+                {interesting.length > 0 ? (
+                  <div className="space-y-1">
+                    {interesting.slice(0, 15).map((p, i) => {
+                      const isClaude = /claude|anthropic/i.test(p.command);
+                      return (
+                        <div key={i} className="flex items-center gap-3 text-xs">
+                          <span className={`w-1.5 h-1.5 rounded-full ${isClaude ? 'bg-[var(--color-accent)]' : 'bg-green-400'}`} />
+                          <span className="text-[var(--color-muted)] w-8 text-right">PID {p.pid}</span>
+                          <span className="text-[var(--color-muted)]">CPU {p.cpu}%</span>
+                          <span className="text-[var(--color-muted)]">MEM {p.mem}%</span>
+                          <span className="font-mono truncate max-w-[500px]">{p.command}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : entry.procs.length > 0 ? (
+                  <div className="text-xs text-[var(--color-muted)]">
+                    {entry.procs.length} processes running (no ML harnesses detected)
+                  </div>
+                ) : (
+                  <div className="text-xs text-[var(--color-muted)]">
+                    {probingSessions ? 'Probing...' : 'No process data — probe may have failed'}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {entries.length > 0 && (
+            <p className="text-xs text-[var(--color-muted)]">
+              Shows processes running inside unsandbox sessions and services. Claude, Node.js, and Python processes are highlighted.
+            </p>
+          )}
+        </div>
+      );
+}
+
+/** The Bootstrap tab. */
+function BootstrapTab(props: any) {
+  const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
+  return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm text-[var(--color-muted)]">
+            target: <span className="font-mono text-[var(--color-foreground)]">unsandbox</span>
+            <span className="ml-2 text-xs opacity-60">(each install runs in an ephemeral container with semitrusted network)</span>
+          </div>
+          <input
+            type="text"
+            placeholder="Filter..."
+            value={bootFilter}
+            onChange={(e) => setBootFilter(e.target.value)}
+            className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 w-32"
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {HARNESSES
+            .filter(h => !bootFilter || h.name.toLowerCase().includes(bootFilter.toLowerCase()) || h.tags.some(t => t.includes(bootFilter.toLowerCase())))
+            .map(h => {
+            const bStatus = bootStatuses[h.id] ?? { state: 'idle' };
+            return (
+              <div
+                key={h.id}
+                className={`rounded border p-3 space-y-2 ${
+                  bStatus.state === 'success' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
+                  : bStatus.state === 'error' ? 'border-[var(--color-error)] bg-red-950/20'
+                  : 'border-[var(--color-border)] bg-[var(--color-background)]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold">{h.name}</span>
+                  <div className="flex gap-1">
+                    {h.tags.slice(0, 2).map(t => (
+                      <span key={t} className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
+                <div className="text-xs text-[var(--color-muted)] font-mono space-y-0.5">
+                  <div className="truncate">install: {h.install}</div>
+                  <div className="truncate">verify: {h.verify}</div>
+                  {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => bootHarness(h)}
+                    disabled={bStatus.state === 'verifying'}
+                    className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
+                  >
+                    {bStatus.state === 'verifying' ? 'Installing...' : bStatus.state === 'success' ? 'Re-verify' : 'Verify & Install'}
+                  </button>
+                  {bStatus.state === 'success' && (
+                    <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-60">{bStatus.version}</span>
+                  )}
+                  {bStatus.state === 'error' && (
+                    <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{bStatus.detail}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-xs text-[var(--color-muted)] mt-3">
+          Each install runs in an ephemeral unsandbox container. The container self-destructs after verification.
+          For persistent harnesses, deploy via the Services tab.
+        </p>
+      </div>
+  );
+}
+
+/** The Services tab. */
+function ServicesTab(props: any) {
+  const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
+  return (
+      <div className="space-y-4">
+        {/* Deploy action */}
+        {!unfirehoseService && (
+          <div className="bg-[var(--color-surface)] rounded border-2 border-[var(--color-accent)]/40 p-6 space-y-3">
+            <h2 className="text-lg font-bold">Deploy unfirehose</h2>
+            <p className="text-sm text-[var(--color-muted)]">
+              Add unsandbox as a mesh node. Deploys the dashboard on port 3000.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                value={serviceLabel}
+                onChange={e => setServiceLabel(e.target.value)}
+                placeholder="label (optional, e.g. 2)"
+                className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] font-mono w-40"
+              />
+              <button onClick={deployUnfirehose} disabled={deploying}
+                className="px-6 py-2.5 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+                {deploying ? 'Deploying...' : 'Deploy unfirehose'}
+              </button>
+            </div>
+            {deployResult && <div className="text-sm text-green-400 font-mono">Deployed: {deployResult.resolvedName || deployResult.service_id || deployResult.name}</div>}
+            {deployError && <div className="text-sm text-red-400">{deployError}</div>}
+          </div>
+        )}
+
+        {/* Service list */}
+        {serviceList.length > 0 ? (
+          <div className="space-y-2">
+            {serviceList.map((svc: any) => {
+              const id = svc.service_id || svc.id;
+              const isLocked = svc.locked || svc.name === 'uncloseai';
+              const nick = nicknames[id];
+              const isEditing = editingNick?.sessionId === id;
+              return (
+                <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      {/* Nickname row */}
+                      <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            value={editingNick?.value ?? ''}
+                            onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
+                            onKeyDown={e => {
+                              const v = editingNick?.value ?? '';
+                              if (e.key === 'Enter') saveNickname(id, v, svc.name || '');
+                              if (e.key === 'Escape') setEditingNick(null);
+                            }}
+                            onBlur={() => saveNickname(id, editingNick?.value ?? '', svc.name || '')}
+                            placeholder="nickname…"
+                            className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
+                          />
+                        ) : (
+                          <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
+                            className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
+                            {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
+                          </button>
+                        )}
+                      </div>
+                      {/* Service info — clickable to terminal */}
+                      <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex items-center gap-3 px-4 pb-3">
+                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${svc.state === 'running' ? 'bg-green-400 animate-pulse' : svc.state === 'frozen' ? 'bg-blue-400' : 'bg-yellow-400'}`} />
+                        <div className="min-w-0">
+                          <div className="font-bold font-mono text-sm">{svc.name || id}</div>
+                          <div className="text-xs text-[var(--color-muted)] font-mono truncate">
+                            {svc.state} · {id}
+                            {svc.ports && <> · port {svc.ports}</>}
+                          </div>
+                          <div className="text-[10px] text-violet-400/60 mt-0.5">→ open terminal</div>
+                        </div>
+                      </Link>
+                    </div>
+                    <div className="flex items-center gap-3 pr-4 flex-shrink-0">
+                      {svc.domain && (
+                        <a href={`https://${svc.domain}`} target="_blank" rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
+                          Open ↗
+                        </a>
+                      )}
+                      {isLocked ? (
+                        <span className="text-xs text-[var(--color-muted)]">locked</span>
+                      ) : (
+                        <button onClick={() => destroyService(id)} className="text-xs text-red-400 hover:text-red-300 cursor-pointer">destroy</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-center text-[var(--color-muted)] py-8">No services deployed</p>
+        )}
+      </div>
+  );
+}
+
+/** The Sessions tab. */
+function SessionsTab(props: any) {
+  const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
+  return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-[var(--color-muted)]">Active Sessions ({sessionList.length})</h2>
+          <button onClick={() => mutateSessions()} className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer">refresh</button>
+        </div>
+
+        {sessionList.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {sessionList.map((s: any) => {
+              const id = s.session_id || s.id;
+              const nick = nicknames[id];
+              const isEditing = editingNick?.sessionId === id;
+              return (
+                <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
+                  {/* Nickname row */}
+                  <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
+                    {isEditing ? (
+                      <input
+                        autoFocus
+                        value={editingNick?.value ?? ''}
+                        onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
+                        onKeyDown={e => {
+                          const v = editingNick?.value ?? '';
+                          if (e.key === 'Enter') saveNickname(id, v, nick?.service_name ?? '');
+                          if (e.key === 'Escape') setEditingNick(null);
+                        }}
+                        onBlur={() => saveNickname(id, editingNick?.value ?? '', nick?.service_name ?? '')}
+                        placeholder="nickname…"
+                        className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
+                      />
+                    ) : (
+                      <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
+                        className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
+                        {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
+                      </button>
+                    )}
+                    {nick?.service_name && !isEditing && (
+                      <p className="text-xs text-violet-400/70 font-mono truncate mt-0.5">⬡ {nick.service_name}</p>
+                    )}
+                  </div>
+                  <div className="px-4 pb-3 flex items-center justify-between">
+                    <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                        <span className="font-mono text-xs text-violet-300 truncate" title={id}>{id}</span>
+                      </div>
+                      {s.shell && <div className="text-xs text-[var(--color-muted)] mt-0.5">shell: {s.shell}</div>}
+                      {s.created_at && <div className="text-xs text-[var(--color-muted)]">{s.created_at}</div>}
+                      <div className="text-[10px] text-violet-500 mt-1">→ open terminal</div>
+                    </Link>
+                    <button onClick={() => killSession(id)} disabled={killingSession === id}
+                      className="text-xs text-red-400 hover:text-red-300 cursor-pointer disabled:opacity-50 ml-4 shrink-0">
+                      {killingSession === id ? '...' : 'kill'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-center text-[var(--color-muted)] py-8">No active sessions</p>
+        )}
+      </div>
+  );
+}
+
+/** The Ephemeral tab. */
+function EphemeralTab(props: any) {
+  const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
+  return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-[var(--color-muted)]">
+            Ephemeral sandbox — container runs your command then self-destructs. Use <span className="text-[var(--color-foreground)]">semitrusted</span> for network access (git clone, npm install, push).
+          </p>
+          <div className="flex items-center gap-2">
+            {(['semitrusted', 'zerotrust'] as const).map(mode => (
+              <button key={mode} onClick={() => setNetwork(mode)}
+                className={`px-2.5 py-1 text-xs rounded cursor-pointer transition-colors ${
+                  network === mode
+                    ? 'bg-[var(--color-accent)] text-[var(--color-background)] font-bold'
+                    : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
+                }`}>
+                {mode === 'semitrusted' ? 'semitrusted' : 'zero trust'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <input type="text" value={cmd} onChange={e => setCmd(e.target.value)}
+            placeholder="git clone https://github.com/you/repo && cd repo && npm test"
+            onKeyDown={e => { if (e.key === 'Enter') executeCommand(); }}
+            className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-[var(--color-accent)]" />
+          <button onClick={executeCommand} disabled={cmdRunning || !cmd.trim()}
+            className="px-4 py-2 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+            {cmdRunning ? '...' : 'Run'}
+          </button>
+        </div>
+
+        {cmdResult && (
+          <pre className="bg-[#0d0d0d] rounded border border-[var(--color-border)] p-3 text-xs font-mono overflow-auto max-h-96 whitespace-pre-wrap">
+            {cmdResult.error ? (
+              <span className="text-red-400">{cmdResult.error}</span>
+            ) : (
+              <>
+                {cmdResult.stdout && <span className="text-[#d4d4d4]">{cmdResult.stdout}</span>}
+                {cmdResult.stderr && <span className="text-yellow-400">{cmdResult.stderr}</span>}
+                {cmdResult.exit_code !== undefined && cmdResult.exit_code !== 0 && (
+                  <span className="text-red-400 block mt-1">exit code: {cmdResult.exit_code}</span>
+                )}
+              </>
+            )}
+          </pre>
+        )}
+
+        {/* Example workflows */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-[var(--color-muted)]">Example Workflows</h3>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <ExampleCard
+              title="Clone, test, and push"
+              desc="Clone a repo, run the test suite, commit results, and push back to origin."
+              command={`git clone https://github.com/you/repo /workspace && cd /workspace && npm install && npm test && git add -A && git commit -m "ci: test run from unsandbox" && git push`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="Claude Code on a repo"
+              desc="Clone a project and run Claude Code with a prompt. Requires ANTHROPIC_API_KEY in the container."
+              command={`git clone https://github.com/you/repo /workspace && cd /workspace && claude --dangerously-skip-permissions "review this codebase and fix any defects"`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="Run CI pipeline"
+              desc="Execute a full CI pipeline: install deps, lint, type-check, test, build."
+              command={`git clone https://github.com/you/repo /workspace && cd /workspace && npm ci && npm run lint && npm run typecheck && npm test && npm run build`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="Security audit"
+              desc="Clone and run npm audit + license check in a zero-trust sandbox (no outbound after clone)."
+              command={`git clone https://github.com/you/repo /workspace && cd /workspace && npm ci && npm audit && npx license-checker --summary`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="Python project"
+              desc="Clone a Python repo, set up a venv, install deps, and run pytest."
+              command={`git clone https://github.com/you/repo /workspace && cd /workspace && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pytest`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="Benchmark a commit"
+              desc="Clone at a specific commit and run benchmarks in isolation."
+              command={`git clone https://github.com/you/repo /workspace && cd /workspace && git checkout abc1234 && npm ci && npm run bench`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="Multi-repo workspace"
+              desc="Clone multiple repos and link them together for integration testing."
+              command={`mkdir -p /workspace && cd /workspace && git clone https://github.com/you/lib && git clone https://github.com/you/app && cd lib && npm ci && npm link && cd ../app && npm ci && npm link your-lib && npm test`}
+              network="semitrusted"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+            <ExampleCard
+              title="System probe"
+              desc="Inspect the sandbox environment: CPU, memory, disk, installed packages."
+              command={`cat /proc/cpuinfo | head -20 && echo "---" && free -h && echo "---" && df -h && echo "---" && uname -a && echo "---" && cat /etc/os-release`}
+              network="zerotrust"
+              onRun={(c, n) => { setCmd(c); setNetwork(n); }}
+            />
+          </div>
+        </div>
+
+        {/* Tips */}
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
+          <h3 className="text-sm font-bold text-[var(--color-muted)]">Tips</h3>
+          <ul className="text-sm text-[var(--color-muted)] space-y-1 list-disc list-inside">
+            <li><span className="text-[var(--color-foreground)]">semitrusted</span> mode gives network access via egress proxy &mdash; required for git clone/push, npm install, API calls</li>
+            <li><span className="text-[var(--color-foreground)]">zero trust</span> mode has no network at all &mdash; good for pure compute, benchmarks, security audits on already-cloned code</li>
+            <li>Each execution is ephemeral &mdash; the container is destroyed after your command finishes</li>
+            <li>For persistent work, use <span className="text-[var(--color-foreground)]">Sessions</span> tab to create long-lived containers</li>
+            <li>Chain commands with <span className="font-mono text-[var(--color-foreground)]">&&</span> &mdash; the whole pipeline runs in a single container</li>
+            <li>Set <span className="font-mono text-[var(--color-foreground)]">ANTHROPIC_API_KEY</span> in your command to use Claude Code: <span className="font-mono text-xs">export ANTHROPIC_API_KEY=sk-ant-... && claude &quot;your prompt&quot;</span></li>
+            <li>Git push requires auth &mdash; use <span className="font-mono text-xs">git clone https://TOKEN@github.com/you/repo</span> or configure SSH keys in the session</li>
+          </ul>
+        </div>
+      </div>
+  );
+}
+
 export default function UnsandboxNodePage() {
   const { data: status } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 30000 });
   const { data: services, mutate: mutateServices } = useSWR('/api/unsandbox?action=services', fetcher, { refreshInterval: 10000 });
@@ -326,6 +996,9 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
   const loadPerCore = cpuCores > 0 ? load[0] / cpuCores : 0;
   const loadPct = Math.min(loadPerCore * 100, 100);
 
+  // One bag: these are the page's state, and every tab reads some of it.
+  const tabProps = { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService };
+
   return (
     <div className="p-6 w-full space-y-6">
       {/* Breadcrumb */}
@@ -397,658 +1070,12 @@ ${harness.verify} 2>&1 || echo "VERIFY_FAILED"`;
       </div>
 
       {/* ===== OVERVIEW TAB ===== */}
-      {activeTab === 'Overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-6">
-            <Section title="System">
-              {probe ? (
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                  <KV hideEmpty align label="CPU" value={probe.cpuModel?.replace(/\(R\)|\(TM\)/g, '').replace(/CPU\s+/i, '').trim()} />
-                  <KV hideEmpty align label="Cores" value={cpuCores} />
-                  <KV hideEmpty align label="Memory" value={`${memTotal.toFixed(1)}GB`} />
-                  <KV hideEmpty align label="Uptime" value={probe.uptime} />
-                  {probe.gpuModel && <KV hideEmpty align label="GPU" value={probe.gpuModel} />}
-                  {probe.gpuMemTotalMB > 0 && <KV hideEmpty align label="GPU Memory" value={`${(probe.gpuMemTotalMB / 1024).toFixed(1)}GB`} />}
-                </div>
-              ) : probing ? (
-                <div className="text-sm text-[var(--color-muted)] animate-pulse">Probing sandbox...</div>
-              ) : probeError ? (
-                <div className="space-y-2">
-                  <div className="text-sm text-[var(--color-error)]">{probeError}</div>
-                  <button onClick={runProbe} className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer">Retry probe</button>
-                </div>
-              ) : null}
-            </Section>
-
-            {probe && (
-              <Section title="CPU Load">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm text-[var(--color-muted)]">
-                    <span>Load: {load[0].toFixed(2)} / {load[1].toFixed(2)} / {load[2].toFixed(2)}</span>
-                    <span>{cpuCores} cores</span>
-                  </div>
-                  <GaugeTrack height="h-2.5" pct={loadPct} color={loadPerCore > 2 ? 'var(--color-error)' : loadPerCore > 1 ? '#f97316' : 'var(--color-accent)'} />
-                  <div className="text-xs text-[var(--color-muted)]">
-                    {loadPct.toFixed(0)}% per-core utilization
-                  </div>
-                </div>
-              </Section>
-            )}
-
-            {probe && memTotal > 0 && (
-              <Section title="Memory">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm text-[var(--color-muted)]">
-                    <span>{memUsed.toFixed(1)}GB / {memTotal.toFixed(1)}GB ({memPct.toFixed(0)}%)</span>
-                    <span>{memAvail.toFixed(1)}G available</span>
-                  </div>
-                  <GaugeTrack height="h-2.5" pct={memPct} color={memPct > 85 ? 'var(--color-error)' : '#60a5fa'} />
-                  {probe.swapTotalGB > 0 && (
-                    <div className="text-xs text-[var(--color-muted)]">
-                      Swap: {probe.swapUsedGB}GB / {probe.swapTotalGB}GB
-                    </div>
-                  )}
-                </div>
-              </Section>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            {/* Account info */}
-            <Section title="Account">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <KV hideEmpty align label="Tier" value={status.tier} />
-                <KV hideEmpty align label="Rate Limit" value={`${status.rateLimit} rpm`} />
-                <KV hideEmpty align label="Max Sessions" value={status.maxSessions} />
-                <KV hideEmpty align label="Burst" value={status.burst} />
-                <KV hideEmpty align label="Expires" value={status.expiresAtHuman} />
-              </div>
-            </Section>
-
-            {/* Unfirehose service status */}
-            <Section title="unfirehose Service">
-              {unfirehoseService ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${unfirehoseService.state === 'running' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
-                    <span className="font-bold">{unfirehoseService.state || 'unknown'}</span>
-                    <span className="text-xs text-[var(--color-muted)] font-mono">{unfirehoseService.service_id || unfirehoseService.id}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Link href={`/tmux/${encodeURIComponent(unfirehoseService.service_id || unfirehoseService.id)}?host=unsandbox`}
-                      className="px-3 py-1.5 rounded border border-violet-500 text-violet-300 text-sm font-bold hover:bg-violet-500/10 transition-colors">
-                      → terminal
-                    </Link>
-                    {unfirehoseService.domain && (
-                      <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
-                        className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
-                        Open Dashboard ↗
-                      </a>
-                    )}
-                  </div>
-                  {unfirehoseService.domain && (
-                    <a href={`https://${unfirehoseService.domain}`} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-[var(--color-accent)] hover:underline font-mono block">
-                      https://{unfirehoseService.domain}
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-[var(--color-muted)]">
-                    No unfirehose service deployed. Deploy to add unsandbox as a mesh node.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={serviceLabel}
-                      onChange={e => setServiceLabel(e.target.value)}
-                      placeholder="label (optional, e.g. 2)"
-                      className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] font-mono w-40"
-                    />
-                    <button onClick={deployUnfirehose} disabled={deploying}
-                      className="px-4 py-2 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
-                      {deploying ? 'Deploying...' : 'Deploy unfirehose'}
-                    </button>
-                  </div>
-                  {deployResult && (
-                    <div className="text-xs text-green-400 font-mono">Deployed: {deployResult.resolvedName || deployResult.service_id || deployResult.name}</div>
-                  )}
-                  {deployError && <div className="text-xs text-red-400">{deployError}</div>}
-                </div>
-              )}
-            </Section>
-
-            {/* Quick stats */}
-            <Section title="Quick Stats">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-[var(--color-muted)]">Services</span>
-                  <button onClick={() => setActiveTab('Services')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{serviceList.length}</button>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[var(--color-muted)]">Active Sessions</span>
-                  <button onClick={() => setActiveTab('Sessions')} className="font-bold tabular-nums hover:text-[var(--color-accent)] transition-colors cursor-pointer">{sessionList.length}</button>
-                </div>
-                <KV hideEmpty align label="Type" value="ephemeral" />
-                <KV hideEmpty align label="Provider" value="unsandbox.com" />
-              </div>
-            </Section>
-
-            {/* Probe refresh */}
-            <button onClick={runProbe} disabled={probing}
-              className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer disabled:opacity-50">
-              {probing ? 'Probing...' : 'Re-probe system'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ===== HARNESSES TAB ===== */}
-      {activeTab === 'Harnesses' && (() => {
-        // Combine sessions + services, find claude/harness processes in each
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const entries: { id: string; name: string; type: string; state: string; procs: any[]; subtitle?: string | null; serviceName?: string | null }[] = [];
-
-        for (const svc of serviceList) {
-          const id = svc.id;
-          const procs = sessionProcs[id] ?? [];
-          const claudeProcs = procs.filter(p => /claude|anthropic|node.*claude/i.test(p.command));
-          entries.push({
-            id, name: svc.name || id, type: 'service',
-            state: svc.state || 'unknown', procs,
-          });
-          // Count claudes for this service
-          if (claudeProcs.length > 0) {
-            // Tag them
-          }
-        }
-
-        for (const sess of sessionList) {
-          const id = sess.session_id || sess.id;
-          // Skip if already covered by a service
-          if (entries.some(e => e.id === id)) continue;
-          const procs = sessionProcs[id] ?? [];
-          const nick = nicknames[id];
-          entries.push({
-            id,
-            name: nick?.nickname || id,
-            subtitle: nick?.nickname ? id : (nick?.service_name || null),
-            serviceName: nick?.service_name || null,
-            type: 'session',
-            state: sess.status || 'active', procs,
-          });
-        }
-
-        const totalClaudes = Object.values(sessionProcs).flat().filter(p => /claude|anthropic/i.test(p.command)).length;
-
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[var(--color-muted)]">
-                Running Harnesses
-                {totalClaudes > 0 && <span className="ml-2 text-[var(--color-accent)]">({totalClaudes} claude{totalClaudes !== 1 ? 's' : ''})</span>}
-              </h2>
-              <button onClick={probeSessionProcesses} disabled={probingSessions}
-                className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer disabled:opacity-50">
-                {probingSessions ? 'Probing...' : 'Refresh'}
-              </button>
-            </div>
-
-            {entries.length === 0 && !probingSessions && (
-              <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
-                No active sessions or services on unsandbox.
-              </div>
-            )}
-
-            {probingSessions && Object.keys(sessionProcs).length === 0 && (
-              <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)] animate-pulse">
-                Probing sessions for running processes...
-              </div>
-            )}
-
-            {entries.map(entry => {
-              const claudeProcs = entry.procs.filter(p => /claude|anthropic/i.test(p.command));
-              const nodeProcs = entry.procs.filter(p => /\bnode\b/i.test(p.command) && !/claude/i.test(p.command));
-              const pythonProcs = entry.procs.filter(p => /\bpython/i.test(p.command));
-              const interesting = [...claudeProcs, ...nodeProcs, ...pythonProcs];
-              const isService = entry.type === 'service';
-
-              return (
-                <div key={entry.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/40 transition-colors p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Link href={`/tmux/${encodeURIComponent(entry.id)}?host=unsandbox`} className="flex items-center gap-2 min-w-0 flex-1 group/link">
-                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${entry.state === 'running' || entry.state === 'active' ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
-                      <div className="min-w-0">
-                        <span className="font-bold font-mono text-sm group-hover/link:text-violet-300 transition-colors">{entry.name}</span>
-                        {entry.subtitle && (
-                          <span className="ml-2 text-xs text-[var(--color-muted)] font-mono">{entry.subtitle}</span>
-                        )}
-                        {entry.serviceName && (
-                          <span className="ml-2 text-xs text-violet-400/70 font-mono">⬡ {entry.serviceName}</span>
-                        )}
-                        <span className="ml-2 text-[10px] text-violet-400/50 group-hover/link:text-violet-400 transition-colors">→ terminal</span>
-                      </div>
-                      <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{entry.type}</span>
-                    </Link>
-                    <div className="flex items-center gap-3">
-                      {claudeProcs.length > 0 && (
-                        <span className="text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
-                          {claudeProcs.length} claude{claudeProcs.length !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                      {nodeProcs.length > 0 && (
-                        <span className="text-xs text-green-400">{nodeProcs.length} node</span>
-                      )}
-                      {pythonProcs.length > 0 && (
-                        <span className="text-xs text-blue-400">{pythonProcs.length} python</span>
-                      )}
-                      {isService && (
-                        <span className="text-xs text-[var(--color-muted)]">{entry.state}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {interesting.length > 0 ? (
-                    <div className="space-y-1">
-                      {interesting.slice(0, 15).map((p, i) => {
-                        const isClaude = /claude|anthropic/i.test(p.command);
-                        return (
-                          <div key={i} className="flex items-center gap-3 text-xs">
-                            <span className={`w-1.5 h-1.5 rounded-full ${isClaude ? 'bg-[var(--color-accent)]' : 'bg-green-400'}`} />
-                            <span className="text-[var(--color-muted)] w-8 text-right">PID {p.pid}</span>
-                            <span className="text-[var(--color-muted)]">CPU {p.cpu}%</span>
-                            <span className="text-[var(--color-muted)]">MEM {p.mem}%</span>
-                            <span className="font-mono truncate max-w-[500px]">{p.command}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : entry.procs.length > 0 ? (
-                    <div className="text-xs text-[var(--color-muted)]">
-                      {entry.procs.length} processes running (no ML harnesses detected)
-                    </div>
-                  ) : (
-                    <div className="text-xs text-[var(--color-muted)]">
-                      {probingSessions ? 'Probing...' : 'No process data — probe may have failed'}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {entries.length > 0 && (
-              <p className="text-xs text-[var(--color-muted)]">
-                Shows processes running inside unsandbox sessions and services. Claude, Node.js, and Python processes are highlighted.
-              </p>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* ===== BOOTSTRAP TAB ===== */}
-      {activeTab === 'Bootstrap' && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-sm text-[var(--color-muted)]">
-              target: <span className="font-mono text-[var(--color-foreground)]">unsandbox</span>
-              <span className="ml-2 text-xs opacity-60">(each install runs in an ephemeral container with semitrusted network)</span>
-            </div>
-            <input
-              type="text"
-              placeholder="Filter..."
-              value={bootFilter}
-              onChange={(e) => setBootFilter(e.target.value)}
-              className="text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 w-32"
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {HARNESSES
-              .filter(h => !bootFilter || h.name.toLowerCase().includes(bootFilter.toLowerCase()) || h.tags.some(t => t.includes(bootFilter.toLowerCase())))
-              .map(h => {
-              const bStatus = bootStatuses[h.id] ?? { state: 'idle' };
-              return (
-                <div
-                  key={h.id}
-                  className={`rounded border p-3 space-y-2 ${
-                    bStatus.state === 'success' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
-                    : bStatus.state === 'error' ? 'border-[var(--color-error)] bg-red-950/20'
-                    : 'border-[var(--color-border)] bg-[var(--color-background)]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold">{h.name}</span>
-                    <div className="flex gap-1">
-                      {h.tags.slice(0, 2).map(t => (
-                        <span key={t} className="text-xs px-1 py-0.5 rounded bg-[var(--color-surface)] text-[var(--color-muted)]">{t}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="text-xs text-[var(--color-muted)]">{h.desc}</p>
-                  <div className="text-xs text-[var(--color-muted)] font-mono space-y-0.5">
-                    <div className="truncate">install: {h.install}</div>
-                    <div className="truncate">verify: {h.verify}</div>
-                    {h.requiresKey && <div className="text-yellow-500/80">requires: {h.requiresKey}</div>}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => bootHarness(h)}
-                      disabled={bStatus.state === 'verifying'}
-                      className="bg-[var(--color-accent)] text-black px-2.5 py-0.5 rounded text-xs font-bold disabled:opacity-50 cursor-pointer"
-                    >
-                      {bStatus.state === 'verifying' ? 'Installing...' : bStatus.state === 'success' ? 'Re-verify' : 'Verify & Install'}
-                    </button>
-                    {bStatus.state === 'success' && (
-                      <span className="text-xs text-[var(--color-accent)] font-mono ml-auto truncate max-w-60">{bStatus.version}</span>
-                    )}
-                    {bStatus.state === 'error' && (
-                      <span className="text-xs text-[var(--color-error)] ml-auto truncate max-w-40">{bStatus.detail}</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <p className="text-xs text-[var(--color-muted)] mt-3">
-            Each install runs in an ephemeral unsandbox container. The container self-destructs after verification.
-            For persistent harnesses, deploy via the Services tab.
-          </p>
-        </div>
-      )}
-
-      {/* ===== SERVICES TAB ===== */}
-      {activeTab === 'Services' && (
-        <div className="space-y-4">
-          {/* Deploy action */}
-          {!unfirehoseService && (
-            <div className="bg-[var(--color-surface)] rounded border-2 border-[var(--color-accent)]/40 p-6 space-y-3">
-              <h2 className="text-lg font-bold">Deploy unfirehose</h2>
-              <p className="text-sm text-[var(--color-muted)]">
-                Add unsandbox as a mesh node. Deploys the dashboard on port 3000.
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  value={serviceLabel}
-                  onChange={e => setServiceLabel(e.target.value)}
-                  placeholder="label (optional, e.g. 2)"
-                  className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] font-mono w-40"
-                />
-                <button onClick={deployUnfirehose} disabled={deploying}
-                  className="px-6 py-2.5 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
-                  {deploying ? 'Deploying...' : 'Deploy unfirehose'}
-                </button>
-              </div>
-              {deployResult && <div className="text-sm text-green-400 font-mono">Deployed: {deployResult.resolvedName || deployResult.service_id || deployResult.name}</div>}
-              {deployError && <div className="text-sm text-red-400">{deployError}</div>}
-            </div>
-          )}
-
-          {/* Service list */}
-          {serviceList.length > 0 ? (
-            <div className="space-y-2">
-              {serviceList.map((svc: any) => {
-                const id = svc.service_id || svc.id;
-                const isLocked = svc.locked || svc.name === 'uncloseai';
-                const nick = nicknames[id];
-                const isEditing = editingNick?.sessionId === id;
-                return (
-                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        {/* Nickname row */}
-                        <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
-                          {isEditing ? (
-                            <input
-                              autoFocus
-                              value={editingNick?.value ?? ''}
-                              onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
-                              onKeyDown={e => {
-                                const v = editingNick?.value ?? '';
-                                if (e.key === 'Enter') saveNickname(id, v, svc.name || '');
-                                if (e.key === 'Escape') setEditingNick(null);
-                              }}
-                              onBlur={() => saveNickname(id, editingNick?.value ?? '', svc.name || '')}
-                              placeholder="nickname…"
-                              className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
-                            />
-                          ) : (
-                            <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
-                              className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
-                              {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
-                            </button>
-                          )}
-                        </div>
-                        {/* Service info — clickable to terminal */}
-                        <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex items-center gap-3 px-4 pb-3">
-                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${svc.state === 'running' ? 'bg-green-400 animate-pulse' : svc.state === 'frozen' ? 'bg-blue-400' : 'bg-yellow-400'}`} />
-                          <div className="min-w-0">
-                            <div className="font-bold font-mono text-sm">{svc.name || id}</div>
-                            <div className="text-xs text-[var(--color-muted)] font-mono truncate">
-                              {svc.state} · {id}
-                              {svc.ports && <> · port {svc.ports}</>}
-                            </div>
-                            <div className="text-[10px] text-violet-400/60 mt-0.5">→ open terminal</div>
-                          </div>
-                        </Link>
-                      </div>
-                      <div className="flex items-center gap-3 pr-4 flex-shrink-0">
-                        {svc.domain && (
-                          <a href={`https://${svc.domain}`} target="_blank" rel="noopener noreferrer"
-                            className="px-3 py-1.5 rounded bg-[var(--color-accent)] text-[var(--color-background)] text-sm font-bold hover:opacity-90 transition-opacity">
-                            Open ↗
-                          </a>
-                        )}
-                        {isLocked ? (
-                          <span className="text-xs text-[var(--color-muted)]">locked</span>
-                        ) : (
-                          <button onClick={() => destroyService(id)} className="text-xs text-red-400 hover:text-red-300 cursor-pointer">destroy</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-center text-[var(--color-muted)] py-8">No services deployed</p>
-          )}
-        </div>
-      )}
-
-      {/* ===== SESSIONS TAB ===== */}
-      {activeTab === 'Sessions' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-[var(--color-muted)]">Active Sessions ({sessionList.length})</h2>
-            <button onClick={() => mutateSessions()} className="text-xs text-[var(--color-accent)] hover:underline cursor-pointer">refresh</button>
-          </div>
-
-          {sessionList.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {sessionList.map((s: any) => {
-                const id = s.session_id || s.id;
-                const nick = nicknames[id];
-                const isEditing = editingNick?.sessionId === id;
-                return (
-                  <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
-                    {/* Nickname row */}
-                    <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
-                      {isEditing ? (
-                        <input
-                          autoFocus
-                          value={editingNick?.value ?? ''}
-                          onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
-                          onKeyDown={e => {
-                            const v = editingNick?.value ?? '';
-                            if (e.key === 'Enter') saveNickname(id, v, nick?.service_name ?? '');
-                            if (e.key === 'Escape') setEditingNick(null);
-                          }}
-                          onBlur={() => saveNickname(id, editingNick?.value ?? '', nick?.service_name ?? '')}
-                          placeholder="nickname…"
-                          className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
-                        />
-                      ) : (
-                        <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
-                          className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
-                          {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
-                        </button>
-                      )}
-                      {nick?.service_name && !isEditing && (
-                        <p className="text-xs text-violet-400/70 font-mono truncate mt-0.5">⬡ {nick.service_name}</p>
-                      )}
-                    </div>
-                    <div className="px-4 pb-3 flex items-center justify-between">
-                      <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                          <span className="font-mono text-xs text-violet-300 truncate" title={id}>{id}</span>
-                        </div>
-                        {s.shell && <div className="text-xs text-[var(--color-muted)] mt-0.5">shell: {s.shell}</div>}
-                        {s.created_at && <div className="text-xs text-[var(--color-muted)]">{s.created_at}</div>}
-                        <div className="text-[10px] text-violet-500 mt-1">→ open terminal</div>
-                      </Link>
-                      <button onClick={() => killSession(id)} disabled={killingSession === id}
-                        className="text-xs text-red-400 hover:text-red-300 cursor-pointer disabled:opacity-50 ml-4 shrink-0">
-                        {killingSession === id ? '...' : 'kill'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-center text-[var(--color-muted)] py-8">No active sessions</p>
-          )}
-        </div>
-      )}
-
-      {/* ===== EPHEMERAL TAB ===== */}
-      {activeTab === 'Ephemeral' && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-[var(--color-muted)]">
-              Ephemeral sandbox — container runs your command then self-destructs. Use <span className="text-[var(--color-foreground)]">semitrusted</span> for network access (git clone, npm install, push).
-            </p>
-            <div className="flex items-center gap-2">
-              {(['semitrusted', 'zerotrust'] as const).map(mode => (
-                <button key={mode} onClick={() => setNetwork(mode)}
-                  className={`px-2.5 py-1 text-xs rounded cursor-pointer transition-colors ${
-                    network === mode
-                      ? 'bg-[var(--color-accent)] text-[var(--color-background)] font-bold'
-                      : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
-                  }`}>
-                  {mode === 'semitrusted' ? 'semitrusted' : 'zero trust'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <input type="text" value={cmd} onChange={e => setCmd(e.target.value)}
-              placeholder="git clone https://github.com/you/repo && cd repo && npm test"
-              onKeyDown={e => { if (e.key === 'Enter') executeCommand(); }}
-              className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-[var(--color-accent)]" />
-            <button onClick={executeCommand} disabled={cmdRunning || !cmd.trim()}
-              className="px-4 py-2 text-sm font-bold rounded bg-[var(--color-accent)] text-[var(--color-background)] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
-              {cmdRunning ? '...' : 'Run'}
-            </button>
-          </div>
-
-          {cmdResult && (
-            <pre className="bg-[#0d0d0d] rounded border border-[var(--color-border)] p-3 text-xs font-mono overflow-auto max-h-96 whitespace-pre-wrap">
-              {cmdResult.error ? (
-                <span className="text-red-400">{cmdResult.error}</span>
-              ) : (
-                <>
-                  {cmdResult.stdout && <span className="text-[#d4d4d4]">{cmdResult.stdout}</span>}
-                  {cmdResult.stderr && <span className="text-yellow-400">{cmdResult.stderr}</span>}
-                  {cmdResult.exit_code !== undefined && cmdResult.exit_code !== 0 && (
-                    <span className="text-red-400 block mt-1">exit code: {cmdResult.exit_code}</span>
-                  )}
-                </>
-              )}
-            </pre>
-          )}
-
-          {/* Example workflows */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-[var(--color-muted)]">Example Workflows</h3>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <ExampleCard
-                title="Clone, test, and push"
-                desc="Clone a repo, run the test suite, commit results, and push back to origin."
-                command={`git clone https://github.com/you/repo /workspace && cd /workspace && npm install && npm test && git add -A && git commit -m "ci: test run from unsandbox" && git push`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Claude Code on a repo"
-                desc="Clone a project and run Claude Code with a prompt. Requires ANTHROPIC_API_KEY in the container."
-                command={`git clone https://github.com/you/repo /workspace && cd /workspace && claude --dangerously-skip-permissions "review this codebase and fix any defects"`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Run CI pipeline"
-                desc="Execute a full CI pipeline: install deps, lint, type-check, test, build."
-                command={`git clone https://github.com/you/repo /workspace && cd /workspace && npm ci && npm run lint && npm run typecheck && npm test && npm run build`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Security audit"
-                desc="Clone and run npm audit + license check in a zero-trust sandbox (no outbound after clone)."
-                command={`git clone https://github.com/you/repo /workspace && cd /workspace && npm ci && npm audit && npx license-checker --summary`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Python project"
-                desc="Clone a Python repo, set up a venv, install deps, and run pytest."
-                command={`git clone https://github.com/you/repo /workspace && cd /workspace && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pytest`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Benchmark a commit"
-                desc="Clone at a specific commit and run benchmarks in isolation."
-                command={`git clone https://github.com/you/repo /workspace && cd /workspace && git checkout abc1234 && npm ci && npm run bench`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="Multi-repo workspace"
-                desc="Clone multiple repos and link them together for integration testing."
-                command={`mkdir -p /workspace && cd /workspace && git clone https://github.com/you/lib && git clone https://github.com/you/app && cd lib && npm ci && npm link && cd ../app && npm ci && npm link your-lib && npm test`}
-                network="semitrusted"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-              <ExampleCard
-                title="System probe"
-                desc="Inspect the sandbox environment: CPU, memory, disk, installed packages."
-                command={`cat /proc/cpuinfo | head -20 && echo "---" && free -h && echo "---" && df -h && echo "---" && uname -a && echo "---" && cat /etc/os-release`}
-                network="zerotrust"
-                onRun={(c, n) => { setCmd(c); setNetwork(n); }}
-              />
-            </div>
-          </div>
-
-          {/* Tips */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 space-y-2">
-            <h3 className="text-sm font-bold text-[var(--color-muted)]">Tips</h3>
-            <ul className="text-sm text-[var(--color-muted)] space-y-1 list-disc list-inside">
-              <li><span className="text-[var(--color-foreground)]">semitrusted</span> mode gives network access via egress proxy &mdash; required for git clone/push, npm install, API calls</li>
-              <li><span className="text-[var(--color-foreground)]">zero trust</span> mode has no network at all &mdash; good for pure compute, benchmarks, security audits on already-cloned code</li>
-              <li>Each execution is ephemeral &mdash; the container is destroyed after your command finishes</li>
-              <li>For persistent work, use <span className="text-[var(--color-foreground)]">Sessions</span> tab to create long-lived containers</li>
-              <li>Chain commands with <span className="font-mono text-[var(--color-foreground)]">&&</span> &mdash; the whole pipeline runs in a single container</li>
-              <li>Set <span className="font-mono text-[var(--color-foreground)]">ANTHROPIC_API_KEY</span> in your command to use Claude Code: <span className="font-mono text-xs">export ANTHROPIC_API_KEY=sk-ant-... && claude &quot;your prompt&quot;</span></li>
-              <li>Git push requires auth &mdash; use <span className="font-mono text-xs">git clone https://TOKEN@github.com/you/repo</span> or configure SSH keys in the session</li>
-            </ul>
-          </div>
-        </div>
-      )}
+      {activeTab === 'Overview' && <OverviewTab {...tabProps} />}
+      {activeTab === 'Harnesses' && <HarnessesTab {...tabProps} />}
+      {activeTab === 'Bootstrap' && <BootstrapTab {...tabProps} />}
+      {activeTab === 'Services' && <ServicesTab {...tabProps} />}
+      {activeTab === 'Sessions' && <SessionsTab {...tabProps} />}
+      {activeTab === 'Ephemeral' && <EphemeralTab {...tabProps} />}
     </div>
   );
 }
