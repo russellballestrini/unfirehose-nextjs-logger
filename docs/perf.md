@@ -48,31 +48,31 @@ drew a chart.
   pies, which uPlot does not draw — see `ShareBars` on the styleguide for the
   candidate replacement.
 
-## After (2026-09-05, production, control 10ms, best of five)
+## After (2026-09-05, production, recharts removed, control 14ms, best of five)
 
-| page | first data | last data | before (last data) |
-|---|---|---|---|
-| `/todos` | 102 | 111 | 2,528 |
-| `/projects` | 107 | 113 | 2,065 |
-| `/active` | 114 | 163 | 2,202 |
-| `/settings` | 123 | 392 | 2,156 |
-| `/schema` | 101 | 418 | 1,872 |
-| `/tmux` | 101 | 443 | 1,901 |
-| `/tokens` | 115 | 522 | 3,007 |
-| `/scrobble` | 97 | 542 | 2,358 |
-| `/permacomputer` | 152 | 588 | 2,629 |
-| `/rate-limits` | 111 | 676 | 2,071 |
-| `/usage` | 276 | 770 | 3,239 |
-| `/live` | 561 | 931 | 2,506 |
-| `/` | 148 | 979 | 2,861 |
-| `/logs` | 179 | 1,014 | 2,842 |
+| page | first data | last data | js on a cold visit | before (last data) |
+|---|---|---|---|---|
+| `/settings` | 116 | 145 | 293k | 2,156 |
+| `/live` | 103 | 307 | 156k | 2,506 |
+| `/schema` | 81 | 335 | 293k | 1,872 |
+| `/tokens` | 89 | 338 | 193k | 3,007 |
+| `/tmux` | 90 | 374 | 293k | 1,901 |
+| `/scrobble` | 75 | 396 | 293k | 2,358 |
+| `/usage` | 230 | 528 | 155k | 3,239 |
+| `/rate-limits` | 108 | 554 | 293k | 2,071 |
+| `/projects` | 73 | 645 | 293k | 2,065 |
+| `/active` | 110 | 673 | 293k | 2,202 |
+| `/` | 75 | 694 | 299k | 2,861 |
+| `/logs` | 97 | 699 | 293k | 2,842 |
+| `/permacomputer` | 104 | 835 | 293k | 2,629 |
+| `/todos` | 102 | 988 | 293k | 2,528 |
 
-Milliseconds. "First data" is when a reader has something to read; on the
-pages where "last data" trails it by several hundred milliseconds, the gap
-is charts and secondary panels filling in below content that is already on
-screen. `/live` and `/logs` are the two still worth work: `/live` waits on
-`/api/metrics` (972ms on this run — the server was contended for that one
-call) and `/logs` fetches 1,000 rows on its first request.
+Milliseconds. "First data" is when a reader has something to read — 73 to
+116ms on thirteen of fourteen pages. Where "last data" trails it, the gap is
+secondary panels filling in beneath content already on screen, and on
+`/permacomputer` and `/active` it is a remote call (`/api/unsandbox` at 699ms,
+`/api/tmux/stream` at 491ms) that the page waits for last. The shared script
+chunk fell from 437k to 293k when recharts left; `/tokens` from 360k to 193k.
 
 ## Four ways the instrument lied first
 
