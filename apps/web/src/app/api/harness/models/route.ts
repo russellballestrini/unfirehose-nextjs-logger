@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
+import { hostname } from 'os';
 import {
   HARNESS_MODEL_ADAPTERS,
   CLAUDE_MODELS,
@@ -26,6 +27,9 @@ function run(cmd: string, args: string[], timeout: number): Promise<string> {
 // uncloseai-cli installs as both `unclose` and `uncloseai-cli`. Try each —
 // PATH differs between fox's box and a freshly bootstrapped node.
 const UNCLOSE_BINS = ['unclose', 'uncloseai-cli'];
+
+/** Names that mean the machine this server is running on. */
+const isLocalHost = (h: string) => /^(localhost|127\.0\.0\.1|::1)$/i.test(h) || h === hostname();
 
 async function listLocal(harness: string): Promise<HarnessModel[]> {
   const adapter = HARNESS_MODEL_ADAPTERS[harness];
@@ -111,11 +115,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const models = host ? await listRemote(harness, host) : await listLocal(harness);
+    // 'localhost' is this machine. The picker sends it by name, and until now
+    // that name went down the ssh path: `ssh localhost curl 127.0.0.1:…` —
+    // an ssh handshake to reach a port on the same box, at 90% CPU per call,
+    // every time a dispatch box opened.
+    const local = !host || isLocalHost(host);
+    const models = local ? await listLocal(harness) : await listRemote(harness, host);
     cache.set(key, { models, ts: Date.now() });
     return NextResponse.json({
       harness, host: host || 'localhost',
-      models, selectable: true, source: host ? 'ssh' : 'local',
+      models, selectable: true, source: local ? 'local' : 'ssh',
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

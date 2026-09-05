@@ -195,3 +195,22 @@ describe('caching', () => {
     expect(b.models).toEqual([{ id: 'qwen' }]);
   });
 });
+
+describe('asking about this machine by name', () => {
+  it('runs locally for host=localhost rather than sshing to itself', async () => {
+    // The dispatch box sends the node's name, and this machine's name in the
+    // mesh is 'localhost'. That went down the ssh path: an ssh handshake to
+    // reach a port on the same box, at 90% CPU per call.
+    answers(() => 'llama3\n');
+    const body = await (await GET(req('?harness=ollama&host=localhost&refresh=1'))).json();
+    expect(body.source).toBe('local');
+    expect(execFile.mock.calls[0][0]).not.toBe('ssh');
+  });
+
+  it('treats 127.0.0.1 the same way', async () => {
+    answers(() => 'llama3\n');
+    const body = await (await GET(req('?harness=ollama&host=127.0.0.1&refresh=1'))).json();
+    expect(body.source).toBe('local');
+  });
+});
+
