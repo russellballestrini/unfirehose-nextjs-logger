@@ -71,6 +71,19 @@ coverage:
 CRAP_BUDGET  ?= 16900
 DUPE_BUDGET  ?= 1100
 
+# What a reader actually waits for, measured in a real browser. Our other
+# perf report times HTTP responses, which is the fastest link in the chain
+# reported as the whole thing: the document arrives in about forty
+# milliseconds and the screen stays empty until the bundle parses, React
+# hydrates, SWR fetches and the answer paints.
+#
+#   make vitals                     against whatever is on :3000
+#   make vitals ARGS="--runs 3"     median of three
+#   make vitals ARGS="--url /tokens"
+#   make vitals ARGS="--budget 1500 --json reports/vitals.json"
+vitals:
+	@node scripts/perf/vitals.mjs $(ARGS)
+
 quality-gate: coverage-check
 	@npx tsx scripts/quality/report-crap.ts --budget $(CRAP_BUDGET)
 	@npx tsx scripts/quality/report-dupes.ts --budget $(DUPE_BUDGET)
