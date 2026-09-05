@@ -984,21 +984,46 @@ function extractTodosFromEntry(
       }
     }
 
-    // Parse tool_result: "Task #N created successfully: <subject>"
-    // This assigns external_id to the most recently created todo without one
+    // Parse tool_result: "Task #N created successfully: <subject>".
+    //
+    // A TaskCreate call carries no id — the harness assigns one and reports
+    // it back here, and every later TaskUpdate names a todo by it. So this
+    // is the only place the two are connected, and connecting them to the
+    // wrong todo closes the wrong todo later.
+    //
+    // The result names its subject, so match on that first. It is only
+    // ambiguous for two todos with identical text, where either answer is
+    // as good.
     if (block.type === 'tool_result' && typeof block.content === 'string') {
-      const taskMatch = block.content.match(/^Task #(\d+) created/);
+      // The subject is optional: some results are just "Task #7 created".
+      const taskMatch = block.content.match(/^Task #(\d+) created(?:[^:]*:\s*(.*))?$/);
       if (taskMatch) {
         const externalId = taskMatch[1];
-        // Find the most recent todo in this session without an external_id
-        db.prepare(`
-          UPDATE todos SET external_id = ?
-          WHERE id = (
-            SELECT id FROM todos
-            WHERE project_id = ? AND session_id = ? AND external_id IS NULL AND source = 'claude'
-            ORDER BY id DESC LIMIT 1
-          )
-        `).run(externalId, projectId, sessionId);
+        const subject = (taskMatch[2] ?? '').trim();
+        const bySubject = subject
+          ? db.prepare(`
+              SELECT id FROM todos
+              WHERE project_id = ? AND session_id = ? AND external_id IS NULL
+                AND source = 'claude' AND content = ?
+              ORDER BY id ASC LIMIT 1
+            `).get(projectId, sessionId, subject) as { id: number } | undefined
+          : undefined;
+
+        if (bySubject) {
+          db.prepare('UPDATE todos SET external_id = ? WHERE id = ?').run(externalId, bySubject.id);
+        } else {
+          // No subject to match on. Results arrive in the order their calls
+          // were made, so the oldest unnumbered todo is this one — taking
+          // the newest instead numbered a batch of TaskCreates backwards.
+          db.prepare(`
+            UPDATE todos SET external_id = ?
+            WHERE id = (
+              SELECT id FROM todos
+              WHERE project_id = ? AND session_id = ? AND external_id IS NULL AND source = 'claude'
+              ORDER BY id ASC LIMIT 1
+            )
+          `).run(externalId, projectId, sessionId);
+        }
       }
     }
   }

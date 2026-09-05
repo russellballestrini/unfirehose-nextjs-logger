@@ -85,6 +85,49 @@ beforeAll(async () => {
       type: 'user', uuid: 'cc-u2', parentUuid: 'cc-a1', timestamp: '2026-09-04T11:00:06.000Z',
       message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'a.ts b.ts' }] },
     }),
+    // Todos reach us as tool calls, not as their own record. TaskCreate
+    // opens one, TaskUpdate closes it, and TodoWrite rewrites a whole list
+    // at once — three shapes for one table.
+    JSON.stringify({
+      type: 'assistant', uuid: 'cc-a2', parentUuid: 'cc-u2',
+      timestamp: '2026-09-04T11:01:00.000Z',
+      message: {
+        role: 'assistant', model: 'claude-opus-4-6-20260301',
+        content: [
+          { type: 'tool_use', id: 't2', name: 'TaskCreate', input: { subject: 'cover the ingest path', activeForm: 'covering the ingest path' } },
+          { type: 'tool_use', id: 't3', name: 'TaskCreate', input: { subject: 'delete the dead report' } },
+        ],
+      },
+    }),
+    // The id a TaskUpdate will later name does not come from the call. It
+    // comes back in the result text, and is matched to the most recent todo
+    // in the session that has none.
+    JSON.stringify({
+      type: 'user', uuid: 'cc-u3', parentUuid: 'cc-a2', timestamp: '2026-09-04T11:01:01.000Z',
+      message: { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 't2', content: 'Task #1 created successfully: cover the ingest path' },
+      ] },
+    }),
+    JSON.stringify({
+      type: 'user', uuid: 'cc-u4', parentUuid: 'cc-u3', timestamp: '2026-09-04T11:01:02.000Z',
+      message: { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 't3', content: 'Task #2 created successfully: delete the dead report' },
+      ] },
+    }),
+    JSON.stringify({
+      type: 'assistant', uuid: 'cc-a3', parentUuid: 'cc-a2',
+      timestamp: '2026-09-04T11:02:00.000Z',
+      message: {
+        role: 'assistant', model: 'claude-opus-4-6-20260301',
+        content: [
+          { type: 'tool_use', id: 't4', name: 'TaskUpdate', input: { taskId: '1', status: 'completed' } },
+          { type: 'tool_use', id: 't5', name: 'TodoWrite', input: { todos: [
+            { content: 'run the suite', status: 'in_progress', activeForm: 'running the suite' },
+            { content: 'push', status: 'pending' },
+          ] } },
+        ],
+      },
+    }),
   ].join('\n') + '\n');
 
   // Fetch's layout: ~/.fetch/sessions/{slug}/{id}.jsonl. A third reader
@@ -112,6 +155,7 @@ beforeAll(async () => {
 afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const one = <T,>(sql: string): T => db.prepare(sql).get() as T;
+const all = <T,>(sql: string): T[] => db.prepare(sql).all() as T[];
 
 describe('ingestAll over a native harness', () => {
   it('finds a harness nobody registered, by its directory alone', () => {
@@ -214,6 +258,52 @@ describe('ingestAll over a native harness', () => {
       "SELECT name, display_name FROM projects WHERE display_name LIKE '[fetch]%'",
     );
     expect(project).toBeTruthy();
+  });
+
+  it('opens a todo from a TaskCreate tool call', () => {
+    // Nothing in a transcript says "todo". It is a tool call, and this is
+    // the only place that connection is made.
+    const todo = one<{ content: string; status: string }>(
+      "SELECT content, status FROM todos WHERE content = 'delete the dead report'",
+    );
+    expect(todo?.status).toBe('pending');
+  });
+
+  it('takes a todo id from the result text, not from the call', () => {
+    // A TaskCreate call carries no id — the harness assigns one and reports
+    // it back as "Task #N created". Without reading that, every later
+    // TaskUpdate has nothing to match and no todo is ever closed.
+    const ids = all<{ external_id: string }>(
+      "SELECT external_id FROM todos WHERE source = 'claude' AND external_id IS NOT NULL ORDER BY external_id",
+    ).map(r => r.external_id);
+    expect(ids).toContain('1');
+    expect(ids).toContain('2');
+  });
+
+  it('matches a task id to the todo the result names', () => {
+    // Two TaskCreates in one message are answered by two results, and
+    // pairing them by recency numbers them backwards — so TaskUpdate #1
+    // closes the todo that #2 opened. The result text names its subject;
+    // that is what decides.
+    const first = one<{ external_id: string }>(
+      "SELECT external_id FROM todos WHERE content = 'cover the ingest path'",
+    );
+    expect(first?.external_id).toBe('1');
+  });
+
+  it('closes the todo a TaskUpdate names', () => {
+    const todo = one<{ status: string }>(
+      "SELECT status FROM todos WHERE content = 'cover the ingest path'",
+    );
+    expect(todo?.status).toBe('completed');
+  });
+
+  it('takes a whole list from one TodoWrite', () => {
+    const rows = all<{ content: string; status: string }>(
+      "SELECT content, status FROM todos WHERE content IN ('run the suite', 'push') ORDER BY content",
+    );
+    expect(rows.map(r => r.content)).toEqual(['push', 'run the suite']);
+    expect(rows.find(r => r.content === 'run the suite')?.status).toBe('in_progress');
   });
 
   it('adds nothing on a second pass over unchanged files', async () => {

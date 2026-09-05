@@ -213,6 +213,47 @@ describe('extracting todos while ingesting', () => {
     expect(todoRows()).toEqual([{ content: 'first task', status: 'pending', external_id: '42' }]);
   });
 
+  it('pairs a batch of tasks with their results in the order they were made', () => {
+    // Two TaskCreates in one message are answered by two results. Pairing
+    // them by recency numbers them backwards, so a later TaskUpdate #1
+    // closes the todo that #2 opened. The result names its subject, and
+    // that is what decides.
+    ingestJsonlLines(db, [
+      withBlocks('a1', [
+        { type: 'tool_use', name: 'TaskCreate', id: 'c1', input: { subject: 'first task' } },
+        { type: 'tool_use', name: 'TaskCreate', id: 'c2', input: { subject: 'second task' } },
+      ]),
+      withBlocks('a2', [
+        { type: 'tool_result', tool_use_id: 'c1', content: 'Task #1 created successfully: first task' },
+        { type: 'tool_result', tool_use_id: 'c2', content: 'Task #2 created successfully: second task' },
+      ]),
+    ], 'proj', 's1');
+
+    expect(todoRows()).toEqual([
+      { content: 'first task', status: 'pending', external_id: '1' },
+      { content: 'second task', status: 'pending', external_id: '2' },
+    ]);
+  });
+
+  it('numbers a batch in call order when the results name no subject', () => {
+    // Older results are bare. Results come back in the order their calls
+    // were made, so the oldest unnumbered todo is the one this names.
+    ingestJsonlLines(db, [
+      withBlocks('a1', [
+        { type: 'tool_use', name: 'TaskCreate', id: 'c1', input: { subject: 'first task' } },
+        { type: 'tool_use', name: 'TaskCreate', id: 'c2', input: { subject: 'second task' } },
+      ]),
+      withBlocks('a2', [
+        { type: 'tool_result', tool_use_id: 'c1', content: 'Task #1 created' },
+        { type: 'tool_result', tool_use_id: 'c2', content: 'Task #2 created' },
+      ]),
+    ], 'proj', 's1');
+
+    expect(todoRows().map(r => [r.content, r.external_id])).toEqual([
+      ['first task', '1'], ['second task', '2'],
+    ]);
+  });
+
   it('records a status change as an event, not just a new value', () => {
     ingestJsonlLines(db, [
       withBlocks('a1', [{ type: 'tool_use', name: 'TaskCreate', id: 'c1', input: { subject: 'a task' } }]),
