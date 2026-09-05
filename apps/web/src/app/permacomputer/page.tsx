@@ -261,7 +261,7 @@ export default function PermacomputerPage() {
 // Mesh Summary Bar
 // ============================================================
 
-function MeshSummaryBar({ summary, geoipLoading, geoipCount }: { summary: any; geoipLoading?: boolean; geoipCount?: number }) {
+export function MeshSummaryBar({ summary, geoipLoading, geoipCount }: { summary: any; geoipLoading?: boolean; geoipCount?: number }) {
   const memPct = summary.totalMemGB > 0 ? Math.round((summary.totalMemUsedGB / summary.totalMemGB) * 100) : 0;
   const allGreen = summary.reachableNodes === summary.totalNodes;
 
@@ -419,7 +419,7 @@ function NodeCardUnreachable({ node, sshHost }: { node: any; sshHost?: SshHost }
   );
 }
 
-function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
+export function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
   node: any; sshHost?: SshHost; econ: NodeEcon; geoip?: any; egressGroups?: Map<string, string[]>;
   onHide?: () => void;
 }) {
@@ -445,7 +445,7 @@ function NodeCard({ node, sshHost, econ, geoip, egressGroups, onHide }: {
 }
 
 /** What a cloud container reports about itself, once it has been probed. */
-function UnsandboxProbeBody({ probe, status }: { probe: any; status: any }) {
+export function UnsandboxProbeBody({ probe, status }: { probe: any; status: any }) {
   const v = nodeVitals(probe);
   const gpuModel = probe?.gpuModel;
   const gpuMemMB = probe?.gpuMemTotalMB ?? 0;
@@ -491,7 +491,7 @@ function UnsandboxProbeBody({ probe, status }: { probe: any; status: any }) {
 }
 
 /** A service is deployed but has not answered a probe yet. */
-function UnsandboxServiceBody({ service, status, running }: { service: any; status: any; running: boolean }) {
+export function UnsandboxServiceBody({ service, status, running }: { service: any; status: any; running: boolean }) {
   return (
     <>
       <div className="space-y-1.5 mb-3">
@@ -514,7 +514,7 @@ function UnsandboxServiceBody({ service, status, running }: { service: any; stat
   );
 }
 
-function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) {
+export function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) {
   const hasService = !!service;
   const running = hasService && (service.status === 'running' || service.status === 'active');
   const { data: probeData } = useSWR(
@@ -565,7 +565,7 @@ function UnsandboxNodeCard({ status, service }: { status: any; service?: any }) 
 // ============================================================
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEcon, settings }: { hosts: SshHost[]; keys: string[]; configHash?: string; mutate: () => void; seedEcon?: (hostname: string, econ: NodeEcon) => Promise<void>; settings?: any }) {
+export function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEcon, settings }: { hosts: SshHost[]; keys: string[]; configHash?: string; mutate: () => void; seedEcon?: (hostname: string, econ: NodeEcon) => Promise<void>; settings?: any }) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<SshHost>({ name: '', hostname: '', port: '22', user: '', identityFile: '', forwardAgent: 'yes' });
   const [saving, setSaving] = useState(false);
@@ -627,7 +627,7 @@ function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEcon, sett
 // Every chart overlays per-host lines on top of a bold fleet aggregate.
 const HOST_COLORS = ['#f97316', '#a78bfa', '#60a5fa', '#22c55e', '#f43f5e', '#facc15', '#38bdf8', '#ec4899', '#84cc16', '#fb923c'];
 
-function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
+export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   // Remembered across refreshes — this was useState(24), so picking 6h and
   // reloading snapped back to 24h.
   const [hours, setHours] = useStickyState<number>('fleet_metrics_hours', 24);
@@ -804,7 +804,7 @@ function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
   );
 }
 
-function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
+export function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
   allNodes: { meshNode: any; sshHost?: SshHost; key: string }[];
   meshNodes: any[];
   getNodeEcon: (hostname: string) => NodeEcon;
@@ -1026,7 +1026,7 @@ function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
 // Unsandbox Panel
 // ============================================================
 
-function UnsandboxPanel() {
+export function UnsandboxPanel() {
   const router = useRouter();
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
   const { data: status, mutate: mutateStatus } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 60000 });
