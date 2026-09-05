@@ -155,6 +155,222 @@ function formatOutput(text: string): { formatted: string; isJson: boolean } {
 }
 
 
+/**
+ * One entry in the live feed.
+ *
+ * This was a two-hundred-line callback inside the page's map, which made it
+ * the branchiest function in the repo and unreachable by anything short of
+ * driving the whole page. As a component it takes what it needs and can be
+ * shown a single entry.
+ */
+export function LiveEntry(props: any) {
+  const {
+item, i, reasoningOnly, showThinking, expanded, setExpanded,
+    getColorForSession, sessionNames, now, entries, hoveredEntry,
+    mostRecentOutputIdx, onEntryMouseEnter, onEntryMouseLeave,
+  } = props;
+        const e = item.entry;
+        // Always extract reasoning info so reasoningOnly can filter against
+        // it, even when showThinking is off. opus-4-7 sessions have sealed
+        // (signature-only) reasoning — those still count as "reasoning happened".
+        const reasoningInfo = extractReasoningInfo(e);
+        if (reasoningOnly && !reasoningInfo) return null;
+        const color = getColorForSession(item.sessionId);
+        const text = extractText(e);
+        const thinking = showThinking && reasoningInfo && !reasoningInfo.sealed ? reasoningInfo.text : null;
+        const tools = extractTools(e);
+        const toolResults = extractToolResults(e);
+        const model = e?.message?.model;
+        const usage = e?.message?.usage;
+        const isHovered = hoveredEntry === i;
+
+        // effectiveType normalizes Claude (`entry.type`) vs
+        // unfirehose/1.0 (`entry.type='message' + entry.role`)
+        // so the bubble-rendering branch works on both shapes.
+        const et = effectiveType(e);
+        const isUser = et === 'user';
+        const isAssistant = et === 'assistant';
+        const isSystem = et === 'system';
+
+        const typeTag = isUser ? 'USR' : isAssistant ? 'AST' : 'SYS';
+        const typeBg = isUser
+          ? 'var(--color-user)'
+          : isAssistant
+            ? 'var(--color-assistant)'
+            : 'var(--color-muted)';
+
+        // For user messages that are just tool results, show as tool output
+        const isToolOutput = isUser && toolResults.length > 0 && !text.trim();
+        const hasErrors = toolResults.some(r => r.isError);
+
+        // Expandable content check
+        const textLineCount = text ? text.split('\n').length : 0;
+        const toolResultLineCount = toolResults.reduce((s, r) => s + (r.content ? r.content.split('\n').length : 0), 0);
+        const hasExpandableContent = textLineCount > 1 || toolResultLineCount > 1 || !!thinking;
+
+        // Auto-expand logic: last 5 entries are expanded, most recent output always expanded
+        const isRecentEntry = i >= entries.length - 5;
+        const isMostRecentOutput = i === mostRecentOutputIdx;
+        const autoExpanded = hasExpandableContent && (isRecentEntry || isMostRecentOutput);
+        const showExpanded = autoExpanded || isHovered;
+
+        return (
+          <div
+            key={i}
+            className={`group border-b border-[var(--color-border)]/30 hover:bg-[var(--color-surface)] transition-colors ${
+              isToolOutput ? 'bg-[var(--color-background)]' : ''
+            } ${hasErrors ? 'border-l-2 border-l-[var(--color-error)]' : ''}`}
+            onMouseEnter={() => hasExpandableContent && onEntryMouseEnter(i)}
+            onMouseLeave={onEntryMouseLeave}
+          >
+            {/* Header row — metadata only; output always goes on its own line below */}
+            <div className="flex gap-2 pt-1.5 pb-0.5 px-3 select-none min-w-0 items-center">
+              {/* Session dot + harness badge + project */}
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                  style={{ background: color }}
+                />
+                {item.harness && (
+                  <span
+                    className="shrink-0 text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
+                    style={{
+                      color: harnessColor(item.harness),
+                      borderColor: 'color-mix(in srgb, currentColor 40%, transparent)',
+                    }}
+                    title={`harness: ${item.harness}`}
+                  >
+                    {item.harness}
+                  </span>
+                )}
+                <span
+                  className="truncate text-sm"
+                  style={{ color }}
+                  title={item.projectName}
+                >
+                  {item.projectName}
+                </span>
+              </div>
+
+              {/* Type badge */}
+              <span
+                className="shrink-0 text-sm font-bold px-1.5 py-0.5 rounded"
+                style={{ color: typeBg }}
+              >
+                {isToolOutput ? 'OUT' : typeTag}
+              </span>
+
+              {/* Timestamp */}
+              <span className="shrink-0 text-[var(--color-muted)] text-sm">
+                {e.timestamp
+                  ? formatTimestamp(e.timestamp).slice(11, 19)
+                  : ''}
+              </span>
+
+              {/* Model tag for assistant */}
+              {isAssistant && model && (
+                <span className="shrink-0 text-[var(--color-muted)] text-sm">
+                  [{shortModel(model)}
+                  {usage ? ` in:${(usage.input_tokens / 1000).toFixed(0)}k out:${(usage.output_tokens / 1000).toFixed(0)}k` : ''}]
+                </span>
+              )}
+
+              {/* System subtype */}
+              {isSystem && (
+                <span className="shrink-0 text-[var(--color-muted)] text-sm">
+                  {e.subtype ?? 'event'}
+                  {e.durationMs ? ` (${(e.durationMs / 1000).toFixed(1)}s)` : ''}
+                </span>
+              )}
+            </div>
+
+            {/* Output line — full width under the header, never squeezed by long names */}
+            {(tools.length > 0 ||
+              (!showExpanded && isToolOutput && toolResults.length > 0) ||
+              (!showExpanded && text && !isToolOutput)) && (
+              <div className="px-3 pb-1.5 pl-8 text-sm min-w-0">
+                {/* Tool names + details */}
+                {tools.length > 0 && (
+                  <span className="text-[var(--color-tool)] break-words">
+                    {tools.map((t, ti) => (
+                      <span key={ti}>
+                        [{t.name}]
+                        {t.detail && (
+                          <span className="text-[var(--color-muted)] ml-1">{t.detail}</span>
+                        )}
+                        {' '}
+                      </span>
+                    ))}
+                  </span>
+                )}
+
+                {/* Tool result preview (only when collapsed) */}
+                {!showExpanded && isToolOutput && toolResults.length > 0 && (
+                  <span className={`break-words ${hasErrors ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-60'}`}>
+                    {toolResults[0].content.split('\n')[0]}
+                    {toolResults[0].content.split('\n').length > 1 ? '...' : ''}
+                  </span>
+                )}
+
+                {/* Text preview (only when collapsed) */}
+                {!showExpanded && text && !isToolOutput && (
+                  <span className="text-[var(--color-foreground)] break-words">
+                    {text.split('\n')[0]}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Expanded content — auto for recent entries, hover for older */}
+            <div
+              className={`overflow-hidden transition-all duration-400 ${
+                showExpanded && hasExpandableContent ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div
+                className="px-3 pb-2 pl-8 space-y-2"
+                style={{
+                  background: isMostRecentOutput
+                    ? 'color-mix(in srgb, var(--color-accent) 5%, var(--color-surface))'
+                    : 'color-mix(in srgb, var(--color-accent) 3%, var(--color-surface))',
+                }}
+              >
+                {/* Thinking */}
+                {thinking && (
+                  <div className="text-[var(--color-thinking)] text-sm leading-relaxed whitespace-pre-wrap italic">
+                    {thinking}
+                  </div>
+                )}
+
+                {/* Tool results */}
+                {toolResults.length > 0 && (
+                  <div className="space-y-1.5">
+                    {toolResults.map((r, ri) => {
+                      const { formatted, isJson } = formatOutput(r.content);
+                      return (
+                        <pre key={ri} className={`whitespace-pre-wrap break-words text-sm leading-relaxed ${
+                          r.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-80'
+                        } ${isJson ? 'bg-[var(--color-background)] rounded px-2 py-1.5' : ''}`}>
+                          {formatted}
+                        </pre>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Text content */}
+                {text && (
+                  <div className="text-sm text-[var(--color-foreground)] leading-relaxed whitespace-pre-wrap break-words">
+                    {renderMarkdownish(text)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+}
+
+
 export default function LivePage() {
   const [entries, setEntries] = useState<LiveEntry[]>([]);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
@@ -439,207 +655,17 @@ export default function LivePage() {
           </div>
         )}
 
-        {entries.map((item, i) => {
-          const e = item.entry;
-          // Always extract reasoning info so reasoningOnly can filter against
-          // it, even when showThinking is off. opus-4-7 sessions have sealed
-          // (signature-only) reasoning — those still count as "reasoning happened".
-          const reasoningInfo = extractReasoningInfo(e);
-          if (reasoningOnly && !reasoningInfo) return null;
-          const color = getColorForSession(item.sessionId);
-          const text = extractText(e);
-          const thinking = showThinking && reasoningInfo && !reasoningInfo.sealed ? reasoningInfo.text : null;
-          const tools = extractTools(e);
-          const toolResults = extractToolResults(e);
-          const model = e?.message?.model;
-          const usage = e?.message?.usage;
-          const isHovered = hoveredEntry === i;
-
-          // effectiveType normalizes Claude (`entry.type`) vs
-          // unfirehose/1.0 (`entry.type='message' + entry.role`)
-          // so the bubble-rendering branch works on both shapes.
-          const et = effectiveType(e);
-          const isUser = et === 'user';
-          const isAssistant = et === 'assistant';
-          const isSystem = et === 'system';
-
-          const typeTag = isUser ? 'USR' : isAssistant ? 'AST' : 'SYS';
-          const typeBg = isUser
-            ? 'var(--color-user)'
-            : isAssistant
-              ? 'var(--color-assistant)'
-              : 'var(--color-muted)';
-
-          // For user messages that are just tool results, show as tool output
-          const isToolOutput = isUser && toolResults.length > 0 && !text.trim();
-          const hasErrors = toolResults.some(r => r.isError);
-
-          // Expandable content check
-          const textLineCount = text ? text.split('\n').length : 0;
-          const toolResultLineCount = toolResults.reduce((s, r) => s + (r.content ? r.content.split('\n').length : 0), 0);
-          const hasExpandableContent = textLineCount > 1 || toolResultLineCount > 1 || !!thinking;
-
-          // Auto-expand logic: last 5 entries are expanded, most recent output always expanded
-          const isRecentEntry = i >= entries.length - 5;
-          const isMostRecentOutput = i === mostRecentOutputIdx;
-          const autoExpanded = hasExpandableContent && (isRecentEntry || isMostRecentOutput);
-          const showExpanded = autoExpanded || isHovered;
-
-          return (
-            <div
-              key={i}
-              className={`group border-b border-[var(--color-border)]/30 hover:bg-[var(--color-surface)] transition-colors ${
-                isToolOutput ? 'bg-[var(--color-background)]' : ''
-              } ${hasErrors ? 'border-l-2 border-l-[var(--color-error)]' : ''}`}
-              onMouseEnter={() => hasExpandableContent && onEntryMouseEnter(i)}
-              onMouseLeave={onEntryMouseLeave}
-            >
-              {/* Header row — metadata only; output always goes on its own line below */}
-              <div className="flex gap-2 pt-1.5 pb-0.5 px-3 select-none min-w-0 items-center">
-                {/* Session dot + harness badge + project */}
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span
-                    className="inline-block w-2 h-2 rounded-full shrink-0"
-                    style={{ background: color }}
-                  />
-                  {item.harness && (
-                    <span
-                      className="shrink-0 text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
-                      style={{
-                        color: harnessColor(item.harness),
-                        borderColor: 'color-mix(in srgb, currentColor 40%, transparent)',
-                      }}
-                      title={`harness: ${item.harness}`}
-                    >
-                      {item.harness}
-                    </span>
-                  )}
-                  <span
-                    className="truncate text-sm"
-                    style={{ color }}
-                    title={item.projectName}
-                  >
-                    {item.projectName}
-                  </span>
-                </div>
-
-                {/* Type badge */}
-                <span
-                  className="shrink-0 text-sm font-bold px-1.5 py-0.5 rounded"
-                  style={{ color: typeBg }}
-                >
-                  {isToolOutput ? 'OUT' : typeTag}
-                </span>
-
-                {/* Timestamp */}
-                <span className="shrink-0 text-[var(--color-muted)] text-sm">
-                  {e.timestamp
-                    ? formatTimestamp(e.timestamp).slice(11, 19)
-                    : ''}
-                </span>
-
-                {/* Model tag for assistant */}
-                {isAssistant && model && (
-                  <span className="shrink-0 text-[var(--color-muted)] text-sm">
-                    [{shortModel(model)}
-                    {usage ? ` in:${(usage.input_tokens / 1000).toFixed(0)}k out:${(usage.output_tokens / 1000).toFixed(0)}k` : ''}]
-                  </span>
-                )}
-
-                {/* System subtype */}
-                {isSystem && (
-                  <span className="shrink-0 text-[var(--color-muted)] text-sm">
-                    {e.subtype ?? 'event'}
-                    {e.durationMs ? ` (${(e.durationMs / 1000).toFixed(1)}s)` : ''}
-                  </span>
-                )}
-              </div>
-
-              {/* Output line — full width under the header, never squeezed by long names */}
-              {(tools.length > 0 ||
-                (!showExpanded && isToolOutput && toolResults.length > 0) ||
-                (!showExpanded && text && !isToolOutput)) && (
-                <div className="px-3 pb-1.5 pl-8 text-sm min-w-0">
-                  {/* Tool names + details */}
-                  {tools.length > 0 && (
-                    <span className="text-[var(--color-tool)] break-words">
-                      {tools.map((t, ti) => (
-                        <span key={ti}>
-                          [{t.name}]
-                          {t.detail && (
-                            <span className="text-[var(--color-muted)] ml-1">{t.detail}</span>
-                          )}
-                          {' '}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-
-                  {/* Tool result preview (only when collapsed) */}
-                  {!showExpanded && isToolOutput && toolResults.length > 0 && (
-                    <span className={`break-words ${hasErrors ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-60'}`}>
-                      {toolResults[0].content.split('\n')[0]}
-                      {toolResults[0].content.split('\n').length > 1 ? '...' : ''}
-                    </span>
-                  )}
-
-                  {/* Text preview (only when collapsed) */}
-                  {!showExpanded && text && !isToolOutput && (
-                    <span className="text-[var(--color-foreground)] break-words">
-                      {text.split('\n')[0]}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Expanded content — auto for recent entries, hover for older */}
-              <div
-                className={`overflow-hidden transition-all duration-400 ${
-                  showExpanded && hasExpandableContent ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
-                }`}
-              >
-                <div
-                  className="px-3 pb-2 pl-8 space-y-2"
-                  style={{
-                    background: isMostRecentOutput
-                      ? 'color-mix(in srgb, var(--color-accent) 5%, var(--color-surface))'
-                      : 'color-mix(in srgb, var(--color-accent) 3%, var(--color-surface))',
-                  }}
-                >
-                  {/* Thinking */}
-                  {thinking && (
-                    <div className="text-[var(--color-thinking)] text-sm leading-relaxed whitespace-pre-wrap italic">
-                      {thinking}
-                    </div>
-                  )}
-
-                  {/* Tool results */}
-                  {toolResults.length > 0 && (
-                    <div className="space-y-1.5">
-                      {toolResults.map((r, ri) => {
-                        const { formatted, isJson } = formatOutput(r.content);
-                        return (
-                          <pre key={ri} className={`whitespace-pre-wrap break-words text-sm leading-relaxed ${
-                            r.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-foreground)] opacity-80'
-                          } ${isJson ? 'bg-[var(--color-background)] rounded px-2 py-1.5' : ''}`}>
-                            {formatted}
-                          </pre>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Text content */}
-                  {text && (
-                    <div className="text-sm text-[var(--color-foreground)] leading-relaxed whitespace-pre-wrap break-words">
-                      {renderMarkdownish(text)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {entries.map((item: any, i: number) => (
+          <LiveEntry
+            key={item.key ?? i}
+            item={item} i={i}
+            reasoningOnly={reasoningOnly} showThinking={showThinking}
+            getColorForSession={getColorForSession}
+            entries={entries} hoveredEntry={hoveredEntry}
+            mostRecentOutputIdx={mostRecentOutputIdx}
+            onEntryMouseEnter={onEntryMouseEnter} onEntryMouseLeave={onEntryMouseLeave}
+          />
+        ))}
       </div>
     </div>
   );
