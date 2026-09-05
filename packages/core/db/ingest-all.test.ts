@@ -87,6 +87,19 @@ beforeAll(async () => {
     }),
   ].join('\n') + '\n');
 
+  // Fetch's layout: ~/.fetch/sessions/{slug}/{id}.jsonl. A third reader
+  // again, and the one that carries a research question rather than a
+  // coding turn.
+  const fetchDir = path.join(home, '.fetch', 'sessions', '-home-fox-git-demo');
+  fs.mkdirSync(fetchDir, { recursive: true });
+  fs.writeFileSync(path.join(fetchDir, 'ff111111-1111-2222-3333-444444444444.jsonl'), [
+    message('f1', 'user', 'what does gaugeColor do?'),
+    message('f2', 'assistant', 'it maps a percentage to a colour', {
+      inputTokens: 50, outputTokens: 20,
+      inputTokenDetails: { cacheReadTokens: 0, cacheWriteTokens: 0 },
+    }),
+  ].join('\n') + '\n');
+
   // A directory that looks like a harness but has no unfirehose folder, and
   // one on the exclusion list — neither should be read as a native harness.
   fs.mkdirSync(path.join(home, '.ssh'), { recursive: true });
@@ -191,6 +204,16 @@ describe('ingestAll over a native harness', () => {
     expect(types).toContain('tool-call');
     expect(types).toContain('tool-result');
     expect(types).not.toContain('thinking');
+  });
+
+  it('reads Fetch, which files its sessions under a different directory', () => {
+    // Three readers now — native, Claude Code and Fetch — and each files
+    // its projects differently. A reader that silently found nothing would
+    // look exactly like a harness nobody used.
+    const project = one<{ name: string; display_name: string }>(
+      "SELECT name, display_name FROM projects WHERE display_name LIKE '[fetch]%'",
+    );
+    expect(project).toBeTruthy();
   });
 
   it('adds nothing on a second pass over unchanged files', async () => {
