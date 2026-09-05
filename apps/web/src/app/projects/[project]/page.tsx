@@ -44,6 +44,111 @@ function ProgressBar({ value, max, label, detail }: { value: number; max: number
   );
 }
 
+/** Breadcrumb, title, remotes and the boot-session control. */
+function ProjectHeader(props: any) {
+  const { decodedProject, derivedProjectPath, full, meta, fetchRemotes, booting, bootSession, bootResult, bootTmux, yolo, setYolo } = props;
+  return (
+  <div>
+    <div className="flex items-center gap-3 text-sm">
+      <Link href="/projects" className="text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
+        &larr; Projects
+      </Link>
+    </div>
+    <div className="flex items-center gap-3 mt-1">
+      <h1 className="text-xl font-bold">{full?.project?.displayName ?? decodedProject}</h1>
+      {full?.visibility && (
+        <span className={`text-xs px-1.5 py-0.5 rounded ${
+          full.visibility === 'public' ? 'text-green-400 bg-green-400/10' :
+          full.visibility === 'unlisted' ? 'text-yellow-400 bg-yellow-400/10' :
+          'text-[var(--color-muted)] bg-[var(--color-surface-hover)]'
+        }`}>
+          {full.visibility}
+        </span>
+      )}
+      {meta && (fetchRemotes.length > 0 || meta.branch) && (
+        <>
+          {meta.branch && (
+            <span className="text-sm bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-0.5 rounded font-mono">
+              {meta.branch}
+            </span>
+          )}
+          {fetchRemotes.map((r: any) => {
+            const webUrl = gitRemoteToWebUrl(r.url);
+            return webUrl ? (
+              <a key={`${r.name}-${r.url}`} href={webUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-[var(--color-accent)] hover:underline">
+                {webUrl.replace(/^https?:\/\//, '')}
+              </a>
+            ) : (
+              <span key={`${r.name}-${r.url}`} className="text-sm font-mono text-[var(--color-muted)]">{r.url}</span>
+            );
+          })}
+        </>
+      )}
+      <div className="ml-auto flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] cursor-pointer">
+            <input type="checkbox" checked={yolo} onChange={(e) => setYolo(e.target.checked)} className="accent-[var(--color-error)]" />
+            Yolo
+          </label>
+          <button
+            onClick={() => bootSession()}
+            disabled={booting}
+            className="px-3 py-1 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {booting ? 'Booting...' : 'Boot Session'}
+          </button>
+        </div>
+    </div>
+    <p className="text-sm text-[var(--color-muted)] font-mono mt-1">{derivedProjectPath}</p>
+    {bootResult && (
+      <div className={`text-sm font-mono mt-1 flex items-center gap-3 ${bootResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
+        <span>{bootResult}</span>
+        {bootTmux && (
+          <Link
+            href={`/tmux/${encodeURIComponent(bootTmux.session)}${bootTmux.host !== 'localhost' ? `?host=${encodeURIComponent(bootTmux.host)}` : ''}`}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent)]/15 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 transition-colors text-xs font-bold"
+          >
+            ▸ Watch Terminal
+          </Link>
+        )}
+      </div>
+    )}
+  </div>
+  );
+}
+
+/** The tab strip, with a count on the tabs that have one. */
+function ProjectTabs(props: any) {
+  const { tab, setTab, data, todoCount, commitCount } = props;
+  return (
+  <div className="flex items-center gap-1 border-b border-[var(--color-border)] overflow-x-auto">
+    {TABS.map((t) => {
+      const badge =
+        t.key === 'sessions' ? data.sessions.length :
+        t.key === 'todos' ? todoCount :
+        t.key === 'commits' ? commitCount :
+        null;
+      return (
+        <button
+          key={t.key}
+          onClick={() => setTab(t.key)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            tab === t.key
+              ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
+              : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-border)]'
+          }`}
+        >
+          {t.label}
+          {badge != null && badge > 0 && (
+            <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-[var(--color-surface-hover)]">{badge}</span>
+          )}
+        </button>
+      );
+    })}
+  </div>
+  );
+}
+
+
 export default function ProjectPage({
   params,
 }: {
@@ -273,99 +378,17 @@ export default function ProjectPage({
         metrics={{ project: decodedProject, sessions: data.sessions.length, path: data.originalPath || '' }}
       />
 
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 text-sm">
-          <Link href="/projects" className="text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
-            &larr; Projects
-          </Link>
-        </div>
-        <div className="flex items-center gap-3 mt-1">
-          <h1 className="text-xl font-bold">{full?.project?.displayName ?? decodedProject}</h1>
-          {full?.visibility && (
-            <span className={`text-xs px-1.5 py-0.5 rounded ${
-              full.visibility === 'public' ? 'text-green-400 bg-green-400/10' :
-              full.visibility === 'unlisted' ? 'text-yellow-400 bg-yellow-400/10' :
-              'text-[var(--color-muted)] bg-[var(--color-surface-hover)]'
-            }`}>
-              {full.visibility}
-            </span>
-          )}
-          {meta && (fetchRemotes.length > 0 || meta.branch) && (
-            <>
-              {meta.branch && (
-                <span className="text-sm bg-[var(--color-surface-hover)] text-[var(--color-accent)] px-2 py-0.5 rounded font-mono">
-                  {meta.branch}
-                </span>
-              )}
-              {fetchRemotes.map((r: any) => {
-                const webUrl = gitRemoteToWebUrl(r.url);
-                return webUrl ? (
-                  <a key={`${r.name}-${r.url}`} href={webUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-[var(--color-accent)] hover:underline">
-                    {webUrl.replace(/^https?:\/\//, '')}
-                  </a>
-                ) : (
-                  <span key={`${r.name}-${r.url}`} className="text-sm font-mono text-[var(--color-muted)]">{r.url}</span>
-                );
-              })}
-            </>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] cursor-pointer">
-                <input type="checkbox" checked={yolo} onChange={(e) => setYolo(e.target.checked)} className="accent-[var(--color-error)]" />
-                Yolo
-              </label>
-              <button
-                onClick={() => bootSession()}
-                disabled={booting}
-                className="px-3 py-1 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {booting ? 'Booting...' : 'Boot Session'}
-              </button>
-            </div>
-        </div>
-        <p className="text-sm text-[var(--color-muted)] font-mono mt-1">{derivedProjectPath}</p>
-        {bootResult && (
-          <div className={`text-sm font-mono mt-1 flex items-center gap-3 ${bootResult.startsWith('Error') ? 'text-[var(--color-error)]' : 'text-[var(--color-accent)]'}`}>
-            <span>{bootResult}</span>
-            {bootTmux && (
-              <Link
-                href={`/tmux/${encodeURIComponent(bootTmux.session)}${bootTmux.host !== 'localhost' ? `?host=${encodeURIComponent(bootTmux.host)}` : ''}`}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent)]/15 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 transition-colors text-xs font-bold"
-              >
-                ▸ Watch Terminal
-              </Link>
-            )}
-          </div>
-        )}
-      </div>
+      <ProjectHeader
+        decodedProject={decodedProject} derivedProjectPath={derivedProjectPath}
+        full={full} meta={meta} fetchRemotes={fetchRemotes}
+        booting={booting} bootSession={bootSession}
+        bootResult={bootResult} bootTmux={bootTmux} yolo={yolo} setYolo={setYolo}
+      />
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-[var(--color-border)] overflow-x-auto">
-        {TABS.map((t) => {
-          const badge =
-            t.key === 'sessions' ? data.sessions.length :
-            t.key === 'todos' ? todoCount :
-            t.key === 'commits' ? commitCount :
-            null;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                tab === t.key
-                  ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
-                  : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-border)]'
-              }`}
-            >
-              {t.label}
-              {badge != null && badge > 0 && (
-                <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-[var(--color-surface-hover)]">{badge}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      <ProjectTabs
+        tab={tab} setTab={setTab} data={data}
+        todoCount={todoCount} commitCount={commitCount}
+      />
 
       {/* Tab content */}
       {tab === 'overview' && (
