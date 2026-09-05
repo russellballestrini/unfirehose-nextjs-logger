@@ -1,5 +1,6 @@
 'use client';
 
+import { useHashTab } from '@/lib/use-hash-tab';
 import { ActionButton } from '@/components/ActionButton';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
@@ -36,7 +37,12 @@ type Calibration = {
   results: Array<{ id: number; window_minutes: number; metric: string; previous: number; p95: number; threshold: number; samples: number; acknowledged: number }>;
 };
 
+/** The right-hand panel: recent alerts by default, the rules table on request. */
+const PANEL_TABS = ['recent', 'rules'] as const;
+type Panel = typeof PANEL_TABS[number];
+
 export default function UsageMonitorPage() {
+  const [panel, setPanel] = useHashTab<Panel>(PANEL_TABS, 'recent');
   const [ingesting, setIngesting] = useState(false);
 
   const { data: alerts, mutate: mutateAlerts } = useSWR('/api/alerts?filter=unacknowledged', fetcher, { refreshInterval: 5000 });
@@ -151,6 +157,17 @@ export default function UsageMonitorPage() {
         details={alerts?.map((a: any) => `ALERT: ${a.metric} exceeded ${formatTokens(a.threshold_value)} in ${a.window_minutes}min — actual: ${formatTokens(a.actual_value)}`).join('\n')}
       />
 
+      {/* Header */}
+      <div className="grid grid-cols-[1fr_auto] items-center">
+        <h2 className="text-lg font-bold">Usage Monitor</h2>
+        <button
+          onClick={runIngest}
+          disabled={ingesting}
+          className="bg-[var(--color-accent)] text-black px-3 py-1.5 rounded text-base font-bold disabled:opacity-50"
+        >
+          {ingesting ? 'Ingesting...' : 'Ingest Now'}
+        </button>
+      </div>
       {/* Alert banner — grouped by metric + window */}
       {alerts && alerts.length > 0 && (() => {
         const groups: Record<string, { metric: string; window: number; threshold: number; alerts: any[] }> = {};
@@ -225,20 +242,79 @@ export default function UsageMonitorPage() {
         );
       })()}
 
-      {/* Header */}
-      <div className="grid grid-cols-[1fr_auto] items-center">
-        <h2 className="text-lg font-bold">Usage Monitor</h2>
-        <button
-          onClick={runIngest}
-          disabled={ingesting}
-          className="bg-[var(--color-accent)] text-black px-3 py-1.5 rounded text-base font-bold disabled:opacity-50"
-        >
-          {ingesting ? 'Ingesting...' : 'Ingest Now'}
-        </button>
+      {/* The hits are what this page is for and they sit on top. Below, on a
+          desktop, history and the panel share the width; the rules table
+          used to take the whole page by itself, which pushed the breach
+          history — the thing that says whether the rules are any good —
+          below the fold on every visit. */}
+      <div className="grid gap-6 lg:grid-cols-2 items-start">
+      {/* Breach history — per day, raw rows behind a disclosure */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 min-w-0">
+        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
+          Breaches — last {HISTORY_DAYS} days
+        </h3>
+        {days.length === 0 ? (
+          <p className="text-base text-[var(--color-muted)]">No threshold breaches in the last {HISTORY_DAYS} days.</p>
+        ) : (
+          <div className="space-y-1">
+            {days.map(d => (
+              <div key={d.day} className="grid grid-cols-[7rem_3rem_1fr] items-center gap-3 py-1 text-base">
+                <span className="font-mono text-[var(--color-muted)]">{d.day}</span>
+                <span className={`font-mono text-right ${d.open > 0 ? 'text-[var(--color-error)] font-bold' : ''}`}>{d.total}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="h-2 rounded bg-red-500/60 shrink-0" style={{ width: `${Math.max(2, (d.total / historyMax) * 40)}%` }} />
+                  <span className="flex flex-wrap gap-1 min-w-0">
+                    {d.rules.map((r: any) => (
+                      <span key={`${r.window_minutes}:${r.metric}`} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-background)] border border-[var(--color-border)] text-[var(--color-muted)]" title={`peak ${formatTokens(r.peak)}`}>
+                        {windowLabel(r.window_minutes)} {r.metric} ×{r.count}{r.unacknowledged > 0 ? <span className="text-[var(--color-error)]"> ({r.unacknowledged} open)</span> : null}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
 
-      {/* Alert rules */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] min-w-0">
+          <div role="tablist" className="flex border-b border-[var(--color-border)] text-sm">
+            {PANEL_TABS.map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={panel === t}
+                onClick={() => setPanel(t)}
+                className={`px-4 py-2 -mb-px border-b-2 ${panel === t ? 'border-[var(--color-accent)] text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+              >
+                {t === 'recent' ? `Recent alerts${Array.isArray(recent) ? ` (${recent.length})` : ''}` : 'Rules'}
+              </button>
+            ))}
+          </div>
+          <div className="p-4">
+            {panel === 'recent' && (
+              Array.isArray(recent) && recent.length > 0 ? (
+                <div className="space-y-0.5 max-h-[32rem] overflow-auto">
+                  {recent.map((a: any) => (
+                    <Link
+                      key={a.id}
+                      href={`/usage/alert/${a.id}`}
+                      className={`text-sm py-0.5 grid grid-cols-[9rem_3rem_1fr_auto] gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 ${
+                        a.acknowledged ? 'text-[var(--color-muted)]' : 'text-[var(--color-error)]'
+                      }`}
+                    >
+                      <span className="font-mono truncate">{a.triggered_at}</span>
+                      <span>{windowLabel(a.window_minutes)}</span>
+                      <span className="truncate"><span className="font-mono font-bold">{a.metric}</span> {formatTokens(a.actual_value)} / {formatTokens(a.threshold_value)}</span>
+                      {a.acknowledged ? <span className="text-[var(--color-accent)]">ack</span> : <span />}
+                    </Link>
+                  ))}
+                </div>
+              ) : <p className="text-sm text-[var(--color-muted)]">No alerts yet.</p>
+            )}
+            {panel === 'rules' && (
+              <div>
         <div className="flex items-start justify-between gap-4 mb-3">
           <div>
             <h3 className="text-base font-bold text-[var(--color-muted)]">Alert Rules</h3>
@@ -316,61 +392,10 @@ export default function UsageMonitorPage() {
             </tbody>
           </table>
         )}
-      </div>
-
-      {/* Breach history — per day, raw rows behind a disclosure */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-        <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-          Breaches — last {HISTORY_DAYS} days
-        </h3>
-        {days.length === 0 ? (
-          <p className="text-base text-[var(--color-muted)]">No threshold breaches in the last {HISTORY_DAYS} days.</p>
-        ) : (
-          <div className="space-y-1">
-            {days.map(d => (
-              <div key={d.day} className="grid grid-cols-[7rem_3rem_1fr] items-center gap-3 py-1 text-base">
-                <span className="font-mono text-[var(--color-muted)]">{d.day}</span>
-                <span className={`font-mono text-right ${d.open > 0 ? 'text-[var(--color-error)] font-bold' : ''}`}>{d.total}</span>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="h-2 rounded bg-red-500/60 shrink-0" style={{ width: `${Math.max(2, (d.total / historyMax) * 40)}%` }} />
-                  <span className="flex flex-wrap gap-1 min-w-0">
-                    {d.rules.map((r: any) => (
-                      <span key={`${r.window_minutes}:${r.metric}`} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-background)] border border-[var(--color-border)] text-[var(--color-muted)]" title={`peak ${formatTokens(r.peak)}`}>
-                        {windowLabel(r.window_minutes)} {r.metric} ×{r.count}{r.unacknowledged > 0 ? <span className="text-[var(--color-error)]"> ({r.unacknowledged} open)</span> : null}
-                      </span>
-                    ))}
-                  </span>
-                </div>
               </div>
-            ))}
+            )}
           </div>
-        )}
-
-        {Array.isArray(recent) && recent.length > 0 && (
-          <details className="mt-3 group">
-            <summary className="text-sm text-[var(--color-muted)] cursor-pointer hover:text-[var(--color-foreground)] list-none">
-              <span className="inline-block group-open:rotate-90 transition-transform mr-1">▸</span>
-              Most recent {recent.length} alerts
-            </summary>
-            <div className="mt-2 space-y-0.5 max-h-64 overflow-auto">
-              {recent.map((a: any) => (
-                <Link
-                  key={a.id}
-                  href={`/usage/alert/${a.id}`}
-                  className={`text-sm py-0.5 grid grid-cols-[10rem_3rem_8rem_1fr_auto] gap-3 hover:bg-[var(--color-surface-hover)] rounded px-1 ${
-                    a.acknowledged ? 'text-[var(--color-muted)]' : 'text-[var(--color-error)]'
-                  }`}
-                >
-                  <span className="font-mono">{a.triggered_at}</span>
-                  <span>{windowLabel(a.window_minutes)}</span>
-                  <span className="font-mono font-bold">{a.metric}</span>
-                  <span>{formatTokens(a.actual_value)} / {formatTokens(a.threshold_value)}</span>
-                  {a.acknowledged ? <span className="text-[var(--color-accent)]">ack</span> : <span />}
-                </Link>
-              ))}
-            </div>
-          </details>
-        )}
+        </div>
       </div>
     </div>
   );

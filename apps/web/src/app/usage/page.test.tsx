@@ -87,6 +87,9 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const show = async () => {
+  // The panel tab lives in the URL hash and survives between tests; every
+  // render starts from the page as a fresh visitor sees it.
+  window.history.replaceState(null, '', window.location.pathname);
   const view = render(<UsageMonitorPage />);
   await act(async () => { await Promise.resolve(); });
   return view;
@@ -137,8 +140,12 @@ describe('usage monitor', () => {
     expect(posts().some(p => p.body?.action === 'acknowledge_all')).toBe(false);
   });
 
+  /** The rules table sits behind a tab; open it the way a person would. */
+  const openRules = async () => { await act(async () => { button(/^Rules$/)!.click(); }); };
+
   it('calibrates thresholds from history', async () => {
     await show();
+    await openRules();
     await act(async () => { button(/Calibrate/)!.click(); });
     await waitFor(() => expect(posts().some(p => p.body?.action?.includes('calibrate'))).toBe(true));
   });
@@ -150,6 +157,7 @@ describe('usage monitor', () => {
       at: '2026-09-01T00:00:00Z', days: 7, factor: 1.5, results: [],
     }) };
     const { container } = await show();
+    await openRules();
     expect(container.textContent).toContain('from 7d of history');
   });
 
@@ -163,4 +171,32 @@ describe('usage monitor', () => {
     alerts = []; daily = []; recent = []; thresholds = [];
     expect((await show()).container.textContent!.length).toBeGreaterThan(100);
   });
+
+  it('puts the hits above everything else', async () => {
+    // The alerts are what the page is for. The rules table used to take the
+    // whole width by itself and push the breach history below the fold.
+    await show();
+    const hits = document.body.textContent!.indexOf('USAGE ALERTS');
+    const history = document.body.textContent!.indexOf('Breaches');
+    expect(hits).toBeGreaterThan(-1);
+    expect(hits).toBeLessThan(history);
+  });
+
+  it('opens on recent alerts, with the rules a tab away', async () => {
+    await show();
+    expect(button(/^Rules$/)?.getAttribute('aria-selected')).toBe('false');
+    expect(document.body.textContent).not.toContain('Alert Rules');
+    await openRules();
+    expect(button(/^Rules$/)?.getAttribute('aria-selected')).toBe('true');
+    expect(document.body.textContent).toContain('Alert Rules');
+    expect(button(/Calibrate/)).toBeTruthy();
+  });
+
+  it('lays history and the panel side by side on a wide screen', async () => {
+    await show();
+    const grid = document.querySelector('.lg\\:grid-cols-2');
+    expect(grid).toBeTruthy();
+    expect(grid!.children).toHaveLength(2);
+  });
 });
+
