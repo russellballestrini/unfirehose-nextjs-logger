@@ -117,24 +117,10 @@ export default function NodeDetailPage() {
     { refreshInterval: 5000 },
   );
 
-  // Chart engine — uPlot (canvas, default) or recharts (SVG, fallback).
-  // Persisted in localStorage so toggling sticks across reloads.
-  const [chartEngine, setChartEngine] = useState<'uplot' | 'recharts'>(() => {
-    if (typeof window === 'undefined') return 'uplot';
-    return (localStorage.getItem('node_chart_engine') as 'uplot' | 'recharts') || 'uplot';
-  });
-  const toggleEngine = useCallback(() => {
-    setChartEngine(prev => {
-      const next = prev === 'uplot' ? 'recharts' : 'uplot';
-      try { localStorage.setItem('node_chart_engine', next); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-
   // Click-and-drag zoom — select x1→x2 on any chart, all charts zoom together.
   // We keep ALL mouse-driven visuals out of React. Native event listeners
   // attached at the document level (in useEffect below) run synchronously with
-  // the browser's input pipeline — no React batching, no recharts internal
+  // the browser's input pipeline — no React batching, no chart-library internal
   // syncId churn before our cursor moves. Refs hold all live state.
   const [zoomDomain, setZoomDomain] = useState<[number, number] | null>(null);
   const zoomDomainRef = useRef<[number, number] | null>(null);
@@ -489,7 +475,7 @@ export default function NodeDetailPage() {
 
   // One bag rather than twenty-four props on each tab: these are the
   // page's state, and every tab reads some of it.
-  const tabProps = { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, chartEngine, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, toggleEngine, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef };
+  const tabProps = { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef };
 
   return (
     <div className="p-6 w-full">

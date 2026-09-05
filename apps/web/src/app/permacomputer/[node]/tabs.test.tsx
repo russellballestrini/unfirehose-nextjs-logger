@@ -68,7 +68,7 @@ const bag = (over: Record<string, unknown> = {}) => ({
       load: 8.1, cores: 32, memUsedGB: 95, memTotalGB: 378, memCapGB: 384, claudes: 2, agents: 2,
       gpuUtil: 5, gpuMemUsedGB: 1, gpuMemTotalGB: 24, elecCostPerHour: 0.05 },
   ],
-  chartDataRef: ref([]), chartEngine: 'recharts', toggleEngine: vi.fn(),
+  chartDataRef: ref([]),
   range: '24h', setRange: vi.fn(), rangeRef: ref('24h'),
   zoomDomain: null, setZoomDomain: vi.fn(), applyZoom: vi.fn(),
   closestRangeForZoom: () => '24h', zoomDrivenRangeRef: ref(false),
@@ -342,12 +342,6 @@ describe('the node chart controls', () => {
     expect(z.setZoomDomain).toHaveBeenCalled();
   });
 
-  it('offers the other chart engine, since one of them is a canvas', () => {
-    const toggleEngine = vi.fn();
-    render(<OverviewTab {...bag({ toggleEngine })} />);
-    click(byTitle('Toggle chart engine'));
-    expect(toggleEngine).toHaveBeenCalled();
-  });
 });
 
 describe('panels that need the hardware to exist', () => {

@@ -12,7 +12,6 @@ import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
 import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { harnessesFor } from '@/lib/harnesses';
 import { HarnessPicker } from '@/components/HarnessPicker';
 
@@ -238,7 +237,6 @@ export function OverviewTab(props: TabProps) {
     applyZoom,
     chartData,
     chartDataRef,
-    chartEngine,
     closestRangeForZoom,
     host,
     hoverTimerRef,
@@ -255,7 +253,6 @@ export function OverviewTab(props: TabProps) {
     setRange,
     setZoomDomain,
     sys,
-    toggleEngine,
     viewMaxRef,
     viewMinRef,
     zoomDomain,
@@ -632,10 +629,6 @@ export function OverviewTab(props: TabProps) {
                   reset
                 </button>
               </div>
-              <button onClick={toggleEngine} title="Toggle chart engine"
-                className="text-xs px-2 py-1 border border-[var(--color-border)] rounded hover:bg-[var(--color-surface)] cursor-pointer font-mono">
-                engine: <span className="text-[var(--color-accent)]">{chartEngine}</span>
-              </button>
               <TimeRangeSelect value={range} onChange={setRange} />
             </div>
           </div>
@@ -647,7 +640,7 @@ export function OverviewTab(props: TabProps) {
               setCursor hook) replace the shared hover row — updates are
               DOM-direct so values appear with the cursor, no React work. */}
 
-          {chartEngine === 'uplot' && (() => {
+          {(() => {
             // uPlot chart engine — canvas, no React reconciliation per data tick.
             const SYNC = 'mesh-node-detail';
             const handleZoom = (range: [number, number]) => {
@@ -743,183 +736,6 @@ export function OverviewTab(props: TabProps) {
             );
           })()}
 
-          {chartEngine === 'recharts' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-          {/* CPU Load */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              CPU Load
-              <span className="text-xs font-normal ml-2">{last.load.toFixed(1)} / {last.cores} cores</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [typeof v === 'number' ? v.toFixed(1) : v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Legend />
-                <Area type="monotone" dataKey="cores" name="Total Cores" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-                <Area type="monotone" dataKey="load" name="Load Average" stroke="#f97316" fill="#f97316" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-
-          {/* Memory */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Memory Usage
-              <span className="text-xs font-normal ml-2">{last.memUsedGB} / {last.memTotalGB || '?'} GB</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} unit="GB" />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Legend />
-                {last.memTotalGB > 0 && (
-                  <Area type="monotone" dataKey="memTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-                )}
-                <Area type="monotone" dataKey="memUsedGB" name="Used" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-
-          {/* GPU Utilization */}
-          {chartData.some((t: any) => t.gpuUtil > 0 || t.gpuWatts > 0) && (
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              GPU Utilization
-              <span className="text-xs font-normal ml-2">{last.gpuUtil}%</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} unit="%" domain={[0, 100]} />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Area type="monotone" dataKey="gpuUtil" name="GPU Util" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-          )}
-
-          {/* GPU Memory */}
-          {chartData.some((t: any) => t.gpuMemTotalGB > 0) && (
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              GPU Memory
-              <span className="text-xs font-normal ml-2">{last.gpuMemUsedGB} / {last.gpuMemTotalGB} GB</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} unit="GB" />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}GB`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Area type="monotone" dataKey="gpuMemTotalGB" name="Total" stroke="#3f3f46" fill="#3f3f46" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-                <Area type="monotone" dataKey="gpuMemUsedGB" name="Used" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-          )}
-
-          {/* GPU Power */}
-          {chartData.some((t: any) => t.gpuWatts > 0) && (
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              GPU Power
-              <span className="text-xs font-normal ml-2">{last.gpuWatts}W</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} unit="W" />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Area type="monotone" dataKey="gpuWatts" name="GPU Power" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-          )}
-
-          {/* Electricity Cost */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Electricity Cost
-              <span className="text-xs font-normal ml-2">
-                ${last.elecCostPerHour.toFixed(3)}/hr &middot; ~${(last.elecCostPerHour * 24 * 30).toFixed(0)}/mo
-              </span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={140}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any) => [`$${Number(v).toFixed(3)}/hr`, '$/hr']} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Area type="monotone" dataKey="elecCostPerHour" name="$/hr" stroke="#facc15" fill="#facc15" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-
-          {/* Wattage */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Compute Wattage
-              <span className="text-xs font-normal ml-2">{last.watts}W current</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} unit="W" />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [`${v}W`, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Legend />
-                <Line type="monotone" dataKey="watts" name="Total" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-                <Line type="monotone" dataKey="cpuWatts" name="CPU" stroke="#f97316" strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-                {chartData.some((t: any) => t.gpuWatts > 0) && (
-                  <Line type="monotone" dataKey="gpuWatts" name="GPU" stroke="#a78bfa" strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-
-          {/* Active Claudes */}
-          <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
-            <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
-              Active Claudes
-              <span className="text-xs font-normal ml-2">{last.agents ?? last.claudes} current</span>
-            </h3>
-            <div data-chart-wrapper="node-detail" className="relative cursor-crosshair select-none">
-            <ResponsiveContainer width="100%" height={140}>
-              <AreaChart data={chartData}>
-                <XAxis {...xAxisProps} />
-                <YAxis tick={AXIS_TICK_SM} allowDecimals={false} />
-                <Tooltip position={tooltipPosition} cursor={false} isAnimationActive={false} labelFormatter={fmtLabel} formatter={(v: any, name: any) => [v, name]} contentStyle={tooltipStyle} content={NULL_TOOLTIP} wrapperStyle={HIDDEN_WRAPPER_STYLE} />
-                <Area type="stepAfter" dataKey="agents" name="Agents" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.2} dot={false} activeDot={{ r: 4, fill: '#fff', stroke: '#fff', strokeWidth: 1 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <ChartOverlay />
-            </div>
-          </div>
-
-          </div>
-          )}
         </div>
         );
       })()}
