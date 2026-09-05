@@ -285,10 +285,12 @@ const createService: Action = async ({ publicKey, secretKey, body }) => {
   // Derive a stable per-user suffix via SHA-256 of the public key — consistent,
   // non-reversible, and safe to expose in a global namespace.
   const pkSuffix = createHash('sha256').update(publicKey).digest('hex').slice(0, 8);
+  // Always a name: an unnamed service still needs one, because this
+  // namespace is shared with every other key. The guard that used to
+  // follow could not fire.
   const name = body.name
     ? `${body.name}-${pkSuffix}`
     : `service-${pkSuffix}`;
-  if (!name) return NextResponse.json({ error: 'Missing service name' }, { status: 400 });
   try {
     // Inject Claude auth credentials into bootstrap script if present
     let finalBootstrap = bootstrap;
