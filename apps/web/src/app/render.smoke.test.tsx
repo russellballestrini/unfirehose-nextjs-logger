@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /// <reference types="vite/client" />
-import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { render, cleanup, act } from '@testing-library/react';
 
 /**
  * Every page renders against data.
@@ -60,12 +60,24 @@ const FIXTURE: Record<string, unknown> = {
  */
 const PAYLOAD = Object.assign([] as unknown[], FIXTURE);
 
+/** What every useSWR call answers. Reassigned per test to change the state. */
+let swrAnswer: Record<string, unknown>;
+
 vi.mock('swr', () => {
-  const useSWR = () => ({
-    data: PAYLOAD, error: undefined, isLoading: false, isValidating: false, mutate: vi.fn(),
-  });
+  const useSWR = () => swrAnswer;
   return { default: useSWR, useSWRConfig: () => ({ mutate: vi.fn() }), mutate: vi.fn() };
 });
+
+/**
+ * The uPlot chart is a canvas that measures itself, so jsdom can neither
+ * draw it nor tell it a size — it is stubbed whole rather than piece by
+ * piece. Its own tests would need a browser; what this harness is for is
+ * the pages around it.
+ */
+vi.mock('@/components/UPlotTimeChart', () => ({
+  UPlotTimeChart: () => null,
+  default: () => null,
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
@@ -104,9 +116,23 @@ beforeAll(() => {
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 768 });
 });
 
+beforeEach(() => {
+  swrAnswer = {
+    data: PAYLOAD, error: undefined, isLoading: false, isValidating: false, mutate: vi.fn(),
+  };
+});
+
 afterEach(cleanup);
 
 const pages = import.meta.glob('./**/page.tsx');
+
+const pageProps = () => ({
+  // Next passes params as a promise to a page; `use()` unwraps it.
+  params: Promise.resolve({
+    project: 'demo', session: '0', node: 'localhost', id: '1', sessionId: 's1',
+  }),
+  searchParams: Promise.resolve({}),
+}) as never;
 
 describe('every page renders', () => {
   it('finds all of them, so this cannot quietly cover nothing', () => {
@@ -116,12 +142,54 @@ describe('every page renders', () => {
   for (const [path, load] of Object.entries(pages)) {
     it(`renders ${path.replace('./', '')}`, async () => {
       const mod = (await load()) as { default: (props: never) => React.ReactNode };
-      const Page = mod.default;
-      // Next passes params as a promise to a page; `use()` unwraps it.
-      const params = Promise.resolve({
-        project: 'demo', session: '0', node: 'localhost', id: '1', sessionId: 's1',
-      });
-      expect(() => render(<Page {...({ params, searchParams: Promise.resolve({}) } as never)} />)).not.toThrow();
+      expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
+    });
+  }
+});
+
+/**
+ * The same pages with nothing to show, and with a failure to show.
+ *
+ * Every one of these has a spinner branch and an error branch that a
+ * populated fixture never reaches, and they are exactly where an unguarded
+ * `data.rows.length` hides — the happy path proves nothing about them.
+ */
+describe('every page renders with no data and with an error', () => {
+  for (const [path, load] of Object.entries(pages)) {
+    it(`survives an empty and a failed load: ${path.replace('./', '')}`, async () => {
+      const mod = (await load()) as { default: (props: never) => React.ReactNode };
+
+      swrAnswer = { data: undefined, error: undefined, isLoading: true, isValidating: true, mutate: vi.fn() };
+      expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
+      cleanup();
+
+      swrAnswer = { data: undefined, error: new Error('offline'), isLoading: false, isValidating: false, mutate: vi.fn() };
+      expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
+    });
+  }
+});
+
+/**
+ * Click everything a page offers.
+ *
+ * Most of what a page contains is handlers, and none of them run when it is
+ * merely rendered. This is not a claim that any button does the right thing
+ * — it is the claim that pressing one does not throw, which is what a blank
+ * screen looks like to whoever pressed it.
+ */
+describe('pressing every control leaves the page standing', () => {
+  for (const [path, load] of Object.entries(pages)) {
+    it(`clicks through ${path.replace('./', '')}`, async () => {
+      const mod = (await load()) as { default: (props: never) => React.ReactNode };
+      const { container } = render(<mod.default {...pageProps()} />);
+
+      const controls = [...container.querySelectorAll('button, [role="tab"], summary')];
+      for (const control of controls.slice(0, 40)) {
+        // A handler that throws fails the test; one that rejects a promise
+        // is the page's own business and not ours to judge here.
+        act(() => { (control as HTMLElement).click(); });
+      }
+      expect(container).toBeTruthy();
     });
   }
 });

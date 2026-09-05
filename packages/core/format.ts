@@ -52,11 +52,18 @@ export function formatDuration(ms: number): string {
   return `${hours}h ${mins}m`;
 }
 
-export function formatCost(usd: number): string {
-  if (usd >= 1) return `$${usd.toFixed(2)}`;
+/**
+ * Dollars, at the precision the amount deserves.
+ *
+ * Below a cent, two decimals would show every small figure as $0.00 — a
+ * per-message cost is often four digits down. Absent reads as zero rather
+ * than throwing: a missing field on an older payload should leave a dash on
+ * the page, not a blank one.
+ */
+export function formatCost(usd: number | null | undefined): string {
+  if (usd == null || !Number.isFinite(usd) || usd <= 0) return '$0.00';
   if (usd >= 0.01) return `$${usd.toFixed(2)}`;
-  if (usd > 0) return `$${usd.toFixed(4)}`;
-  return '$0.00';
+  return `$${usd.toFixed(4)}`;
 }
 
 export function truncate(str: string, maxLen: number): string {

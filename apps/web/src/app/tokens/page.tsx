@@ -54,7 +54,13 @@ function shortModel(model: string): string {
   return model.replace('claude-', '').replace(/-\d{8}$/, '');
 }
 
-function formatCost(usd: number): string {
+/**
+ * Local to this page because it abbreviates thousands, which the shared one
+ * does not — a lifetime figure here runs to five digits and would push its
+ * card out of the row.
+ */
+function formatCost(usd: number | null | undefined): string {
+  if (usd == null || !Number.isFinite(usd)) return '$0.00';
   if (usd >= 1000) return `$${(usd / 1000).toFixed(1)}K`;
   return `$${usd.toFixed(2)}`;
 }
@@ -62,11 +68,19 @@ function formatCost(usd: number): string {
 const tokensTabs = ['overview', 'harness', 'tools', 'plan'] as const;
 type TokensTab = (typeof tokensTabs)[number];
 
-function planLabel(rateLimitTier: string): string {
+/**
+ * The plan name, from whatever the API called the tier.
+ *
+ * Takes an optional string because the field is absent on a payload from a
+ * dashboard that has never seen a rate-limit header, and a page that says
+ * "Unknown" is better than one that goes blank.
+ */
+function planLabel(rateLimitTier?: string | null): string {
+  if (!rateLimitTier) return 'Unknown';
   if (rateLimitTier.includes('max_20x')) return 'Max 20x';
   if (rateLimitTier.includes('max_5x'))  return 'Max 5x';
   if (rateLimitTier.includes('pro'))     return 'Pro';
-  return rateLimitTier || 'Unknown';
+  return rateLimitTier;
 }
 
 // Donut for the per-model breakdowns. Model names are open-ended (self-hosted
