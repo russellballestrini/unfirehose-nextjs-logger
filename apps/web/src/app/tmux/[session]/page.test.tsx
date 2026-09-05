@@ -329,3 +329,107 @@ describe('the controls', () => {
     expect(streams.every(s => s.closed)).toBe(true);
   });
 });
+
+/**
+ * Typing into a tmux pane from the page rather than the terminal widget.
+ *
+ * A tmux session has no websocket — keystrokes are POSTed one request at a
+ * time, so they are queued and coalesced: typing at speed would otherwise
+ * be one HTTP round trip per character, arriving out of order.
+ *
+ * The keyboard listener is on the window, which is why it has to know when
+ * not to fire. Typing into the nickname field must not also type into the
+ * pane behind it.
+ */
+describe('typing into a tmux pane', () => {
+  const keys = () => posts().filter(p => p.body?.keys || p.body?.special).map(p => p.body);
+
+  /**
+   * A keypress as the browser delivers one: targeted at the focused
+   * element and bubbling to the window listener. Dispatching on window
+   * itself makes e.target the window, which has no closest().
+   */
+  const press = async (init: KeyboardEventInit) => {
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }));
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  };
+
+  /** Everything typed after the session's own auto-attach line. */
+  const typed = () => keys().filter(k => !String(k.keys ?? '').includes('tmux attach'));
+
+  it('sends an ordinary character', async () => {
+    await show();
+    await press({ key: 'a' });
+    await waitFor(() => expect(typed().some(k => k.keys === 'a')).toBe(true));
+  });
+
+  it('coalesces a burst into one request', async () => {
+    // One round trip per character arrives out of order at speed, and a
+    // shell that receives 'sl' instead of 'ls' is somebody's afternoon.
+    await show();
+    await act(async () => {
+      for (const key of ['l', 's']) {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      }
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => expect(typed().length).toBeGreaterThan(0));
+    expect(typed()[0].keys).toBe('ls');
+  });
+
+  it('sends a named key by name rather than as a character', async () => {
+    await show();
+    await press({ key: 'Escape' });
+    await waitFor(() => expect(typed().some(k => k.special === 'Escape')).toBe(true));
+  });
+
+  it('sends a control chord as the sequence tmux expects', async () => {
+    // Ctrl-C is the one people reach for when an agent is running away.
+    await show();
+    await press({ key: 'c', ctrlKey: true });
+    await waitFor(() => expect(typed().some(k => k.special === 'C-c')).toBe(true));
+  });
+
+  it('leaves a modifier chord alone when tmux has no name for it', async () => {
+    await show();
+    await press({ key: 'k', metaKey: true });
+    expect(typed().some(k => k.keys === 'k')).toBe(false);
+  });
+
+  it('does not type into the pane while somebody is typing into a field', async () => {
+    // The listener is on the window. Without this, renaming a session
+    // types the name into the shell behind the dialog.
+    const { container } = await show();
+    const input = document.createElement('input');
+    container.appendChild(input);
+    input.focus();
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    expect(typed().some(k => k.keys === 'x')).toBe(false);
+  });
+
+  it('pastes a block of text as one request', async () => {
+    await show();
+    await act(async () => {
+      const e = new Event('paste', { bubbles: true }) as ClipboardEvent;
+      Object.defineProperty(e, 'clipboardData', { value: { getData: () => 'git status\n' } });
+      document.body.dispatchEvent(e);
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    await waitFor(() => expect(typed().some(k => k.keys === 'git status\n')).toBe(true));
+  });
+
+  it('stops listening when the page goes away', async () => {
+    // The listener is on the window, so a leaked one keeps typing into a
+    // session the person has already left.
+    await show();
+    cleanup();
+    const before = typed().length;
+    await press({ key: 'z' });
+    expect(typed().length).toBe(before);
+  });
+});
