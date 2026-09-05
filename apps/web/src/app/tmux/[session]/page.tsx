@@ -213,6 +213,225 @@ function XtermPane({
 }
 
 // ── Main viewer ──────────────────────────────────────────────────────────────
+/** Session name, connection state and the interactive controls. */
+function TmuxHeader(props: any) {
+  const {
+    session, host, isUnsandbox, connected, serviceState, interactive, setInteractive,
+    termRef, disconnecting, enqueueKeys, handleDisconnect,
+    nick, sessionId,
+  } = props;
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <Link href="/tmux" className="text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm">
+        &larr; Back
+      </Link>
+      <div className="flex flex-col min-w-0">
+        {nick?.nickname && (
+          <span className="text-base font-bold leading-tight truncate">{nick.nickname}</span>
+        )}
+        <div className="flex items-center gap-2">
+          <h2 className={`font-mono truncate ${nick?.nickname ? 'text-xs text-[var(--color-muted)]' : 'text-lg font-bold'}`}>{sessionId}</h2>
+          {isUnsandbox
+            ? <span className="text-xs text-violet-400 font-mono flex-shrink-0">@unsandbox</span>
+            : host && <span className="text-xs text-[var(--color-muted)] font-mono flex-shrink-0">@{host}</span>
+          }
+        </div>
+        {nick?.service_name && (
+          <span className="text-[10px] text-violet-400/70 font-mono">⬡ {nick.service_name}</span>
+        )}
+      </div>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+        connected ? 'bg-green-400 animate-pulse'
+        : serviceState === 'frozen' || serviceState === 'sleeping' ? 'bg-blue-400'
+        : serviceState === 'unreachable' ? 'bg-red-400'
+        : 'bg-red-400'
+      }`} />
+      <span className="text-xs text-[var(--color-muted)]">{
+        connected ? 'live'
+        : serviceState === 'frozen' ? 'frozen'
+        : serviceState === 'sleeping' ? 'sleeping'
+        : serviceState === 'unreachable' ? 'unreachable'
+        : serviceState ? serviceState
+        : 'reconnecting...'
+      }</span>
+      <div className="ml-auto flex items-center gap-2">
+        {/* Paste button — reliable cross-browser clipboard read */}
+        <button
+          onClick={async () => {
+            try {
+              const text = await navigator.clipboard.readText();
+              if (!text) return;
+              if (isUnsandbox) {
+                // send directly to unsandbox shell
+                fetch('/api/unsandbox/shell', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ session_id: decodeURIComponent(session), keys: text }),
+                }).catch(() => {});
+              } else {
+                enqueueKeys({ keys: text });
+              }
+            } catch { /* clipboard permission denied */ }
+          }}
+          className="px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]"
+          title="Paste clipboard into terminal"
+        >
+          ⎘ Paste
+        </button>
+        <button
+          onClick={handleDisconnect}
+          disabled={disconnecting}
+          className="px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors bg-red-900/60 text-red-300 hover:bg-red-800 hover:text-red-100 border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Disconnect from session"
+        >
+          ⏻ Disconnect
+        </button>
+        {!isUnsandbox && (
+          <button
+            onClick={() => setInteractive(!interactive)}
+            className={`px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors ${
+              interactive
+                ? 'bg-green-500 text-black'
+                : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
+            }`}
+          >
+            {interactive ? '⌨ Interactive' : '⌨ Read-only'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One button per tmux window, when a session has more than one. */
+function TmuxWindowTabs(props: any) {
+  const { windows, activeWindow, setActiveWindow, termRef, isUnsandbox } = props;
+  return (
+    <>
+    {!isUnsandbox && windows.length > 1 && (
+      <div className="flex items-center gap-1 mb-2">
+        {windows.map((w: any) => (
+          <button
+            key={w.index}
+            onClick={() => { setActiveWindow(w.index); termRef.current?.focus(); }}
+            className={`px-3 py-1 text-xs rounded font-mono cursor-pointer transition-colors ${
+              (activeWindow ?? (windows.find((x: any) => x.active)?.index)) === w.index
+                ? 'bg-[var(--color-accent)] text-[var(--color-background)] font-bold'
+                : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+            }`}
+          >
+            {w.index}:{w.name} {w.active ? '●' : ''}
+          </button>
+        ))}
+      </div>
+    )}
+    </>
+  );
+}
+
+
+/** Why a service is not showing a terminal, and what to do about it. */
+function ServiceStateOverlay(props: any) {
+  const { serviceState, isUnsandbox, sessionId, handleServiceAction, serviceAction, serviceLogs, serviceMessage, setServiceLogs } = props;
+  return (
+    <>
+      {isUnsandbox && serviceState && serviceState !== 'running' && (
+        <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center z-10"
+          style={{ background: 'rgba(10,0,20,0.92)' }}>
+          <div className="flex items-center gap-2 mb-3">
+            <span className={`w-3 h-3 rounded-full ${
+              serviceState === 'frozen' || serviceState === 'sleeping' ? 'bg-blue-400'
+              : serviceState === 'unreachable' ? 'bg-red-400'
+              : 'bg-yellow-400'
+            }`} style={{ animation: 'uf-pulse-red 2s infinite' }} />
+            <span className="font-mono font-bold text-lg tracking-widest" style={{
+              color: serviceState === 'unreachable' ? '#ef4444'
+                : serviceState === 'frozen' || serviceState === 'sleeping' ? '#60a5fa'
+                : '#eab308'
+            }}>
+              {serviceState === 'frozen' ? 'FROZEN' : serviceState === 'sleeping' ? 'SLEEPING' : serviceState === 'unreachable' ? 'UNREACHABLE' : serviceState?.toUpperCase()}
+            </span>
+          </div>
+          <div className="font-mono text-sm text-[#a1a1aa] mb-6 max-w-md text-center px-4">
+            {serviceMessage}
+          </div>
+          <div className="flex gap-3">
+            {(serviceState === 'frozen' || serviceState === 'sleeping') && (
+              <button
+                onClick={() => handleServiceAction('wake')}
+                disabled={serviceAction !== null}
+                className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-blue-900/60 text-blue-300 hover:bg-blue-800 hover:text-blue-100 border border-blue-700/50 disabled:opacity-50"
+              >
+                {serviceAction === 'wake' ? '...' : '⚡ Wake'}
+              </button>
+            )}
+            <button
+              onClick={() => handleServiceAction('redeploy')}
+              disabled={serviceAction !== null}
+              className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-violet-900/60 text-violet-300 hover:bg-violet-800 hover:text-violet-100 border border-violet-700/50 disabled:opacity-50"
+            >
+              {serviceAction === 'redeploy' ? '...' : '↻ Redeploy'}
+            </button>
+            <button
+              onClick={() => handleServiceAction('logs')}
+              disabled={serviceAction !== null}
+              className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)] disabled:opacity-50"
+            >
+              {serviceAction === 'logs' ? '...' : '📋 Bootstrap Logs'}
+            </button>
+          </div>
+          {serviceLogs && (
+            <div className="mt-4 w-full max-w-2xl max-h-64 overflow-auto rounded border border-[var(--color-border)] bg-black/80 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs text-[var(--color-muted)]">Bootstrap Logs</span>
+                <button onClick={() => setServiceLogs(null)} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer">✕</button>
+              </div>
+              <pre className="font-mono text-xs text-[#d4d4d4] whitespace-pre-wrap break-all">{serviceLogs}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The full-screen wipe when a session ends. */
+function DisconnectOverlay(props: any) {
+  const { disconnecting } = props;
+  return (
+    <>
+    {disconnecting && (
+      <div
+        className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
+        style={{ animation: 'uf-disconnect-red 2.5s ease-in forwards' }}
+      >
+        <div
+          className="font-mono font-bold text-4xl tracking-[0.3em] uppercase"
+          style={{
+            color: '#ff3333',
+            animation: 'uf-disconnect-text 2.5s ease-in-out forwards',
+            textShadow: '0 0 20px #ff0000, 0 0 60px #ff000066, 0 0 100px #ff000033',
+          }}
+        >
+          DISCONNECTING
+        </div>
+        <div
+          className="font-mono text-sm mt-4 tracking-widest"
+          style={{
+            color: '#ff6666',
+            animation: 'uf-disconnect-text 2.5s ease-in-out forwards',
+            opacity: 0.7,
+          }}
+        >
+          session terminated
+        </div>
+      </div>
+    )}
+    </>
+  );
+}
+
+
 export default function TmuxViewerPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -588,104 +807,20 @@ export default function TmuxViewerPage() {
       <style>{DROP_STYLES}</style>
       <div className="flex flex-col h-[calc(100vh-2rem)]">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-3">
-          <Link href="/tmux" className="text-[var(--color-muted)] hover:text-[var(--color-foreground)] text-sm">
-            &larr; Back
-          </Link>
-          <div className="flex flex-col min-w-0">
-            {nick?.nickname && (
-              <span className="text-base font-bold leading-tight truncate">{nick.nickname}</span>
-            )}
-            <div className="flex items-center gap-2">
-              <h2 className={`font-mono truncate ${nick?.nickname ? 'text-xs text-[var(--color-muted)]' : 'text-lg font-bold'}`}>{sessionId}</h2>
-              {isUnsandbox
-                ? <span className="text-xs text-violet-400 font-mono flex-shrink-0">@unsandbox</span>
-                : host && <span className="text-xs text-[var(--color-muted)] font-mono flex-shrink-0">@{host}</span>
-              }
-            </div>
-            {nick?.service_name && (
-              <span className="text-[10px] text-violet-400/70 font-mono">⬡ {nick.service_name}</span>
-            )}
-          </div>
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            connected ? 'bg-green-400 animate-pulse'
-            : serviceState === 'frozen' || serviceState === 'sleeping' ? 'bg-blue-400'
-            : serviceState === 'unreachable' ? 'bg-red-400'
-            : 'bg-red-400'
-          }`} />
-          <span className="text-xs text-[var(--color-muted)]">{
-            connected ? 'live'
-            : serviceState === 'frozen' ? 'frozen'
-            : serviceState === 'sleeping' ? 'sleeping'
-            : serviceState === 'unreachable' ? 'unreachable'
-            : serviceState ? serviceState
-            : 'reconnecting...'
-          }</span>
-          <div className="ml-auto flex items-center gap-2">
-            {/* Paste button — reliable cross-browser clipboard read */}
-            <button
-              onClick={async () => {
-                try {
-                  const text = await navigator.clipboard.readText();
-                  if (!text) return;
-                  if (isUnsandbox) {
-                    // send directly to unsandbox shell
-                    fetch('/api/unsandbox/shell', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ session_id: decodeURIComponent(session), keys: text }),
-                    }).catch(() => {});
-                  } else {
-                    enqueueKeys({ keys: text });
-                  }
-                } catch { /* clipboard permission denied */ }
-              }}
-              className="px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]"
-              title="Paste clipboard into terminal"
-            >
-              ⎘ Paste
-            </button>
-            <button
-              onClick={handleDisconnect}
-              disabled={disconnecting}
-              className="px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors bg-red-900/60 text-red-300 hover:bg-red-800 hover:text-red-100 border border-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Disconnect from session"
-            >
-              ⏻ Disconnect
-            </button>
-            {!isUnsandbox && (
-              <button
-                onClick={() => setInteractive(!interactive)}
-                className={`px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors ${
-                  interactive
-                    ? 'bg-green-500 text-black'
-                    : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)]'
-                }`}
-              >
-                {interactive ? '⌨ Interactive' : '⌨ Read-only'}
-              </button>
-            )}
-          </div>
-        </div>
+        <TmuxHeader
+          session={session} host={host} isUnsandbox={isUnsandbox}
+          connected={connected} serviceState={serviceState}
+          interactive={interactive} setInteractive={setInteractive}
+          termRef={termRef}
+          disconnecting={disconnecting} enqueueKeys={enqueueKeys}
+          handleDisconnect={handleDisconnect} nick={nick} sessionId={sessionId}
+        />
 
         {/* Window tabs (tmux only) */}
-        {!isUnsandbox && windows.length > 1 && (
-          <div className="flex items-center gap-1 mb-2">
-            {windows.map(w => (
-              <button
-                key={w.index}
-                onClick={() => { setActiveWindow(w.index); termRef.current?.focus(); }}
-                className={`px-3 py-1 text-xs rounded font-mono cursor-pointer transition-colors ${
-                  (activeWindow ?? (windows.find(x => x.active)?.index)) === w.index
-                    ? 'bg-[var(--color-accent)] text-[var(--color-background)] font-bold'
-                    : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
-                }`}
-              >
-                {w.index}:{w.name} {w.active ? '●' : ''}
-              </button>
-            ))}
-          </div>
-        )}
+        <TmuxWindowTabs
+          windows={windows} activeWindow={activeWindow} setActiveWindow={setActiveWindow}
+          termRef={termRef} isUnsandbox={isUnsandbox}
+        />
 
         {/* Terminal + drop overlay */}
         <div
@@ -729,63 +864,12 @@ export default function TmuxViewerPage() {
           )}
 
           {/* Service state overlay — unsandbox services that aren't running */}
-          {isUnsandbox && serviceState && serviceState !== 'running' && (
-            <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center z-10"
-              style={{ background: 'rgba(10,0,20,0.92)' }}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`w-3 h-3 rounded-full ${
-                  serviceState === 'frozen' || serviceState === 'sleeping' ? 'bg-blue-400'
-                  : serviceState === 'unreachable' ? 'bg-red-400'
-                  : 'bg-yellow-400'
-                }`} style={{ animation: 'uf-pulse-red 2s infinite' }} />
-                <span className="font-mono font-bold text-lg tracking-widest" style={{
-                  color: serviceState === 'unreachable' ? '#ef4444'
-                    : serviceState === 'frozen' || serviceState === 'sleeping' ? '#60a5fa'
-                    : '#eab308'
-                }}>
-                  {serviceState === 'frozen' ? 'FROZEN' : serviceState === 'sleeping' ? 'SLEEPING' : serviceState === 'unreachable' ? 'UNREACHABLE' : serviceState?.toUpperCase()}
-                </span>
-              </div>
-              <div className="font-mono text-sm text-[#a1a1aa] mb-6 max-w-md text-center px-4">
-                {serviceMessage}
-              </div>
-              <div className="flex gap-3">
-                {(serviceState === 'frozen' || serviceState === 'sleeping') && (
-                  <button
-                    onClick={() => handleServiceAction('wake')}
-                    disabled={serviceAction !== null}
-                    className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-blue-900/60 text-blue-300 hover:bg-blue-800 hover:text-blue-100 border border-blue-700/50 disabled:opacity-50"
-                  >
-                    {serviceAction === 'wake' ? '...' : '⚡ Wake'}
-                  </button>
-                )}
-                <button
-                  onClick={() => handleServiceAction('redeploy')}
-                  disabled={serviceAction !== null}
-                  className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-violet-900/60 text-violet-300 hover:bg-violet-800 hover:text-violet-100 border border-violet-700/50 disabled:opacity-50"
-                >
-                  {serviceAction === 'redeploy' ? '...' : '↻ Redeploy'}
-                </button>
-                <button
-                  onClick={() => handleServiceAction('logs')}
-                  disabled={serviceAction !== null}
-                  className="px-4 py-2 text-sm rounded font-bold font-mono cursor-pointer transition-colors bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)] border border-[var(--color-border)] disabled:opacity-50"
-                >
-                  {serviceAction === 'logs' ? '...' : '📋 Bootstrap Logs'}
-                </button>
-              </div>
-              {serviceLogs && (
-                <div className="mt-4 w-full max-w-2xl max-h-64 overflow-auto rounded border border-[var(--color-border)] bg-black/80 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-xs text-[var(--color-muted)]">Bootstrap Logs</span>
-                    <button onClick={() => setServiceLogs(null)} className="text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer">✕</button>
-                  </div>
-                  <pre className="font-mono text-xs text-[#d4d4d4] whitespace-pre-wrap break-all">{serviceLogs}</pre>
-                </div>
-              )}
-            </div>
-          )}
-
+          <ServiceStateOverlay
+            serviceState={serviceState} isUnsandbox={isUnsandbox} sessionId={sessionId}
+            handleServiceAction={handleServiceAction} serviceAction={serviceAction}
+            serviceLogs={serviceLogs} serviceMessage={serviceMessage}
+            setServiceLogs={setServiceLogs}
+          />
           {/* Drop overlays */}
           {dropState === 'hover' && (
             <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center pointer-events-none"
@@ -834,33 +918,7 @@ export default function TmuxViewerPage() {
       </div>
 
       {/* Disconnect overlay */}
-      {disconnecting && (
-        <div
-          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
-          style={{ animation: 'uf-disconnect-red 2.5s ease-in forwards' }}
-        >
-          <div
-            className="font-mono font-bold text-4xl tracking-[0.3em] uppercase"
-            style={{
-              color: '#ff3333',
-              animation: 'uf-disconnect-text 2.5s ease-in-out forwards',
-              textShadow: '0 0 20px #ff0000, 0 0 60px #ff000066, 0 0 100px #ff000033',
-            }}
-          >
-            DISCONNECTING
-          </div>
-          <div
-            className="font-mono text-sm mt-4 tracking-widest"
-            style={{
-              color: '#ff6666',
-              animation: 'uf-disconnect-text 2.5s ease-in-out forwards',
-              opacity: 0.7,
-            }}
-          >
-            session terminated
-          </div>
-        </div>
-      )}
+      <DisconnectOverlay disconnecting={disconnecting} />
     </>
   );
 }
