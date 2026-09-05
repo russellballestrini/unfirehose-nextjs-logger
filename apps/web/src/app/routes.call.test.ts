@@ -41,6 +41,7 @@ const OUTBOUND = [
   './api/boot/finished/route.ts',
   './api/harness/verify/route.ts',    // ssh
   './api/projects/[project]/agent/route.ts',
+  './api/apmonitor/route.ts',         // reads statefiles from every mesh node
 ];
 
 const routes = Object.entries(import.meta.glob('./api/**/route.ts'))

@@ -29,6 +29,12 @@ export default defineConfig({
     },
     restoreMocks: true,
     clearMocks: true,
-    testTimeout: 10_000,
+    // Raised from 10s when the harness suites landed. Each of those tests
+    // imports or mounts a whole page or route, and the first in a file pays
+    // for compiling its module graph — several hundred files across the
+    // three of them. Under parallel load that crossed 10s and showed up as
+    // four unrelated tests timing out at once, which is what a budget below
+    // the work looks like rather than a defect.
+    testTimeout: 30_000,
   },
 });
