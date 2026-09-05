@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseNvidiaGpu,
-  parseDisk, parseNetInterfaces, parseNetDev, parseDocker,
+  parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseProbeOutput,
 } from './node-probe';
 
 /**
@@ -171,5 +171,90 @@ describe('parseDocker', () => {
   it('is tab-delimited, so a container name with spaces survives', () => {
     const [c] = parseDocker('id\tmy container\timage\tUp 2 days\t');
     expect(c!.name).toBe('my container');
+  });
+});
+
+/**
+ * A whole probe, read at once.
+ *
+ * Every section is read here exactly once, so a marker that moves or a
+ * command whose format changed shows up as one field going quiet rather
+ * than a page that fails — which is why the assertion that matters is the
+ * one about a machine that answered only half the probe.
+ */
+describe('parseProbeOutput', () => {
+  const section = (name: string, body: string) => `===SECTION:${name}===\n${body}\n`;
+
+  const probe = [
+    section('HOSTNAME', 'cammy'),
+    section('CPUINFO', 'model name : Intel(R) Xeon(R) CPU E5-2670 v3\ncpu MHz : 1200.000\ncache size : 30720 KB'),
+    section('ARCH', 'x86_64'),
+    section('KERNEL', '6.6.44-1-lts'),
+    section('OS', 'PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"'),
+    section('NPROC', '48'),
+    section('MEMINFO', 'MemTotal: 395264000 kB\nMemAvailable: 296448000 kB\nMemFree: 100000000 kB'),
+    section('LOADAVG', '9.30 8.01 7.44 3/1892 44011'),
+    section('UPTIME', '2540000.12 100000000.00'),
+    section('DISK', 'Filesystem 1G-blocks Used Avail Use% Mounted on\n/dev/sda1 1800 1600 200 89% /'),
+    section('PS', 'fox 1234 2.1 1.4 node /home/fox/.local/bin/claude'),
+    section('CLAUDE_PS', 'fox 1234 2.1 1.4 900000 240000 ? Sl 12:00 0:31 node /home/fox/.local/bin/claude'),
+    section('NVIDIA', '0, NVIDIA GeForce RTX 3090, 62, 12, 30, 24576, 14000, 10576, 320.50, 350.00, 60, P2'),
+    section('END', ''),
+  ].join('');
+
+  it('reads a machine out of one blob of text', () => {
+    const node = parseProbeOutput(probe, 'cammy.foxhop.net');
+    expect(node).toMatchObject({ hostname: 'cammy', reachable: true, truncated: false });
+    expect(node.system).toMatchObject({ arch: 'x86_64', cpuCores: 48, kernel: '6.6.44-1-lts' });
+    expect(node.system.os).toContain('Debian');
+  });
+
+  it('reads the load average and how many tasks are runnable', () => {
+    // A load of 9 on 48 cores is idle; on 4 cores it is a queue. The
+    // runnable count is the part that says which.
+    const node = parseProbeOutput(probe, 'cammy');
+    expect(node.loadAvg).toEqual([9.3, 8.01, 7.44]);
+    expect(node.runnable).toBe('3/1892');
+  });
+
+  it('falls back to the host it was asked about when the probe did not say', () => {
+    // An ssh command can come back truncated. A node with no name is a
+    // card the page cannot key or link.
+    expect(parseProbeOutput('', 'cammy.foxhop.net').hostname).toBe('cammy.foxhop.net');
+  });
+
+  it('reads a machine that answered only half the probe', () => {
+    // One wedged command truncates every section after it. That has to
+    // cost us those sections, not the node.
+    const node = parseProbeOutput(
+      section('HOSTNAME', 'cammy') + section('NPROC', '48'), 'cammy',
+    );
+    expect(node.hostname).toBe('cammy');
+    expect(node.system.cpuCores).toBe(48);
+    // The flag is the point: an empty sensor list from a probe that was
+    // cut short is not a machine without sensors, and one wedged mount on
+    // one box read as 'this machine reports no temperatures'.
+    expect(node.truncated).toBe(true);
+    expect(node.disk).toEqual([]);
+    expect(node.gpu.hasGpu).toBe(false);
+    expect(node.loadAvg).toEqual([0, 0, 0]);
+  });
+
+  it('counts harnesses separately from claude', () => {
+    // claudeProcesses keeps its old meaning for callers that predate the
+    // other fifteen harnesses.
+    const node = parseProbeOutput(probe, 'cammy');
+    expect(node.claudeProcesses).toHaveLength(1);
+    expect(node.harnessCounts).toMatchObject({ claude: 1 });
+  });
+
+  it('carries a GPU through with its power draw', () => {
+    const node = parseProbeOutput(probe, 'cammy');
+    expect(node.gpu.nvidia[0]).toMatchObject({ name: 'NVIDIA GeForce RTX 3090', tempC: 62, powerDrawW: 320.5 });
+    expect(node.gpu.hasGpu).toBe(true);
+  });
+
+  it('says Linux when the release file did not name itself', () => {
+    expect(parseProbeOutput(section('OS', 'ID=debian'), 'x').system.os).toBe('Linux');
   });
 });

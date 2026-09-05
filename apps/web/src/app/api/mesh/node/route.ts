@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
-import { parseHarnessProcesses, countByHarness } from '@unturf/unfirehose/harness-procs';
-import { SECTION_MARKERS, parseAmdGpu, parseCpuInfo, parseDisk, parseDocker, parseMeminfo, parseNetDev, parseNetInterfaces, parseNvidiaGpu, parseNvidiaProcesses, parseProcesses, parseScreen, parseSection, parseTmux } from '@/lib/node-probe';
-import { parseTemperatures, parseHwmon, mergeSensors, parseThrottle, parseNvidiaClocks, parseCpuTopology } from '@/lib/sensors';
+import { parseProbeOutput } from '@/lib/node-probe';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -225,85 +223,6 @@ function probeRemote(host: string): string {
   }
 }
 
-function parseProbeOutput(raw: string, host: string) {
-  const hostname = parseSection(raw, 'HOSTNAME') || host;
-  const cpuInfo = parseCpuInfo(parseSection(raw, 'CPUINFO'));
-  const arch = parseSection(raw, 'ARCH') || 'unknown';
-  const kernel = parseSection(raw, 'KERNEL') || 'unknown';
-  const osRaw = parseSection(raw, 'OS');
-  const osName = osRaw.match(/PRETTY_NAME="?([^"\n]+)"?/)?.[1] ?? 'Linux';
-  const cpuCores = parseInt(parseSection(raw, 'NPROC')) || 0;
-  const memory = parseMeminfo(parseSection(raw, 'MEMINFO'));
-
-  const loadRaw = parseSection(raw, 'LOADAVG').split(/\s+/);
-  const loadAvg = [parseFloat(loadRaw[0]) || 0, parseFloat(loadRaw[1]) || 0, parseFloat(loadRaw[2]) || 0];
-  const runnable = loadRaw[3] ?? '0/0';
-
-  const uptimeRaw = parseSection(raw, 'UPTIME').split(/\s+/);
-  const uptimeSeconds = parseFloat(uptimeRaw[0]) || 0;
-
-  const disk = parseDisk(parseSection(raw, 'DISK'));
-  const processes = parseProcesses(parseSection(raw, 'PS'));
-  // Named CLAUDE_PS for wire compatibility; it carries every harness now.
-  const harnessProcesses = parseHarnessProcesses(parseSection(raw, 'CLAUDE_PS'));
-  const harnessCounts = countByHarness(harnessProcesses);
-  // claudeProcesses stays claude-only so existing callers keep their meaning.
-  const claudeProcesses = harnessProcesses.filter((p: { harness: string }) => p.harness === 'claude');
-  const nvidiaClocks = parseNvidiaClocks(parseSection(raw, 'NVIDIA_CLOCKS'));
-  const nvidiaGpus = parseNvidiaGpu(parseSection(raw, 'NVIDIA')).map((g: any) => ({
-    ...g,
-    ...(nvidiaClocks.get(g.index) ?? { clockMhz: null, clockMaxMhz: null, throttle: null }),
-  }));
-  const nvidiaProcesses = parseNvidiaProcesses(parseSection(raw, 'NVIDIA_PS'));
-  const amdGpus = parseAmdGpu(parseSection(raw, 'AMD_GPU'));
-  const temperatures = parseTemperatures(parseSection(raw, 'TEMPS'));
-  const sensors = mergeSensors(parseHwmon(parseSection(raw, 'HWMON')), temperatures);
-  const throttle = parseThrottle(parseSection(raw, 'THROTTLE'));
-  const cpuTopology = parseCpuTopology(parseSection(raw, 'CPUTOPO'));
-  const netInterfaces = parseNetInterfaces(parseSection(raw, 'NET'));
-  const netDev = parseNetDev(parseSection(raw, 'NETSTAT'));
-  const docker = parseDocker(parseSection(raw, 'DOCKER'));
-  const tmuxSessions = parseTmux(parseSection(raw, 'TMUX'));
-  const screenSessions = parseScreen(parseSection(raw, 'SCREEN'));
-
-  return {
-    hostname,
-    reachable: !!hostname,
-    // Our probe prints SECTION:END last. Its absence means SSH was killed
-    // mid-stream, so every section after the cut is empty for a reason that
-    // has nothing to do with the hardware. Without this flag a truncated
-    // probe is indistinguishable from a node that genuinely has no sensors,
-    // no disks and no network — which is how a wedged mount on one box read
-    // as "this machine reports no temperatures".
-    truncated: !!hostname && !raw.includes('===SECTION:END==='),
-    system: { arch, kernel, os: osName, cpuModel: cpuInfo.model, cpuMhz: cpuInfo.mhz, cpuCache: cpuInfo.cacheSize, cpuCores },
-    memory,
-    loadAvg,
-    runnable,
-    uptimeSeconds,
-    disk,
-    processes,
-    claudeProcesses,
-    harnessProcesses,
-    harnessCounts,
-    gpu: {
-      nvidia: nvidiaGpus,
-      nvidiaProcesses,
-      amd: amdGpus,
-      hasGpu: nvidiaGpus.length > 0 || amdGpus.length > 0,
-    },
-    // `temperatures` stays the raw ACPI zone list — the mesh overview page
-    // reads that shape. `sensors` is the merged, labeled, limit-aware view.
-    temperatures,
-    sensors,
-    throttle,
-    cpuTopology,
-    network: { interfaces: netInterfaces, throughput: netDev },
-    containers: docker,
-    sessions: { tmux: tmuxSessions, screen: screenSessions },
-    probedAt: new Date().toISOString(),
-  };
-}
 
 export async function GET(req: NextRequest) {
   const host = req.nextUrl.searchParams.get('host');
