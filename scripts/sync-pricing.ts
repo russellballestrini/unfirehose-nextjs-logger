@@ -28,9 +28,15 @@ import {
   SYNTHETIC_MODELS,
 } from '@unturf/unfirehose/pricing';
 
-const args = new Set(process.argv.slice(2));
-const reportOnly = args.has('--report');
-const asJson = args.has('--json');
+/**
+ * Flags, read per call rather than once at import.
+ *
+ * The body used to run on import with the process arguments baked in, which
+ * is what a script does — and also why nothing could call it. `main` takes
+ * its arguments now; the line at the bottom keeps make and npx working.
+ */
+let reportOnly = false;
+let asJson = false;
 
 const money = (n: number) => `$${n.toFixed(n >= 1 ? 2 : 3)}`;
 const price = (p: { input: number; output: number }) => `${money(p.input)}/${money(p.output)}`;
@@ -42,7 +48,11 @@ const age = (s: number | null) => {
   return `${(s / 86400).toFixed(1)}d ago`;
 };
 
-async function main() {
+export async function main(argv: string[] = process.argv.slice(2)) {
+  const flags = new Set(argv);
+  reportOnly = flags.has('--report');
+  asJson = flags.has('--json');
+
   const db = getDb();
   const out: Record<string, unknown> = {};
 
@@ -152,7 +162,10 @@ async function main() {
   if (asJson) console.log(JSON.stringify(out, null, 2));
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Run when invoked directly, which is how make and npx call it.
+if (process.argv[1]?.endsWith('sync-pricing.ts')) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -74,7 +74,7 @@ function readNvidiaPowerWatts(): number | null {
 /**
  * Look up TDP for a CPU model string. Returns watts or null if unknown.
  */
-function getLocalStats(): MeshNode {
+export function getLocalStats(): MeshNode {
   try {
     let hostname = execSync('hostname', { encoding: 'utf-8' }).trim();
     try {
