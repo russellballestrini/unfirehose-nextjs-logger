@@ -131,7 +131,7 @@ describe('budgets', () => {
   it('fails the build when duplication is over its budget', () => {
     const r = run('report-dupes.ts', ['--budget', '1']);
     expect(r.code).toBe(1);
-    expect(r.out).toMatch(/redundant tokens is over the budget/);
+    expect(r.out).toMatch(/redundant tokens \d+ is over the budget/);
   });
 
   it('says nothing about budgets when none was asked for', () => {

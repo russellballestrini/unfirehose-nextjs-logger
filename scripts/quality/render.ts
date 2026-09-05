@@ -114,3 +114,24 @@ export function writeJson(file: string, data: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
+
+/**
+ * A ceiling for CI, checked once and reported the same way everywhere.
+ *
+ * Every report prints a number; a budget is what makes one of them fail a
+ * build. Shared because a budget that reports differently per report is a
+ * budget somebody has to learn twice.
+ */
+export function checkBudget(
+  label: string,
+  actual: number,
+  flags: { num: (name: string, fallback: number) => number },
+): void {
+  const budget = flags.num('budget', Infinity);
+  if (!Number.isFinite(budget)) return;
+  if (actual > budget) {
+    console.error(`\n  ${label} ${actual} is over the budget of ${budget}`);
+    process.exit(1);
+  }
+  console.log(`  ${dim(`within budget: ${actual} of ${budget}`)}`);
+}

@@ -84,18 +84,35 @@ export async function GET(
   }
 }
 
+/**
+ * Resolve the repository a request names, and drop its cached status.
+ *
+ * All three handlers begin the same way, and the cache line is the part
+ * that matters: every one of them changes the repo, so a status served
+ * from cache afterwards would describe the tree as it was before.
+ */
+type Resolved =
+  | { error: NextResponse; project?: undefined; repoPath?: undefined }
+  | { error?: undefined; project: string; repoPath: string };
+
+async function repoFor(params: Promise<{ project: string }>): Promise<Resolved> {
+  const { project } = await params;
+  const repoPath = repoPathForProject(project);
+  if (!repoPath) {
+    return { error: NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 }) };
+  }
+  gitCache.delete(project);
+  return { project, repoPath };
+}
+
 // POST: commit changes
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ project: string }> }
 ) {
-  const { project } = await params;
-  const repoPath = repoPathForProject(project);
-  if (!repoPath) {
-    return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
-  }
-
-  gitCache.delete(project);
+  const resolved = await repoFor(params);
+  if (resolved.error) return resolved.error;
+  const { repoPath } = resolved;
 
   try {
     const body = await request.json();
@@ -182,13 +199,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ project: string }> }
 ) {
-  const { project } = await params;
-  const repoPath = repoPathForProject(project);
-  if (!repoPath) {
-    return NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 });
-  }
-
-  gitCache.delete(project);
+  const resolved = await repoFor(params);
+  if (resolved.error) return resolved.error;
+  const { repoPath } = resolved;
 
   try {
     const body = await request.json();

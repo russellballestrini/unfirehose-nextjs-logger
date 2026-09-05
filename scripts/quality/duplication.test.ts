@@ -147,3 +147,46 @@ export function ${n}(input: string[]): number {
     expect(clones[0].instances).toHaveLength(2);
   });
 });
+
+describe('data is not duplication', () => {
+  let dir: string;
+  const write = (name: string, source: string) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, source);
+    return file;
+  };
+  beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-data-')); });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('ignores a short table too, where a run is only two windows long', () => {
+    // Twelve harness rows tile into two windows, which is under the
+    // run-length rule — but they are still a table.
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      `  { value: 'v${i}', label: 'Label ${i}', cmd: 'c${i}' },`);
+    const file = write('short.ts', `export const T = [\n${rows.join('\n')}\n];\n`);
+    expect(findClones([file], 60)).toEqual([]);
+  });
+
+  it('still reports the same constant list living in two files', () => {
+    // That is the drift this whole report exists to find: one copy gets
+    // an entry added and the other does not.
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      `  { value: 'v${i}', label: 'Label ${i}', cmd: 'c${i}' },`);
+    const body = `export const T = [\n${rows.join('\n')}\n];\n`;
+    const clones = findClones([write('a.ts', body), write('b.ts', body)], 60);
+    expect(clones.length).toBeGreaterThan(0);
+  });
+
+  it('still reports duplicated markup, which has tags in it', () => {
+    const card = `
+    <div className="card">
+      <span className="title">{title}</span>
+      <span className="value">{value}</span>
+      <span className="unit">{unit}</span>
+    </div>
+`;
+    const file = write('cards.tsx',
+      `export const A = () => (${card});\nconst SPACER = 1;\nexport const B = () => (${card});\n`);
+    expect(findClones([file], 40).length).toBeGreaterThan(0);
+  });
+});

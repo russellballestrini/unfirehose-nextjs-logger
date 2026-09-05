@@ -81,6 +81,35 @@ function windowKeys(tokens: Token[], size: number): string[] {
  * `minTokens` is the window we look for; anything longer is grown from a
  * match rather than searched for separately.
  */
+/**
+ * Shapes that mean a window is code rather than data.
+ *
+ * A duplicated block worth reporting does something: it declares, calls,
+ * branches or renders. A run of object literals with none of that is a
+ * table — fifty currency rows, sixteen harness rows — and every row of a
+ * table is the same shape because that is what a table IS. Reporting it
+ * asks somebody to fold a list into itself.
+ *
+ * Kept deliberately narrow: a call, a tag or any keyword is enough to
+ * count as code, so duplicated JSX and duplicated logic are both still
+ * reported.
+ */
+function isDataOnly(tokens: Token[], at: number, length: number): boolean {
+  for (let i = at; i < at + length; i += 1) {
+    const shape = tokens[i]?.shape;
+    if (shape === undefined) break;
+    if (shape === 'ID' || shape === 'STR' || shape === 'NUM') continue;
+    const kind = Number(shape);
+    if (Number.isNaN(kind)) continue;
+    // Anything that opens a call or a tag, and every keyword, is code.
+    if (kind === ts.SyntaxKind.OpenParenToken) return false;
+    if (kind === ts.SyntaxKind.LessThanToken) return false;
+    if (kind === ts.SyntaxKind.EqualsGreaterThanToken) return false;
+    if (kind >= ts.SyntaxKind.FirstKeyword && kind <= ts.SyntaxKind.LastKeyword) return false;
+  }
+  return true;
+}
+
 export function findClones(files: string[], minTokens = MIN_TOKENS): Clone[] {
   const indexed: Indexed[] = files
     .map((path) => ({ path: rel(path), tokens: tokenise(fs.readFileSync(path, 'utf8'), path) }))
@@ -158,6 +187,12 @@ export function findClones(files: string[], minTokens = MIN_TOKENS): Clone[] {
     }
     const collapsed = runs.flatMap((run) => (run.length >= 3 ? [run[0]] : run));
     if (collapsed.length < 2) continue;
+
+    // Repeated literals inside one file are a table however short the run
+    // is. Across files they are worth reporting — the same constant list
+    // in two places is exactly the drift this looks for.
+    const oneFile = collapsed.every((h) => h.file === collapsed[0].file);
+    if (oneFile && collapsed.every((h) => isDataOnly(indexed[h.file].tokens, h.at, length))) continue;
 
     const instances = collapsed.map((h) => ({
       path: indexed[h.file].path,

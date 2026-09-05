@@ -24,7 +24,7 @@ import { ROOT, WORKSPACES, sourcesOf, workspaceOf } from './workspaces.ts';
 import { complexityOfAll } from './complexity.ts';
 import { loadCoverage, coverageOfRange } from './coverage.ts';
 import { crapScore, coverageNeeded, CRAP_THRESHOLD } from './crap.ts';
-import { args, table, heading, dim, bold, grade, writeJson } from './render.ts';
+import { args, table, heading, dim, bold, grade, writeJson, checkBudget } from './render.ts';
 
 /**
  * The report, as a function.
@@ -151,15 +151,7 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   // A ceiling on the whole board, for CI. `--fail-over` counts offenders,
   // which stays flat while every one of them gets worse; this is the
   // number that moves when risk is added anywhere.
-  const budget = flags.num('budget', Infinity);
-  if (Number.isFinite(budget)) {
-    const total = Math.round(scored.reduce((sum, f) => sum + f.crap, 0));
-    if (total > budget) {
-      console.error(`\n  total crap ${total} is over the budget of ${budget}`);
-      process.exit(1);
-    }
-    console.log(`  ${dim(`within budget: ${total} of ${budget}`)}`);
-  }
+  checkBudget('total crap', Math.round(scored.reduce((sum, f) => sum + f.crap, 0)), flags);
 
 }
 

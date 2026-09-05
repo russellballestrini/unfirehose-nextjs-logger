@@ -13,7 +13,7 @@
 import path from 'path';
 import { ROOT, WORKSPACES, sourcesOf } from './workspaces.ts';
 import { findClones, MIN_TOKENS } from './duplication.ts';
-import { args, table, heading, dim, bold, grade, writeJson } from './render.ts';
+import { args, table, heading, dim, bold, grade, writeJson, checkBudget } from './render.ts';
 
 /**
  * The report, as a function.
@@ -85,14 +85,7 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   // A ceiling, for CI. Every duplicate this repo has grown was eventually
   // found to have drifted — one copy fixed, the other not — so the number
   // worth watching is whether it is growing at all.
-  const budget = flags.num('budget', Infinity);
-  if (Number.isFinite(budget)) {
-    if (saved > budget) {
-      console.error(`\n  ${saved} redundant tokens is over the budget of ${budget}`);
-      process.exit(1);
-    }
-    console.log(`  ${dim(`within budget: ${saved} of ${budget}`)}`);
-  }
+  checkBudget('redundant tokens', saved, flags);
 
 }
 
