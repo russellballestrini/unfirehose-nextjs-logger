@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 import { describe, it, expect, vi } from 'vitest';
-import { createTestDb } from '@unturf/unfirehose/test/db-helper';
+import {
+  createTestDb, seedProject, seedSession, seedMessage, seedContentBlock,
+  seedUsageMinute, seedAlert, seedTodo,
+} from '@unturf/unfirehose/test/db-helper';
 
 /**
  * Every GET handler answers, against a database with the real schema.
@@ -21,6 +24,33 @@ import { createTestDb } from '@unturf/unfirehose/test/db-helper';
  */
 
 const db = createTestDb();
+
+/** Enough rows that a query returns something and the shaping runs. */
+function seed() {
+  const projectId = seedProject(db, '-home-fox-git-demo', 'demo');
+  const otherId = seedProject(db, 'agnt:-home-fox-git-other', 'other');
+
+  for (const [project, uuid] of [[projectId, 'sess-1'], [projectId, 'sess-2'], [otherId, 'sess-3']] as const) {
+    const sessionId = seedSession(db, project, uuid);
+    const messageId = seedMessage(db, sessionId, {
+      type: 'assistant', uuid: `${uuid}-m1`, model: 'claude-opus-4-6-20260301',
+      inputTokens: 1_200, outputTokens: 300, cacheReadTokens: 90_000, cacheCreationTokens: 2_000,
+    });
+    seedMessage(db, sessionId, { type: 'user', uuid: `${uuid}-m0` });
+    seedContentBlock(db, messageId, { blockType: 'text', textContent: 'an answer' });
+    seedContentBlock(db, messageId, { blockType: 'reasoning', textContent: 'weighing it' });
+    seedContentBlock(db, messageId, { blockType: 'tool-call', toolName: 'Bash' });
+  }
+
+  seedTodo(db, projectId, 'a pending task', { status: 'pending', uuid: 'todo-1', externalId: '1' });
+  seedTodo(db, projectId, 'a finished task', { status: 'completed', uuid: 'todo-2' });
+  seedAlert(db, { metric: 'output_tokens', windowMinutes: 15 });
+
+  const minute = new Date().toISOString().replace('T', ' ').slice(0, 16);
+  seedUsageMinute(db, projectId, minute, { input: 1_200, output: 300, cacheRead: 90_000, count: 2 });
+}
+
+seed();
 vi.mock('@unturf/unfirehose/db/schema', async (original) => ({
   ...(await original<Record<string, unknown>>()),
   getDb: () => db,
