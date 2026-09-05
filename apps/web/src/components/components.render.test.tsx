@@ -67,6 +67,18 @@ const modules = import.meta.glob('./*.tsx');
 /** Props broad enough that a component finds whatever it reads. */
 const PROPS = {
   ...PAYLOAD,
+  // A card needs a card's worth of todo; KanbanCard is exported so its own
+  // suite can reach it, and this harness mounts everything a module exports.
+  todo: {
+    id: 1, uuid: null, content: 'a task', status: 'pending', activeForm: null,
+    source: 'claude', externalId: null, blockedBy: [], sessionUuid: null,
+    sessionDisplay: null, projectName: 'demo', createdAt: '2026-09-04T12:00:00.000Z',
+    updatedAt: '2026-09-04T12:00:00.000Z', completedAt: null, estimatedMinutes: null,
+    tmuxSession: null, deployment: null, attachments: [],
+  },
+  meshNodes: [], onUpdate: vi.fn(), onDelete: vi.fn(), onBoot: vi.fn(),
+  onDragStart: vi.fn(), onDragEnd: vi.fn(), booting: null, bootResult: null,
+  isDragging: false, landed: false, projectPath: null,
   onClose: vi.fn(), onSave: vi.fn(), onChange: vi.fn(), onSelect: vi.fn(),
   onRun: vi.fn(), onHide: vi.fn(), mutate: vi.fn(), setValue: vi.fn(),
   children: null,

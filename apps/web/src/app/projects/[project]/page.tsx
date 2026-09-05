@@ -1132,7 +1132,7 @@ const breadcrumbs = pathParts.map((part: string, i: number) => ({
 
 
 /** What has changed, and the controls for committing it. */
-function ChangesView(props: any) {
+export function ChangesView(props: any) {
   const {
     gitData, changedCount, commitMsg, setCommitMsg, commitPhase, commitResult,
     isCommitting, suggesting, handleSuggest, handleCommit, handlePush,

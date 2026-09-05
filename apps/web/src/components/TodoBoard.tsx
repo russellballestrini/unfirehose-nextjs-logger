@@ -769,7 +769,7 @@ export function TodoBoard({ project }: { project?: string } = {}) {
 }
 
 // --- Kanban Card (Pending / In Progress) ---
-function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bootResult, onDragStart, onDragEnd, isDragging, landed, meshNodes }: {
+export function KanbanCard({ todo, onUpdate, onDelete, projectPath, onBoot, booting, bootResult, onDragStart, onDragEnd, isDragging, landed, meshNodes }: {
   todo: Todo; onUpdate: (id: number, u: any) => void; onDelete: (id: number) => void;
   projectPath: string | null; onBoot: (p: string, k: string, pr?: string, host?: string, todoIds?: number[], projectName?: string) => void;
   booting: string | null; bootResult: { key: string; msg: string } | null;
