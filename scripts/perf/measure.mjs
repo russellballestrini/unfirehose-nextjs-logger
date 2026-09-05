@@ -27,7 +27,7 @@
  */
 const PROBE = `
 (() => {
-  const perf = { fcp: null, lcp: null, cls: 0, longTasks: [], lastText: 0, textLen: 0 };
+  const perf = { fcp: null, lcp: null, cls: 0, longTasks: [], firstText: 0, lastText: 0, textLen: 0 };
   window.__perf = perf;
 
   const obs = (type, fn, extra) => {
@@ -67,6 +67,12 @@ const PROBE = `
     if (len - perf.textLen >= MEANINGFUL) {
       perf.textLen = len;
       perf.lastText = performance.now();
+      // The first time real text lands is when a reader has *something*;
+      // the last time is when the page has finished. A chart that loads
+      // lazily moves the second without touching the first, and only the
+      // second used to be reported — which made "load charts later" look
+      // like "load data later".
+      if (!perf.firstText) perf.firstText = perf.lastText;
     }
   };
   const start = () => {
@@ -180,6 +186,7 @@ export async function measurePage(browser, url, { settleMs = 700, capMs = 25_000
           domInteractive: nav.domInteractive ?? null,
           fcp: p.fcp, lcp: p.lcp, lcpEl: p.lcpEl ?? null, cls: p.cls,
           fonts: performance.getEntriesByType('resource').filter(r => /\\.(woff2?|ttf)$/.test(r.name)).map(r => ({ n: r.name.split('/').pop(), end: Math.round(r.responseEnd) })),
+          firstData: p.firstText || null,
           dataOnScreen: p.lastText || null,
           textLen: p.textLen ?? 0,
           longTasks: p.longTasks ?? [],
@@ -216,6 +223,7 @@ export async function measurePage(browser, url, { settleMs = 700, capMs = 25_000
       lcp: m.lcp,
       lcpEl: m.lcpEl,
       fonts: m.fonts ?? [],
+      firstData: m.firstData,
       dataOnScreen: m.dataOnScreen,
       domInteractive: m.domInteractive,
       cls: Number((m.cls ?? 0).toFixed(3)),

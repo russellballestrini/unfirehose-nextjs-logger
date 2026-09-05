@@ -1,5 +1,6 @@
 'use client';
 
+import { ShareBars } from '@/components/ShareBars';
 import { useState, useRef, Fragment } from 'react';
 import { HexColorPicker, RED_PRESETS } from '@/components/HexColorPicker';
 import useSWR from 'swr';
@@ -909,6 +910,14 @@ export default function StyleguidePage() {
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
+            {/* The same three numbers as a share list. This is the proposed replacement
+                for every donut in the app: uPlot does not draw pies, recharts costs 326KB
+                to, and a sorted list answers what a pie is asked — which ones matter and
+                by how much — with the number beside each bar. Compare them here. */}
+            <div className="mt-4 space-y-1">
+              <div className="text-xs uppercase tracking-wider text-[var(--color-muted)]">as a share list</div>
+              <ShareBars data={pieData.map((d, i) => ({ ...d, color: PIE_COLORS[i] }))} format={(v) => `${v}%`} />
+            </div>
           </div>
           {/* AreaChart */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4 md:col-span-2">

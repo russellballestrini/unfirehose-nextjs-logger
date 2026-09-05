@@ -85,9 +85,10 @@ function grade(text, value, budget) {
 }
 
 function table(rows, budget) {
-  const head = ['page', 'data', 'lcp', 'fcp', 'ttfb', 'block', 'js', 'api', 'slowest call'];
+  const head = ['page', 'first', 'data', 'lcp', 'fcp', 'ttfb', 'block', 'js', 'api', 'slowest call'];
   const body = rows.map((r) => [
     r.url,
+    grade(ms(r.firstData), r.firstData, budget / 2),
     grade(ms(r.dataOnScreen), r.dataOnScreen, budget),
     ms(r.lcp), ms(r.fcp), ms(r.ttfb),
     grade(ms(r.blocking), r.blocking, 300),
@@ -99,7 +100,7 @@ function table(rows, budget) {
   const bare = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
   const w = head.map((h, i) => Math.max(bare(h).length, ...body.map((r) => bare(r[i]).length)));
   const line = (cells) => cells
-    .map((c, i) => (i === 0 || i === 8 ? c.padEnd(w[i] + (c.length - bare(c).length)) : c.padStart(w[i] + (c.length - bare(c).length))))
+    .map((c, i) => (i === 0 || i === 9 ? c.padEnd(w[i] + (c.length - bare(c).length)) : c.padStart(w[i] + (c.length - bare(c).length))))
     .join('  ');
   return [line(head), w.map((n) => '─'.repeat(n)).join('  '), ...body.map(line)].join('\n');
 }
@@ -190,6 +191,7 @@ export async function main(argv = process.argv.slice(2)) {
       results.push({
         ...last,
         url: path,
+        firstData: pickOf('firstData'),
         dataOnScreen: pickOf('dataOnScreen'),
         lcp: pickOf('lcp'), fcp: pickOf('fcp'), ttfb: pickOf('ttfb'), blocking: pickOf('blocking'),
       });
@@ -203,7 +205,8 @@ export async function main(argv = process.argv.slice(2)) {
 
   const failed = results.filter((r) => r.failed);
   const pickName = pick === min ? 'best' : 'median';
-  console.log(`\n  Time to data on screen — ${base} · ${cold ? 'first visit, cache empty' : 'return visit, cache warm'}${runs > 1 ? ` · ${pickName} of ${runs}` : ''} · load ${load1.toFixed(1)}/${cores} · control ${control}ms${busy || contended ? ' \x1b[31mCONTENDED — not comparable\x1b[0m' : ''}\n`);
+  console.log('\n  first = the moment real text first landed; data = the moment it last did.');
+  console.log(`  Time to data on screen — ${base} · ${cold ? 'first visit, cache empty' : 'return visit, cache warm'}${runs > 1 ? ` · ${pickName} of ${runs}` : ''} · load ${load1.toFixed(1)}/${cores} · control ${control}ms${busy || contended ? ' \x1b[31mCONTENDED — not comparable\x1b[0m' : ''}\n`);
   console.log(table(results, Number.isFinite(budget) ? budget : 2000));
 
   if (failed.length) {

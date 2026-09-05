@@ -3,22 +3,18 @@
 /**
  * The dashboard's charts, loaded after the numbers.
  *
- * recharts is 326KB minified. It used to arrive with the page: the stats
- * cards a reader came for could not paint until the charting library had
- * parsed, and every reload paid that before showing anything. The five
- * charts live here now and page.tsx loads this module with next/dynamic and
- * ssr:false — the cards render from the first bundle, and the charts fill
- * in a moment later, below them, where the eye gets to second.
+ * Four of the five draw on uPlot, which is 49KB and already on the page for
+ * the node charts; recharts (326KB) remains only for the model-share pie,
+ * which uPlot does not draw. Even so the module loads through next/dynamic
+ * with ssr:false, so the stats cards a reader came for paint from the first
+ * bundle and the charts fill in below them, where the eye gets to second.
  *
  * ssr:false is not a shortcut: recharts measures its container to size
  * itself and renders nothing useful on the server anyway.
  */
 
-import {
-  AreaChart, Area, BarChart, Bar, Cell, PieChart, Pie,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts';
-import { AXIS_TICK, TOOLTIP_STYLE } from '@unturf/unfirehose-ui/chart-theme';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens } from '@unturf/unfirehose/format';
 
@@ -39,16 +35,6 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
   const rotatedHours = rotateHours(data.hourCounts ?? [], sleepCenter);
   const localOffset = getLocalOffsetHours();
 
-  // Both hour charts share an axis: the same ticks, the same interval, the
-  // same dual-timezone label. Recharts wants these as direct children of a
-  // chart, so what is shared is the props rather than the elements.
-  const hourAxis = {
-    dataKey: 'hour',
-    tick: <DualHourTick offset={localOffset} />,
-    interval: 2,
-    height: 40,
-  };
-  const hourTooltip = (h: unknown) => formatDualHourTooltip(h as number);
 
   const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -63,20 +49,13 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Activity ({range})
         </h3>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={data.dailyActivity}>
-            <XAxis
-              dataKey="date"
-              tick={AXIS_TICK}
-              tickFormatter={(d: string) => d.slice(5)}
-            />
-            <YAxis tick={AXIS_TICK} />
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-            />
-            <Bar dataKey="messageCount" fill="#10b981" radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <UPlotCategoryChart
+          data={data.dailyActivity ?? []}
+          labelKey="date"
+          series={[{ key: 'messageCount', label: 'messages', color: '#10b981' }]}
+          height={200}
+          tick={(d) => d.slice(5)}
+        />
       </div>
 
       <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
@@ -86,14 +65,14 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
             UTC {localOffset >= 0 ? '+' : ''}{localOffset} ({tzName})
           </span>
         </h3>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={rotatedHours} margin={{ bottom: 16 }}>
-            <XAxis {...hourAxis} />
-            <YAxis tick={AXIS_TICK} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={hourTooltip} />
-            <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <UPlotCategoryChart
+          data={rotatedHours}
+          labelKey="hour"
+          series={[{ key: 'count', label: 'messages', color: '#a78bfa' }]}
+          height={220}
+          tick={(h, i) => (i % 2 === 0 ? `${h}:00` : '')}
+          hover={(row) => formatDualHourTooltip(Number(row.hour))}
+        />
       </div>
     </div>
 
@@ -104,20 +83,12 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Day of Week ({range})
         </h3>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={data.dayOfWeekCounts}>
-            <XAxis dataKey="day" tick={AXIS_TICK} />
-            <YAxis tick={AXIS_TICK} />
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-            />
-            <Bar dataKey="count" radius={[2, 2, 0, 0]}>
-              {(data.dayOfWeekCounts ?? []).map((d: any) => (
-                <Cell key={d.day} fill={DAY_COLORS[d.dow]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <UPlotCategoryChart
+          data={data.dayOfWeekCounts ?? []}
+          labelKey="day"
+          series={[{ key: 'count', label: 'messages', color: (data.dayOfWeekCounts ?? []).map((d: any) => DAY_COLORS[d.dow]) }]}
+          height={200}
+        />
       </div>
 
       {/* Day × Hour hotspot curves */}
@@ -128,24 +99,17 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
             UTC {localOffset >= 0 ? '+' : ''}{localOffset}
           </span>
         </h3>
-        <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={dowHourData} margin={{ bottom: 16 }}>
-            <XAxis {...hourAxis} />
-            <YAxis tick={AXIS_TICK} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={hourTooltip} />
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
-              <Area
-                key={day}
-                type="monotone"
-                dataKey={day}
-                stroke={DAY_COLORS[i]}
-                fill={DAY_COLORS[i]}
-                fillOpacity={0.1}
-                strokeWidth={1.5}
-              />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
+        <UPlotCategoryChart
+          kind="lines"
+          data={dowHourData}
+          labelKey="hour"
+          series={['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => ({
+            key: day, label: day, color: DAY_COLORS[i], fill: `${DAY_COLORS[i]}1a`,
+          }))}
+          height={220}
+          tick={(h, i) => (i % 2 === 0 ? `${h}:00` : '')}
+          hover={(row) => formatDualHourTooltip(Number(row.hour))}
+        />
       </div>
     </div>
 
@@ -259,20 +223,5 @@ function buildDowHourCurves(heatmap: any[], startHour: number): any[] {
   return [...rows.slice(startHour), ...rows.slice(0, startHour)];
 }
 
-/** Custom tick that renders UTC on top, local below */
-function DualHourTick({ x, y, payload, offset }: any) {
-  const utcH = payload.value;
-  const localH = ((utcH + offset) % 24 + 24) % 24;
-  return (
-    <g transform={`translate(${x},${y})`}>
-      <text x={0} y={0} dy={12} textAnchor="middle" fill="#71717a" fontSize={11}>
-        {utcH}:00
-      </text>
-      <text x={0} y={0} dy={24} textAnchor="middle" fill="#a78bfa" fontSize={10}>
-        {localH}:00
-      </text>
-    </g>
-  );
-}
 
 
