@@ -932,6 +932,370 @@ function ActivityTab({ activityData, project, decodedProject: _decodedProject }:
 }
 
 /* ─── CODE TAB ─── */
+
+// Constants and pure helpers — inside the component they were rebuilt on
+// every render and unreachable from anywhere else.
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  'M': { label: 'M', color: '#fbbf24' },
+  'A': { label: 'A', color: '#22c55e' },
+  'D': { label: 'D', color: '#ef4444' },
+  '??': { label: '?', color: '#8b5cf6' },
+  'R': { label: 'R', color: '#60a5fa' },
+  'MM': { label: 'M', color: '#fbbf24' },
+  'AM': { label: 'A', color: '#22c55e' },
+};
+
+const FILE_ICONS: Record<string, string> = {
+  tree: '📁', ts: '🟦', tsx: '⚛️', js: '🟨', jsx: '⚛️',
+  py: '🐍', rs: '🦀', go: '🐹', c: '⚙️', h: '⚙️', cu: '🟩',
+  md: '📝', json: '📋', yaml: '📋', yml: '📋', toml: '📋',
+  css: '🎨', html: '🌐', sh: '🐚', sql: '🗄️', mojo: '🔥',
+  txt: '📄', Makefile: '🔧', Dockerfile: '🐳',
+};
+
+function fileIcon(name: string, type: string) {
+  if (type === 'tree') return FILE_ICONS.tree;
+  const ext = name.includes('.') ? name.split('.').pop()! : name;
+  return FILE_ICONS[ext] || '📄';
+}
+
+function fmtSize(bytes: number) {
+  if (bytes === 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Browsing the working tree, and reading one file out of it.
+ *
+ * Its own component because nothing here touches git state — it needs a
+ * tree, a path, and a way to change the path.
+ */
+function FilesView({ treeData, treePath, setTreePath }: any) {
+const lineNumbers = useMemo(() => {
+  const n = (treeData?.content ?? '').split('\n').length;
+  let out = '';
+  for (let i = 1; i <= n; i++) out += i + '\n';
+  return out;
+}, [treeData?.content]);
+
+// Breadcrumb from treePath
+const pathParts = treePath ? treePath.split('/') : [];
+const breadcrumbs = pathParts.map((part: string, i: number) => ({
+  name: part,
+  path: pathParts.slice(0, i + 1).join('/'),
+}));
+
+  return (
+      <div className="space-y-4">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1 text-sm font-mono flex-wrap">
+          <button onClick={() => setTreePath('')} className="text-[var(--color-accent)] hover:underline font-bold">
+            root
+          </button>
+          {breadcrumbs.map((bc: any) => (
+            <span key={bc.path} className="flex items-center gap-1">
+              <span className="text-[var(--color-muted)]">/</span>
+              <button onClick={() => setTreePath(bc.path)} className="text-[var(--color-accent)] hover:underline">
+                {bc.name}
+              </button>
+            </span>
+          ))}
+        </div>
+
+        {/* Tree loading / error */}
+        {!treeData && <div className="text-[var(--color-muted)] py-8 text-center">Loading file tree...</div>}
+        {treeData?.error && <div className="text-[var(--color-error)] py-4">{treeData.error}</div>}
+
+        {/* Directory listing */}
+        {treeData?.type === 'tree' && (
+          <div className="border border-[var(--color-border)] rounded overflow-hidden">
+            {/* Header: last commit */}
+            {treeData.lastCommit && (
+              <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
+                <span className="font-mono text-xs text-[var(--color-accent)]">{treeData.lastCommit.hash?.slice(0, 7)}</span>
+                <span className="text-[var(--color-foreground)] truncate flex-1">{treeData.lastCommit.message}</span>
+                <span className="text-[var(--color-muted)] shrink-0">{treeData.lastCommit.age}</span>
+              </div>
+            )}
+            {/* Go up */}
+            {treePath && (
+              <button
+                onClick={() => {
+                  const parts = treePath.split('/');
+                  parts.pop();
+                  setTreePath(parts.join('/'));
+                }}
+                className="w-full px-4 py-2 text-sm font-mono text-left hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] text-[var(--color-muted)] flex items-center gap-3"
+              >
+                <span>📁</span>
+                <span>..</span>
+              </button>
+            )}
+            {/* Entries */}
+            {treeData.entries?.map((entry: any) => (
+              <button
+                key={entry.name}
+                onClick={() => {
+                  const newPath = treePath ? `${treePath}/${entry.name}` : entry.name;
+                  setTreePath(newPath);
+                }}
+                className="w-full px-4 py-2 text-sm font-mono text-left hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0 flex items-center gap-3 group"
+              >
+                <span className="w-5 text-center shrink-0">{fileIcon(entry.name, entry.type)}</span>
+                <span className={`flex-1 truncate ${entry.type === 'tree' ? 'font-bold text-[var(--color-foreground)]' : 'text-[var(--color-foreground)]'} group-hover:text-[var(--color-accent)]`}>
+                  {entry.name}
+                </span>
+                {entry.size > 0 && (
+                  <span className="text-xs text-[var(--color-muted)] shrink-0">{fmtSize(entry.size)}</span>
+                )}
+              </button>
+            ))}
+            {treeData.entries?.length === 0 && (
+              <div className="px-4 py-8 text-center text-[var(--color-muted)]">Empty directory</div>
+            )}
+          </div>
+        )}
+
+        {/* File content viewer */}
+        {treeData?.type === 'file' && (
+          <div className="border border-[var(--color-border)] rounded overflow-hidden">
+            {/* File header */}
+            <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
+              <span>{fileIcon(treeData.name, 'blob')}</span>
+              <span className="font-mono font-bold">{treeData.name}</span>
+              <span className="text-[var(--color-muted)]">{fmtSize(treeData.size)}</span>
+              {treeData.language && (
+                <span className="text-xs px-2 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">{treeData.language}</span>
+              )}
+              {treeData.lastCommit && (
+                <span className="ml-auto text-xs text-[var(--color-muted)]">
+                  <span className="font-mono text-[var(--color-accent)]">{treeData.lastCommit.hash?.slice(0, 7)}</span>
+                  {' '}{treeData.lastCommit.message} · {treeData.lastCommit.age}
+                </span>
+              )}
+            </div>
+            {/* Line-numbered content.
+                Two text nodes, not two DOM nodes per line. This was a
+                table with a <tr> and two <td> per line — 6,504 nodes for
+                pricing.ts, 8,748 for this file — which React reconciled
+                and the browser laid out on every open. That was the wait
+                when opening a file, not the fetch: the API answers in
+                7-15ms. */}
+            <div className="overflow-auto max-h-[700px] flex text-xs font-mono leading-[1.45]">
+              <pre
+                className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] opacity-50 shrink-0"
+                aria-hidden
+              >{lineNumbers}</pre>
+              <pre className="px-3 py-0 whitespace-pre flex-1">{treeData.content || ''}</pre>
+            </div>
+          </div>
+        )}
+
+        {/* README */}
+        {treeData?.readme && !treePath && (
+          <div className="border border-[var(--color-border)] rounded overflow-hidden">
+            <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-2 text-sm">
+              <span>📝</span>
+              <span className="font-bold">README.md</span>
+            </div>
+            <pre className="text-sm p-4 overflow-auto max-h-[400px] font-mono leading-relaxed whitespace-pre-wrap">{treeData.readme}</pre>
+          </div>
+        )}
+      </div>
+  );
+}
+
+
+/** What has changed, and the controls for committing it. */
+function ChangesView(props: any) {
+  const {
+    gitData, changedCount, commitMsg, setCommitMsg, commitPhase, commitResult,
+    isCommitting, suggesting, handleSuggest, handleCommit, handlePush,
+    showDiff, setShowDiff, pendingFileAction, requestFileAction,
+    // Clicking a changed file opens it in the other view.
+    setTreePath, setCodeView, executeFileAction,
+  } = props;
+
+  return (
+      <div className="space-y-4">
+        {!gitData && <div className="text-[var(--color-muted)] py-8 text-center">Loading git status...</div>}
+        {gitData?.error && <div className="text-[var(--color-error)] py-4">{gitData.error}</div>}
+
+        {gitData && !gitData.error && (
+          <>
+            {/* Changed files */}
+            {gitData.files?.length > 0 ? (
+              <div className="border border-[var(--color-border)] rounded overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
+                  <h3 className="text-sm font-bold">{changedCount} changed files</h3>
+                  <button onClick={() => setShowDiff(!showDiff)} className="text-xs text-[var(--color-accent)] hover:underline">
+                    {showDiff ? 'Hide diff' : 'Show diff'}
+                  </button>
+                </div>
+                {gitData.files.map((f: any, i: number) => {
+                  const s = STATUS_LABELS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
+                  return (
+                    <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm font-mono hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0">
+                      <span className="w-5 h-5 rounded flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
+                        {s.label}
+                      </span>
+                      <button
+                        onClick={() => { setTreePath(f.file); setCodeView('files'); }}
+                        className="truncate text-left hover:text-[var(--color-accent)] hover:underline flex-1"
+                      >
+                        {f.file}
+                      </button>
+                      <div className="shrink-0 flex gap-1">
+                        {f.status === 'D' ? (
+                          <button
+                            onClick={() => executeFileAction(f.file, 'restore')}
+                            className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#22c55e] hover:text-[#22c55e] opacity-50 hover:opacity-100 transition-colors"
+                            title="Restore file (undo staged deletion)"
+                          >
+                            Restore
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => requestFileAction(f.file, 'gitignore')}
+                              className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:gitignore` ? 'border-[var(--color-accent)] text-[var(--color-accent)] opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] opacity-50 hover:opacity-100'}`}
+                              title="Add to .gitignore"
+                            >
+                              {pendingFileAction === `${f.file}:gitignore` ? 'confirm?' : '.gitignore'}
+                            </button>
+                            <button
+                              onClick={() => requestFileAction(f.file, 'delete')}
+                              className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:delete` ? 'bg-[#ef4444] border-[#ef4444] text-white opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] opacity-50 hover:opacity-100'}`}
+                              title="Delete file"
+                            >
+                              {pendingFileAction === `${f.file}:delete` ? 'confirm?' : 'Delete'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="border border-[var(--color-border)] rounded p-8 text-center text-[var(--color-muted)]">
+                <div className="text-2xl mb-2">✓</div>
+                Working tree clean — nothing to commit
+              </div>
+            )}
+
+            {/* Diff */}
+            {showDiff && gitData.diff && (
+              <div className="border border-[var(--color-border)] rounded overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                  <h3 className="text-sm font-bold">Unified Diff</h3>
+                </div>
+                <DiffView diff={gitData.diff} className="p-4 overflow-auto max-h-[600px]" />
+              </div>
+            )}
+
+            {/* Commit form */}
+            {gitData.isDirty && (
+              <div className="border border-[var(--color-border)] rounded p-4 bg-[var(--color-surface)] space-y-3">
+                <h3 className="text-sm font-bold">Commit changes</h3>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={commitMsg}
+                    onChange={(e) => setCommitMsg(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCommit(true); } }}
+                    placeholder="Commit message..."
+                    className="flex-1 px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
+                  />
+                  <button onClick={handleSuggest} disabled={suggesting}
+                    className="px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 shrink-0 flex items-center gap-1.5"
+                    title="Generate commit message with LLM">
+                    {suggesting ? (
+                      <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-[var(--color-muted)] border-t-[var(--color-accent)] rounded-full" />
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L17 7m-10 10l-1.5 1.5M20.5 17.5L19 17M5 7l-1.5-1.5"/></svg>
+                    )}
+                    Generate
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || isCommitting}
+                    className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
+                    Commit tracked
+                  </button>
+                  <button onClick={() => handleCommit(true)} disabled={!commitMsg.trim() || isCommitting}
+                    className="px-4 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center gap-2">
+                    {commitPhase === 'committing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
+                    {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
+                    {commitPhase === 'committing' ? 'Committing…' : commitPhase === 'pushing' ? 'Pushing…' : 'Commit all'}
+                  </button>
+                  <button onClick={handlePush} disabled={isCommitting}
+                    className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 ml-auto flex items-center gap-2">
+                    {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
+                    {commitPhase === 'pushing' ? 'Pushing…' : 'Push'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Push when clean */}
+            {!gitData.isDirty && gitData.recentCommits && (
+              <div className="flex gap-2">
+                <button onClick={handlePush} disabled={isCommitting}
+                  className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 flex items-center gap-2">
+                  {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
+                  {commitPhase === 'pushing' ? 'Pushing…' : 'Push'}
+                </button>
+              </div>
+            )}
+
+            {/* Commit status */}
+            {(isCommitting || commitPhase === 'done' || commitPhase === 'error') && (
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded text-sm font-mono transition-all ${
+                commitPhase === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                commitPhase === 'done' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+                'bg-[var(--color-surface)] text-[var(--color-muted)] border border-[var(--color-border)]'
+              }`}>
+                {isCommitting && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse shrink-0" />}
+                {commitPhase === 'done' && <span className="shrink-0">✓</span>}
+                {commitPhase === 'error' && <span className="shrink-0">✗</span>}
+                <span>
+                  {commitPhase === 'committing' && 'Committing…'}
+                  {commitPhase === 'pushing' && 'Pushing to remote…'}
+                  {(commitPhase === 'done' || commitPhase === 'error') && commitResult}
+                </span>
+              </div>
+            )}
+
+            {/* Recent commits */}
+            {gitData.recentCommits && (
+              <div className="border border-[var(--color-border)] rounded overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                  <h3 className="text-sm font-bold">Recent commits</h3>
+                </div>
+                <div className="divide-y divide-[var(--color-border)]">
+                  {gitData.recentCommits.split('\n').filter(Boolean).map((line: string, i: number) => {
+                    const hash = line.slice(0, 7);
+                    const msg = line.slice(8);
+                    return (
+                      <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm hover:bg-[var(--color-surface-hover)]">
+                        <span className="font-mono text-xs text-[var(--color-accent)] shrink-0">{hash}</span>
+                        <span className="truncate">{msg}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+  );
+}
+
+
 function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath }: any) {
   const [commitMsg, setCommitMsg] = useState('');
   const [commitPhase, setCommitPhase] = useState<null | 'committing' | 'pushing' | 'done' | 'error'>(null);
@@ -1056,52 +1420,8 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
     }
   }
 
-  const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-    'M': { label: 'M', color: '#fbbf24' },
-    'A': { label: 'A', color: '#22c55e' },
-    'D': { label: 'D', color: '#ef4444' },
-    '??': { label: '?', color: '#8b5cf6' },
-    'R': { label: 'R', color: '#60a5fa' },
-    'MM': { label: 'M', color: '#fbbf24' },
-    'AM': { label: 'A', color: '#22c55e' },
-  };
-
-  const FILE_ICONS: Record<string, string> = {
-    tree: '📁', ts: '🟦', tsx: '⚛️', js: '🟨', jsx: '⚛️',
-    py: '🐍', rs: '🦀', go: '🐹', c: '⚙️', h: '⚙️', cu: '🟩',
-    md: '📝', json: '📋', yaml: '📋', yml: '📋', toml: '📋',
-    css: '🎨', html: '🌐', sh: '🐚', sql: '🗄️', mojo: '🔥',
-    txt: '📄', Makefile: '🔧', Dockerfile: '🐳',
-  };
-
-  function fileIcon(name: string, type: string) {
-    if (type === 'tree') return FILE_ICONS.tree;
-    const ext = name.includes('.') ? name.split('.').pop()! : name;
-    return FILE_ICONS[ext] || '📄';
-  }
-
-  function fmtSize(bytes: number) {
-    if (bytes === 0) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   // One string for the gutter. Building it per line was the point of the
   // table this replaced.
-  const lineNumbers = useMemo(() => {
-    const n = (treeData?.content ?? '').split('\n').length;
-    let out = '';
-    for (let i = 1; i <= n; i++) out += i + '\n';
-    return out;
-  }, [treeData?.content]);
-
-  // Breadcrumb from treePath
-  const pathParts = treePath ? treePath.split('/') : [];
-  const breadcrumbs = pathParts.map((part: string, i: number) => ({
-    name: part,
-    path: pathParts.slice(0, i + 1).join('/'),
-  }));
 
   const changedCount = gitData?.files?.length ?? 0;
 
@@ -1149,299 +1469,31 @@ function CodeTab({ gitData, mutateGit, project, treeData, treePath, setTreePath 
 
       {/* ─── FILE BROWSER ─── */}
       {codeView === 'files' && (
-        <div className="space-y-4">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-1 text-sm font-mono flex-wrap">
-            <button onClick={() => setTreePath('')} className="text-[var(--color-accent)] hover:underline font-bold">
-              root
-            </button>
-            {breadcrumbs.map((bc: any) => (
-              <span key={bc.path} className="flex items-center gap-1">
-                <span className="text-[var(--color-muted)]">/</span>
-                <button onClick={() => setTreePath(bc.path)} className="text-[var(--color-accent)] hover:underline">
-                  {bc.name}
-                </button>
-              </span>
-            ))}
-          </div>
-
-          {/* Tree loading / error */}
-          {!treeData && <div className="text-[var(--color-muted)] py-8 text-center">Loading file tree...</div>}
-          {treeData?.error && <div className="text-[var(--color-error)] py-4">{treeData.error}</div>}
-
-          {/* Directory listing */}
-          {treeData?.type === 'tree' && (
-            <div className="border border-[var(--color-border)] rounded overflow-hidden">
-              {/* Header: last commit */}
-              {treeData.lastCommit && (
-                <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
-                  <span className="font-mono text-xs text-[var(--color-accent)]">{treeData.lastCommit.hash?.slice(0, 7)}</span>
-                  <span className="text-[var(--color-foreground)] truncate flex-1">{treeData.lastCommit.message}</span>
-                  <span className="text-[var(--color-muted)] shrink-0">{treeData.lastCommit.age}</span>
-                </div>
-              )}
-              {/* Go up */}
-              {treePath && (
-                <button
-                  onClick={() => {
-                    const parts = treePath.split('/');
-                    parts.pop();
-                    setTreePath(parts.join('/'));
-                  }}
-                  className="w-full px-4 py-2 text-sm font-mono text-left hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] text-[var(--color-muted)] flex items-center gap-3"
-                >
-                  <span>📁</span>
-                  <span>..</span>
-                </button>
-              )}
-              {/* Entries */}
-              {treeData.entries?.map((entry: any) => (
-                <button
-                  key={entry.name}
-                  onClick={() => {
-                    const newPath = treePath ? `${treePath}/${entry.name}` : entry.name;
-                    setTreePath(newPath);
-                  }}
-                  className="w-full px-4 py-2 text-sm font-mono text-left hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0 flex items-center gap-3 group"
-                >
-                  <span className="w-5 text-center shrink-0">{fileIcon(entry.name, entry.type)}</span>
-                  <span className={`flex-1 truncate ${entry.type === 'tree' ? 'font-bold text-[var(--color-foreground)]' : 'text-[var(--color-foreground)]'} group-hover:text-[var(--color-accent)]`}>
-                    {entry.name}
-                  </span>
-                  {entry.size > 0 && (
-                    <span className="text-xs text-[var(--color-muted)] shrink-0">{fmtSize(entry.size)}</span>
-                  )}
-                </button>
-              ))}
-              {treeData.entries?.length === 0 && (
-                <div className="px-4 py-8 text-center text-[var(--color-muted)]">Empty directory</div>
-              )}
-            </div>
-          )}
-
-          {/* File content viewer */}
-          {treeData?.type === 'file' && (
-            <div className="border border-[var(--color-border)] rounded overflow-hidden">
-              {/* File header */}
-              <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
-                <span>{fileIcon(treeData.name, 'blob')}</span>
-                <span className="font-mono font-bold">{treeData.name}</span>
-                <span className="text-[var(--color-muted)]">{fmtSize(treeData.size)}</span>
-                {treeData.language && (
-                  <span className="text-xs px-2 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">{treeData.language}</span>
-                )}
-                {treeData.lastCommit && (
-                  <span className="ml-auto text-xs text-[var(--color-muted)]">
-                    <span className="font-mono text-[var(--color-accent)]">{treeData.lastCommit.hash?.slice(0, 7)}</span>
-                    {' '}{treeData.lastCommit.message} · {treeData.lastCommit.age}
-                  </span>
-                )}
-              </div>
-              {/* Line-numbered content.
-                  Two text nodes, not two DOM nodes per line. This was a
-                  table with a <tr> and two <td> per line — 6,504 nodes for
-                  pricing.ts, 8,748 for this file — which React reconciled
-                  and the browser laid out on every open. That was the wait
-                  when opening a file, not the fetch: the API answers in
-                  7-15ms. */}
-              <div className="overflow-auto max-h-[700px] flex text-xs font-mono leading-[1.45]">
-                <pre
-                  className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] opacity-50 shrink-0"
-                  aria-hidden
-                >{lineNumbers}</pre>
-                <pre className="px-3 py-0 whitespace-pre flex-1">{treeData.content || ''}</pre>
-              </div>
-            </div>
-          )}
-
-          {/* README */}
-          {treeData?.readme && !treePath && (
-            <div className="border border-[var(--color-border)] rounded overflow-hidden">
-              <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-2 text-sm">
-                <span>📝</span>
-                <span className="font-bold">README.md</span>
-              </div>
-              <pre className="text-sm p-4 overflow-auto max-h-[400px] font-mono leading-relaxed whitespace-pre-wrap">{treeData.readme}</pre>
-            </div>
-          )}
-        </div>
+        <FilesView treeData={treeData} treePath={treePath} setTreePath={setTreePath} />
       )}
 
       {/* ─── CHANGES VIEW (git status + commit) ─── */}
       {codeView === 'changes' && (
-        <div className="space-y-4">
-          {!gitData && <div className="text-[var(--color-muted)] py-8 text-center">Loading git status...</div>}
-          {gitData?.error && <div className="text-[var(--color-error)] py-4">{gitData.error}</div>}
-
-          {gitData && !gitData.error && (
-            <>
-              {/* Changed files */}
-              {gitData.files?.length > 0 ? (
-                <div className="border border-[var(--color-border)] rounded overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
-                    <h3 className="text-sm font-bold">{changedCount} changed files</h3>
-                    <button onClick={() => setShowDiff(!showDiff)} className="text-xs text-[var(--color-accent)] hover:underline">
-                      {showDiff ? 'Hide diff' : 'Show diff'}
-                    </button>
-                  </div>
-                  {gitData.files.map((f: any, i: number) => {
-                    const s = STATUS_LABELS[f.status] ?? { label: f.status, color: 'var(--color-muted)' };
-                    return (
-                      <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm font-mono hover:bg-[var(--color-surface-hover)] border-b border-[var(--color-border)] last:border-b-0">
-                        <span className="w-5 h-5 rounded flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: `${s.color}22`, color: s.color }}>
-                          {s.label}
-                        </span>
-                        <button
-                          onClick={() => { setTreePath(f.file); setCodeView('files'); }}
-                          className="truncate text-left hover:text-[var(--color-accent)] hover:underline flex-1"
-                        >
-                          {f.file}
-                        </button>
-                        <div className="shrink-0 flex gap-1">
-                          {f.status === 'D' ? (
-                            <button
-                              onClick={() => executeFileAction(f.file, 'restore')}
-                              className="px-1.5 py-0.5 text-xs rounded border border-[var(--color-border)] hover:border-[#22c55e] hover:text-[#22c55e] opacity-50 hover:opacity-100 transition-colors"
-                              title="Restore file (undo staged deletion)"
-                            >
-                              Restore
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => requestFileAction(f.file, 'gitignore')}
-                                className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:gitignore` ? 'border-[var(--color-accent)] text-[var(--color-accent)] opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] opacity-50 hover:opacity-100'}`}
-                                title="Add to .gitignore"
-                              >
-                                {pendingFileAction === `${f.file}:gitignore` ? 'confirm?' : '.gitignore'}
-                              </button>
-                              <button
-                                onClick={() => requestFileAction(f.file, 'delete')}
-                                className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${pendingFileAction === `${f.file}:delete` ? 'bg-[#ef4444] border-[#ef4444] text-white opacity-100 font-bold' : 'border-[var(--color-border)] hover:border-[#ef4444] hover:text-[#ef4444] opacity-50 hover:opacity-100'}`}
-                                title="Delete file"
-                              >
-                                {pendingFileAction === `${f.file}:delete` ? 'confirm?' : 'Delete'}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="border border-[var(--color-border)] rounded p-8 text-center text-[var(--color-muted)]">
-                  <div className="text-2xl mb-2">✓</div>
-                  Working tree clean — nothing to commit
-                </div>
-              )}
-
-              {/* Diff */}
-              {showDiff && gitData.diff && (
-                <div className="border border-[var(--color-border)] rounded overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                    <h3 className="text-sm font-bold">Unified Diff</h3>
-                  </div>
-                  <DiffView diff={gitData.diff} className="p-4 overflow-auto max-h-[600px]" />
-                </div>
-              )}
-
-              {/* Commit form */}
-              {gitData.isDirty && (
-                <div className="border border-[var(--color-border)] rounded p-4 bg-[var(--color-surface)] space-y-3">
-                  <h3 className="text-sm font-bold">Commit changes</h3>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={commitMsg}
-                      onChange={(e) => setCommitMsg(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCommit(true); } }}
-                      placeholder="Commit message..."
-                      className="flex-1 px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-background)] focus:outline-none focus:border-[var(--color-accent)] font-mono"
-                    />
-                    <button onClick={handleSuggest} disabled={suggesting}
-                      className="px-3 py-2.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 shrink-0 flex items-center gap-1.5"
-                      title="Generate commit message with LLM">
-                      {suggesting ? (
-                        <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-[var(--color-muted)] border-t-[var(--color-accent)] rounded-full" />
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L17 7m-10 10l-1.5 1.5M20.5 17.5L19 17M5 7l-1.5-1.5"/></svg>
-                      )}
-                      Generate
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleCommit(false)} disabled={!commitMsg.trim() || isCommitting}
-                      className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40">
-                      Commit tracked
-                    </button>
-                    <button onClick={() => handleCommit(true)} disabled={!commitMsg.trim() || isCommitting}
-                      className="px-4 py-2 text-sm font-bold bg-[var(--color-accent)] text-[var(--color-background)] rounded hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center gap-2">
-                      {commitPhase === 'committing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
-                      {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
-                      {commitPhase === 'committing' ? 'Committing…' : commitPhase === 'pushing' ? 'Pushing…' : 'Commit all'}
-                    </button>
-                    <button onClick={handlePush} disabled={isCommitting}
-                      className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 ml-auto flex items-center gap-2">
-                      {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
-                      {commitPhase === 'pushing' ? 'Pushing…' : 'Push'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Push when clean */}
-              {!gitData.isDirty && gitData.recentCommits && (
-                <div className="flex gap-2">
-                  <button onClick={handlePush} disabled={isCommitting}
-                    className="px-4 py-2 text-sm bg-[var(--color-surface-hover)] rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 flex items-center gap-2">
-                    {commitPhase === 'pushing' && <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />}
-                    {commitPhase === 'pushing' ? 'Pushing…' : 'Push'}
-                  </button>
-                </div>
-              )}
-
-              {/* Commit status */}
-              {(isCommitting || commitPhase === 'done' || commitPhase === 'error') && (
-                <div className={`flex items-center gap-2.5 px-3 py-2 rounded text-sm font-mono transition-all ${
-                  commitPhase === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                  commitPhase === 'done' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
-                  'bg-[var(--color-surface)] text-[var(--color-muted)] border border-[var(--color-border)]'
-                }`}>
-                  {isCommitting && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse shrink-0" />}
-                  {commitPhase === 'done' && <span className="shrink-0">✓</span>}
-                  {commitPhase === 'error' && <span className="shrink-0">✗</span>}
-                  <span>
-                    {commitPhase === 'committing' && 'Committing…'}
-                    {commitPhase === 'pushing' && 'Pushing to remote…'}
-                    {(commitPhase === 'done' || commitPhase === 'error') && commitResult}
-                  </span>
-                </div>
-              )}
-
-              {/* Recent commits */}
-              {gitData.recentCommits && (
-                <div className="border border-[var(--color-border)] rounded overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                    <h3 className="text-sm font-bold">Recent commits</h3>
-                  </div>
-                  <div className="divide-y divide-[var(--color-border)]">
-                    {gitData.recentCommits.split('\n').filter(Boolean).map((line: string, i: number) => {
-                      const hash = line.slice(0, 7);
-                      const msg = line.slice(8);
-                      return (
-                        <div key={i} className="px-4 py-2 flex items-center gap-3 text-sm hover:bg-[var(--color-surface-hover)]">
-                          <span className="font-mono text-xs text-[var(--color-accent)] shrink-0">{hash}</span>
-                          <span className="truncate">{msg}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <ChangesView
+          gitData={gitData}
+          changedCount={changedCount}
+          commitMsg={commitMsg}
+          setCommitMsg={setCommitMsg}
+          commitPhase={commitPhase}
+          commitResult={commitResult}
+          isCommitting={isCommitting}
+          suggesting={suggesting}
+          handleSuggest={handleSuggest}
+          handleCommit={handleCommit}
+          handlePush={handlePush}
+          showDiff={showDiff}
+          setShowDiff={setShowDiff}
+          pendingFileAction={pendingFileAction}
+          requestFileAction={requestFileAction}
+          setTreePath={setTreePath}
+          setCodeView={setCodeView}
+          executeFileAction={executeFileAction}
+        />
       )}
     </div>
   );
