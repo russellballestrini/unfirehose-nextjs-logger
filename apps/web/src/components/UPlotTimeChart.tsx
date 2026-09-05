@@ -49,7 +49,16 @@ interface UPlotTimeChartProps {
   futurePadFraction?: number;
 }
 
-function buildData(rows: UPlotTimeChartProps['data'], series: UPlotSeries[]): uPlot.AlignedData {
+/**
+ * Rows keyed by series name, as uPlot's column-major aligned data.
+ *
+ * Exported because it is the one part of this component that decides
+ * anything: uPlot wants seconds where every row carries milliseconds, and
+ * a gap in a series has to be a null rather than a zero — a zero is drawn
+ * as a reading of nothing, which on a watts chart is a machine that was
+ * off rather than a sample we never took.
+ */
+export function buildData(rows: UPlotTimeChartProps['data'], series: UPlotSeries[]): uPlot.AlignedData {
   if (rows.length === 0) {
     return [[], ...series.map(() => [])] as unknown as uPlot.AlignedData;
   }
