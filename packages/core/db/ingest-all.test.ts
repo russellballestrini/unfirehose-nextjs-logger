@@ -54,8 +54,41 @@ beforeAll(async () => {
     }),
   ].join('\n') + '\n');
 
+  // Claude Code's own layout: ~/.claude/projects/{encoded-cwd}/{uuid}.jsonl,
+  // read by a different path than the native harnesses and the larger half
+  // of ingestAll.
+  const claudeDir = path.join(home, '.claude', 'projects', '-home-fox-git-demo');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(path.join(claudeDir, 'cc111111-1111-2222-3333-444444444444.jsonl'), [
+    JSON.stringify({
+      type: 'user', uuid: 'cc-u1', timestamp: '2026-09-04T11:00:00.000Z',
+      cwd: '/home/fox/git/demo',
+      message: { role: 'user', content: [{ type: 'text', text: 'add a test' }] },
+    }),
+    JSON.stringify({
+      type: 'assistant', uuid: 'cc-a1', parentUuid: 'cc-u1',
+      timestamp: '2026-09-04T11:00:05.000Z', durationMs: 5000,
+      message: {
+        role: 'assistant', model: 'claude-opus-4-6-20260301',
+        content: [
+          { type: 'thinking', thinking: 'weighing it up' },
+          { type: 'text', text: 'done' },
+          { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } },
+        ],
+        usage: {
+          input_tokens: 200, output_tokens: 40,
+          cache_read_input_tokens: 5000, cache_creation_input_tokens: 100,
+        },
+      },
+    }),
+    JSON.stringify({
+      type: 'user', uuid: 'cc-u2', parentUuid: 'cc-a1', timestamp: '2026-09-04T11:00:06.000Z',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'a.ts b.ts' }] },
+    }),
+  ].join('\n') + '\n');
+
   // A directory that looks like a harness but has no unfirehose folder, and
-  // one on the exclusion list — neither should be read.
+  // one on the exclusion list — neither should be read as a native harness.
   fs.mkdirSync(path.join(home, '.ssh'), { recursive: true });
   fs.mkdirSync(path.join(home, '.claude', 'unfirehose'), { recursive: true });
 
@@ -87,7 +120,7 @@ describe('ingestAll over a native harness', () => {
 
   it('reads the session out of the filename', () => {
     const session = one<{ session_uuid: string; harness: string }>(
-      'SELECT session_uuid, harness FROM sessions LIMIT 1',
+      "SELECT session_uuid, harness FROM sessions WHERE harness = 'testharness'",
     );
     expect(session.session_uuid).toBe('aaaaaaaa-1111-2222-3333-444444444444');
     expect(session.harness).toBe('testharness');
@@ -97,7 +130,8 @@ describe('ingestAll over a native harness', () => {
     const totals = one<{ n: number; input: number; cacheRead: number; cacheWrite: number }>(`
       SELECT COUNT(*) AS n, SUM(input_tokens) AS input,
              SUM(cache_read_tokens) AS cacheRead, SUM(cache_creation_tokens) AS cacheWrite
-      FROM messages
+      FROM messages m JOIN sessions s ON m.session_id = s.id
+      WHERE s.harness = 'testharness'
     `);
     expect(totals.n).toBe(2);
     expect(totals.input).toBe(120);
@@ -106,7 +140,12 @@ describe('ingestAll over a native harness', () => {
   });
 
   it('writes the content blocks alongside', () => {
-    const block = one<{ n: number }>("SELECT COUNT(*) AS n FROM content_blocks WHERE block_type = 'text'");
+    const block = one<{ n: number }>(`
+      SELECT COUNT(*) AS n FROM content_blocks cb
+      JOIN messages m ON cb.message_id = m.id
+      JOIN sessions s ON m.session_id = s.id
+      WHERE cb.block_type = 'text' AND s.harness = 'testharness'
+    `);
     expect(block.n).toBe(2);
   });
 
@@ -118,13 +157,50 @@ describe('ingestAll over a native harness', () => {
     expect(projects.some((p) => p.name.startsWith('claude:'))).toBe(false);
   });
 
+  it('reads Claude Code\'s own layout as well as the native one', () => {
+    // Two different readers, one pass. The claude reader is the older and
+    // larger half of ingestAll and had no test at all.
+    const project = one<{ name: string }>(
+      "SELECT name FROM projects WHERE name = '-home-fox-git-demo'",
+    );
+    expect(project?.name).toBe('-home-fox-git-demo');
+  });
+
+  it('normalises a Claude Code turn into our columns', () => {
+    const row = one<{ input: number; cacheRead: number; model: string }>(`
+      SELECT input_tokens AS input, cache_read_tokens AS cacheRead, model
+      FROM messages WHERE message_uuid = 'cc-a1'
+    `);
+    expect(row).toEqual({ input: 200, cacheRead: 5000, model: 'claude-opus-4-6-20260301' });
+  });
+
+  it('keeps reasoning, text and a tool call as separate blocks', () => {
+    const kinds = db.prepare(`
+      SELECT DISTINCT block_type FROM content_blocks cb
+      JOIN messages m ON cb.message_id = m.id
+      WHERE m.message_uuid IN ('cc-a1', 'cc-u2')
+      ORDER BY block_type
+    `).all() as { block_type: string }[];
+    // These are the canonical names, not the wire ones: Claude Code writes
+    // 'thinking', 'tool_use' and 'tool_result', and the adapter normalises
+    // them to 'reasoning', 'tool-call' and 'tool-result' on the way in. That
+    // renaming is the whole point of having an adapter, and nothing else
+    // asserted it.
+    const types = kinds.map((k) => k.block_type);
+    expect(types).toContain('reasoning');
+    expect(types).toContain('tool-call');
+    expect(types).toContain('tool-result');
+    expect(types).not.toContain('thinking');
+  });
+
   it('adds nothing on a second pass over unchanged files', async () => {
     // Ingest runs on a timer against files that mostly have not moved. If a
     // pass re-inserted, every count in the dashboard would climb on its own.
-    const before = one<{ n: number }>('SELECT COUNT(*) AS n FROM messages').n;
+    const count = () => one<{ n: number }>('SELECT COUNT(*) AS n FROM messages').n;
+    const before = count();
     const { ingestAll } = await import('./ingest');
     const result = await ingestAll();
-    expect(one<{ n: number }>('SELECT COUNT(*) AS n FROM messages').n).toBe(before);
+    expect(count()).toBe(before);
     expect(result.messagesAdded).toBe(0);
   });
 
@@ -136,8 +212,13 @@ describe('ingestAll over a native harness', () => {
     const { ingestAll } = await import('./ingest');
     await ingestAll();
 
-    expect(one<{ n: number }>('SELECT COUNT(*) AS n FROM sessions').n).toBe(2);
-    expect(one<{ n: number }>('SELECT COUNT(*) AS n FROM messages').n).toBe(3);
+    expect(one<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM sessions WHERE harness = 'testharness'",
+    ).n).toBe(2);
+    expect(one<{ n: number }>(`
+      SELECT COUNT(*) AS n FROM messages m JOIN sessions s ON m.session_id = s.id
+      WHERE s.harness = 'testharness'
+    `).n).toBe(3);
   });
 
   it('discovers a harness that appears between passes', async () => {
