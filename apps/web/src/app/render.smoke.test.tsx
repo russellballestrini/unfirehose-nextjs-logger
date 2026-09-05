@@ -183,11 +183,21 @@ describe('pressing every control leaves the page standing', () => {
       const mod = (await load()) as { default: (props: never) => React.ReactNode };
       const { container } = render(<mod.default {...pageProps()} />);
 
-      const controls = [...container.querySelectorAll('button, [role="tab"], summary')];
-      for (const control of controls.slice(0, 40)) {
-        // A handler that throws fails the test; one that rejects a promise
-        // is the page's own business and not ours to judge here.
-        act(() => { (control as HTMLElement).click(); });
+      // Several rounds, because a tab press reveals controls that were not
+      // in the document a moment ago — one pass only ever reaches the first
+      // screen of a tabbed page.
+      const pressed = new Set<Element>();
+      for (let round = 0; round < 4; round += 1) {
+        const controls = [...container.querySelectorAll('button, [role="tab"], summary, [role="button"]')]
+          .filter((c) => !pressed.has(c));
+        if (controls.length === 0) break;
+
+        for (const control of controls.slice(0, 60)) {
+          pressed.add(control);
+          // A handler that throws fails this test; one that rejects a promise
+          // is the page's own business and not ours to judge here.
+          act(() => { (control as HTMLElement).click(); });
+        }
       }
       expect(container).toBeTruthy();
     });

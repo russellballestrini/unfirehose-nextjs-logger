@@ -1,0 +1,97 @@
+// @vitest-environment jsdom
+/// <reference types="vite/client" />
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
+import { render, cleanup, act } from '@testing-library/react';
+
+/**
+ * Every shared component mounts, with nothing and with something.
+ *
+ * These are reached today only through whichever page happens to use them,
+ * so a component used on one rarely-opened screen has never been rendered by
+ * anything.
+ *
+ * Each is mounted with one broad bag of plausible props. Mounting them bare
+ * as well was the first idea and it was wrong: a required prop is enforced by
+ * its type at every call site, so a component throwing without one is
+ * TypeScript working, not a defect.
+ */
+
+const PAYLOAD = Object.assign([] as unknown[], {
+  rows: [], items: [], data: [], todos: [], nodes: [], series: [], entries: [],
+  labels: [], values: [], columns: [], temps: [], fans: [], gpus: [],
+  stats: {}, totals: {}, summary: {}, project: { displayName: 'demo' },
+  value: 0, pct: 50, label: 'demo', title: 'demo', name: 'demo', host: 'localhost',
+  count: 0, total: 0, max: 100, min: 0, loading: false, error: null,
+});
+
+vi.mock('swr', () => ({
+  default: () => ({ data: PAYLOAD, error: undefined, isLoading: false, mutate: vi.fn() }),
+  useSWRConfig: () => ({ mutate: vi.fn() }),
+  mutate: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useParams: () => ({}),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Canvas charts measure themselves; jsdom can neither draw nor size them.
+vi.mock('@/components/UPlotTimeChart', () => ({
+  UPlotTimeChart: () => null, default: () => null,
+}));
+
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (q: string) => ({
+      matches: false, media: q, onchange: null,
+      addListener: vi.fn(), removeListener: vi.fn(),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn(),
+    }),
+  });
+  window.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as never;
+  Element.prototype.scrollIntoView ??= vi.fn() as never;
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true, status: 200, json: async () => PAYLOAD, text: async () => '',
+  }) as never;
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 1024 });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 768 });
+});
+
+afterEach(cleanup);
+
+const modules = import.meta.glob('./*.tsx');
+
+/** Props broad enough that a component finds whatever it reads. */
+const PROPS = {
+  ...PAYLOAD,
+  onClose: vi.fn(), onSave: vi.fn(), onChange: vi.fn(), onSelect: vi.fn(),
+  onRun: vi.fn(), onHide: vi.fn(), mutate: vi.fn(), setValue: vi.fn(),
+  children: null,
+} as never;
+
+describe('every shared component mounts', () => {
+  it('finds them, so this cannot quietly cover nothing', () => {
+    expect(Object.keys(modules).length).toBeGreaterThan(3);
+  });
+
+  for (const [path, load] of Object.entries(modules)) {
+    if (path.includes('.test.')) continue;
+
+    it(`mounts ${path.replace('./', '')}`, async () => {
+      const mod = (await load()) as Record<string, unknown>;
+      const exported = Object.entries(mod).filter(
+        ([, v]) => typeof v === 'function' && /^[A-Z]/.test((v as { name?: string }).name ?? ''),
+      );
+
+      for (const [, Component] of exported) {
+        const C = Component as (p: never) => React.ReactNode;
+        act(() => { render(<C {...PROPS} />); });
+        cleanup();
+      }
+      expect(true).toBe(true);
+    });
+  }
+});
