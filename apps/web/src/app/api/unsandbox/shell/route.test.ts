@@ -28,7 +28,7 @@ class FakeSocket {
 }
 vi.mock('ws', () => ({ default: Object.assign(FakeSocket, { OPEN: 1, CONNECTING: 0, CLOSED: 3 }) }));
 
-const { POST, HEAD } = await import('./route');
+const { GET, POST, HEAD } = await import('./route');
 
 let fetched: string[];
 let sessions: unknown[];
@@ -146,5 +146,84 @@ describe('POST /api/unsandbox/shell', () => {
 describe('HEAD', () => {
   it('answers, so a page can check the route is alive', async () => {
     expect(await (await HEAD({} as never)).json()).toEqual({ ok: true });
+  });
+});
+
+/**
+ * The stream a terminal reads from.
+ *
+ * A service can be frozen, sleeping, or unreachable, and each of those
+ * looks identical to a container that is simply slow — an empty terminal.
+ * So the stream says which before it says anything else, and stays open
+ * afterwards, because the client can wake a frozen service and reconnect.
+ * Closing on a frozen service would leave somebody with a blank screen and
+ * nothing to click.
+ */
+describe('GET /api/unsandbox/shell', () => {
+  /** The first frames of the stream, decoded. */
+  const read = async (res: Response, frames = 1) => {
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const out: string[] = [];
+    const dec = new TextDecoder();
+    for (let i = 0; i < frames; i++) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      out.push(dec.decode(value));
+    }
+    await reader.cancel();
+    return out.join('');
+  };
+
+  const get = (query: string) =>
+    GET({
+      nextUrl: { searchParams: new URLSearchParams(query) },
+      signal: { addEventListener() {} },
+    } as never);
+
+  it('refuses a session id that is not one', async () => {
+    for (const q of ['', 'session_id=a b', 'session_id=../etc']) {
+      expect((await get(q)).status).toBe(400);
+    }
+  });
+
+  it('refuses before any key is configured', async () => {
+    delete settings.unsandbox_secret_key;
+    expect((await get('session_id=sess1')).status).toBe(400);
+  });
+
+  it('says a service is frozen before it says anything else', async () => {
+    // A frozen container and a slow one both show an empty terminal.
+    // Only one of them can be fixed by clicking wake.
+    vi.stubGlobal('fetch', async () => ({
+      ok: true, status: 200, json: async () => ({ state: 'frozen' }),
+    }));
+    const frame = await read(await get('session_id=unsb-service-abc'));
+    expect(JSON.parse(frame.replace(/^data: /, ''))).toMatchObject({
+      type: 'service_state', state: 'frozen',
+    });
+  });
+
+  it('names an unreachable container as one that failed to start', async () => {
+    // Nothing will wake this; it needs a redeploy, and saying so is the
+    // difference between a click and an afternoon.
+    vi.stubGlobal('fetch', async () => ({
+      ok: true, status: 200, json: async () => ({ state: 'unreachable' }),
+    }));
+    const frame = await read(await get('session_id=unsb-service-abc'));
+    expect(frame).toContain('failed to start');
+  });
+
+  it('reports a service the API has never heard of', async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 404, json: async () => ({}) }));
+    const frame = await read(await get('session_id=unsb-service-gone'));
+    expect(JSON.parse(frame.replace(/^data: /, ''))).toMatchObject({ state: 'not_found' });
+  });
+
+  it('connects rather than reporting state for a plain session', async () => {
+    // Only services have a lifecycle; a bare session id skips the check
+    // entirely, which is one fewer round trip per terminal opened.
+    const res = await get('session_id=sess-plain');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
   });
 });
