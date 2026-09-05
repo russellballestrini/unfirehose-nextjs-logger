@@ -162,7 +162,7 @@ const TABS = ['Overview', 'Harnesses', 'Processes', 'Bootstrap', 'Settings'] as 
 type Tab = (typeof TABS)[number];
 
 /** The Settings tab. */
-function SettingsTab(props: any) {
+export function SettingsTab(props: any) {
   const { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, chartEngine, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, toggleEngine, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef } = props;
   return (
       <div className="max-w-lg">
@@ -258,7 +258,7 @@ function SettingsTab(props: any) {
 }
 
 /** The Bootstrap tab. */
-function BootstrapTab(props: any) {
+export function BootstrapTab(props: any) {
   const { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, chartEngine, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, toggleEngine, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef } = props;
   return (
       <div>
@@ -329,7 +329,7 @@ function BootstrapTab(props: any) {
 }
 
 /** The Processes tab. */
-function ProcessesTab(props: any) {
+export function ProcessesTab(props: any) {
   const { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, chartEngine, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, toggleEngine, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef } = props;
   return (
       <div className="space-y-6">
@@ -385,7 +385,7 @@ function ProcessesTab(props: any) {
 
 
 /** The Overview tab: system, memory, disks and the node charts. */
-function OverviewTab(props: any) {
+export function OverviewTab(props: any) {
   const { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, chartEngine, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, toggleEngine, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef } = props;
   return (
     <div className="space-y-6">
@@ -1054,7 +1054,7 @@ function OverviewTab(props: any) {
 }
 
 /** The Harnesses tab: tmux sessions and bare agent processes. */
-function HarnessesTab(props: any) {
+export function HarnessesTab(props: any) {
   const { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, chartEngine, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, toggleEngine, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef } = props;
       // tmuxData comes from /api/tmux/stream (with host param for remote)
       const sessions: string[] = tmuxData?.sessions ?? [];

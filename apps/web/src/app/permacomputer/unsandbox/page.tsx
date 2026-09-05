@@ -63,7 +63,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** The Overview tab. */
-function OverviewTab(props: any) {
+export function OverviewTab(props: any) {
   const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
   return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -213,7 +213,7 @@ function OverviewTab(props: any) {
 }
 
 /** The Harnesses tab. */
-function HarnessesTab(props: any) {
+export function HarnessesTab(props: any) {
   const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
       // Combine sessions + services, find claude/harness processes in each
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -356,7 +356,7 @@ function HarnessesTab(props: any) {
 }
 
 /** The Bootstrap tab. */
-function BootstrapTab(props: any) {
+export function BootstrapTab(props: any) {
   const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
   return (
       <div>
@@ -430,7 +430,7 @@ function BootstrapTab(props: any) {
 }
 
 /** The Services tab. */
-function ServicesTab(props: any) {
+export function ServicesTab(props: any) {
   const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
   return (
       <div className="space-y-4">
@@ -532,7 +532,7 @@ function ServicesTab(props: any) {
 }
 
 /** The Sessions tab. */
-function SessionsTab(props: any) {
+export function SessionsTab(props: any) {
   const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
   return (
       <div className="space-y-4">
@@ -602,7 +602,7 @@ function SessionsTab(props: any) {
 }
 
 /** The Ephemeral tab. */
-function EphemeralTab(props: any) {
+export function EphemeralTab(props: any) {
   const { status, bootFilter, bootHarness, bootStatuses, cmd, cmdResult, cmdRunning, cpuCores, deployError, deployResult, deployUnfirehose, deploying, destroyService, editingNick, executeCommand, killSession, killingSession, load, loadPct, loadPerCore, memAvail, memPct, memTotal, memUsed, mutateSessions, network, nicknames, probe, probeError, probeSessionProcesses, probing, probingSessions, runProbe, saveNickname, serviceLabel, serviceList, sessionList, sessionProcs, setActiveTab, setBootFilter, setCmd, setEditingNick, setNetwork, setServiceLabel, unfirehoseService } = props;
   return (
       <div className="space-y-6">
