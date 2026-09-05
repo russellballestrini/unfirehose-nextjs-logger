@@ -180,6 +180,32 @@ beforeAll(async () => {
     }),
   ].join('\n') + '\n');
 
+  // Subagents: ~/.claude/projects/{slug}/{session}/subagents/agent-{id}.jsonl.
+  // A Task tool call spawns one, and its turns belong to it rather than to
+  // the session that spawned it — otherwise a parent's message count is
+  // the sum of everything its agents did.
+  const subDir = path.join(claudeDir, 'cc111111-1111-2222-3333-444444444444', 'subagents');
+  fs.mkdirSync(subDir, { recursive: true });
+  fs.writeFileSync(path.join(subDir, 'agent-explore-01.jsonl'), [
+    JSON.stringify({
+      type: 'user', uuid: 'sub-u1', timestamp: '2026-09-04T11:05:00.000Z',
+      cwd: repo,
+      message: { role: 'user', content: [{ type: 'text', text: 'find every caller of gaugeColor' }] },
+    }),
+    JSON.stringify({
+      type: 'assistant', uuid: 'sub-a1', parentUuid: 'sub-u1',
+      timestamp: '2026-09-04T11:05:09.000Z',
+      message: {
+        role: 'assistant', model: 'claude-opus-4-6-20260301',
+        content: [{ type: 'text', text: 'four, all in Gauge.tsx' }],
+        usage: { input_tokens: 90, output_tokens: 12,
+                 cache_read_input_tokens: 4000, cache_creation_input_tokens: 0 },
+      },
+    }),
+  ].join('\n') + '\n');
+  // A file in the same directory that is not a subagent transcript.
+  fs.writeFileSync(path.join(subDir, 'notes.txt'), 'not a transcript\n');
+
   // Fetch's layout: ~/.fetch/sessions/{slug}/{id}.jsonl. A third reader
   // again, and the one that carries a research question rather than a
   // coding turn.
@@ -407,6 +433,44 @@ describe('ingestAll over a native harness', () => {
       "SELECT kind, upstream, http_status FROM rate_limit_events WHERE rule = 'harness-reported' ORDER BY id DESC LIMIT 1",
     );
     expect(row).toMatchObject({ kind: 'rate_limit', upstream: 'anthropic', http_status: 429 });
+  });
+
+  it('gives a subagent its own session rather than folding it into its parent', () => {
+    // A Task tool call spawns one, and its turns are its own work. Folded
+    // into the parent, a session's message count becomes the sum of
+    // everything its agents did and no agent has a transcript to open.
+    const row = one<{ session_uuid: string; harness: string }>(
+      "SELECT session_uuid, harness FROM sessions WHERE session_uuid LIKE '%/agent-explore-01' OR session_uuid LIKE '%explore-01'",
+    );
+    expect(row?.session_uuid).toContain('explore-01');
+    expect(row?.harness).toBe('claude-code');
+  });
+
+  it('names a subagent session under the parent that spawned it', () => {
+    // agent ids are unique per parent, not globally, so the parent's uuid
+    // is part of the key — two sessions each running agent-1 are two
+    // different agents.
+    const row = one<{ session_uuid: string }>(
+      "SELECT session_uuid FROM sessions WHERE session_uuid LIKE '%explore-01'",
+    );
+    expect(row?.session_uuid.startsWith('cc111111-1111-2222-3333-444444444444')).toBe(true);
+  });
+
+  it('reads a subagent\'s turns as messages of its own session', () => {
+    const row = one<{ c: number }>(
+      `SELECT COUNT(*) c FROM messages m JOIN sessions s ON m.session_id = s.id
+        WHERE s.session_uuid LIKE '%explore-01'`,
+    );
+    expect(row?.c).toBe(2);
+  });
+
+  it('ignores a file in the subagents directory that is not a transcript', () => {
+    // Editors and tools leave things there. A .txt read as JSONL is a
+    // parse error per line for as long as it exists.
+    const row = one<{ c: number }>(
+      "SELECT COUNT(*) c FROM sessions WHERE session_uuid LIKE '%notes%'",
+    );
+    expect(row?.c).toBe(0);
   });
 
   it('adds nothing on a second pass over unchanged files', async () => {

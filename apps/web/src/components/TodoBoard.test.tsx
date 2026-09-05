@@ -253,3 +253,90 @@ describe('TodoBoard — dragging', () => {
     expect(calls().length).toBe(before);
   });
 });
+
+/**
+ * Mega deploy: one agent per project with open todos, from one button.
+ *
+ * It is the most consequential control in the dashboard — a single click
+ * starts up to ten agents on this machine, each with commit and push
+ * rights in a different repository. What it reports back afterwards is the
+ * only account of what it started.
+ */
+describe('mega deploy', () => {
+  const button = (label: string) => {
+    const el = [...document.querySelectorAll('button')]
+      .find(b => b.textContent?.trim().startsWith(label));
+    if (!el) throw new Error(`no ${label} button`);
+    return el;
+  };
+  const calls = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    .map(([url, init]) => ({
+      url: String(url),
+      method: (init as { method?: string } | undefined)?.method ?? 'GET',
+      body: (() => {
+        try { return JSON.parse((init as { body?: string })?.body ?? 'null'); }
+        catch { return null; }
+      })(),
+    }));
+
+  it('caps how many agents one click can start', async () => {
+    // Ten is a lot of processes; unbounded is every project at once.
+    await mount();
+    await act(async () => { button('Mega Deploy').click(); });
+    await waitFor(() => {
+      const call = calls().find(c => c.url === '/api/boot/mega' && c.method === 'POST');
+      expect(call?.body).toEqual({ maxAgents: 10 });
+    });
+  });
+
+  it('shows what it launched, per project', async () => {
+    response = {
+      launched: 2, total: 3,
+      results: [
+        { project: 'demo', status: 'launched', tmuxSession: 'mega-demo-120000', todoCount: 4 },
+        { project: 'other', status: 'launched', tmuxSession: 'mega-other-120000', todoCount: 1 },
+        { project: 'third', status: 'skipped', reason: 'already running' },
+      ],
+    };
+    const { container } = await mount();
+    await act(async () => { button('Mega Deploy').click(); });
+    await waitFor(() => expect(container.textContent).toContain('mega-demo-120000'));
+    // The skip matters as much as the launch: it is why the third project
+    // has no agent, and without it that reads as a failure.
+    expect(container.textContent).toContain('already running');
+  });
+
+  it('shows why a launch failed rather than reporting a smaller number', async () => {
+    response = {
+      launched: 0, total: 1,
+      results: [{ project: 'demo', status: 'failed', reason: 'duplicate session' }],
+    };
+    const { container } = await mount();
+    await act(async () => { button('Mega Deploy').click(); });
+    await waitFor(() => expect(container.textContent).toContain('duplicate session'));
+  });
+
+  it('reports a network failure rather than an empty panel', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/api/boot/mega')
+        ? Promise.reject(new Error('ECONNREFUSED'))
+        : { ok: true, status: 200, json: async () => response, text: async () => '' }));
+    const { container } = await mount();
+    await act(async () => { button('Mega Deploy').click(); });
+    await waitFor(() => expect(container.textContent).toContain('ECONNREFUSED'));
+  });
+
+  it('asks what is running without starting anything', async () => {
+    // Status is a GET on purpose; the same path with a POST launches.
+    await mount();
+    await act(async () => { button('Status').click(); });
+    await waitFor(() => expect(calls().some(c => c.url === '/api/boot/mega' && c.method === 'GET')).toBe(true));
+    expect(calls().some(c => c.url === '/api/boot/mega' && c.method === 'POST')).toBe(false);
+  });
+
+  it('culls finished agents with a DELETE, not by launching more', async () => {
+    await mount();
+    await act(async () => { button('Cull').click(); });
+    await waitFor(() => expect(calls().some(c => c.url === '/api/boot/mega' && c.method === 'DELETE')).toBe(true));
+  });
+});
