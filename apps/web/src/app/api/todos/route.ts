@@ -2,44 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { recordTriage } from '@unturf/unfirehose/db/triage';
-import { readFile, stat } from 'fs/promises';
 import { claudePaths } from '@unturf/unfirehose/claude-paths';
-import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { execAsync } from '@unturf/unfirehose/git-exec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-async function resolveProjectPath(projectName: string): Promise<string> {
-  // Try sessions index first
-  try {
-    const raw = await readFile(claudePaths.sessionsIndex(projectName), 'utf-8');
-    const index: SessionsIndex = JSON.parse(raw);
-    if (index.originalPath) return index.originalPath;
-  } catch { /* no index */ }
-
-  // Fall back to deriving from encoded name
-  const parts = projectName.replace(/^-/, '').split('-');
-  const gitIdx = parts.lastIndexOf('git');
-  if (gitIdx < 0 || gitIdx >= parts.length - 1) return '';
-  const prefix = '/' + parts.slice(0, gitIdx + 1).join('/');
-  const projectParts = parts.slice(gitIdx + 1);
-
-  const dashJoined = prefix + '/' + projectParts.join('-');
-  try { if ((await stat(dashJoined)).isDirectory()) return dashJoined; } catch {}
-
-  // Try replacing dashes with dots for domain-style names (www-makepostsell-com → www.makepostsell.com)
-  const tlds = ['com', 'net', 'org', 'io', 'dev', 'ai', 'app'];
-  const last = projectParts[projectParts.length - 1];
-  if (projectParts.length >= 2 && tlds.includes(last)) {
-    // Try all dots: www.makepostsell.com
-    const allDots = prefix + '/' + projectParts.join('.');
-    try { if ((await stat(allDots)).isDirectory()) return allDots; } catch {}
-    // Try only last dash as dot: www-makepostsell.com
-    const lastDot = prefix + '/' + projectParts.slice(0, -1).join('-') + '.' + last;
-    try { if ((await stat(lastDot)).isDirectory()) return lastDot; } catch {}
-  }
-  return '';
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -335,7 +302,12 @@ export async function GET(request: NextRequest) {
     const groups = Object.values(byProject);
     await Promise.all(groups.map(async (g) => {
       if (!g.projectPath) {
-        g.projectPath = await resolveProjectPath(g.project) || null;
+        // The shared resolver: it probes every dash-split rather than
+        // assuming a 'git' segment, so a project outside ~/git and one
+        // whose name contains a hyphen both resolve.
+        g.projectPath = await resolveProjectPath(g.project, {
+          sessionsIndexPath: claudePaths.sessionsIndex(g.project),
+        });
       }
     }));
 

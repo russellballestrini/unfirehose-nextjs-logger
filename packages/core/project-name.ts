@@ -74,7 +74,11 @@ export async function resolveProjectPath(
 
   // 3. Filesystem probing — DFS with greedy segment merging
   const { existsSync, statSync } = await import('fs');
-  const parts = encoded.replace(/^-/, '').split('-');
+  const parts = encoded.replace(/^-/, '').split('-').filter(Boolean);
+  // An empty name would otherwise probe '' + '/' + '' and find the
+  // filesystem root, which exists and is a directory — so a project we
+  // cannot name would resolve to / and a boot would start there.
+  if (parts.length === 0) return null;
 
   function probe(idx: number, prefix: string): string | null {
     if (idx >= parts.length) {
