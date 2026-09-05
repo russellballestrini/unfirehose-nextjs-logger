@@ -36,11 +36,31 @@ vi.mock('@unturf/unfirehose/git-exec', () => ({
 }));
 
 const spawned: unknown[][] = [];
+/** The child's own event handlers, so a finished run can be replayed. */
+let child: {
+  handlers: Record<string, (...a: unknown[]) => void>;
+  emit: (ev: string, ...a: unknown[]) => void;
+  stdinWrites: string[];
+};
 vi.mock('child_process', () => ({
   spawn: (...a: unknown[]) => {
     spawned.push(a);
-    return { stdin: { write() {}, end() {} }, stdout: { on() {} }, stderr: { on() {} },
-             on() {}, kill() {}, unref() {} };
+    const handlers: Record<string, (...x: unknown[]) => void> = {};
+    const streams: Record<string, (...x: unknown[]) => void> = {};
+    const stdinWrites: string[] = [];
+    child = {
+      handlers,
+      emit: (ev, ...x) => (handlers[ev] ?? streams[ev])?.(...x),
+      stdinWrites,
+    };
+    return {
+      pid: 4242,
+      stdin: { write: (c: string) => { stdinWrites.push(c); }, end() {} },
+      stdout: { on: (ev: string, cb: (...x: unknown[]) => void) => { streams[`stdout:${ev}`] = cb; handlers[`stdout:${ev}`] = cb; } },
+      stderr: { on: (ev: string, cb: (...x: unknown[]) => void) => { handlers[`stderr:${ev}`] = cb; } },
+      on: (ev: string, cb: (...x: unknown[]) => void) => { handlers[ev] = cb; },
+      kill() {}, unref() {},
+    };
   },
   execFile: () => ({ on() {} }),
 }));
@@ -196,5 +216,86 @@ describe('GET', () => {
     const body = await (await GET({} as never, ctx() as never)).json();
     expect(body.actions).toHaveLength(1);
     expect(body.actions[0].action).toBe('status');
+  });
+});
+
+
+/**
+ * What happens when a nudged agent finishes.
+ *
+ * The request returned minutes ago. This callback is the only thing that
+ * ever writes the outcome, so a run that ends without it leaves an
+ * agent_actions row saying 'running' forever, and our panel shows work in
+ * flight on a machine where nothing is happening.
+ */
+describe('when the nudged agent exits', () => {
+  const lastAction = () => db.prepare(
+    'SELECT status, result FROM agent_actions ORDER BY id DESC LIMIT 1',
+  ).get() as { status: string; result: string | null };
+
+  const finish = async (code: number, out = '', err = '') => {
+    await post({ action: 'nudge' });
+    if (out) child.handlers['stdout:data']?.(Buffer.from(out));
+    if (err) child.handlers['stderr:data']?.(Buffer.from(err));
+    child.handlers.close?.(code);
+  };
+
+  it('sends the prompt on stdin, not as an argument', async () => {
+    // A diff plus instructions runs past the command-line length limit,
+    // and the failure is a truncated prompt rather than an error.
+    await post({ action: 'nudge' });
+    expect(child.stdinWrites.join('')).toContain('You have been triggered');
+  });
+
+  it('records a clean exit as done', async () => {
+    await finish(0, 'committed and pushed');
+    const row = lastAction();
+    expect(row.status).toBe('done');
+    expect(JSON.parse(row.result!)).toMatchObject({ exitCode: 0, severity: 'ok' });
+  });
+
+  it('records a non-zero exit as failed, and keeps the stderr', async () => {
+    // Whatever the agent printed on the way out is the only account of it.
+    await finish(1, '', 'error: could not read repo');
+    const row = lastAction();
+    expect(row.status).toBe('failed');
+    expect(JSON.parse(row.result!)).toMatchObject({ exitCode: 1, severity: 'error' });
+    expect(JSON.parse(row.result!).stderr).toContain('could not read repo');
+  });
+
+  it('reads the harness JSON when it produced any', async () => {
+    // claude -p --output-format json reports what the run cost. That is
+    // the only place the price of a nudge is written down.
+    await finish(0, JSON.stringify({ result: 'done', cost_usd: 0.42, duration_ms: 91_000 }));
+    expect(JSON.parse(lastAction().result!)).toMatchObject({
+      response: 'done', costUsd: 0.42, duration: 91_000,
+    });
+  });
+
+  it('keeps plain output when the harness printed no JSON', async () => {
+    // Not every harness emits it, and losing the transcript loses the run.
+    await finish(0, 'I committed the change and pushed it.');
+    expect(JSON.parse(lastAction().result!).response).toContain('I committed the change');
+  });
+
+  it('records a spawn that never started', async () => {
+    // No close event ever fires for this, so without the error handler the
+    // row stays 'running' forever.
+    await post({ action: 'nudge' });
+    child.handlers.error?.(new Error('ENOENT'));
+    const row = lastAction();
+    expect(row.status).toBe('failed');
+    expect(JSON.parse(row.result!).error).toContain('ENOENT');
+  });
+
+  it('marks a run it had to kill as a warning rather than a failure', async () => {
+    // Five minutes is a bound, not a verdict — the agent may have done
+    // most of the work before it ran out of time.
+    vi.useFakeTimers();
+    await post({ action: 'nudge' });
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+    child.handlers.close?.(143);
+    vi.useRealTimers();
+    expect(JSON.parse(lastAction().result!).severity).toBe('warning');
   });
 });
