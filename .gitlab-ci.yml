@@ -11,7 +11,12 @@ test:
     - npm ci
   script:
     - npm run lint
-    - npm test
+    # coverage-check runs every suite under coverage and fails when a
+    # workspace drops below the floor in its own vitest config. It replaces
+    # a bare `npm test` because a green suite says nothing about how much
+    # of the code it ran — these thresholds sat at 5% functions for months
+    # while apps/web climbed to seventy, and nothing noticed either way.
+    - make quality-gate
 
 publish:
   stage: publish

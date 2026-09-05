@@ -148,6 +148,19 @@ export function main(argv: string[] = process.argv.slice(2)): void {
     process.exit(1);
   }
 
+  // A ceiling on the whole board, for CI. `--fail-over` counts offenders,
+  // which stays flat while every one of them gets worse; this is the
+  // number that moves when risk is added anywhere.
+  const budget = flags.num('budget', Infinity);
+  if (Number.isFinite(budget)) {
+    const total = Math.round(scored.reduce((sum, f) => sum + f.crap, 0));
+    if (total > budget) {
+      console.error(`\n  total crap ${total} is over the budget of ${budget}`);
+      process.exit(1);
+    }
+    console.log(`  ${dim(`within budget: ${total} of ${budget}`)}`);
+  }
+
 }
 
 // Run when invoked directly, which is how make and npx call it.

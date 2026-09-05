@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { ROOT } from './workspaces.ts';
 
 /**
@@ -96,5 +97,48 @@ describe('report-coverage and report-crap', () => {
     const crap = await import('./report-crap.ts');
     expect(typeof coverage.main).toBe('function');
     expect(typeof crap.main).toBe('function');
+  });
+});
+
+/**
+ * The budgets, which are the only part of these reports CI reads.
+ *
+ * A report that prints a number nobody checks is a report. A budget that
+ * cannot fail is worse than none, because it looks like a gate — which is
+ * exactly what our coverage thresholds had become, sitting at 5% functions
+ * while the real number climbed to seventy.
+ */
+describe('budgets', () => {
+  const run = (script: string, args: string[]) => {
+    const res = spawnSync('npx', ['tsx', `scripts/quality/${script}`, ...args], {
+      cwd: ROOT, encoding: 'utf-8', timeout: 300_000,
+    });
+    return { code: res.status, out: (res.stdout ?? '') + (res.stderr ?? '') };
+  };
+
+  it('fails the build when crap is over its budget', () => {
+    const r = run('report-crap.ts', ['--budget', '1']);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/over the budget of 1/);
+  });
+
+  it('passes, and says so, when crap is under it', () => {
+    const r = run('report-crap.ts', ['--budget', '999999']);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/within budget/);
+  });
+
+  it('fails the build when duplication is over its budget', () => {
+    const r = run('report-dupes.ts', ['--budget', '1']);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/redundant tokens is over the budget/);
+  });
+
+  it('says nothing about budgets when none was asked for', () => {
+    // The reports are read by people too, and a number with no budget
+    // beside it should not imply one.
+    const r = run('report-dupes.ts', []);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toMatch(/budget/);
   });
 });

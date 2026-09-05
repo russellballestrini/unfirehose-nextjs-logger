@@ -82,6 +82,18 @@ export function main(argv: string[] = process.argv.slice(2)): void {
     });
   }
 
+  // A ceiling, for CI. Every duplicate this repo has grown was eventually
+  // found to have drifted — one copy fixed, the other not — so the number
+  // worth watching is whether it is growing at all.
+  const budget = flags.num('budget', Infinity);
+  if (Number.isFinite(budget)) {
+    if (saved > budget) {
+      console.error(`\n  ${saved} redundant tokens is over the budget of ${budget}`);
+      process.exit(1);
+    }
+    console.log(`  ${dim(`within budget: ${saved} of ${budget}`)}`);
+  }
+
 }
 
 // Run when invoked directly, which is how make and npx call it.

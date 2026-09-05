@@ -55,6 +55,18 @@ coverage:
 	@$(MAKE) -j4 --no-print-directory cov-core cov-ui cov-web cov-scripts
 	@npx tsx scripts/quality/report-coverage.ts $(ARGS)
 
+# Every ceiling in one target, for CI. Coverage is a floor per workspace;
+# crap and duplication are budgets for the whole repo. Lower the budgets
+# whenever the real number drops — a ceiling left where it was written is a
+# gate that stopped guarding, which is what our coverage thresholds had
+# quietly become.
+CRAP_BUDGET  ?= 21100
+DUPE_BUDGET  ?= 6700
+
+quality-gate: coverage-check
+	@npx tsx scripts/quality/report-crap.ts --budget $(CRAP_BUDGET)
+	@npx tsx scripts/quality/report-dupes.ts --budget $(DUPE_BUDGET)
+
 # The gate: fail where a workspace sits under the thresholds its own
 # vitest.config sets.
 coverage-check:

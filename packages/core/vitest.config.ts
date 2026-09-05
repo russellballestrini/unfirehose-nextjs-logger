@@ -19,11 +19,16 @@ export default defineConfig({
       // rather than sitting permanently red against a number nobody is
       // working toward. Raise them when coverage rises; never lower them to
       // make a red build green.
+      // A floor, not a target. Set a few points under where each workspace
+      // actually sits, so an ordinary change never trips it and a
+      // wholesale loss of tests does. Raise these when the real number
+      // moves up — a threshold left at its original value is a gate that
+      // stopped guarding years ago, which is what these were.
       thresholds: {
-        statements: 60,
-        branches: 50,
-        functions: 63,
-        lines: 62,
+        statements: 78,
+        branches: 66,
+        functions: 74,
+        lines: 78,
       },
     },
     restoreMocks: true,

@@ -18,6 +18,17 @@ export default defineConfig({
       provider: 'v8',
       include: ['components/**/*.{ts,tsx}', 'hooks/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
       exclude: ['**/*.test.*'],
+      // A floor, not a target. Set a few points under where each workspace
+      // actually sits, so an ordinary change never trips it and a
+      // wholesale loss of tests does. Raise these when the real number
+      // moves up — a threshold left at its original value is a gate that
+      // stopped guarding years ago, which is what these were.
+      thresholds: {
+        statements: 82,
+        branches: 73,
+        functions: 76,
+        lines: 82,
+      },
     },
     restoreMocks: true,
     clearMocks: true,
