@@ -259,32 +259,49 @@ export async function unlockVault(browser, base) {
     await page.send('Runtime.enable');
     await page.send('Page.navigate', { url: base });
 
-    const clickSkip = `(() => {
-      const b = [...document.querySelectorAll('button')].find(x => /^skip/i.test((x.textContent ?? '').trim()));
-      if (b) { b.click(); return 'clicked'; }
-      return document.body.innerText.includes('Unlock vault') || document.body.innerText.includes('Create your vault')
-        ? 'waiting' : 'no gate';
+    // Three states matter here, and telling them apart is the whole job:
+    // the boot screen (vault state still unknown), the gate (needs a click),
+    // and the app (nothing to do). An early look sees the boot screen and,
+    // read as "no gate", returns before ever clicking — which is how this
+    // came to measure a stuck boot screen on every page and report it as a
+    // page with no content.
+    const probe = `(() => {
+      const t = document.body ? document.body.innerText : '';
+      if (/Unlock vault|Create your vault|Choose a password/.test(t)) {
+        const b = [...document.querySelectorAll('button')].find(x => /^skip/i.test((x.textContent ?? '').trim()));
+        if (b) { b.click(); return 'clicked'; }
+        return 'gate-no-skip';
+      }
+      if (/initializing data layer|mounting dashboard/.test(t) || t.trim().length < 20) return 'booting';
+      return 'app';
     })()`;
 
     const deadline = Date.now() + 30_000;
     for (;;) {
-      const { result } = await page.send('Runtime.evaluate', { expression: clickSkip, returnByValue: true })
-        .catch(() => ({ result: { value: 'waiting' } }));
-      if (result.value === 'clicked' || result.value === 'no gate') break;
-      if (Date.now() > deadline) throw new Error('vault gate never went away');
-      await new Promise((r) => setTimeout(r, 200));
+      const { result } = await page.send('Runtime.evaluate', { expression: probe, returnByValue: true })
+        .catch(() => ({ result: { value: 'booting' } }));
+      if (result.value === 'clicked' || result.value === 'app') break;
+      if (result.value === 'gate-no-skip') throw new Error('vault gate offered no skip');
+      if (Date.now() > deadline) throw new Error(`vault gate never resolved (last state: ${result.value})`);
+      await new Promise((r) => setTimeout(r, 150));
     }
 
-    // Wait for the gate to actually go, not just for the click to land —
-    // creating a vault derives a key, which is deliberately slow.
-    const gone = Date.now() + 30_000;
+    // Wait for the app itself, not merely for the gate to go — creating a
+    // vault derives a key, which is deliberately slow, and the boot screen
+    // sits in between looking like neither.
+    const gone = Date.now() + 60_000;
     for (;;) {
       const { result } = await page.send('Runtime.evaluate', {
-        expression: `!/Unlock vault|Create your vault|Choose a password/.test(document.body.innerText)`,
+        expression: `(() => {
+          const t = document.body ? document.body.innerText : '';
+          if (/Unlock vault|Create your vault/.test(t)) return 'gate';
+          if (/initializing data layer|mounting dashboard/.test(t)) return 'booting';
+          return t.trim().length > 20 ? 'app' : 'blank';
+        })()`,
         returnByValue: true,
-      }).catch(() => ({ result: { value: false } }));
-      if (result.value) return;
-      if (Date.now() > gone) throw new Error('vault did not unlock');
+      }).catch(() => ({ result: { value: 'blank' } }));
+      if (result.value === 'app') return;
+      if (Date.now() > gone) throw new Error(`vault never unlocked (stuck on: ${result.value})`);
       await new Promise((r) => setTimeout(r, 200));
     }
   } finally {

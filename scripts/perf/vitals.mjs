@@ -18,7 +18,8 @@
  *   make vitals ARGS="--budget 1500"   fail if any page's data time is worse
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'fs';
+import { cpus } from 'os';
 import { dirname, resolve } from 'path';
 import { launch } from './cdp.mjs';
 import { measurePage, unlockVault } from './measure.mjs';
@@ -100,6 +101,19 @@ export async function main(argv = process.argv.slice(2)) {
   const only = flags.has('url') ? [flags.str('url')] : null;
   const list = only ?? await pages(base);
 
+  // A busy machine makes every page slower, and the numbers do not say so.
+  // A run taken at load 20 read three times worse than the same build at
+  // load 2 — and the load was this tool's own leaked renderers. Record it,
+  // and refuse to call a result a regression when the machine was busy.
+  const load1 = Number(readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
+  const cores = cpus().length;
+  const busy = load1 > cores;
+  if (busy && !flags.has('force')) {
+    console.error(`\n  load average ${load1.toFixed(1)} on ${cores} cores — a measurement now would say the machine is slow, not the pages.`);
+    console.error('  Wait for it to settle, or pass --force to record it anyway (it will be marked).');
+    process.exit(2);
+  }
+
   const browser = await launch({ headless: !flags.has('headed') });
   const results = [];
   try {
@@ -141,7 +155,7 @@ export async function main(argv = process.argv.slice(2)) {
   results.sort((a, b) => (b.dataOnScreen ?? 0) - (a.dataOnScreen ?? 0));
 
   const failed = results.filter((r) => r.failed);
-  console.log(`\n  Time to data on screen — ${base} · ${cold ? 'first visit, cache empty' : 'return visit, cache warm'}${runs > 1 ? ` · median of ${runs}` : ''}\n`);
+  console.log(`\n  Time to data on screen — ${base} · ${cold ? 'first visit, cache empty' : 'return visit, cache warm'}${runs > 1 ? ` · median of ${runs}` : ''} · load ${load1.toFixed(1)}/${cores}${busy ? ' \x1b[31mBUSY MACHINE — not comparable\x1b[0m' : ''}\n`);
   console.log(table(results, Number.isFinite(budget) ? budget : 2000));
 
   if (failed.length) {
@@ -161,7 +175,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (flags.has('json')) {
     const out = resolve(process.cwd(), flags.str('json', 'reports/vitals.json'));
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, `${JSON.stringify({ generatedAt: new Date().toISOString(), base, runs, results }, null, 2)}\n`);
+    writeFileSync(out, `${JSON.stringify({ generatedAt: new Date().toISOString(), base, runs, cold, load1, cores, busy, results }, null, 2)}\n`);
     console.log(`\n  wrote ${out}`);
   }
 

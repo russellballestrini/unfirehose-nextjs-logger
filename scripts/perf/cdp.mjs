@@ -50,7 +50,24 @@ export async function launch({ port = 9333, headless = true } = {}) {
     '--disable-background-timer-throttling',
     '--window-size=1440,900',
     'about:blank',
-  ].filter(Boolean), { stdio: 'ignore' });
+    // Its own process group, so closing kills the renderers too. Killing the
+    // parent alone leaves every renderer running at full tilt — twenty-one of
+    // them were found eating the machine after a morning of runs, which
+    // pushed the load average to twenty and made the very pages being
+    // measured three times slower than they were. An instrument that
+    // degrades what it measures is worse than none.
+  ].filter(Boolean), { stdio: 'ignore', detached: true });
+
+  const killAll = () => {
+    try { process.kill(-proc.pid, 'SIGTERM'); } catch { /* already gone */ }
+    setTimeout(() => { try { process.kill(-proc.pid, 'SIGKILL'); } catch { /* gone */ } }, 1500).unref();
+    rmSync(profile, { recursive: true, force: true });
+  };
+  // An aborted run — Ctrl-C, a thrown error, a killed shell — must not leave
+  // a browser behind either.
+  process.once('exit', killAll);
+  process.once('SIGINT', () => { killAll(); process.exit(130); });
+  process.once('SIGTERM', () => { killAll(); process.exit(143); });
 
   const version = await until(async () => {
     const res = await fetch(`http://127.0.0.1:${port}/json/version`);
@@ -101,10 +118,9 @@ export async function launch({ port = 9333, headless = true } = {}) {
     },
     async close() {
       try { ws.close(); } catch { /* already gone */ }
-      proc.kill('SIGTERM');
-      // Give it a moment to exit before removing the profile it is writing to.
+      process.off('exit', killAll);
+      killAll();
       await new Promise((r) => setTimeout(r, 300));
-      rmSync(profile, { recursive: true, force: true });
     },
   };
 }
