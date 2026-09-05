@@ -24,7 +24,7 @@ const AGENT_SYSTEM_PROMPT = `You are a deployed agent. Follow these rules:
 - When all work is complete, output the exact text UNEOF as your final message. This signals the orchestrator to retire this session.`;
 
 // Resolve which host to boot on based on settings + strategy
-function resolveBootHost(requestedHost?: string): string {
+export function resolveBootHost(requestedHost?: string): string {
   // Explicit request overrides everything
   if (requestedHost) return requestedHost;
 
@@ -194,7 +194,7 @@ interface BootOpts {
 }
 
 
-function buildClaudeCmd(opts: BootOpts): string {
+export function buildClaudeCmd(opts: BootOpts): string {
   if (opts.harness !== 'claude') {
     const key = opts.harnessKey ?? opts.harness;
     const withModel = withModelArg([opts.harness], key, opts.model);
@@ -219,7 +219,7 @@ function buildClaudeCmd(opts: BootOpts): string {
   return parts.join(' ');
 }
 
-function buildClaudeArgs(opts: BootOpts): { parts: string[]; cleanupFiles: string[] } {
+export function buildClaudeArgs(opts: BootOpts): { parts: string[]; cleanupFiles: string[] } {
   const cleanupFiles: string[] = [];
 
   if (opts.harness !== 'claude') {
