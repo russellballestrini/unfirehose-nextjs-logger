@@ -15,6 +15,7 @@
 
 import { execSync } from 'child_process';
 import { readFileSync, readdirSync } from 'fs';
+import { type as osType, release as osRelease } from 'os';
 import { harnessPsAwk, parseHarnessProcesses, countByHarness } from './harness-procs';
 import {
   type MeshNode, lookupCpuTdp, lookupCpuYear, parseCpuModel, countSpinningDisks,
@@ -209,6 +210,9 @@ export function getLocalStats(): MeshNode {
       gpuUtil,
       arch,
       powerSource,
+      // The local node is read in-process, not through the userland
+      // script; say what it would have said so the fleet reads alike.
+      os: osType(), osRelease: osRelease(), userland: 'linux-gnu',
     };
   } catch (e: any) {
     return { hostname: 'localhost', reachable: false, error: String(e) };
