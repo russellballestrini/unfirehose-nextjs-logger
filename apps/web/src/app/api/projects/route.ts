@@ -11,7 +11,9 @@ import { readProjectList, refreshProjectList } from '@unturf/unfirehose/projects
  * yet, which is the first load against a database no worker has seen.
  */
 export async function GET() {
-  const stored = readProjectList();
+  // Keep the last successful result available while the worker is importing.
+  // X-Computed-At exposes its age; expiry must not move rebuilds onto requests.
+  const stored = readProjectList(Infinity);
   if (stored) {
     return NextResponse.json(stored.payload, {
       headers: { 'Server-Timing': 'stored;dur=0', 'X-Computed-At': stored.at },

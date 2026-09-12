@@ -66,3 +66,11 @@ describe('decodeProjectName', () => {
     expect(decodeProjectName('')).toBe('');
   });
 });
+
+
+describe('Claude subagent transcript paths', () => {
+  it('resolves direct and workflow-nested composite session IDs', () => {
+    expect(claudePaths.sessionFile('project', 'parent/agentid')).toBe('/mock/home/.claude/projects/project/parent/subagents/agent-agentid.jsonl');
+    expect(claudePaths.sessionFile('project', 'parent/workflows/wf-1/agentid')).toBe('/mock/home/.claude/projects/project/parent/subagents/workflows/wf-1/agent-agentid.jsonl');
+  });
+});

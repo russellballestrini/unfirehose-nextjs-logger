@@ -72,4 +72,12 @@ describe('GET /api/projects', () => {
     const data = await res.json();
     expect(data[0].hasMemory).toBe(false);
   });
+  it('serves the last computed projects while the worker is behind', async () => {
+    await GET();
+    db.prepare("UPDATE settings SET value = '2000-01-01T00:00:00.000Z' WHERE key = 'project_list_at'").run();
+    const response = await GET();
+    expect(response.headers.get('Server-Timing')).toBe('stored;dur=0');
+    expect(response.headers.get('X-Computed-At')).toBe('2000-01-01T00:00:00.000Z');
+  });
+
 });

@@ -375,6 +375,11 @@ export function migrate(db: Database.Database) {
     -- Covering index for token aggregation queries (tokens page, dashboard)
     CREATE INDEX IF NOT EXISTS idx_messages_model_tokens ON messages(model, timestamp)
       WHERE model IS NOT NULL;
+    -- Model/time alone still requires random table reads for every token sum.
+    -- Pricing summary is requested by the UI and must stay index-only.
+    CREATE INDEX IF NOT EXISTS idx_messages_model_usage ON messages(
+      model, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+    ) WHERE model IS NOT NULL;
     -- Speed up content_blocks lookups by type + message
     CREATE INDEX IF NOT EXISTS idx_content_blocks_type_message ON content_blocks(block_type, message_id);
     -- Speed up harness-based token aggregation (tokens page)
@@ -480,6 +485,8 @@ export function migrate(db: Database.Database) {
   // endpoint = full URL of the inference API the message hit (when harness logs it).
   // provider = "anthropic" | "openai" | "google" | "local" | "openrouter" | "hf-inference" | ...
   addColumn('messages', 'endpoint', 'TEXT');
+  const hadProvider = (db.prepare('PRAGMA table_info(messages)').all() as { name: string }[])
+    .some(column => column.name === 'provider');
   addColumn('messages', 'provider', 'TEXT');
   // The invoice, when the gateway states one. Tokens times list price is a
   // MODEL of the bill and it drifts: on 2026-09-02 ours read $13.95 for a day
@@ -506,7 +513,8 @@ export function migrate(db: Database.Database) {
   // identity and endpoint instead (see pricing.ts `isSelfHosted`). Rows already
   // stamped by earlier runs stay put; nothing downstream trusts the column
   // alone any more.
-  db.exec(`
+  // Run only when introducing the column, not on every web/worker startup.
+  if (!hadProvider) db.exec(`
     UPDATE messages
        SET provider = 'anthropic'
      WHERE provider IS NULL
@@ -887,4 +895,18 @@ export function migrate(db: Database.Database) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('alert_defaults_v2', '1')").run();
     })();
   }
+  db.exec(`
+    -- Time-window activity joins need session/type and attribution as well.
+    CREATE INDEX IF NOT EXISTS idx_messages_window_usage ON messages(
+      timestamp, session_id, type, model, input_tokens, output_tokens,
+      cache_read_tokens, cache_creation_tokens, provider, endpoint, observed_cost_usd
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_messages_session_usage ON messages(
+      session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+    );
+  `);
+
 }

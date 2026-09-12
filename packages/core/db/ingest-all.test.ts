@@ -515,4 +515,35 @@ describe('ingestAll over a native harness', () => {
     const project = one<{ name: string }>("SELECT name FROM projects WHERE name LIKE 'brandnew:%'");
     expect(project?.name).toBe('brandnew:-home-fox-git-other');
   });
+  it('uses a native header cwd without guessing a long deleted path', async () => {
+    const slug = '-missing-' + 'hyphenated-segment-'.repeat(8);
+    const dir = path.join(home, '.codex', 'unfirehose', slug);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'codex-path-regression.jsonl'),
+      JSON.stringify({ type: 'session', cwd: '/missing/original-working-directory' }) + '\n' +
+      message('codex-path-message', 'user', 'header path survives deleted worktrees') + '\n');
+    const { ingestAll } = await import('./ingest');
+    await ingestAll();
+    expect(one<{ path: string }>("SELECT path FROM projects WHERE name LIKE 'codex:%'").path)
+      .toBe('/missing/original-working-directory');
+  }, 3000);
+
+  it('ingests workflow-nested Claude subagents after the parent is unchanged', async () => {
+    const parent = 'cc111111-1111-2222-3333-444444444444';
+    const dirs = fs.readdirSync(path.join(home, '.claude', 'projects'));
+    const project = dirs.find(dir => fs.existsSync(path.join(home, '.claude', 'projects', dir, parent + '.jsonl')))!;
+    const nested = path.join(home, '.claude', 'projects', project, parent, 'subagents', 'workflows', 'wf-test');
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(nested, 'agent-nested.jsonl'), JSON.stringify({
+      type: 'user', uuid: 'workflow-nested-user', timestamp: '2026-09-12T00:00:00Z',
+      message: { role: 'user', content: 'nested workflow task' },
+    }) + '\n');
+    const { ingestAll } = await import('./ingest');
+    await ingestAll();
+    expect(one<{ delegated_from: string }>("SELECT delegated_from FROM sessions WHERE session_uuid = '" + parent + "/workflows/wf-test/nested'").delegated_from).toBe(parent);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM messages WHERE message_uuid = 'workflow-nested-user'").n).toBe(1);
+    await ingestAll();
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM messages WHERE message_uuid = 'workflow-nested-user'").n).toBe(1);
+  });
+
 });

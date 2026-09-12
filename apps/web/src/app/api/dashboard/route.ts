@@ -11,7 +11,9 @@ import { readDashboard, refreshDashboard } from '@unturf/unfirehose/dashboard';
 export async function GET(request: NextRequest) {
   const range = request.nextUrl.searchParams.get('range') ?? '7d';
 
-  const stored = readDashboard(range);
+  // Keep the last successful result available while the worker is importing.
+  // X-Computed-At exposes its age; expiry must not move rebuilds onto requests.
+  const stored = readDashboard(range, Infinity);
   if (stored) {
     return NextResponse.json(stored.payload, {
       headers: { 'Server-Timing': 'stored;dur=0', 'X-Computed-At': stored.at },
