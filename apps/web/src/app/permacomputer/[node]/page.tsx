@@ -11,6 +11,7 @@ import Link from 'next/link';
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react';
 import { useTimeRange, getTimeRangeMinutes, TIME_RANGE_OPTIONS } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { toNodeSeries, seriesBounds } from '@/lib/node-series';
+import { resolveMeshHostname } from '@/lib/node-vitals';
 import { memCapGB as hardwareMemCapGB } from '@/lib/mesh-probe';
 // uplot CSS is bundled by UPlotTimeChart's import
 
@@ -50,10 +51,17 @@ export default function NodeDetailPage() {
     refreshInterval: LIVE_MS,
     focusThrottleInterval: LIVE_MS,
   });
+  const { data: sshConfig, mutate: mutateSsh } = useSWR('/api/ssh-config', fetcher, { revalidateOnFocus: false });
+  // What the mesh calls this machine — the URL carries the SSH HostName,
+  // which can differ from the alias the mesh probed under.
+  const meshHost = useMemo(
+    () => resolveMeshHostname(host, mesh?.nodes, sshConfig?.hosts),
+    [host, mesh, sshConfig],
+  );
   const { data: meshHistory } = useSWR(
     // One node's page needs one node's history. Unfiltered, this pulled the
     // whole fleet's timeline every LIVE_MS and threw all but one host away.
-    `/api/mesh/history?hours=${chartHours}&hostname=${encodeURIComponent(host)}`,
+    `/api/mesh/history?hours=${chartHours}&hostname=${encodeURIComponent(meshHost)}`,
     fetcher,
     {
       refreshInterval: LIVE_MS,
@@ -85,7 +93,6 @@ export default function NodeDetailPage() {
     { refreshInterval: LIVE_MS, focusThrottleInterval: LIVE_MS },
   );
   const { data: settings } = useSWR('/api/settings', fetcher, { revalidateOnFocus: false });
-  const { data: sshConfig, mutate: mutateSsh } = useSWR('/api/ssh-config', fetcher, { revalidateOnFocus: false });
 
   // Per-node tunables
   const [kwhRate, setKwhRate] = useState(DEFAULT_KWH_RATE);
@@ -419,7 +426,7 @@ export default function NodeDetailPage() {
   };
 
   // Find this node in mesh data
-  const node = mesh?.nodes?.find((n: any) => n.hostname === host);
+  const node = mesh?.nodes?.find((n: any) => n.hostname === meshHost);
 
   // Power calculation
   let systemWatts = wattsOverride || node?.powerWatts || 0;

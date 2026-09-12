@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nodeVitals, nodeMonthlyCost, estimateContainerWatts } from './node-vitals';
+import { nodeVitals, nodeMonthlyCost, estimateContainerWatts, sshHostMatchesMesh, resolveMeshHostname } from './node-vitals';
 import type { NodeEcon } from './mesh-score';
 
 const econ = {
@@ -121,5 +121,37 @@ describe('estimateContainerWatts', () => {
     // No probe yet. A guess from no data is worse than an honest zero.
     expect(estimateContainerWatts({ cpuCores: 0 })).toBe(0);
     expect(estimateContainerWatts(undefined)).toBe(0);
+  });
+});
+
+describe('resolveMeshHostname', () => {
+  // Verbatim from ~/.ssh/config: alias 4090-ai.foxhop.net, HostName ai.foxhop.net.
+  const ssh = [
+    { name: '4090-ai.foxhop.net', hostname: 'ai.foxhop.net' },
+    { name: 'cammy.foxhop.net', hostname: 'cammy.foxhop.net' },
+    { name: 'neoblanka', hostname: '192.168.1.20' },
+  ];
+  const mesh = [{ hostname: '4090-ai.foxhop.net' }, { hostname: 'cammy.foxhop.net' }, { hostname: 'neoblanka' }];
+
+  it('keeps a name the mesh already has', () => {
+    expect(resolveMeshHostname('cammy.foxhop.net', mesh, ssh)).toBe('cammy.foxhop.net');
+  });
+
+  it('maps an SSH HostName back to the alias the mesh probed under', () => {
+    // The card links by HostName; the mesh row is named by the alias.
+    // Matched literally, the page showed 8W [n/a] and empty charts.
+    expect(resolveMeshHostname('ai.foxhop.net', mesh, ssh)).toBe('4090-ai.foxhop.net');
+    expect(resolveMeshHostname('192.168.1.20', mesh, ssh)).toBe('neoblanka');
+  });
+
+  it('hands back what it was given when nothing matches or nothing loaded yet', () => {
+    expect(resolveMeshHostname('nowhere.example', mesh, ssh)).toBe('nowhere.example');
+    expect(resolveMeshHostname('ai.foxhop.net', undefined, ssh)).toBe('ai.foxhop.net');
+    expect(resolveMeshHostname('ai.foxhop.net', mesh, undefined)).toBe('ai.foxhop.net');
+  });
+
+  it('matches a short mesh hostname to its fully qualified SSH entry', () => {
+    expect(sshHostMatchesMesh({ name: 'cammy.foxhop.net' }, 'cammy')).toBe(true);
+    expect(sshHostMatchesMesh({ name: 'cammy.foxhop.net' }, '')).toBe(false);
   });
 });

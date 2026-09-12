@@ -39,6 +39,38 @@ export interface NodeVitals {
 
 const pct = (used: number, total: number) => (total > 0 ? Math.round((used / total) * 100) : 0);
 
+/**
+ * Whether an SSH config entry is the machine a mesh row describes.
+ *
+ * The mesh names a node by what it probed — the SSH alias when that has a
+ * dot in it, else the remote's own hostname — while a card links by the
+ * entry's HostName, what we actually connect to. `4090-ai.foxhop.net` has
+ * HostName `ai.foxhop.net`; compared literally, its page had no node, no
+ * watts and no history.
+ */
+export function sshHostMatchesMesh(h: { name?: string; hostname?: string }, meshHostname: string): boolean {
+  if (!meshHostname) return false;
+  return h.name === meshHostname || h.hostname === meshHostname ||
+    !!h.name?.startsWith(meshHostname + '.') || !!h.hostname?.startsWith(meshHostname + '.');
+}
+
+/**
+ * The mesh hostname a node page should read under, given the host in its
+ * URL: the literal name when the mesh has it, else the mesh row of the SSH
+ * entry that name belongs to.
+ */
+export function resolveMeshHostname(
+  host: string,
+  meshNodes: { hostname: string }[] | undefined,
+  sshHosts: { name?: string; hostname?: string }[] | undefined,
+): string {
+  if (!meshNodes?.length) return host;
+  if (meshNodes.some(n => n.hostname === host)) return host;
+  const ssh = sshHosts?.find(h => h.name === host || h.hostname === host);
+  if (!ssh) return host;
+  return meshNodes.find(n => sshHostMatchesMesh(ssh, n.hostname))?.hostname ?? host;
+}
+
 export function nodeVitals(node: any, sshHost?: { name?: string; hostname?: string }): NodeVitals {
   const name = sshHost?.name ?? node?.hostname ?? '?';
   const cpuCores = node?.cpuCores ?? 0;
