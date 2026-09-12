@@ -483,6 +483,7 @@ async function ingestSubagentsForSession(
           const normalized = normalizeClaudeCodeEntry(entry);
           if (!normalized) continue;
           normalized.sidechain = true;
+          normalized.provider ??= 'anthropic';
           const messageId = insertMessage(db, subSessionId, normalized);
           if (messageId === null) continue;
           result.messagesAdded++;
@@ -1784,6 +1785,7 @@ export async function ingestAll(): Promise<IngestResult> {
               const normalized = normalizeClaudeCodeEntry(entry);
               if (!normalized) continue;
 
+              normalized.provider ??= 'anthropic';
               const messageId = insertMessage(db, sessionId, normalized);
               if (messageId === null) continue; // skipped (duplicate or non-message type)
 

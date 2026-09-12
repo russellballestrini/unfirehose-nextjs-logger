@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { migrate } from './migrate';
 import { createTestDb, seedProject, seedSession, seedMessage } from '../test/db-helper';
 
 it('aggregates pricing tokens without reading the messages table', () => {
@@ -42,5 +43,16 @@ it('refreshes project totals without table reads for each session', () => {
   const plan = db.prepare('EXPLAIN QUERY PLAN ' + query).all() as { detail: string }[];
   expect(plan.some(row => row.detail.includes('COVERING INDEX idx_messages_session_usage'))).toBe(true);
   expect(db.prepare(query).get()).toMatchObject({ input: 100 });
+  db.close();
+});
+
+
+it('does not repeat the historical provider backfill on startup', () => {
+  const db = createTestDb();
+  const session = seedSession(db, seedProject(db, 'provider-migration'), 'provider-migration');
+  db.prepare("UPDATE sessions SET harness = 'claude-code' WHERE id = ?").run(session);
+  seedMessage(db, session, { model: 'claude-test', inputTokens: 1 });
+  migrate(db);
+  expect(db.prepare('SELECT provider FROM messages WHERE session_id = ?').get(session)).toEqual({ provider: null });
   db.close();
 });

@@ -485,6 +485,8 @@ export function migrate(db: Database.Database) {
   // endpoint = full URL of the inference API the message hit (when harness logs it).
   // provider = "anthropic" | "openai" | "google" | "local" | "openrouter" | "hf-inference" | ...
   addColumn('messages', 'endpoint', 'TEXT');
+  const hadProvider = (db.prepare('PRAGMA table_info(messages)').all() as { name: string }[])
+    .some(column => column.name === 'provider');
   addColumn('messages', 'provider', 'TEXT');
   // The invoice, when the gateway states one. Tokens times list price is a
   // MODEL of the bill and it drifts: on 2026-09-02 ours read $13.95 for a day
@@ -511,7 +513,8 @@ export function migrate(db: Database.Database) {
   // identity and endpoint instead (see pricing.ts `isSelfHosted`). Rows already
   // stamped by earlier runs stay put; nothing downstream trusts the column
   // alone any more.
-  db.exec(`
+  // Run only when introducing the column, not on every web/worker startup.
+  if (!hadProvider) db.exec(`
     UPDATE messages
        SET provider = 'anthropic'
      WHERE provider IS NULL
