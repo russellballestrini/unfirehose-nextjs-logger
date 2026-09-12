@@ -151,8 +151,8 @@ plugin('gnu-hurd', 'GNU/Hurd', ['GNU'],
 
 # ── Tier 1: BSD family ──────────────────────────────────────────────────
 
-plugin('freebsd', 'FreeBSD', ['FreeBSD', 'MidnightBSD', 'DragonFly', 'GNU/kFreeBSD'],
-  notes='FreeBSD, DragonFly, MidnightBSD, Debian GNU/kFreeBSD. sysctl for everything; diskinfo -v reports rotation rate on 12+.',
+plugin('freebsd', 'FreeBSD', ['FreeBSD', 'MidnightBSD', 'DragonFly', 'GNU/kFreeBSD', 'JUNOS'],
+  notes='FreeBSD, DragonFly, MidnightBSD, Debian GNU/kFreeBSD, and Junos (a FreeBSD under the CLI, reached via `start shell sh`). sysctl for everything; diskinfo -v reports rotation rate on 12+.',
   body=r'''
   kv nproc "`sysctl_n hw.ncpu`"
   kv cpu "`sysctl_n hw.model`"
@@ -318,6 +318,19 @@ plugin('sco', 'SCO OpenServer / UnixWare', ['UnixWare', 'SCO_SV'],
   ls /dev/rdsk 2>/dev/null | sed 's/s[0-9]*$//' | sort -u | awk '{print "DISK", $1, "1"}'
 ''' + PS_AUX_OR_EO)
 
+plugin('esxi', 'VMware ESXi', ['VMkernel'],
+  notes='ESXi: a busybox-ish sh with esxcli and vsish, no /proc. The hypervisor most homelabs run, so it sits in tier 1. Its uptime command prints load averages.',
+  body=r'''
+  kv nproc "`esxcli hardware cpu global get 2>/dev/null | sed -n 's/^ *CPU Threads: *//p'`"
+  kv cpu "`esxcli hardware cpu list 2>/dev/null | sed -n 's/^ *Brand: *//p' | sed -n 1p`"
+  kv model "`esxcli hardware platform get 2>/dev/null | sed -n 's/^ *Product Name: *//p'`"
+  kv osrel "`vmware -v 2>/dev/null`"
+  kv mem_total "`esxcli hardware memory get 2>/dev/null | sed -n 's/^ *Physical Memory: *//p'`"
+  kv mem_avail "`vsish -e get /memory/comprehensive 2>/dev/null | sed -n 's/^ *Free: *//p' | sed -n 1p`"
+  kv vms "`esxcli vm process list 2>/dev/null | grep -c 'World ID'`"
+  esxcli storage core device list 2>/dev/null | awk '/^[^ ]/ {d=$1} /Is SSD:/ { r = ($3=="true") ? 0 : 1; if (d !~ /^mpx\./) print "DISK", d, r }'
+''')
+
 # ── Tier 2: the rest of the shell-bearing world ─────────────────────────
 
 plugin('haiku', 'Haiku', ['Haiku'],
@@ -376,6 +389,14 @@ __UF_PS__
 plugin('windows-powershell', 'Windows (PowerShell)', [],
   notes='Not a Bourne branch: what probeRemote runs when the remote has no sh at all. The script is userland/powershell.ts; this entry names the id the wire reports.',
   body='')
+
+for _id, _label, _notes in [
+    ('windows-cmd', 'Windows (cmd.exe)', 'Not a Bourne branch: cmd.exe fed userland/cmd.ts on stdin when neither sh nor PowerShell exists (XP/2003 with a third-party sshd, or PowerShell disabled by policy).'),
+    ('routeros', 'MikroTik RouterOS', 'Network gear, no shell: `/system resource print` over ssh, translated in userland/network.ts. Unverified against a device.'),
+    ('cisco-ios', 'Cisco IOS / IOS-XE', 'Network gear, no shell: a pty session of show commands, translated in userland/network.ts. Unverified against a device.'),
+    ('fortios', 'Fortinet FortiOS', 'Network gear, no shell: `get system status` / `get system performance status`, translated in userland/network.ts. Unverified against a device.'),
+]:
+    plugin(_id, _label, [], notes=_notes, body='')
 
 plugin('generic', 'Generic POSIX', ['*'],
   notes='Interix, z/OS USS, NonStop OSS, SINIX, ReliantUNIX, ULTRIX, A/UX, UNICOS, SerenityOS, Redox, and whatever comes next. Asks only what POSIX promises, then tries sysctl and /proc in case they are there.',

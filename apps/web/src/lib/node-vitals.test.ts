@@ -124,6 +124,19 @@ describe('estimateContainerWatts', () => {
   });
 });
 
+describe('what kind of node', () => {
+  it('names the platform for anything that is not a Linux, and the kind when it is not compute', () => {
+    expect(nodeVitals({ hostname: 'x', reachable: true, os: 'Linux', osRelease: '6.8.0' }).platform).toBe('');
+    expect(nodeVitals({ hostname: 'x', reachable: true, os: 'FreeBSD', osRelease: '14.1-RELEASE' }).platform).toBe('FreeBSD 14.1-RELEASE');
+    expect(nodeVitals({ hostname: 'x', reachable: true, os: 'Darwin', osRelease: '23.4.0' }).platform).toBe('macOS 23.4.0');
+    expect(nodeVitals({ hostname: 'x', reachable: true, os: 'RouterOS', osRelease: '7.15.3 (stable)', kind: 'network', model: 'hAP ac2' }))
+      .toMatchObject({ kind: 'network', platform: 'RouterOS 7.15.3', model: 'hAP ac2' });
+    expect(nodeVitals({ hostname: 'x', reachable: true, os: 'VMkernel', osRelease: 'VMware ESXi 8.0.2 build-1', kind: 'hypervisor', vms: 7 }))
+      .toMatchObject({ kind: 'hypervisor', platform: 'VMkernel VMware ESXi 8.0.2 build-1', vms: 7 });
+    expect(nodeVitals({ hostname: 'x', reachable: true }).kind).toBe('compute');
+  });
+});
+
 describe('resolveMeshHostname', () => {
   // Verbatim from ~/.ssh/config: alias 4090-ai.foxhop.net, HostName ai.foxhop.net.
   const ssh = [

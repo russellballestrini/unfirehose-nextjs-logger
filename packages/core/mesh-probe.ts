@@ -49,6 +49,12 @@ export interface MeshNode {
   osRelease?: string;
   /** Which userland plugin answered — see packages/core/userland. */
   userland?: string;
+  /** What the machine is for. Network gear carries the edges; it runs no agent. */
+  kind?: 'compute' | 'hypervisor' | 'network';
+  /** Guests on a hypervisor. */
+  vms?: number;
+  /** Vendor's model/board name where the OS says one (RouterOS, ESXi, macOS). */
+  model?: string;
   /** The probe script was cut before END; fields after the cut are blank. */
   truncated?: boolean;
   error?: string;

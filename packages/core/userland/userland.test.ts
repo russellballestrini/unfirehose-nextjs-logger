@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'child_process';
 import { buildProbeScript, USERLANDS, POWERSHELL_SCRIPT, userlandById } from './index';
+import { CMD_SCRIPT } from './cmd';
+import { translateRouterOS, translateCiscoIOS, translateFortiOS, routerosUptime, wordsUptime } from './network';
+import { speakers, nextSpeakers } from './speakers';
 import {
   readWire, parseWireProbe, sizeToGB, parseLoad, parseEtime, parseUptimeText,
   parseUptimeSeconds, parseSwap, parseMemory,
@@ -318,6 +321,32 @@ const FIXTURES: Record<string, string[]> = {
     'os=OS/390', 'userland=generic', 'hostname=zos', 'arch=2097', 'nproc=4', 'cpu=2097',
     'uptime_raw= 06:47PM  up 300 days, 12:00,  5 users,  load average: 2.00, 2.00, 2.00',
   ],
+  esxi: [
+    'os=VMkernel', 'userland=esxi', 'kind=hypervisor', 'hostname=esx1.lab', 'arch=x86_64', 'osrel=VMware ESXi 8.0.2 build-22380479',
+    'uptime_raw= 18:47:36 up 45 days, 03:12:01, load average: 0.12, 0.10, 0.08',
+    'nproc=16', 'cpu=Intel(R) Xeon(R) CPU E5-2650 v2 @ 2.60GHz', 'model=ProLiant DL380p Gen8',
+    'mem_total=68719476736 Bytes', 'mem_avail=12345678 KB', 'vms=7',
+    'DISK naa.600508b1001c 1', 'DISK t10.NVMe____Samsung 0',
+  ],
+  'windows-cmd': [
+    'os=Windows_NT', 'userland=windows-cmd', 'hostname=XPBOX', 'nproc=2', 'arch=x86',
+    'cpu=Intel(R) Pentium(R) 4 CPU 3.00GHz\r', 'osrel=Microsoft Windows XP Professional\r',
+    'mem_total=1047276\r kB', 'mem_avail=412300\r kB', 'boottime=20260901084819.500000-240\r',
+    'swap_total=1536\r MB', 'swap_used=100\r MB', 'cpu_pct=12\r', 'DISK disk0\r ?',
+  ],
+  routeros: [
+    'os=RouterOS', 'userland=routeros', 'kind=network', 'hostname=core-router', 'osrel=7.15.3 (stable)',
+    'model=hAP ac2', 'arch=arm', 'cpu=ARMv7 @ 896MHz', 'nproc=4', 'mem_total=256.0MiB', 'mem_avail=200.0MiB',
+    'cpu_pct=5', 'uptime_s=788645',
+  ],
+  'cisco-ios': [
+    'os=IOS', 'userland=cisco-ios', 'kind=network', 'hostname=sw-core', 'osrel=IOS 15.2(4)E10', 'model=WS-C3750X-48P-S',
+    'cpu=PowerPC405', 'nproc=1', 'mem_total=268435456 B', 'mem_avail=58024000 B', 'cpu_pct=4', 'uptime_s=33091500',
+  ],
+  fortios: [
+    'os=FortiOS', 'userland=fortios', 'kind=network', 'hostname=fw1', 'model=FortiGate-60F', 'osrel=FortiOS 7.0.12',
+    'nproc=2', 'mem_total=1998772 kB', 'mem_avail=791208 kB', 'cpu_pct=5', 'uptime_s=1047840',
+  ],
 };
 
 describe('every userland comes out as a node', () => {
@@ -330,6 +359,7 @@ describe('every userland comes out as a node', () => {
       expect(n.os).toBe(lines.find(l => l.startsWith('os='))!.slice(3));
       expect(n.cpuCores, 'cores').toBeGreaterThan(0);
       if (id !== 'generic') expect(n.memTotalGB, 'memory').toBeGreaterThan(0);
+      expect(n.kind).toBe(lines.find(l => l.startsWith('kind='))?.slice(5) ?? 'compute');
       expect(n.uptimeSeconds, 'uptime').toBeGreaterThan(0);
       // Haiku has no load average; QNX and wmic-era Windows do not report one.
       expect(n.loadAvg!.some(x => x > 0) || ['haiku', 'qnx', 'windows-sh'].includes(id), 'load').toBe(true);
@@ -373,6 +403,26 @@ describe('every userland comes out as a node', () => {
     expect(hurd.cpuModel).toContain('E8400');  // the cpuinfo line was unwrapped
     expect(hurd.cpuYear).toBe(2008);
 
+    const esx = parseWireProbe('h', wire(FIXTURES.esxi!));
+    expect(esx.kind).toBe('hypervisor');
+    expect(esx.vms).toBe(7);
+    expect(esx.memTotalGB).toBe(64);
+    expect(esx.spinningDisks).toBe(1);
+    expect(esx.loadAvg).toEqual([0.12, 0.1, 0.08]);   // busybox uptime's own line
+
+    const xp = parseWireProbe('h', wire(FIXTURES['windows-cmd']!));
+    expect(xp.cpuModel).toContain('Pentium');       // the stray CRs from wmic are whitespace
+    expect(xp.memTotalGB).toBeCloseTo(1.0, 1);
+    expect(xp.loadAvg).toEqual([0.24, 0.24, 0.24]);  // 12% of 2 cores
+    expect(xp.uptimeSeconds).toBeGreaterThan(0);
+
+    const rb = parseWireProbe('h', wire(FIXTURES.routeros!));
+    expect(rb.kind).toBe('network');
+    expect(rb.powerWatts).toBe(20);                  // not a desktop's 65W
+    expect(rb.memTotalGB).toBe(0.3);                 // 256MiB, at the one decimal a node carries
+    expect(rb.loadAvg).toEqual([0.2, 0.2, 0.2]);     // 5% of 4
+    expect(rb.uptime).toBe('9d 3h');
+
     const zos = parseWireProbe('h', wire(FIXTURES.generic!));
     expect(zos.cpuModel).toBeUndefined();      // uname -p echoing -m is not a model
     expect(zos.uptimeSeconds).toBe(300 * 86400 + 12 * 3600);
@@ -383,5 +433,86 @@ describe('every userland comes out as a node', () => {
     const cut = parseWireProbe('h', 'uf=1\nos=Linux\nuserland=linux-gnu\nnproc=4\n');
     expect(cut.truncated).toBe(true);
     expect(cut.cpuCores).toBe(4);
+  });
+});
+
+describe('the speakers that are not shells', () => {
+  it('cmd: prints the wire from stdin with no batch-file syntax', () => {
+    expect(CMD_SCRIPT.startsWith('@echo off\r\n')).toBe(true);
+    expect(CMD_SCRIPT).toContain('echo uf=1');
+    expect(CMD_SCRIPT).toContain('userland=windows-cmd');
+    expect(CMD_SCRIPT).not.toMatch(/%%[a-z]/);       // %%a is for .bat files; stdin wants %a
+    expect(CMD_SCRIPT.trim().endsWith('exit')).toBe(true);
+  });
+
+  it('routeros: /system resource print becomes the wire', () => {
+    const out = [
+      '                   uptime: 1w2d3h4m5s', '                  version: 7.15.3 (stable)',
+      '              free-memory: 200.0MiB', '             total-memory: 256.0MiB', '                      cpu: ARMv7',
+      '                cpu-count: 4', '            cpu-frequency: 896MHz', '                 cpu-load: 5%',
+      '          free-hdd-space: 10.0MiB', '         total-hdd-space: 16.0MiB', '        architecture-name: arm',
+      '               board-name: hAP ac^2', '                 platform: MikroTik', '  name: core-router',
+    ].join('\n');
+    const w = translateRouterOS(out);
+    expect(w).toContain('uf=1');
+    expect(w).toContain('kind=network');
+    expect(w).toContain('hostname=core-router');
+    expect(w).toContain('cpu=ARMv7 @ 896MHz');
+    expect(w).toContain('mem_total=256.0MiB');
+    expect(w).toContain(`uptime_s=${604800 + 2 * 86400 + 3 * 3600 + 4 * 60 + 5}`);
+    expect(translateRouterOS('bad command name sh')).toBe('');
+    expect(routerosUptime('3d4h')).toBe(3 * 86400 + 4 * 3600);
+  });
+
+  it('cisco-ios: a show session becomes the wire', () => {
+    const out = [
+      'sw-core#terminal length 0', 'sw-core#show version',
+      'Cisco IOS Software, C3750E Software (C3750E-UNIVERSALK9-M), Version 15.2(4)E10, RELEASE SOFTWARE (fc2)',
+      'sw-core uptime is 1 year, 2 weeks, 3 days, 4 hours, 5 minutes',
+      'cisco WS-C3750X-48P (PowerPC405) processor (revision W0) with 262144K bytes of memory.',
+      'sw-core#show processes cpu | include CPU utilization',
+      'CPU utilization for five seconds: 5%/0%; one minute: 4%; five minutes: 3%',
+      'sw-core#show memory statistics',
+      '                Head    Total(b)     Used(b)     Free(b)   Lowest(b)  Largest(b)',
+      'Processor    3A5F1C0   123456000    65432000    58024000    50000000    40000000',
+      'sw-core#show inventory', 'NAME: "1", DESCR: "WS-C3750X-48P"', 'PID: WS-C3750X-48P-S     , VID: V05  , SN: FDO1',
+      'sw-core#exit',
+    ].join('\r\n');
+    const w = translateCiscoIOS(out);
+    expect(w).toContain('userland=cisco-ios');
+    expect(w).toContain('hostname=sw-core');
+    expect(w).toContain('osrel=IOS 15.2(4)E10');
+    expect(w).toContain('model=WS-C3750X-48P-S');
+    expect(w).toContain('cpu=PowerPC405');
+    expect(w).toContain('mem_total=123456000 B');
+    expect(w).toContain('mem_avail=58024000 B');
+    expect(w).toContain('cpu_pct=4');
+    expect(w).toContain(`uptime_s=${wordsUptime('1 year, 2 weeks, 3 days, 4 hours, 5 minutes')}`);
+    expect(translateCiscoIOS('% Invalid input detected')).toBe('');
+  });
+
+  it('fortios: get system status becomes the wire', () => {
+    const out = ['Version: FortiGate-60F v7.0.12,build0523,230425 (GA)', 'Hostname: fw1',
+      'CPU states: 3% user 2% system 0% nice 95% idle 0% iowait 0% irq 0% softirq',
+      'Memory: 1998772k total, 1207564k used (60%), 791208k free (40%)', 'Uptime: 12 days,  3 hours,  4 minutes'].join('\n');
+    const w = translateFortiOS(out);
+    expect(w).toContain('userland=fortios');
+    expect(w).toContain('model=FortiGate-60F');
+    expect(w).toContain('osrel=FortiOS 7.0.12');
+    expect(w).toContain('cpu_pct=5');
+    expect(w).toContain('nproc=1');
+    expect(w).toContain('mem_avail=791208 kB');
+    expect(w).toContain(`uptime_s=${12 * 86400 + 3 * 3600 + 4 * 60}`);
+  });
+
+  it('names the next speaker from what the last one was told', () => {
+    const all = speakers();
+    const sh = all[0]!;
+    expect(nextSpeakers(all, sh, "'sh' is not recognized as an internal or external command").map(s => s.id)).toEqual(['powershell', 'pwsh', 'cmd']);
+    expect(nextSpeakers(all, sh, 'sh: not found').map(s => s.id)).toEqual(['busybox-sh', 'bash', 'ksh']);
+    expect(nextSpeakers(all, sh, 'bad command name sh').map(s => s.id)).toEqual(['junos', 'eos', 'nxos', 'routeros', 'cisco-ios', 'fortios']);
+    expect(nextSpeakers(all, sh, 'Connection refused')).toEqual([]);
+    // Every speaker that has not met a real device says so.
+    for (const s of all.filter(s => !s.verified)) expect(['junos', 'eos', 'nxos', 'routeros', 'cisco-ios', 'fortios']).toContain(s.id);
   });
 });

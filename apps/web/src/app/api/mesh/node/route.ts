@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { parseProbeOutput } from '@/lib/node-probe';
-import { buildProbeScript, POWERSHELL_SCRIPT } from '@unturf/unfirehose/userland';
+import { buildProbeScript } from '@unturf/unfirehose/userland';
+import { probeRemoteWire } from '@unturf/unfirehose/mesh-remote';
 
 
 /**
@@ -306,23 +307,26 @@ export async function GET(req: NextRequest) {
 
   let raw = isLocal ? await probeLocal() : await probeRemote(host);
 
-  // A Windows sshd has no sh. The mesh card already speaks PowerShell for
-  // it (core/userland/powershell.ts); wrap the same script in our section
-  // markers so this page gets its basics from the userland section.
+  // No sh on the far side — Windows, network gear. The mesh card already
+  // reaches those through core's speaker chain (PowerShell, cmd, a network
+  // OS's own command line); ask it for the wire and wrap it as our
+  // userland section, so this page gets what the card gets.
+  let chainError: string | undefined;
   if (!isLocal && !raw.includes('===SECTION:HOSTNAME===')) {
-    const ps = `'===SECTION:UF==='\n${POWERSHELL_SCRIPT}\n'===SECTION:HOSTNAME==='\n$env:COMPUTERNAME\n'===SECTION:END==='\n`;
-    const viaPs = await run(
-      `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${host} powershell -NoProfile -NonInteractive -Command - << 'PROBE_EOF'\n${ps}\nPROBE_EOF`,
-      { timeout: 25000, shell: '/bin/bash' },
-    );
-    if (viaPs.includes('uf=1')) raw = viaPs.replace(/\r/g, '');
+    const a = await probeRemoteWire(host);
+    if (a.wire !== null) {
+      const name = a.wire.match(/^hostname=(.*)$/m)?.[1]?.trim() || host;
+      raw = `===SECTION:UF===\n${a.wire}\n===SECTION:HOSTNAME===\n${name}\n===SECTION:END===\n`;
+    } else {
+      chainError = a.error;
+    }
   }
 
   if (!raw.includes('===SECTION:HOSTNAME===')) {
     return NextResponse.json({
       hostname: host,
       reachable: false,
-      error: 'Probe failed — host unreachable or timed out',
+      error: chainError ? `Probe failed — ${chainError}` : 'Probe failed — host unreachable or timed out',
       probedAt: new Date().toISOString(),
     });
   }

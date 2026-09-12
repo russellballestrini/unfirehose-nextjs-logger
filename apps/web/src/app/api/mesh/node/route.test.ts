@@ -30,6 +30,9 @@ vi.mock('child_process', () => ({
   },
 }));
 
+const probeRemoteWire = vi.fn();
+vi.mock('@unturf/unfirehose/mesh-remote', () => ({ probeRemoteWire: (h: string) => probeRemoteWire(h) }));
+
 const parseProbeOutput = vi.fn((raw: string, host: string) => ({ hostname: host, reachable: true, raw }));
 vi.mock('@/lib/node-probe', async (orig) => ({
   ...(await orig() as object),
@@ -58,27 +61,31 @@ function machine({ name = 'some-other-box', fqdn, probe = '===SECTION:HOSTNAME==
   });
 }
 
-beforeEach(() => { vi.clearAllMocks(); deliver = (cb) => queueMicrotask(cb); machine(); });
+beforeEach(() => {
+  vi.clearAllMocks(); deliver = (cb) => queueMicrotask(cb); machine();
+  probeRemoteWire.mockResolvedValue({ wire: null, error: 'Unreachable' });
+});
 
 describe('a remote with no sh', () => {
-  it('asks PowerShell for the userland section when sh produced nothing', async () => {
-    // A Windows sshd hands us cmd.exe; the first probe comes back empty.
-    commands.mockImplementation((cmd: string) => {
-      if (cmd === 'hostname') return 'here\n';
-      if (cmd.startsWith('hostname -f')) return 'here\n';
-      // The sh script itself mentions powershell (the windows-sh plugin);
-      // the retry is the command whose remote program is powershell.
-      if (cmd.includes('winbox powershell')) return "===SECTION:UF===\r\nuf=1\r\nuserland=windows-powershell\r\nEND\r\n===SECTION:HOSTNAME===\r\nWINBOX\r\n===SECTION:END===\r\n";
-      return '';
-    });
-    const res = await get('?host=winbox');
+  it('takes the wire from the speaker chain when its own script produced nothing', async () => {
+    // A Windows sshd, a router: core's chain knows how to talk to them.
+    commands.mockImplementation((cmd: string) => (cmd.startsWith('hostname') ? 'here\n' : ''));
+    probeRemoteWire.mockResolvedValueOnce({ wire: 'uf=1\nuserland=routeros\nkind=network\nhostname=core-router\nEND', speaker: 'routeros' });
+    const res = await get('?host=router');
     expect(res.status).toBe(200);
-    // Two trips: sh first, then PowerShell.
-    expect(probedOverSsh()).toHaveLength(2);
-    expect(probedOverSsh()[1]).toContain('winbox powershell -NoProfile');
+    expect(probeRemoteWire).toHaveBeenCalledWith('router');
     const [raw] = parseProbeOutput.mock.calls[0] as [string, string];
-    expect(raw).toContain('userland=windows-powershell');
-    expect(raw).not.toContain('\r');
+    expect(raw).toContain('===SECTION:UF===');
+    expect(raw).toContain('userland=routeros');
+    expect(raw).toContain('===SECTION:HOSTNAME===\ncore-router');
+  });
+
+  it('reports the chain\'s reason when nobody answered', async () => {
+    commands.mockImplementation((cmd: string) => (cmd.startsWith('hostname') ? 'here\n' : ''));
+    probeRemoteWire.mockResolvedValueOnce({ wire: null, error: 'No shell, PowerShell or cmd answered on remote' });
+    const body = await (await get('?host=plan9')).json();
+    expect(body.reachable).toBe(false);
+    expect(body.error).toContain('No shell');
   });
 });
 
@@ -166,9 +173,10 @@ describe('when a node does not answer', () => {
     machine({ probe: '' });
     const res = await get('?host=neoblanka');
     expect(res.status).toBe(200);
+    // The reason is whatever the speaker chain found out.
     expect(await res.json()).toMatchObject({
       hostname: 'neoblanka', reachable: false,
-      error: 'Probe failed — host unreachable or timed out',
+      error: 'Probe failed — Unreachable',
     });
     expect(parseProbeOutput).not.toHaveBeenCalled();
   });
@@ -221,7 +229,7 @@ describe('staying out of the way', () => {
     });
     const body = await (await get('?host=neoblanka')).json();
     expect(body.reachable).toBe(false);
-    expect(body.error).toMatch(/unreachable or timed out/);
+    expect(body.error).toMatch(/^Probe failed/);
   });
 
   it('lists every container, stopped ones included', async () => {

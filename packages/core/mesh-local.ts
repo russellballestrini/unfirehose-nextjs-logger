@@ -212,7 +212,7 @@ export function getLocalStats(): MeshNode {
       powerSource,
       // The local node is read in-process, not through the userland
       // script; say what it would have said so the fleet reads alike.
-      os: osType(), osRelease: osRelease(), userland: 'linux-gnu',
+      os: osType(), osRelease: osRelease(), userland: 'linux-gnu', kind: 'compute',
     };
   } catch (e: any) {
     return { hostname: 'localhost', reachable: false, error: String(e) };

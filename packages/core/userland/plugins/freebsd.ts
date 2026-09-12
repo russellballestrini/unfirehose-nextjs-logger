@@ -4,8 +4,8 @@ import type { Userland } from '../types';
 export const Freebsd: Userland = {
   id: 'freebsd',
   label: 'FreeBSD',
-  sysnames: ['FreeBSD', 'MidnightBSD', 'DragonFly', 'GNU/kFreeBSD'],
-  notes: 'FreeBSD, DragonFly, MidnightBSD, Debian GNU/kFreeBSD. sysctl for everything; diskinfo -v reports rotation rate on 12+.',
+  sysnames: ['FreeBSD', 'MidnightBSD', 'DragonFly', 'GNU/kFreeBSD', 'JUNOS'],
+  notes: 'FreeBSD, DragonFly, MidnightBSD, Debian GNU/kFreeBSD, and Junos (a FreeBSD under the CLI, reached via `start shell sh`). sysctl for everything; diskinfo -v reports rotation rate on 12+.',
   body: `
   kv nproc "\`sysctl_n hw.ncpu\`"
   kv cpu "\`sysctl_n hw.model\`"

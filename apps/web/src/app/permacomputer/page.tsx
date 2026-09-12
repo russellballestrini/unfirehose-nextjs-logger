@@ -320,6 +320,19 @@ function NodeCardHeader({ v, onHide }: { v: NodeVitals; onHide?: () => void }) {
       {v.hostname && v.hostname !== v.name && (
         <span className="text-xs text-[var(--color-muted)] font-mono truncate">{v.hostname}</span>
       )}
+      {/* What kind of node: a switch is not a place to run an agent, and a
+          hypervisor's guests are its work. A Linux compute box says nothing. */}
+      {v.kind === 'network' && (
+        <span className="text-[10px] font-bold uppercase tracking-wide text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded" title={[v.platform, v.model].filter(Boolean).join(' · ')}>net</span>
+      )}
+      {v.kind === 'hypervisor' && (
+        <span className="text-[10px] font-bold uppercase tracking-wide text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded" title={[v.platform, v.model].filter(Boolean).join(' · ')}>
+          {v.vms > 0 ? `${v.vms} vm${v.vms !== 1 ? 's' : ''}` : 'hv'}
+        </span>
+      )}
+      {v.kind === 'compute' && v.platform && (
+        <span className="text-[10px] text-[var(--color-muted)] truncate" title={v.model || undefined}>{v.platform}</span>
+      )}
       {v.agents > 0 && (
         <span className="ml-auto text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-1.5 py-0.5 rounded">
           <span title={v.agentLabel || undefined}>

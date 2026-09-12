@@ -30,6 +30,14 @@ export interface NodeVitals {
   agents: number;
   /** "3 claude, 1 codex" — empty when nothing is running. */
   agentLabel: string;
+  /** compute (the default), a hypervisor, or network gear carrying the edges. */
+  kind: 'compute' | 'hypervisor' | 'network';
+  /** "FreeBSD 14.1", "RouterOS 7.15", "VMware ESXi 8.0" — what answered; empty for a Linux. */
+  platform: string;
+  /** Vendor model where the OS names one: "hAP ac2", "ProLiant DL380p Gen8". */
+  model: string;
+  /** Guests on a hypervisor. */
+  vms: number;
   hasGpu: boolean;
   gpuUtil: number;
   gpuVramUsedGB: number;
@@ -102,6 +110,14 @@ export function nodeVitals(node: any, sshHost?: { name?: string; hostname?: stri
     swapUsedGB: node?.swapUsedGB ?? 0,
     uptime: node?.uptime,
     agents: fromCounts || (node?.claudeProcesses ?? 0),
+    kind: node?.kind === 'network' || node?.kind === 'hypervisor' ? node.kind : 'compute',
+    // A Linux says nothing here; anything else names itself, since the
+    // OS is the surprising fact about a BSD, a Solaris or a switch.
+    platform: node?.os && node.os !== 'Linux'
+      ? `${node.os === 'Darwin' ? 'macOS' : node.os}${node.osRelease && !/^(VMware|Microsoft|Android)/.test(node.osRelease) ? ' ' + String(node.osRelease).split(/[\s(]/)[0] : node.osRelease ? ' ' + node.osRelease : ''}`
+      : '',
+    model: node?.model ?? '',
+    vms: node?.vms ?? 0,
     agentLabel: Object.entries(counts)
       .filter(([, n]) => n > 0)
       .map(([harness, n]) => `${n} ${harness}`)

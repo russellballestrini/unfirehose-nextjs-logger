@@ -78,14 +78,18 @@ export function sizeToGB(raw: string | undefined, pagesize = 4096): number {
 }
 
 /** "0.5 0.4 0.3 1/900 123", "{ 0.5 0.4 0.3 }", "load average: 0.5, 0.4, 0.3", "load averages: 0.5 0.4 0.3". */
-export function parseLoad(raw: string | undefined, uptimeRaw?: string): [number, number, number] {
+export function parseLoad(raw: string | undefined, uptimeRaw?: string, cpuPct?: string, nproc = 1): [number, number, number] {
   const from = (s: string | undefined): [number, number, number] | null => {
     if (!s) return null;
     const tail = s.match(/load averages?:\s*(.*)$/i)?.[1] ?? s;
     const n = tail.match(/\d+(?:[.,]\d+)?/g)?.map(x => parseFloat(x.replace(',', '.'))) ?? [];
     return n.length >= 3 ? [n[0]!, n[1]!, n[2]!] : null;
   };
-  return from(raw) ?? from(uptimeRaw?.match(/load averages?:.*$/i)?.[0]) ?? [0, 0, 0];
+  // Windows and network gear say "CPU 5%", not a run queue: a percentage
+  // of the cores busy is the nearest thing to a load average.
+  const pct = parseFloat(cpuPct ?? '');
+  const fromPct: [number, number, number] | null = Number.isFinite(pct) ? [1, 1, 1].map(() => Math.round(pct / 100 * Math.max(1, nproc) * 100) / 100) as [number, number, number] : null;
+  return from(raw) ?? from(uptimeRaw?.match(/load averages?:.*$/i)?.[0]) ?? fromPct ?? [0, 0, 0];
 }
 
 /** `[[dd-]hh:]mm:ss` from `ps -o etime`. */
@@ -125,9 +129,12 @@ export function parseUptimeSeconds(kv: Record<string, string>): number {
     if (sec) return Math.max(0, now - +sec);
     // OpenBSD/NetBSD/kstat: a bare epoch
     if (/^\d{9,11}(\.\d+)?$/.test(boot)) return Math.max(0, now - parseFloat(boot));
-    // WMI: 20260912100000.500000+000
-    const wmi = boot.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
-    if (wmi) return Math.max(0, now - Date.UTC(+wmi[1]!, +wmi[2]! - 1, +wmi[3]!, +wmi[4]!, +wmi[5]!, +wmi[6]!) / 1000);
+    // WMI: 20260912100000.500000-240 — local time, then the UTC offset in minutes.
+    const wmi = boot.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\.\d+)?([+-]\d+)?/);
+    if (wmi) {
+      const local = Date.UTC(+wmi[1]!, +wmi[2]! - 1, +wmi[3]!, +wmi[4]!, +wmi[5]!, +wmi[6]!) / 1000;
+      return Math.max(0, now - (local - (wmi[7] ? +wmi[7] * 60 : 0)));
+    }
     // QNX and friends: a date sentence
     const t = Date.parse(boot);
     if (Number.isFinite(t) && t > 0) return Math.max(0, now - t / 1000);
@@ -226,7 +233,8 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
   const arch = kv.isa || kv.arch || undefined;
   const mem = parseMemory(kv);
   const swap = parseSwap(kv);
-  const loadAvg = parseLoad(kv.load, kv.uptime_raw);
+  const loadAvg = parseLoad(kv.load, kv.uptime_raw, kv.cpu_pct, cpuCores);
+  const kind: MeshNode['kind'] = kv.kind === 'network' || kv.kind === 'hypervisor' ? kv.kind : 'compute';
   const uptimeSeconds = Math.round(parseUptimeSeconds(kv));
   const uptime = formatUptime(uptimeSeconds);
 
@@ -239,7 +247,10 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
   const harnessCounts = countByHarness(remoteProcs);
   const claudeProcesses = harnessCounts.claude ?? 0;
 
+  // A switch or router's SoC is not in the CPU catalog and should not fall
+  // to a desktop's 65W: a managed switch draws 10–40W idle, a router less.
   const cpuTdpWatts = cpuModel ? lookupCpuTdp(cpuModel) : null;
+  const networkWatts = kind === 'network' ? 20 : null;
   const isServer = cpuModel ? /xeon|epyc|power\d|opteron|sparc/i.test(cpuModel) : false;
   const isLaptop = cpuModel ? /[0-9]U\b|[0-9]G[1-7]\b|[0-9]M\b/i.test(cpuModel) : false;
   let powerWatts: number | undefined;
@@ -278,7 +289,10 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
     if (totalPower > 0) gpuPowerWatts = round(totalPower);
   }
 
-  if (!powerWatts && cpuTdpWatts !== null) {
+  if (!powerWatts && networkWatts !== null) {
+    powerWatts = networkWatts;
+    powerSource = 'tdp';
+  } else if (!powerWatts && cpuTdpWatts !== null) {
     powerWatts = calcSystemWatts({
       tdpWatts: cpuTdpWatts, cores: cpuCores, load1m: loadAvg[0],
       memTotalGB: mem.totalGB, spinningDisks, ssdCount, isServer, isLaptop,
@@ -301,6 +315,7 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
     gpuMemUsedMB: gpuMemUsedMB ? Math.round(gpuMemUsedMB) : undefined,
     gpuUtil, arch, powerSource,
     os: kv.os || undefined, osRelease: kv.osrel || undefined, userland: kv.userland || undefined,
+    kind, vms: kv.vms ? parseInt(kv.vms) || 0 : undefined, model: kv.model || undefined,
     truncated: !w.complete || undefined,
   };
 }

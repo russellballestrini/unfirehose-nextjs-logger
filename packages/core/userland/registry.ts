@@ -14,11 +14,16 @@ import { HpUx } from './plugins/hp-ux';
 import { Irix } from './plugins/irix';
 import { Osf1 } from './plugins/osf1';
 import { Sco } from './plugins/sco';
+import { Esxi } from './plugins/esxi';
 import { Haiku } from './plugins/haiku';
 import { Qnx } from './plugins/qnx';
 import { Cygwin } from './plugins/cygwin';
 import { WindowsSh } from './plugins/windows-sh';
 import { WindowsPowershell } from './plugins/windows-powershell';
+import { WindowsCmd } from './plugins/windows-cmd';
+import { Routeros } from './plugins/routeros';
+import { CiscoIos } from './plugins/cisco-ios';
+import { Fortios } from './plugins/fortios';
 import { Generic } from './plugins/generic';
 
 export const USERLANDS = [
@@ -36,10 +41,15 @@ export const USERLANDS = [
   Irix,
   Osf1,
   Sco,
+  Esxi,
   Haiku,
   Qnx,
   Cygwin,
   WindowsSh,
   WindowsPowershell,
+  WindowsCmd,
+  Routeros,
+  CiscoIos,
+  Fortios,
   Generic,
 ];

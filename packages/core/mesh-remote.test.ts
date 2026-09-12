@@ -16,16 +16,19 @@ vi.mock('child_process', () => ({ execFile: (...a: unknown[]) => execFile(...a) 
 const parseRemoteProbe = vi.fn((host: string, _stdout?: string) => ({ hostname: host, reachable: true, cpuCores: 4 }));
 vi.mock('./mesh-probe', () => ({ parseRemoteProbe: (...a: unknown[]) => parseRemoteProbe(...(a as [string, string])) }));
 
-const { probeRemote } = await import('./mesh-remote');
+const { probeRemote, forgetSpeaker } = await import('./mesh-remote');
 // A probe that answered has `uf=1` on the wire; an answer without it is
 // what a box with no POSIX shell produces.
+// ssh exits 255 when it could not reach a shell at all; a remote that ran
+// something and failed exits with that program's code.
+const sshFail = (msg: string, code = 255) => Object.assign(new Error(msg), { code });
 const answer = (err: Error | null, stdout = 'uf=1\nEND', stderr = '') =>
   execFile.mockImplementation((_c: string, _a: string[], _o: unknown, cb: (e: unknown, out: string, se: string) => void) => {
     cb(err, stdout, stderr);
     return { stdin: { end: stdinEnd, on: vi.fn() } };
   });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); forgetSpeaker(); });
 
 describe('probeRemote', () => {
   it('asks the node over ssh with a connect timeout and no host-key prompt', async () => {
@@ -57,37 +60,70 @@ describe('probeRemote', () => {
     expect(node).toMatchObject({ hostname: 'cammy', reachable: true });
   });
 
-  it('tries PowerShell when the remote has no sh, and names it when neither answers', async () => {
-    // A Windows sshd hands us cmd.exe, which says so in its own words.
-    let calls = 0;
+  /** A remote that answers one program and rejects the rest, in its own words. */
+  const remote = (speaks: string, wire: string, rejection: string, code = 1) => {
+    const calls: string[][] = [];
     execFile.mockImplementation((_c: string, args: string[], _o: unknown, cb: (e: unknown, out: string, se: string) => void) => {
-      calls++;
-      if (args.includes('powershell')) cb(null, 'uf=1\nuserland=windows-powershell\nEND', '');
-      else cb(new Error('exit 1'), '', "'sh' is not recognized as an internal or external command");
+      calls.push(args);
+      if (args.includes(speaks)) cb(null, wire, '');
+      else cb(sshFail('exit', code), '', rejection);
       return { stdin: { end: stdinEnd, on: vi.fn() } };
     });
+    return calls;
+  };
+
+  it('walks from sh to PowerShell when the remote is Windows, and remembers', async () => {
+    // A Windows sshd hands us cmd.exe, which says so in its own words.
+    const calls = remote('powershell', 'uf=1\nuserland=windows-powershell\nEND', "'sh' is not recognized as an internal or external command");
     const node = await probeRemote('winbox');
-    expect(calls).toBe(2);
+    expect(calls.map(a => a[a.length - 1] === '-' ? a[a.indexOf('-NoProfile') - 1] : a[a.length - 1])).toEqual(['sh', 'powershell']);
     expect(node.reachable).toBe(true);
     expect(parseRemoteProbe).toHaveBeenCalledWith('winbox', 'uf=1\nuserland=windows-powershell\nEND');
+    // The next poll goes straight to what answered.
+    calls.length = 0;
+    await probeRemote('winbox');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('powershell');
+  });
 
-    execFile.mockImplementation((_c: string, _a: string[], _o: unknown, cb: (e: unknown, out: string, se: string) => void) => {
-      cb(new Error('exit 1'), '', 'sh: not found');
-      return { stdin: { end: stdinEnd, on: vi.fn() } };
-    });
-    expect((await probeRemote('plan9')).error).toBe('No POSIX shell or PowerShell on remote');
+  it('reaches cmd on a Windows with no PowerShell', async () => {
+    const calls = remote('cmd', 'uf=1\nuserland=windows-cmd\nEND', "'sh' is not recognized as an internal or external command");
+    expect((await probeRemote('xpbox')).reachable).toBe(true);
+    expect(calls.map(a => a.at(-1) === '-' ? 'ps' : a.at(-1))).toEqual(['sh', 'ps', 'ps', 'cmd']);
+  });
+
+  it('translates a network OS that has no shell at all', async () => {
+    const calls = remote('/system', '   uptime: 1w2d3h4m5s\n  cpu-load: 5%\n total-memory: 256.0MiB\n free-memory: 200.0MiB\n  cpu-count: 1\n board-name: hAP ac2\n', 'bad command name sh (line 1 column 1)');
+    const node = await probeRemote('router');
+    expect(node.reachable).toBe(true);
+    const [, wire] = parseRemoteProbe.mock.calls.at(-1) as [string, string];
+    expect(wire).toContain('userland=routeros');
+    expect(wire).toContain('kind=network');
+    expect(calls.some(a => a.includes('/system'))).toBe(true);
+  });
+
+  it('stops walking when ssh itself could not connect, and says what it saw', async () => {
+    // Exit 255 is ssh, not the box: nothing further would help.
+    const calls = remote('nothing', '', 'ssh: connect to host box port 22: Connection refused', 255);
+    expect((await probeRemote('box')).error).toBe('Unreachable');
+    expect(calls).toHaveLength(1);
+
+    remote('nothing', '', 'sh: not found');
+    expect((await probeRemote('plan9')).error).toBe('No shell, PowerShell or cmd answered on remote');
+    remote('nothing', '', '% Invalid input detected');
+    expect((await probeRemote('ios')).error).toMatch(/network OS/);
   });
 
   it('reports a node that will not answer as unreachable, not as an exception', async () => {
     // The worker calls this on a timer for every node. A throw would take
     // the whole sampler down for one box being off.
-    answer(new Error('ssh: connect to host cammy port 22: Connection refused'), '');
+    answer(sshFail('ssh: connect to host cammy port 22: Connection refused'), '');
     const node = await probeRemote('cammy');
     expect(node).toMatchObject({ hostname: 'cammy', reachable: false, error: 'Unreachable' });
   });
 
   it('names a timeout as one', async () => {
-    answer(new Error('ETIMEDOUT'), '');
+    answer(sshFail('ETIMEDOUT'), '');
     expect((await probeRemote('cammy')).error).toBe('Connection timed out');
   });
 

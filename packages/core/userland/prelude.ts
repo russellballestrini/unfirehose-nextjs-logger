@@ -26,8 +26,15 @@ hprocs() { awk '${harnessPsAwk().replace(/'/g, `'\\''`)}' 2>/dev/null | sed 's/^
 # psef — the POSIX-minimum table, reshaped to the 11 columns. STIME with a
 # space in it ("Sep 12") shifts the row; it is the last resort, not the first.
 psef() { ps -ef 2>/dev/null | awk 'NR>1 { printf "%s %s 0.0 0.0 0 0 %s S %s %s", $1, $2, $6, $5, $7; for (i=8; i<=NF; i++) printf " %s", $i; printf "\n" }'; }
-# common — what every userland can say for itself.
+# common — what every userland can say for itself. \`kind\` says what the
+# machine is for: compute (the default), a hypervisor, or network gear —
+# Junos, and the Linuxes under Arista EOS and Cisco NX-OS.
 common() {
+  kind=compute
+  case "$S" in VMkernel) kind=hypervisor;; JUNOS) kind=network;; esac
+  if [ -x /usr/bin/Cli ] && [ -d /etc/eos ]; then kind=network; fi
+  if [ -x /isan/bin/vsh ]; then kind=network; fi
+  kv kind "$kind"
   kv hostname "\`hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n 2>/dev/null\`"
   kv now "\`date +%s 2>/dev/null\`"
   kv osrel "\`uname -r 2>/dev/null\`"
