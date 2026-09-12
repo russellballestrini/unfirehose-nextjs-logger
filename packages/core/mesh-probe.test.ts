@@ -173,6 +173,20 @@ describe('the small parsers', () => {
     expect(round(12.35)).toBe(12.4);
   });
 
+  it('knows the pre-Broadwell mobile suffixes', () => {
+    // blanka's i5-3320M had no TDP, so its card priced electricity at $0.
+    expect(lookupCpuTdp('Intel(R) Core(TM) i5-3320M CPU @ 2.60GHz')).toBe(35);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i7-3520M CPU @ 2.90GHz')).toBe(35);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i5-520M CPU @ 2.40GHz')).toBe(35);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i7-2670QM CPU @ 2.20GHz')).toBe(45);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i7-4700MQ CPU @ 2.40GHz')).toBe(47);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i7-4700HQ CPU @ 2.40GHz')).toBe(47);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i7-3940XM CPU @ 3.00GHz')).toBe(55);
+    expect(lookupCpuTdp('Intel(R) Core(TM) i5-520UM CPU @ 1.07GHz')).toBe(18);
+    // A U-series part is still a U-series part.
+    expect(lookupCpuTdp('Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz')).toBe(15);
+  });
+
   it('knows a CPU by its family, and admits when it does not', () => {
     expect(lookupCpuTdp('AMD Ryzen 7 5800X 8-Core Processor')).toBeGreaterThan(0);
     expect(lookupCpuYear('AMD Ryzen 7 5800X 8-Core Processor')).toBeGreaterThan(2000);

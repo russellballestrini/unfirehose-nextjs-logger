@@ -79,6 +79,16 @@ const CPU_TDP_TABLE: [RegExp, number][] = [
   // ──────────────────────────────────────────────────────────
   // Intel mobile — Y / U / G / P / H / HK / HX suffixes
   // ──────────────────────────────────────────────────────────
+  // Pre-Broadwell mobile (Nehalem → Haswell): the suffix carried the class.
+  // Blanka (i5-3320M) reported no TDP at all — the desktop fallback below
+  // demands a word boundary after the digits, and M is a letter. First
+  // generation used three digits (i5-520M), so \d{3,5}.
+  [/i7-\d{3,5}XM/i, 55],            // Extreme mobile (i7-2920XM, i7-3940XM)
+  [/i7-\d{3,5}[MH]Q/i, 47],          // Haswell quad (i7-4700MQ, i7-4700HQ)
+  [/i7-\d{3,5}Q[ME]/i, 45],          // Sandy/Ivy quad (i7-2670QM, i7-3612QE)
+  [/i[357]-\d{3,5}LM/i, 25],         // low-voltage dual (i7-620LM)
+  [/i[357]-\d{3,5}UM/i, 18],         // ultra-low-voltage dual (i5-520UM)
+  [/i[357]-\d{3,5}M\b/i, 35],        // standard dual mobile (i5-3320M, i7-3520M)
   // Y-series (fanless ultrabook, 4.5-9W)
   [/i[357]-\d{4,5}Y/i, 9],
   // U-series (ultrabook, 15W)
