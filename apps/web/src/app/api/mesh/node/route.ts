@@ -28,7 +28,9 @@ hostname
 
 # --- cpu info ---
 echo '===SECTION:CPUINFO==='
-head -30 /proc/cpuinfo 2>/dev/null || echo 'n/a'
+# aarch64 boards name themselves in Model/Hardware lines AFTER every core's
+# block, which head -30 never reaches on a 4-core Pi.
+{ head -30 /proc/cpuinfo; grep -E '^(Model|Hardware|CPU implementer|CPU part)\s*:' /proc/cpuinfo | head -4; } 2>/dev/null || echo 'n/a'
 
 # --- cpu arch ---
 echo '===SECTION:ARCH==='

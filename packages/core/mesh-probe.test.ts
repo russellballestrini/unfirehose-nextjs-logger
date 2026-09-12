@@ -126,6 +126,27 @@ describe('the small parsers', () => {
     expect(parseCpuModel('nothing useful')).toBeNull();
   });
 
+  it('names a CPU from whichever cpuinfo field its architecture uses', () => {
+    // aarch64 Pi 4: per-core blocks with no model name, then Hardware
+    // (misleadingly BCM2835) and, last, the device-tree Model.
+    const pi4 = [
+      'processor\t: 0', 'BogoMIPS\t: 108.00', 'CPU implementer\t: 0x41', 'CPU part\t: 0xd08',
+      'Hardware\t: BCM2835', 'Revision\t: c03114', 'Model\t\t: Raspberry Pi 4 Model B Rev 1.4',
+    ].join('\n');
+    expect(parseCpuModel(pi4)).toBe('Raspberry Pi 4 Model B Rev 1.4');
+    // A generic ARM server: only implementer + part.
+    expect(parseCpuModel('CPU implementer\t: 0x41\nCPU architecture: 8\nCPU part\t: 0xd0c')).toBe('ARM Neoverse N1');
+    expect(parseCpuModel('CPU implementer\t: 0xc0\nCPU part\t: 0xac3')).toBe('Ampere Altra');
+    // As the remote probe sends it: both fields pasted onto one line.
+    expect(parseCpuModel('CPU implementer\t: 0xc0 CPU part\t: 0xac3')).toBe('Ampere Altra');
+    expect(parseCpuModel('CPU implementer\t: 0x41\nCPU part\t: 0xfff')).toBe('ARM aarch64 part 0xfff');
+    // ppc64le and MIPS.
+    expect(parseCpuModel('cpu\t\t: POWER9 (raw), altivec supported\nclock\t\t: 3800.000000MHz')).toBe('POWER9');
+    expect(parseCpuModel('cpu model\t\t: Loongson-3A R4 (Loongson-3A4000) @ 1800MHz')).toBe('Loongson-3A R4 (Loongson-3A4000) @ 1800MHz');
+    // The remote probe's last-resort line.
+    expect(parseCpuModel('model name : unknown')).toBe('unknown');
+  });
+
   it('counts only spinning disks, by their rotational flag', () => {
     const lsblk = 'NAME TYPE SIZE ROTA\nsda disk 3.6T 1\nsdb disk 3.6T 1\nnvme0n1 disk 1.8T 0';
     expect(countSpinningDisks(lsblk)).toBe(2);
@@ -185,6 +206,157 @@ describe('the small parsers', () => {
     expect(lookupCpuTdp('Intel(R) Core(TM) i5-520UM CPU @ 1.07GHz')).toBe(18);
     // A U-series part is still a U-series part.
     expect(lookupCpuTdp('Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz')).toBe(15);
+  });
+
+  // Strings verbatim from /proc/cpuinfo where known. Each row is
+  // [model, watts, year]; a null year means we do not claim one.
+  const CATALOG: [string, number, number | null][] = [
+    // Intel Core — every naming era
+    ['Intel(R) Core(TM) Ultra 9 285K', 125, 2024],
+    ['Intel(R) Core(TM) Ultra 7 265F', 65, 2024],
+    ['Intel(R) Core(TM) Ultra 7 258V', 17, 2024],
+    ['Intel(R) Core(TM) Ultra 7 155H', 28, 2023],
+    ['Intel(R) Core(TM) Ultra 9 185H', 45, 2023],
+    ['Intel(R) Core(TM) 7 150U', 15, 2024],
+    ['Intel(R) Core(TM) i9-14900K', 125, 2024],
+    ['12th Gen Intel(R) Core(TM) i9-12900K', 125, 2022],
+    ['Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz', 95, 2018],
+    ['Intel(R) Core(TM) i7-4790K CPU @ 4.00GHz', 95, 2013],
+    ['Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz', 140, 2020],
+    ['Intel(R) Core(TM) i7-1260P', 28, 2022],
+    ['Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz', 15, 2020],
+    ['Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz', 15, 2018],
+    ['Intel(R) Core(TM) i5-3320M CPU @ 2.60GHz', 35, 2012],
+    ['Intel(R) Core(TM) i7 CPU         920  @ 2.67GHz', 130, 2009],
+    ['Intel(R) Core(TM) i5 CPU       M 520  @ 2.40GHz', 35, 2009],
+    ['Intel(R) Core(TM) m3-7Y30 CPU @ 1.00GHz', 5, 2015],
+    ['Intel(R) Core(TM)2 Duo CPU     E8400  @ 3.00GHz', 65, 2008],
+    ['Intel(R) Core(TM)2 Quad CPU    Q6600  @ 2.40GHz', 95, 2007],
+    ['Intel(R) Core(TM)2 Duo CPU     P8400  @ 2.26GHz', 25, 2008],
+    ['Genuine Intel(R) CPU           T2300  @ 1.66GHz', 65, null],
+    // Intel Xeon — every naming era
+    ['Intel(R) Xeon(R) 6980P', 500, 2024],
+    ['Intel(R) Xeon(R) Platinum 8592+', 350, 2023],
+    ['Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz', 270, 2021],
+    ['Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz', 150, 2019],
+    ['Intel(R) Xeon(R) Silver 4514Y', 150, 2023],
+    ['Intel(R) Xeon(R) CPU Max 9480', 350, 2023],
+    ['Intel(R) Xeon(R) w9-3495X', 350, 2023],
+    ['Intel(R) Xeon(R) W-2295 CPU @ 3.00GHz', 140, 2019],
+    ['Intel(R) Xeon(R) W-1290P CPU @ 3.70GHz', 80, 2020],
+    ['Intel(R) Xeon(R) CPU E5-2650 v2 @ 2.60GHz', 95, 2013],
+    ['Intel(R) Xeon(R) CPU E5-2670 0 @ 2.60GHz', 115, 2012],
+    ['Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz', 105, 2016],
+    ['Intel(R) Xeon(R) CPU E7-8890 v4 @ 2.20GHz', 165, 2016],
+    ['Intel(R) Xeon(R) CPU E3-1230 v3 @ 3.30GHz', 80, 2013],
+    ['Intel(R) Xeon(R) CPU E3-1240L v5 @ 2.10GHz', 25, 2015],
+    ['Intel(R) Xeon(R) E-2288G CPU @ 3.70GHz', 80, 2019],
+    ['Intel(R) Xeon(R) D-2146NT CPU @ 2.30GHz', 90, 2018],
+    ['Intel(R) Xeon(R) CPU D-1541 @ 2.10GHz', 45, 2015],
+    ['Intel(R) Xeon(R) CPU           X5650  @ 2.67GHz', 95, 2010],
+    ['Intel(R) Xeon(R) CPU           L5640  @ 2.27GHz', 60, 2010],
+    ['Intel(R) Xeon(R) CPU           E5520  @ 2.27GHz', 80, 2009],
+    ['Intel(R) Xeon(R) CPU           E5450  @ 3.00GHz', 95, 2007],
+    // Intel small cores
+    ['Intel(R) N100', 6, 2023],
+    ['Intel(R) Celeron(R) N5105 @ 2.00GHz', 6, 2021],
+    ['Intel(R) Celeron(R) J4125 CPU @ 2.00GHz', 10, 2018],
+    ['Intel(R) Pentium(R) Silver N6005 @ 2.00GHz', 10, 2021],
+    ['Intel(R) Pentium(R) Gold G6400 CPU @ 4.00GHz', 54, 2021],
+    ['Intel(R) Atom(TM) CPU C3758 @ 2.20GHz', 25, 2017],
+    ['Intel(R) Atom(TM) CPU  C2750  @ 2.40GHz', 20, 2013],
+    ['Intel(R) Atom(TM) CPU N270   @ 1.60GHz', 10, 2010],
+    ['Intel(R) Atom(TM) x5-Z8350  CPU @ 1.44GHz', 4, 2016],
+    ['Intel(R) Pentium(R) 4 CPU 3.00GHz', 95, 2002],
+    // AMD Ryzen — desktop by generation
+    ['AMD Ryzen 9 9950X 16-Core Processor', 170, 2024],
+    ['AMD Ryzen 9 5950X 16-Core Processor', 105, 2020],
+    ['AMD Ryzen 9 7900 12-Core Processor', 65, 2022],
+    ['AMD Ryzen 7 9800X3D 8-Core Processor', 120, 2024],
+    ['AMD Ryzen 7 5800X 8-Core Processor', 105, 2020],
+    ['AMD Ryzen 5 7600X 6-Core Processor', 105, 2022],
+    ['AMD Ryzen 5 5600X 6-Core Processor', 65, 2020],
+    ['AMD Ryzen 5 5600G with Radeon Graphics', 65, 2020],
+    ['AMD Ryzen 5 PRO 4650G with Radeon Graphics', 65, 2020],
+    ['AMD Ryzen 3 3200GE with Radeon Vega Graphics', 35, 2019],
+    // AMD Ryzen — mobile
+    ['AMD Ryzen 7 7840U w/ Radeon 780M Graphics', 15, 2022],
+    ['AMD Ryzen 9 7945HX with Radeon Graphics', 55, 2022],
+    ['AMD Ryzen 7 8845HS w/ Radeon 780M Graphics', 35, 2024],
+    ['AMD Ryzen AI 9 HX 370 w/ Radeon 890M', 55, 2024],
+    ['AMD Ryzen AI 7 350 w/ Radeon 860M', 28, 2024],
+    ['AMD Ryzen Z1 Extreme', 15, 2023],
+    ['AMD Ryzen Embedded V1605B with Radeon Vega Gfx', 25, 2018],
+    ['AMD Ryzen 5 PRO 5650U with Radeon Graphics', 15, 2020],
+    // AMD Threadripper / EPYC
+    ['AMD Ryzen Threadripper PRO 7995WX 96-Cores', 350, 2023],
+    ['AMD Ryzen Threadripper 7980X 64-Cores', 350, 2023],
+    ['AMD Ryzen Threadripper 3970X 32-Core Processor', 280, 2019],
+    ['AMD Ryzen Threadripper 1950X 16-Core Processor', 180, 2017],
+    ['AMD EPYC 9755 128-Core Processor', 400, 2024],
+    ['AMD EPYC 9355P 32-Core Processor', 280, 2024],
+    ['AMD EPYC 9654 96-Core Processor', 360, 2022],
+    ['AMD EPYC 9124 16-Core Processor', 200, 2022],
+    ['AMD EPYC 8324P 32-Core Processor', 150, 2023],
+    ['AMD EPYC 4564P 16-Core Processor', 105, 2024],
+    ['AMD EPYC 7773X 64-Core Processor', 280, 2021],
+    ['AMD EPYC 7763 64-Core Processor', 225, 2021],
+    ['AMD EPYC 7551P 32-Core Processor', 155, 2017],
+    ['AMD EPYC 7302 16-Core Processor', 155, 2019],
+    ['AMD EPYC 7282 16-Core Processor', 120, 2019],
+    ['AMD EPYC 3251 8-Core Processor', 45, 2018],
+    // AMD legacy
+    ['AMD FX(tm)-8350 Eight-Core Processor', 125, 2012],
+    ['AMD Phenom(tm) II X4 955 Processor', 95, 2009],
+    ['AMD Athlon(tm) II X2 250 Processor', 65, 2009],
+    ['AMD Athlon 3000G with Radeon Vega Graphics', 35, 2019],
+    ['AMD Opteron(tm) Processor 6272', 115, 2012],
+    ['AMD A10-7850K Radeon R7, 12 Compute Cores 4C+8G', 95, 2015],
+    ['AMD E-350 Processor', 18, 2012],
+    ['AMD GX-412TC SOC', 6, 2012],
+    // Apple
+    ['Apple M1', 20, 2020],
+    ['Apple M2 Pro', 30, 2022],
+    ['Apple M3 Max', 60, 2023],
+    ['Apple M4 Ultra', 120, 2024],
+    // ARM servers
+    ['AmpereOne A192-32X', 350, 2023],
+    ['Ampere Altra Max M128-30', 250, 2020],
+    ['Neoverse-N1', 60, 2019],
+    ['AWS Graviton3', 100, 2021],
+    // SBCs — the Model line, and the SoC when that is all there is
+    ['Raspberry Pi 5 Model B Rev 1.0', 8, 2023],
+    ['Raspberry Pi 4 Model B Rev 1.4', 6, 2019],
+    ['Raspberry Pi 3 Model B Plus Rev 1.3', 4, 2016],
+    ['Raspberry Pi Zero 2 W Rev 1.0', 2, 2021],
+    ['BCM2835', 2, 2012],
+    ['Rockchip RK3588', 8, 2022],
+    ['Radxa ROCK Pi 4B', 5, null],
+    ['Amlogic Meson G12B (A311D) Revision 29:b (10:2)', 4, 2019],
+    ['NVIDIA Jetson AGX Orin Developer Kit', 30, 2022],
+    ['ARM Cortex-A72', 5, 2015],
+    ['ARM Cortex-A53', 3, 2014],
+    // Virtual
+    ['QEMU Virtual CPU version 2.5+', 65, null],
+    ['Common KVM processor', 65, null],
+    // Long tail
+    ['POWER9 (raw), altivec supported', 190, 2017],
+    ['Hygon C86 7285 32-core Processor', 180, 2018],
+    ['ZHAOXIN KaiXian KX-6640MA@2.2+GHz', 70, 2019],
+    ['HiSilicon Kunpeng 920', 150, 2019],
+    ['Loongson-3A5000', 35, 2021],
+    ['Phytium D2000/8', 60, 2020],
+    ['SiFive U74-MC', 10, 2020],
+    ['StarFive JH7110', 5, 2022],
+    ['VIA Nano U2250', 15, 2008],
+    ['Intel(R) Pentium(R) M processor 1.73GHz', 25, 2004],
+  ];
+
+  it('knows the catalog — mainstream first, long tail after', () => {
+    const misses = CATALOG
+      .map(([m, w, y]) => ({ m, w, y, gotW: lookupCpuTdp(m), gotY: lookupCpuYear(m) }))
+      .filter(r => r.gotW !== r.w || r.gotY !== r.y);
+    expect(misses).toEqual([]);
   });
 
   it('knows a CPU by its family, and admits when it does not', () => {

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { parseHarnessProcesses, countByHarness } from '@unturf/unfirehose/harness-procs';
+import { parseCpuModel } from '@unturf/unfirehose/mesh-probe';
 import {
   parseTemperatures, parseHwmon, mergeSensors, parseThrottle,
   parseNvidiaClocks, parseCpuTopology,
@@ -48,7 +49,8 @@ function round(n: number, d = 1): number {
 }
 
 export function parseCpuInfo(raw: string) {
-  const model = raw.match(/model name\s*:\s*(.+)/i)?.[1]?.trim() ?? 'Unknown';
+  // Whichever field this architecture names the CPU in — see parseCpuModel.
+  const model = parseCpuModel(raw) ?? 'Unknown';
   const mhz = raw.match(/cpu MHz\s*:\s*([\d.]+)/i)?.[1];
   const cacheSize = raw.match(/cache size\s*:\s*(.+)/i)?.[1]?.trim();
   return { model, mhz: mhz ? parseFloat(mhz) : undefined, cacheSize };
