@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import {
   MeshSummaryBar, NodeCard, UnsandboxProbeBody, UnsandboxServiceBody,
-  UnsandboxNodeCard, FleetMetricsChart, MeshEconomicsPanel, UnsandboxPanel, AddNodeButton,
+  UnsandboxNodeCard, FleetMetricsChart, FleetMetricsPanel, MeshEconomicsPanel, UnsandboxPanel, AddNodeButton,
 } from './page';
 
 /**
@@ -129,12 +129,25 @@ describe('mesh panels', () => {
     expect(() => render(<FleetMetricsChart blendedKwhRate={0.31} />)).not.toThrow();
   });
 
-  it('prices the mesh', () => {
+  it('prices the mesh without charting it', () => {
+    // Charts moved below the node grid; the economics card is headline
+    // numbers only so it stays above the fold.
     const nodes = [{ hostname: 'cammy', econ, meshNode: node }];
-    expect(() => render(
+    const { container } = render(
       <MeshEconomicsPanel allNodes={nodes} meshNodes={[node]}
                           getNodeEcon={() => econ} geoipNodes={[]} />,
-    )).not.toThrow();
+    );
+    expect(container.textContent).toContain('Mesh Economics');
+    expect(container.textContent).not.toContain('Fleet Metrics');
+  });
+
+  it('charts the fleet in its own card', () => {
+    const nodes = [{ hostname: 'cammy', econ, meshNode: node }];
+    const { container } = render(
+      <FleetMetricsPanel allNodes={nodes} meshNodes={[node]}
+                         getNodeEcon={() => econ} geoipNodes={[]} />,
+    );
+    expect(container.textContent).toContain('Fleet Metrics');
   });
 
   it('renders the unsandbox panel and the add-node control', () => {

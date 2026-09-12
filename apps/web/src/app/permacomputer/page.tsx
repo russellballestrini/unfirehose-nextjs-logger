@@ -251,6 +251,11 @@ export default function PermacomputerPage() {
         )}
       </div>
 
+      {/* Fleet metrics — power, cost, CPU%, memory, GPU util, GPU VRAM.
+          Below the fold on purpose: the headline economics and the node
+          cards are what a glance is for; the charts are for a look. */}
+      <FleetMetricsPanel allNodes={allNodes} meshNodes={meshNodes} getNodeEcon={getNodeEcon} geoipNodes={geoipData?.nodes ?? []} />
+
       {/* Unsandbox */}
       <UnsandboxPanel />
     </div>
@@ -804,12 +809,19 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
   );
 }
 
-export function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNodes }: {
+interface MeshScoreInputs {
   allNodes: { meshNode: any; sshHost?: SshHost; key: string }[];
   meshNodes: any[];
   getNodeEcon: (hostname: string) => NodeEcon;
   geoipNodes: any[];
-}) {
+}
+
+/**
+ * Per-node economics plus the mesh score derived from them. Shared by the
+ * economics panel (headline numbers, top of page) and the fleet charts
+ * (below the node grid) so both read the same blended $/kWh.
+ */
+function useMeshScore({ allNodes, meshNodes, getNodeEcon, geoipNodes }: MeshScoreInputs) {
   const firstMeshHostname = meshNodes[0]?.hostname;
   const econNodes = useMemo(() =>
     allNodes.map(n => ({
@@ -820,8 +832,24 @@ export function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNode
     })),
     [allNodes, getNodeEcon]
   );
-
   const score = useMemo(() => computeMeshScore(econNodes, geoipNodes, firstMeshHostname), [econNodes, geoipNodes, firstMeshHostname]);
+  return { econNodes, score };
+}
+
+/** Fleet charts in their own card, placed below the node grid. */
+export function FleetMetricsPanel(inputs: MeshScoreInputs) {
+  const { score } = useMeshScore(inputs);
+  if (inputs.allNodes.length === 0) return null;
+  return (
+    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <FleetMetricsChart blendedKwhRate={score.blendedKwhRate} />
+    </div>
+  );
+}
+
+export function MeshEconomicsPanel(inputs: MeshScoreInputs) {
+  const { allNodes } = inputs;
+  const { econNodes, score } = useMeshScore(inputs);
   const configuredCount = econNodes.filter(n => n.econ.location).length;
 
   // Aggregate by provider — ISP subscription cost only (stable/configured).
@@ -923,9 +951,6 @@ export function MeshEconomicsPanel({ allNodes, meshNodes, getNodeEcon, geoipNode
           <div className="text-base font-bold text-[var(--color-accent)]">{score.totalScore}</div>
         </div>
       </div>
-
-      {/* Fleet metrics — power, cost, CPU%, memory, GPU util, GPU VRAM */}
-      <FleetMetricsChart blendedKwhRate={score.blendedKwhRate} />
 
       {/* Provider + Location breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
