@@ -390,6 +390,36 @@ describe('panels that need the hardware to exist', () => {
     expect(container.textContent).toContain('open-webui');
   });
 
+  it('shows the ps -ejH tree by default, with agents marked', () => {
+    const probe = {
+      ...bag().probe,
+      processes: [{ user: 'fox', pid: 1234, cpu: 2.1, mem: 1.4, rss: 65432, command: '/home/fox/.local/bin/claude' }],
+      processTree: [
+        { pid: 1, pgid: 1, sid: 1, tty: '?', time: '00:00:09', cmd: 'systemd', depth: 0 },
+        { pid: 2010, pgid: 2010, sid: 2010, tty: '?', time: '00:00:01', cmd: 'tmux: server', depth: 1 },
+        { pid: 1234, pgid: 1234, sid: 2010, tty: 'pts/3', time: '00:12:34', cmd: 'claude', depth: 2 },
+      ],
+    };
+    const { container } = render(<ProcessesTab {...bag({ probe })} />);
+    expect(container.textContent).toContain('Process Tree (3 processes, 1 agents)');
+    expect(container.textContent).toContain('tmux: server');
+    // cpu/mem come from the ps aux rows, joined by pid.
+    const claudeRow = Array.from(container.querySelectorAll('tbody tr')).find(r => r.textContent?.includes('claude'))!;
+    expect(claudeRow.textContent).toContain('2.1');
+    expect(claudeRow.className).toContain('color-tool');
+  });
+
+  it('falls back to the cpu-sorted list for a probe without a tree', () => {
+    // A probe recorded before PS_TREE shipped still has processes to show.
+    const probe = {
+      ...bag().probe,
+      processes: [{ user: 'fox', pid: 1234, cpu: 2.1, mem: 1.4, rss: 65432, command: '/home/fox/.local/bin/claude' }],
+    };
+    const { container } = render(<ProcessesTab {...bag({ probe })} />);
+    expect(container.textContent).toContain('Top Processes');
+    expect(container.textContent).not.toContain('Process Tree');
+  });
+
   it('says so plainly when a node reported no processes', () => {
     const { container } = render(<ProcessesTab {...bag({ probe: null })} />);
     expect(container.textContent).toContain('No process data available');

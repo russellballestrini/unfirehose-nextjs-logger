@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseNvidiaGpu,
+  parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseProcessTree, parseNvidiaGpu,
   parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseProbeOutput,
 } from './node-probe';
 
@@ -93,6 +93,34 @@ describe('parseProcesses', () => {
     expect(parseProcesses('')).toEqual([]);
     expect(parseProcesses('n/a')).toEqual([]);
     expect(parseProcesses('USER PID %CPU')).toEqual([]);
+  });
+});
+
+describe('parseProcessTree', () => {
+  const ps = [
+    '    PID    PGID     SID TTY          TIME CMD',
+    '      1       1       1 ?        00:00:09 systemd',
+    '   2010    2010    2010 ?        00:00:01   tmux: server',
+    '   2011    2011    2011 pts/3    00:00:00     bash',
+    '   2099    2099    2011 pts/3    00:12:34       claude',
+    '      2       0       0 ?        00:00:00 kthreadd',
+  ].join('\n');
+
+  it('reads each row with its depth from the CMD indent', () => {
+    const rows = parseProcessTree(ps);
+    expect(rows.map(r => [r.pid, r.depth])).toEqual([[1, 0], [2010, 1], [2011, 2], [2099, 3], [2, 0]]);
+    expect(rows[3]).toMatchObject({ pgid: 2099, sid: 2011, tty: 'pts/3', time: '00:12:34', cmd: 'claude' });
+  });
+
+  it('keeps a comm that contains a space', () => {
+    // "tmux: server" is one CMD, not a CMD and a stray column.
+    expect(parseProcessTree(ps)[1]!.cmd).toBe('tmux: server');
+  });
+
+  it('reads no rows from nothing, a header alone, or a missing ps', () => {
+    expect(parseProcessTree('')).toEqual([]);
+    expect(parseProcessTree('n/a')).toEqual([]);
+    expect(parseProcessTree('    PID    PGID     SID TTY          TIME CMD')).toEqual([]);
   });
 });
 

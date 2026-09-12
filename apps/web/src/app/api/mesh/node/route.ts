@@ -66,6 +66,14 @@ echo '===SECTION:DISK==='
 echo '===SECTION:PS==='
 ps aux --sort=-%cpu 2>/dev/null | grep -v '===SECTION:' | head -50 || echo 'n/a'
 
+# --- process tree (ps -ejH: job hierarchy, session/group ids) ---
+# Our Processes tab shows this by default. The CPU-sorted list above answers
+# "what is hot"; this answers "who spawned what" — which tmux server owns
+# which shell owns which agent. Full table, no head: a truncated tree lies
+# about parentage.
+echo '===SECTION:PS_TREE==='
+ps -ejH 2>/dev/null | grep -v '===SECTION:' || echo 'n/a'
+
 # --- claude processes specifically ---
 # Every agent harness, not just claude. uncloseai-cli is a Python console
 # script and appears as "python3 .../unclose", so its basename is python3 —

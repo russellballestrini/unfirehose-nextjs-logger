@@ -22,7 +22,7 @@ import { num, int } from '@/lib/num';
 
 export const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
-  'LOADAVG', 'UPTIME', 'DISK', 'PS', 'CLAUDE_PS', 'NVIDIA', 'NVIDIA_PS',
+  'LOADAVG', 'UPTIME', 'DISK', 'PS', 'PS_TREE', 'CLAUDE_PS', 'NVIDIA', 'NVIDIA_PS',
   'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
 ];
 
@@ -95,6 +95,46 @@ export function parseProcesses(raw: string) {
   }).filter(Boolean);
 }
 
+export interface ProcessTreeRow {
+  pid: number;
+  pgid: number;
+  sid: number;
+  tty: string;
+  time: string;
+  cmd: string;
+  /** Nesting level: `ps -H` indents CMD by two spaces per generation. */
+  depth: number;
+}
+
+/**
+ * `ps -ejH` — every process with its group and session ids, ordered as a
+ * tree with CMD indented two spaces per generation. The indent is the only
+ * carrier of parentage (there is no PPID column), so it is measured before
+ * the row is trimmed. CMD is `comm`, which can itself contain a space
+ * ("tmux: server"), so the split stops after TIME.
+ */
+export function parseProcessTree(raw: string): ProcessTreeRow[] {
+  if (!raw || raw === 'n/a') return [];
+  const rows: ProcessTreeRow[] = [];
+  for (const line of raw.split('\n')) {
+    // One space separates TIME from the CMD field; everything after it is
+    // CMD, including its hierarchy indent.
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+) (.*)$/);
+    if (!m) continue;
+    const field = m[6]!;
+    const indent = field.length - field.trimStart().length;
+    rows.push({
+      pid: parseInt(m[1]!),
+      pgid: parseInt(m[2]!),
+      sid: parseInt(m[3]!),
+      tty: m[4]!,
+      time: m[5]!,
+      cmd: field.trim(),
+      depth: Math.floor(indent / 2),
+    });
+  }
+  return rows;
+}
 
 export function parseNvidiaGpu(raw: string) {
   if (!raw || raw === 'none') return [];
@@ -244,6 +284,7 @@ export function parseProbeOutput(raw: string, host: string) {
 
   const disk = parseDisk(parseSection(raw, 'DISK'));
   const processes = parseProcesses(parseSection(raw, 'PS'));
+  const processTree = parseProcessTree(parseSection(raw, 'PS_TREE'));
   // Named CLAUDE_PS for wire compatibility; it carries every harness now.
   const harnessProcesses = parseHarnessProcesses(parseSection(raw, 'CLAUDE_PS'));
   const harnessCounts = countByHarness(harnessProcesses);
@@ -283,6 +324,7 @@ export function parseProbeOutput(raw: string, host: string) {
     uptimeSeconds,
     disk,
     processes,
+    processTree,
     claudeProcesses,
     harnessProcesses,
     harnessCounts,
