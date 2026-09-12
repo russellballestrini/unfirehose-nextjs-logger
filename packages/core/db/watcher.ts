@@ -36,9 +36,11 @@ function debouncedIngest() {
 export async function startWatcher() {
   if (watcher) return;
 
+  const enabled = process.env.UNFIREHOSE_HARNESSES?.split(',').map(value => value.trim());
+
   // Watch Claude Code (custom adapter — uses sessions-index.json)
   try {
-    watcher = watch(claudePaths.projects, { recursive: true }, (_event, filename) => {
+    if (!enabled || enabled.includes('claude-code')) watcher = watch(claudePaths.projects, { recursive: true }, (_event, filename) => {
       if (filename && (filename.endsWith('.jsonl') || filename.endsWith('sessions-index.json'))) {
         debouncedIngest();
       }
@@ -49,7 +51,7 @@ export async function startWatcher() {
   }
 
   // Watch Fetch (custom adapter)
-  if (!fetchWatcher && fetchPaths.root) {
+  if (!fetchWatcher && fetchPaths.root && (!enabled || enabled.includes('fetch'))) {
     try {
       fetchWatcher = watch(fetchPaths.root, { recursive: true }, (_event, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
@@ -64,6 +66,7 @@ export async function startWatcher() {
 
   // Watch all auto-discovered native harness directories
   for (const harness of nativeHarnesses) {
+    if (enabled && !enabled.includes(harness.name)) continue;
     if (harnessWatchers.has(harness.name)) continue;
     const exists = await stat(harness.root).catch(() => null);
     if (!exists?.isDirectory()) continue;

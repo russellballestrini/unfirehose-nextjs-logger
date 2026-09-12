@@ -375,6 +375,11 @@ export function migrate(db: Database.Database) {
     -- Covering index for token aggregation queries (tokens page, dashboard)
     CREATE INDEX IF NOT EXISTS idx_messages_model_tokens ON messages(model, timestamp)
       WHERE model IS NOT NULL;
+    -- Model/time alone still requires random table reads for every token sum.
+    -- Pricing summary is requested by the UI and must stay index-only.
+    CREATE INDEX IF NOT EXISTS idx_messages_model_usage ON messages(
+      model, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+    ) WHERE model IS NOT NULL;
     -- Speed up content_blocks lookups by type + message
     CREATE INDEX IF NOT EXISTS idx_content_blocks_type_message ON content_blocks(block_type, message_id);
     -- Speed up harness-based token aggregation (tokens page)
@@ -887,4 +892,18 @@ export function migrate(db: Database.Database) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('alert_defaults_v2', '1')").run();
     })();
   }
+  db.exec(`
+    -- Time-window activity joins need session/type and attribution as well.
+    CREATE INDEX IF NOT EXISTS idx_messages_window_usage ON messages(
+      timestamp, session_id, type, model, input_tokens, output_tokens,
+      cache_read_tokens, cache_creation_tokens, provider, endpoint, observed_cost_usd
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_messages_session_usage ON messages(
+      session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+    );
+  `);
+
 }

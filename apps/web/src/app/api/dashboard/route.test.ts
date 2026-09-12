@@ -149,4 +149,12 @@ describe('GET /api/dashboard — cache our own models actually served', () => {
       body.modelBreakdown.find((m: { model: string }) => m.model === 'late/arrival'),
     ).toBeUndefined();
   });
+  it('serves the last computed dashboard while the worker is behind', async () => {
+    await GET(req('24h'));
+    db.prepare("UPDATE settings SET value = '2000-01-01T00:00:00.000Z' WHERE key LIKE 'dashboard_%_at'").run();
+    const response = await GET(req('24h'));
+    expect(response.headers.get('Server-Timing')).toBe('stored;dur=0');
+    expect(response.headers.get('X-Computed-At')).toBe('2000-01-01T00:00:00.000Z');
+  });
+
 });

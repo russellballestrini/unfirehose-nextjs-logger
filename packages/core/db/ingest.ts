@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, mkdir, appendFile, writeFile } from 'fs/promises';
+import { readdir, readFile, stat, mkdir, appendFile, writeFile, open } from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
 import { createInterface } from 'readline';
 import { execFile, execFileSync } from 'child_process';
@@ -441,10 +441,11 @@ async function ingestSubagentsForSession(
   result: { filesScanned: number; sessionsAdded: number; messagesAdded: number; blocksAdded: number },
 ): Promise<void> {
   const subagentDir = claudePaths.subagentsDir(projectDirName, meta.sessionId);
-  const subagentFiles = await readdir(subagentDir).catch(() => []);
+  const subagentFiles = await readdir(subagentDir, { recursive: true }).catch(() => []);
   for (const subFile of subagentFiles) {
-    if (!subFile.startsWith('agent-') || !subFile.endsWith('.jsonl')) continue;
-    const agentId = subFile.slice('agent-'.length, -'.jsonl'.length);
+    const base = path.basename(subFile);
+    if (!base.startsWith('agent-') || !base.endsWith('.jsonl')) continue;
+    const agentId = path.join(path.dirname(subFile), base.slice('agent-'.length, -'.jsonl'.length));
     const subFilePath = path.join(subagentDir, subFile);
     const subStat = await stat(subFilePath).catch(() => null);
     if (!subStat) continue;
@@ -497,9 +498,14 @@ async function ingestSubagentsForSession(
     });
 
     const subBatch: string[] = [];
+    let subBatchBytes = 0;
     for await (const line of subRl) {
       subBatch.push(line);
-      if (subBatch.length >= 500) subBatchInsert(subBatch.splice(0));
+      subBatchBytes += Buffer.byteLength(line);
+      if (subBatch.length >= 500 || subBatchBytes >= 2 * 1024 * 1024) {
+        subBatchInsert(subBatch.splice(0));
+        subBatchBytes = 0;
+      }
     }
     if (subBatch.length > 0) subBatchInsert(subBatch);
 
@@ -1319,6 +1325,27 @@ interface JsonlSource {
   toMessage(entry: any): any | null;
 }
 
+// Native session headers carry the authoritative cwd. Reading one bounded
+// header avoids exponential dash-split probing for long or deleted paths.
+async function nativeSessionCwd(file: string): Promise<string | null> {
+  const handle = await open(file, 'r').catch(() => null);
+  if (!handle) return null;
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const end = buffer.subarray(0, bytesRead).indexOf(10);
+    if (end < 0) return null;
+    for (const line of buffer.subarray(0, bytesRead).toString('utf8').split('\n').slice(0, -1)) {
+      try {
+        const header = JSON.parse(line);
+        if (typeof header.cwd === 'string' && path.isAbsolute(header.cwd)) return header.cwd;
+      } catch { /* incomplete or non-record line */ }
+    }
+    return null;
+  } catch { return null; }
+  finally { await handle.close(); }
+}
+
 async function ingestJsonlSource(
   db: ReturnType<typeof getDb>,
   harness: JsonlSource,
@@ -1366,7 +1393,9 @@ async function ingestJsonlSource(
     const knownProj = db
       .prepare('SELECT COALESCE(path, last_cwd_seen) AS p FROM projects WHERE name = ?')
       .get(projectName) as { p: string | null } | undefined;
-    const slugCwd = knownProj?.p ?? (await resolveProjectPath(slug).catch(() => null));
+    const slugCwd = knownProj?.p
+      ?? await nativeSessionCwd(path.join(projDir, files[0]))
+      ?? (await resolveProjectPath(slug).catch(() => null));
     const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
 
     const prevCount = db
@@ -1527,10 +1556,15 @@ async function ingestJsonlSource(
       });
 
       const batch: string[] = [];
+      let batchBytes = 0;
       for await (const line of rl) {
         batch.push(line);
-        if (batch.length >= 500) {
+        batchBytes += Buffer.byteLength(line);
+        // Tool results can be megabytes each. A row-count-only batch can
+        // pin gigabytes in one transaction and stall live ingestion on I/O.
+        if (batch.length >= 500 || batchBytes >= 2 * 1024 * 1024) {
           batchInsert(batch.splice(0));
+          batchBytes = 0;
         }
       }
       if (batch.length > 0) {
@@ -1595,7 +1629,9 @@ export async function ingestAll(): Promise<IngestResult> {
   // Track projects where UNEOF was detected — cull after ingestion completes
   const uneofProjects = new Set<number>();
 
-  const projectDirs = await readdir(claudePaths.projects).catch(() => []);
+  const enabled = process.env.UNFIREHOSE_HARNESSES?.split(',').map(value => value.trim());
+  const projectDirs = !enabled || enabled.includes('claude-code')
+    ? await readdir(claudePaths.projects).catch(() => []) : [];
 
   for (const dir of projectDirs) {
     const projDir = claudePaths.projectDir(dir);
@@ -1644,11 +1680,11 @@ export async function ingestAll(): Promise<IngestResult> {
 
     if (sessionMeta.length === 0) continue;
 
-    // Fallback when sessions-index has no originalPath: probe the filesystem
-    // by walking the encoded dir name (handles ambiguous dashes). Needed so
-    // gitIdentity() can resolve root_commit_hash + origin_url for renames.
+    // Indexless Claude logs also carry cwd after their initial lifecycle events.
+    // Prefer recorded metadata; unknown paths stay unknown rather than invoking
+    // exponential dash-split filesystem guessing.
     if (!projectPath) {
-      projectPath = (await resolveProjectPath(dir).catch(() => null)) ?? '';
+      projectPath = await nativeSessionCwd(claudePaths.sessionFile(dir, sessionMeta[0].sessionId)) ?? '';
     }
 
     const projectId = getOrCreateProject(
@@ -1780,10 +1816,13 @@ export async function ingestAll(): Promise<IngestResult> {
       );
 
       const batch: string[] = [];
+      let batchBytes = 0;
       for await (const line of rl) {
         batch.push(line);
-        if (batch.length >= 500) {
+        batchBytes += Buffer.byteLength(line);
+        if (batch.length >= 500 || batchBytes >= 2 * 1024 * 1024) {
           batchInsert(batch.splice(0));
+          batchBytes = 0;
         }
       }
       if (batch.length > 0) {
@@ -1831,7 +1870,7 @@ export async function ingestAll(): Promise<IngestResult> {
   // uncloseai: handled by native harness auto-discovery
 
   // Ingest Fetch sessions (if FETCH_JSONL_DIR is configured)
-  if (fetchPaths.root) {
+  if (fetchPaths.root && (!enabled || enabled.includes('fetch'))) {
     const fetchResult = await ingestJsonlSource(db, {
       name: 'fetch',
       root: fetchPaths.root,
@@ -1849,6 +1888,7 @@ export async function ingestAll(): Promise<IngestResult> {
 
   // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.)
   for (const harness of nativeHarnesses) {
+    if (enabled && !enabled.includes(harness.name)) continue;
     const hResult = await ingestJsonlSource(db, {
       name: harness.name,
       root: harness.root,

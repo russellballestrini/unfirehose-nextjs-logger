@@ -22,6 +22,12 @@ export const claudePaths = {
   },
 
   sessionFile(projectName: string, sessionId: string) {
+    const parts = sessionId.split('/');
+    if (parts.length > 1) {
+      const parent = parts.shift()!;
+      const agent = parts.pop()!;
+      return path.join(CLAUDE_DIR, 'projects', projectName, parent, 'subagents', ...parts, `agent-${agent}.jsonl`);
+    }
     return path.join(CLAUDE_DIR, 'projects', projectName, `${sessionId}.jsonl`);
   },
 

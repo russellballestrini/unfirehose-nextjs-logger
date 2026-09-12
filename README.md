@@ -252,6 +252,14 @@ unfirehose/
 
 No external services. No API keys required. No Docker. Just `npm install && npm run dev`.
 
+## Codex CLI
+
+After installing dependencies, run `npx tsx scripts/codex-bridge.mts` alongside
+`npm run dev`. The bridge reads existing `$CODEX_HOME/sessions` logs incrementally;
+no extra model calls are needed. To select harnesses explicitly, set
+`UNFIREHOSE_HARNESSES=codex,claude-code` on the ingestion worker. Claude includes
+regular and workflow-nested subagent transcripts. See [Codex setup and format details](packages/schema/docs/harnesses/openai-codex.md).
+
 ## Quickstart
 
 ```bash
