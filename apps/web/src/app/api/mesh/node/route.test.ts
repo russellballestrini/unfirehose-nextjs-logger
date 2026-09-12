@@ -40,7 +40,8 @@ vi.mock('@/lib/node-probe', async (orig) => ({
 const probeCommands = () =>
   commands.mock.calls.map((c) => String(c[0])).filter((c) => c.includes('SECTION:HOSTNAME'));
 const probedOverSsh = () => probeCommands().filter((c) => c.startsWith('ssh '));
-const probedLocally = () => probeCommands().filter((c) => c.startsWith('bash -c'));
+// UF_POSIX=1 in front: the script's Bourne-to-POSIX handoff is for stdin, not -c.
+const probedLocally = () => probeCommands().filter((c) => c.startsWith('UF_POSIX=1 bash -c'));
 
 const { GET } = await import('./route');
 
@@ -58,6 +59,28 @@ function machine({ name = 'some-other-box', fqdn, probe = '===SECTION:HOSTNAME==
 }
 
 beforeEach(() => { vi.clearAllMocks(); deliver = (cb) => queueMicrotask(cb); machine(); });
+
+describe('a remote with no sh', () => {
+  it('asks PowerShell for the userland section when sh produced nothing', async () => {
+    // A Windows sshd hands us cmd.exe; the first probe comes back empty.
+    commands.mockImplementation((cmd: string) => {
+      if (cmd === 'hostname') return 'here\n';
+      if (cmd.startsWith('hostname -f')) return 'here\n';
+      // The sh script itself mentions powershell (the windows-sh plugin);
+      // the retry is the command whose remote program is powershell.
+      if (cmd.includes('winbox powershell')) return "===SECTION:UF===\r\nuf=1\r\nuserland=windows-powershell\r\nEND\r\n===SECTION:HOSTNAME===\r\nWINBOX\r\n===SECTION:END===\r\n";
+      return '';
+    });
+    const res = await get('?host=winbox');
+    expect(res.status).toBe(200);
+    // Two trips: sh first, then PowerShell.
+    expect(probedOverSsh()).toHaveLength(2);
+    expect(probedOverSsh()[1]).toContain('winbox powershell -NoProfile');
+    const [raw] = parseProbeOutput.mock.calls[0] as [string, string];
+    expect(raw).toContain('userland=windows-powershell');
+    expect(raw).not.toContain('\r');
+  });
+});
 
 describe('what it refuses', () => {
   it('will not probe without being told what to probe', async () => {

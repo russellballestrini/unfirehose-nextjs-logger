@@ -1270,6 +1270,17 @@ function HostForm({ form, setForm, keys, onSave, onCancel, saving, isNew }: {
           </div>
         </div>
       </div>
+      {/* Any machine with an sshd and a shell is a node: the probe speaks
+          GNU/Linux, busybox, Android, the BSDs, macOS, Solaris/illumos, AIX,
+          HP-UX, IRIX, Tru64, SCO, Haiku, QNX, Cygwin and PowerShell. The
+          one thing it cannot fix is a modern ssh refusing an old daemon's
+          crypto — that is a per-host setting in ~/.ssh/config. */}
+      <div className="text-sm text-[var(--color-muted)]">
+        Any OS with an sshd works — Linux, BSD, macOS, Solaris, AIX, Windows and the long tail.
+        A pre-2015 sshd may need <span className="font-mono">HostKeyAlgorithms +ssh-rsa</span> and{' '}
+        <span className="font-mono">KexAlgorithms +diffie-hellman-group1-sha1,diffie-hellman-group14-sha1</span> in{' '}
+        <span className="font-mono">~/.ssh/config</span> before this client will connect at all.
+      </div>
       <div className="flex items-center gap-3">
         <button onClick={onSave} disabled={saving || !form.name}
           className="px-4 py-1.5 text-base font-bold rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 cursor-pointer">

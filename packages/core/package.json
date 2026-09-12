@@ -79,6 +79,7 @@
     "./mesh-probe": "./mesh-probe.ts",
     "./mesh-local": "./mesh-local.ts",
     "./mesh-remote": "./mesh-remote.ts",
+    "./userland": "./userland/index.ts",
     "./num": "./num.ts",
     "./db/mesh-snapshots": "./db/mesh-snapshots.ts",
     "./vllm-sample": "./vllm-sample.ts"

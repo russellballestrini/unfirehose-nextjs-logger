@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { parseProbeOutput } from '@/lib/node-probe';
+import { buildProbeScript, POWERSHELL_SCRIPT } from '@unturf/unfirehose/userland';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
  * Deep probe a single mesh node — returns ps aux, GPU info, CPU details,
@@ -13,6 +13,25 @@ import { parseProbeOutput } from '@/lib/node-probe';
  */
 
 const PROBE_SCRIPT = `
+# --- a 1979 Bourne shell can run this far: hand the rest to a POSIX one ---
+# Solaris 10 and IRIX ship that shell as /bin/sh, and it has no $( ), which
+# everything below the userland section uses. It reads a pipe one byte at
+# a time, so the shell exec'd here picks up at exactly the next line. A
+# POSIX shell must NOT do this — dash reads ahead and the handoff lands
+# mid-buffer — and the tell is that old Bourne does not expand ~.
+if [ -z "$UF_POSIX" ] && [ -n "$HOME" ] && [ "\`echo ~\`" = '~' ]; then
+  UF_POSIX=1; export UF_POSIX
+  for s in /usr/xpg4/bin/sh /usr/bin/ksh93 /usr/bin/ksh /bin/ksh /usr/local/bin/bash /bin/bash /usr/bin/bash; do
+    if [ -x "$s" ]; then exec "$s" -s; fi
+  done
+fi
+
+# --- the userland probe: what the mesh card reads, for every OS ---
+# The sections after it are what Linux can add. On a BSD, a Solaris or a
+# Mac most of them come back n/a and the page fills its basics from here.
+echo '===SECTION:UF==='
+${buildProbeScript()}
+
 # Any command below that touches a filesystem or a device can block forever,
 # and a blocked command does not fail — it hangs until our execSync timeout
 # kills SSH, truncating every section after it. A single wedged FUSE mount on
@@ -46,7 +65,7 @@ cat /etc/os-release 2>/dev/null | head -5 || echo 'n/a'
 
 # --- nproc ---
 echo '===SECTION:NPROC==='
-nproc 2>/dev/null || echo '0'
+nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo '0'
 
 # --- meminfo ---
 echo '===SECTION:MEMINFO==='
@@ -62,11 +81,14 @@ cat /proc/uptime 2>/dev/null || echo '0 0'
 
 # --- disk ---
 echo '===SECTION:DISK==='
-\$T df -h --output=source,size,used,avail,pcent,target 2>/dev/null | grep -E '^(/dev|tmpfs)' || echo 'n/a'
+# GNU df has --output; everyone else's -k prints the same six columns in
+# kilobytes, which parseDisk renders.
+\$T df -h --output=source,size,used,avail,pcent,target 2>/dev/null | grep -E '^(/dev|tmpfs)' || \$T df -k 2>/dev/null | grep -E '^/' || echo 'n/a'
 
 # --- processes (top CPU consumers) ---
 echo '===SECTION:PS==='
-ps aux --sort=-%cpu 2>/dev/null | grep -v '===SECTION:' | head -50 || echo 'n/a'
+# --sort is procps; a BSD ps sorts in the pipe, and a System V ps has no aux.
+{ ps aux --sort=-%cpu 2>/dev/null || { ps aux 2>/dev/null | sed -n 1p; ps aux 2>/dev/null | sed 1d | sort -k3 -rn; } || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' | head -50 || echo 'n/a'
 
 # --- process tree (ps -ejH: job hierarchy, session/group ids) ---
 # Our Processes tab shows this by default. The CPU-sorted list above answers
@@ -74,7 +96,8 @@ ps aux --sort=-%cpu 2>/dev/null | grep -v '===SECTION:' | head -50 || echo 'n/a'
 # which shell owns which agent. Full table, no head: a truncated tree lies
 # about parentage.
 echo '===SECTION:PS_TREE==='
-ps -ejH 2>/dev/null | grep -v '===SECTION:' || echo 'n/a'
+# -ejH is procps; the POSIX -eo form has the same columns without the tree.
+{ ps -ejH 2>/dev/null || ps -eo pid,pgid,sid,tty,time,comm 2>/dev/null; } | grep -v '===SECTION:' || echo 'n/a'
 
 # --- claude processes specifically ---
 # Every agent harness, not just claude. uncloseai-cli is a Python console
@@ -84,7 +107,7 @@ ps -ejH 2>/dev/null | grep -v '===SECTION:' || echo 'n/a'
 # @unturf/unfirehose/harness-procs; we ship the whole table and apply it
 # server-side so adding a harness never means editing an embedded shell string.
 echo '===SECTION:CLAUDE_PS==='
-ps aux 2>/dev/null | grep -v '===SECTION:' || echo 'none'
+{ ps aux 2>/dev/null || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'none'
 
 # --- GPU nvidia ---
 echo '===SECTION:NVIDIA==='
@@ -236,13 +259,17 @@ function run(cmd: string, opts: { timeout: number; shell?: string }): Promise<st
 }
 
 function probeLocal(): Promise<string> {
-  return run(`bash -c '${PROBE_SCRIPT.replace(/'/g, "'\\''")}'`, { timeout: 15000 });
+  // UF_POSIX set: the script is an argument here, not stdin, so its
+  // re-exec-a-POSIX-shell preamble must not fire (it would read nothing).
+  return run(`UF_POSIX=1 bash -c '${PROBE_SCRIPT.replace(/'/g, "'\\''")}'`, { timeout: 15000 });
 }
 
 function probeRemote(host: string): Promise<string> {
+  // `sh`, not `bash`: a BSD, a Solaris or an AIX has no bash to hand the
+  // script to, and the script's own first lines find a POSIX shell.
   return run(
-    `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${host} 'bash -s' << 'PROBE_EOF'\n${PROBE_SCRIPT}\nPROBE_EOF`,
-    { timeout: 20000, shell: '/bin/bash' },
+    `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${host} sh << 'PROBE_EOF'\n${PROBE_SCRIPT}\nPROBE_EOF`,
+    { timeout: 25000, shell: '/bin/bash' },
   );
 }
 
@@ -277,7 +304,19 @@ export async function GET(req: NextRequest) {
     isLocal = !!names && (host === names.short || host === names.fqdn);
   }
 
-  const raw = isLocal ? await probeLocal() : await probeRemote(host);
+  let raw = isLocal ? await probeLocal() : await probeRemote(host);
+
+  // A Windows sshd has no sh. The mesh card already speaks PowerShell for
+  // it (core/userland/powershell.ts); wrap the same script in our section
+  // markers so this page gets its basics from the userland section.
+  if (!isLocal && !raw.includes('===SECTION:HOSTNAME===')) {
+    const ps = `'===SECTION:UF==='\n${POWERSHELL_SCRIPT}\n'===SECTION:HOSTNAME==='\n$env:COMPUTERNAME\n'===SECTION:END==='\n`;
+    const viaPs = await run(
+      `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${host} powershell -NoProfile -NonInteractive -Command - << 'PROBE_EOF'\n${ps}\nPROBE_EOF`,
+      { timeout: 25000, shell: '/bin/bash' },
+    );
+    if (viaPs.includes('uf=1')) raw = viaPs.replace(/\r/g, '');
+  }
 
   if (!raw.includes('===SECTION:HOSTNAME===')) {
     return NextResponse.json({

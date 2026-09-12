@@ -36,8 +36,10 @@ export const HARNESS_PROC_NAMES: Record<string, string> = {
 
 function basename(p: string): string {
   if (!p) return '';
-  const i = p.lastIndexOf('/');
-  return i === -1 ? p : p.slice(i + 1);
+  // A Windows path separates with backslashes and names its programs .exe;
+  // the harness is still claude.
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+  return (i === -1 ? p : p.slice(i + 1)).replace(/\.exe$/i, '');
 }
 
 /**

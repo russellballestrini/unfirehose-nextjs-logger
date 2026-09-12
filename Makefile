@@ -1,4 +1,4 @@
-.PHONY: all clean test coverage coverage-check coverage-report cc crap dupes orphans report \
+.PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
         test-core test-ui test-web test-scripts \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report
@@ -28,6 +28,10 @@ NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=
 # name and cd's itself.
 test:
 	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts
+
+# Regenerate the userland probe plugins from their Bourne-sh sources.
+userland-plugins:
+	python3 packages/core/userland/gen-plugins.py
 
 test-core:
 	@echo "==> packages/core"; cd packages/core && npx vitest run

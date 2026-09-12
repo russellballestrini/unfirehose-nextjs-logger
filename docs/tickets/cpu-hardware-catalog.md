@@ -50,3 +50,15 @@ Probe fixes:
   `Hardware` → `cpu :` (ppc) → ARM `CPU part` id map.
 - Remote probe never fails the chain on a missing `model name`.
 - Deep node probe appends `Model`/`Hardware` lines past `head -30`.
+
+## Follow-up (2026-09-12): the userland probe
+
+Goal set by fox: "make a modular plugin style gnu_linux userland tool and
+then make one for … all of them … if you leave one behind and somebody
+gets ssh working on their cluster only to find the metrics don't show up
+they are going to be sad."
+
+Done in `packages/core/userland/` — 20 plugins keyed on `uname -s` (from
+Wikipedia's uname table), one Bourne-shell script on stdin to `ssh host
+sh`, a PowerShell twin for Windows, one parser for every notation. Design:
+`docs/architecture/userland-probe.md`.

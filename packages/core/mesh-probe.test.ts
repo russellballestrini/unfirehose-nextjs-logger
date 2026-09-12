@@ -6,32 +6,34 @@ import {
 } from './mesh-probe';
 
 /**
- * The probe output a real node produces, trimmed. Everything the
- * Permacomputer page shows about a machine — its power draw, its score, its
- * uptime — is computed from this text, and until now none of it could be
- * checked without an SSH connection to a live host.
+ * The wire a real node produces, trimmed. Everything the Permacomputer
+ * page shows about a machine — its power draw, its score, its uptime — is
+ * computed from this text, and until now none of it could be checked
+ * without an SSH connection to a live host. The format is documented in
+ * userland/types.ts; the per-userland fixtures live in userland/parse.test.ts.
  */
 const probe = ({ rapl = '', gpu = '' } = {}) => [
-  'neoblanka.foxhop.net',
-  '16',
-  'model name\t: AMD Ryzen 7 5800X 8-Core Processor',
-  'x86_64',
-  'NAME TYPE SIZE ROTA',
-  'sda  disk 3.6T    1',
-  'nvme0n1 disk 1.8T 0',
-  '---LSBLK_END---',
-  'MemTotal:       32791234 kB',
-  'MemAvailable:   20000000 kB',
-  'SwapTotal:       8000000 kB',
-  'SwapFree:        7000000 kB',
-  '0.52 0.41 0.38 1/900 12345',
-  '864000.00 6000000.00',
+  'uf=1',
+  'os=Linux',
+  'userland=linux-gnu',
+  'hostname=neoblanka.foxhop.net',
+  'now=1789253256',
+  'osrel=6.8.0',
+  'arch=x86_64',
+  'nproc=16',
+  'cpu=model name\t: AMD Ryzen 7 5800X 8-Core Processor',
+  'mem_total=32791234 kB',
+  'mem_avail=20000000 kB',
+  'swap_total=8000000 kB',
+  'swap_free=7000000 kB',
+  'load=0.52 0.41 0.38 1/900 12345',
+  'uptime_s=864000.00',
+  'DISK sda 1',
+  'DISK nvme0n1 0',
   'HPROC fox 1234 2.0 1.0 123456 65432 ?  Sl   09:00   0:12 /home/fox/.local/bin/claude',
-  '---STATS_END---',
-  rapl,
-  '---RAPL_END---',
-  gpu,
-  '---GPU_END---',
+  rapl ? `RAPL ${rapl}` : '',
+  ...gpu.split('\n').filter(Boolean).map(g => `GPU ${g}`),
+  'END',
 ].join('\n');
 
 describe('parseRemoteProbe', () => {

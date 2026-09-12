@@ -10,47 +10,63 @@
  */
 import { execFile } from 'child_process';
 import { parseRemoteProbe, type MeshNode } from './mesh-probe';
-import { harnessPsAwk } from './harness-procs';
+import { buildProbeScript, POWERSHELL_SCRIPT } from './userland';
 
 /**
- * Probe a remote node via a single SSH call that collects all stats,
- * RAPL power readings, and nvidia-smi data in one round-trip.
+ * Probe a remote node over one SSH connection.
+ *
+ * The script goes to `sh` on stdin rather than as a command argument, so
+ * the remote login shell never parses it — csh on an old BSD would choke
+ * on the first `2>/dev/null`. Which userland's plugin runs is decided on
+ * the far side by the script itself (see packages/core/userland).
+ *
+ * A Windows sshd hands us cmd.exe or pwsh, where `sh` is not a program;
+ * that failure has a recognisable shape, and the second attempt feeds the
+ * same wire format to PowerShell.
  */
-export function probeRemote(host: string): Promise<MeshNode> {
-  // Single SSH command that gathers everything: stats, RAPL (with 100ms sleep), nvidia-smi
-  // Use ; between sections so RAPL/GPU failures don't break the chain
-  const remoteScript = [
-    // Stats section (&&-chained — all must succeed). The CPU name is the one
-    // link that legitimately varies by architecture: aarch64 has no `model
-    // name`, so a plain grep there exited 1 and took the whole chain — and
-    // the node — down as "Unreachable". One line always comes out; which
-    // field it is, parseCpuModel sorts out (see its precedence note).
-    `{ hostname -f 2>/dev/null || hostname; } && nproc && { grep -m1 "^model name" /proc/cpuinfo || grep -m1 "^cpu model" /proc/cpuinfo || grep -m1 "^Model" /proc/cpuinfo || grep -m1 "^Hardware" /proc/cpuinfo || grep -m1 -E "^cpu\s*:" /proc/cpuinfo || { grep -q "^CPU part" /proc/cpuinfo && { grep -m1 "^CPU implementer" /proc/cpuinfo; grep -m1 "^CPU part" /proc/cpuinfo; } | paste -sd " "; } || echo "model name : unknown"; } && uname -m && { lsblk -d -o NAME,TYPE,SIZE,ROTA 2>/dev/null; echo "---LSBLK_END---"; } && cat /proc/meminfo && cat /proc/loadavg && cat /proc/uptime && ps aux 2>/dev/null | awk '${harnessPsAwk()}' | sed 's/^/HPROC /' && echo "---STATS_END---"`,
-    // RAPL section (best-effort, semicolon-delimited)
-    'R1=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R1B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); sleep 0.1; R2=$(cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj 2>/dev/null); R2B=$(cat /sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj 2>/dev/null); echo "$R1 $R1B $R2 $R2B"; echo "---RAPL_END---"',
-    // GPU section (best-effort)
-    'nvidia-smi --query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null; echo "---GPU_END---"',
-  ].join('; ');
+const SSH_OPTS = ['-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes'];
+const PROBE_TIMEOUT_MS = 15000;
 
+const NO_SH = /not recognized as an internal or external command|The term 'sh' is not recognized|sh: (command )?not found|sh: No such file|CommandNotFoundException/i;
+
+function sshRun(host: string, command: string[], stdin: string): Promise<{ err: Error | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile('ssh', ['-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no', host, remoteScript],
-      { encoding: 'utf-8', timeout: 12000 },
-      (err, stdout) => {
-        if (err) {
-          resolve({
-            hostname: host,
-            reachable: false,
-            error: err.message?.includes('ETIMEDOUT') ? 'Connection timed out' : 'Unreachable',
-          });
-          return;
-        }
-
-        try {
-          resolve(parseRemoteProbe(host, stdout));
-        } catch (parseErr: any) {
-          resolve({ hostname: host, reachable: false, error: parseErr.message });
-        }
-      },
+    const child = execFile('ssh', [...SSH_OPTS, host, ...command],
+      { encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => resolve({ err: err as Error | null, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }),
     );
+    // Test doubles return nothing; a real child has a stdin to feed.
+    const input = (child as any)?.stdin;
+    if (input) {
+      input.on('error', () => {});
+      input.end(stdin);
+    }
   });
+}
+
+export async function probeRemote(host: string): Promise<MeshNode> {
+  const first = await sshRun(host, ['sh'], buildProbeScript());
+  let { err, stdout, stderr } = first;
+
+  if (!stdout.includes('uf=1') && NO_SH.test(stderr + stdout)) {
+    const second = await sshRun(host, ['powershell', '-NoProfile', '-NonInteractive', '-Command', '-'], POWERSHELL_SCRIPT);
+    if (second.stdout.includes('uf=1')) ({ err, stdout, stderr } = second);
+  }
+
+  if (err && !stdout.includes('uf=1')) {
+    const msg = err.message ?? '';
+    return {
+      hostname: host,
+      reachable: false,
+      error: msg.includes('ETIMEDOUT') || /timed out/i.test(msg) ? 'Connection timed out'
+        : NO_SH.test(stderr + stdout) ? 'No POSIX shell or PowerShell on remote'
+        : 'Unreachable',
+    };
+  }
+
+  try {
+    return parseRemoteProbe(host, stdout);
+  } catch (parseErr: any) {
+    return { hostname: host, reachable: false, error: parseErr.message };
+  }
 }

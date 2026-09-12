@@ -313,3 +313,49 @@ describe('parseProbeOutput', () => {
     expect(parseProbeOutput(section('OS', 'ID=debian'), 'x').system.os).toBe('Linux');
   });
 });
+
+describe('parseProbeOutput on a machine that is not Linux', () => {
+  // Every Linux section comes back n/a on a BSD or a Solaris; the userland
+  // section (core/userland) is what the page must then read its basics from.
+  const raw = [
+    '===SECTION:UF===',
+    'uf=1', 'os=FreeBSD', 'userland=freebsd', 'hostname=bsd.example.net', 'now=1789253256', 'osrel=14.1-RELEASE',
+    'arch=amd64', 'nproc=8', 'cpu=Intel(R) Xeon(R) CPU E5-2650 v2 @ 2.60GHz', 'pagesize=4096',
+    'mem_total=34359738368 B', 'mem_avail=1000000 2000000 0 pages', 'swap_total=8388608 kB', 'swap_used=1024 kB',
+    'load={ 0.48 0.41 0.37 }', 'boottime={ sec = 1789217299, usec = 1 } Sat Sep 12 08:48:19 2026',
+    'DISK ada0 1', 'END',
+    '===SECTION:HOSTNAME===', 'bsd.example.net',
+    '===SECTION:CPUINFO===', 'n/a',
+    '===SECTION:ARCH===', 'amd64',
+    '===SECTION:KERNEL===', '14.1-RELEASE',
+    '===SECTION:OS===', 'n/a',
+    '===SECTION:NPROC===', '8',
+    '===SECTION:MEMINFO===', 'n/a',
+    '===SECTION:LOADAVG===', '0 0 0 0/0 0',
+    '===SECTION:UPTIME===', '0 0',
+    '===SECTION:DISK===', '/dev/ada0p2  937000000  120000000  742000000  14%  /',
+    '===SECTION:PS===', 'USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND', 'root 1 0.0 0.0 11000 1000 - ILs 08:48 0:00.01 /sbin/init',
+    '===SECTION:END===',
+  ].join('\n');
+
+  it('fills system, memory, load and uptime from the userland section', () => {
+    const p = parseProbeOutput(raw, 'bsd.example.net');
+    expect(p.reachable).toBe(true);
+    expect(p.truncated).toBe(false);
+    expect(p.system.userland).toBe('freebsd');
+    expect(p.system.os).toBe('FreeBSD 14.1-RELEASE');
+    expect(p.system.cpuModel).toContain('E5-2650');
+    expect(p.system.cpuCores).toBe(8);
+    expect(p.memory.totalGB).toBe(32);
+    expect(p.memory.availableGB).toBeCloseTo(11.4, 0);
+    expect(p.memory.swapTotalGB).toBe(8);
+    expect(p.loadAvg).toEqual([0.48, 0.41, 0.37]);
+    expect(p.uptimeSeconds).toBe(35957);
+  });
+
+  it('renders df -k kilobyte columns the way df -h would', () => {
+    const p = parseProbeOutput(raw, 'h');
+    expect(p.disk[0]).toMatchObject({ device: '/dev/ada0p2', size: '893.6G', usePct: 14, mount: '/' });
+    expect(p.processes).toHaveLength(1);
+  });
+});

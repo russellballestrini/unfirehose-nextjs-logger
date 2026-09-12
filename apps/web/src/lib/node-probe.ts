@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { parseHarnessProcesses, countByHarness } from '@unturf/unfirehose/harness-procs';
 import { parseCpuModel } from '@unturf/unfirehose/mesh-probe';
+import { readWire, parseMemory, parseLoad, parseUptimeSeconds, parseSwap } from '@unturf/unfirehose/userland';
 import {
   parseTemperatures, parseHwmon, mergeSensors, parseThrottle,
   parseNvidiaClocks, parseCpuTopology,
@@ -23,7 +24,7 @@ import { num, int } from '@/lib/num';
 
 export const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
-  'LOADAVG', 'UPTIME', 'DISK', 'PS', 'PS_TREE', 'CLAUDE_PS', 'NVIDIA', 'NVIDIA_PS',
+  'LOADAVG', 'UPTIME', 'DISK', 'PS', 'PS_TREE', 'CLAUDE_PS', 'UF', 'NVIDIA', 'NVIDIA_PS',
   'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
 ];
 
@@ -182,6 +183,17 @@ export function parseAmdGpu(raw: string) {
   });
 }
 
+/** A bare kilobyte count (from `df -k`, where GNU's -h is missing) as -h would print it. */
+function humanKB(v: string): string {
+  if (!/^\d+$/.test(v)) return v;
+  let n = parseInt(v, 10);
+  for (const u of ['K', 'M', 'G', 'T', 'P']) {
+    if (n < 1024) return `${n}${u}`;
+    n = Math.round(n / 1024 * 10) / 10;
+  }
+  return `${n}E`;
+}
+
 export function parseDisk(raw: string) {
   if (!raw || raw === 'n/a') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
@@ -189,9 +201,9 @@ export function parseDisk(raw: string) {
     if (parts.length < 6) return null;
     return {
       device: parts[0],
-      size: parts[1],
-      used: parts[2],
-      avail: parts[3],
+      size: humanKB(parts[1]),
+      used: humanKB(parts[2]),
+      avail: humanKB(parts[3]),
       usePct: int(parts[4]),
       mount: parts[5],
     };
@@ -268,21 +280,39 @@ export function parseScreen(raw: string) {
  * rather than as a page that fails.
  */
 export function parseProbeOutput(raw: string, host: string) {
-  const hostname = parseSection(raw, 'HOSTNAME') || host;
-  const cpuInfo = parseCpuInfo(parseSection(raw, 'CPUINFO'));
-  const arch = parseSection(raw, 'ARCH') || 'unknown';
-  const kernel = parseSection(raw, 'KERNEL') || 'unknown';
+  // The userland section is what every OS can say (see core/userland);
+  // the Linux sections below it are richer where they exist. Each basic
+  // reads Linux first and falls back to the userland's own words.
+  const uf = readWire(parseSection(raw, 'UF'));
+  const hostname = parseSection(raw, 'HOSTNAME') || uf.kv.hostname || host;
+  let cpuInfo = parseCpuInfo(parseSection(raw, 'CPUINFO'));
+  if (cpuInfo.model === 'Unknown' && uf.kv.cpu) {
+    const m = uf.kv.cpu.includes(':') ? parseCpuModel(uf.kv.cpu) : uf.kv.cpu;
+    cpuInfo = { ...cpuInfo, model: m || uf.kv.soc || uf.kv.model || 'Unknown' };
+  }
+  const arch = parseSection(raw, 'ARCH') || uf.kv.isa || uf.kv.arch || 'unknown';
+  const kernel = parseSection(raw, 'KERNEL') || uf.kv.osrel || 'unknown';
   const osRaw = parseSection(raw, 'OS');
-  const osName = osRaw.match(/PRETTY_NAME="?([^"\n]+)"?/)?.[1] ?? 'Linux';
-  const cpuCores = int(parseSection(raw, 'NPROC'));
-  const memory = parseMeminfo(parseSection(raw, 'MEMINFO'));
+  const osName = osRaw.match(/PRETTY_NAME="?([^"\n]+)"?/)?.[1]
+    ?? (uf.kv.os && uf.kv.os !== 'Linux' ? `${uf.kv.os} ${uf.kv.osrel ?? ''}`.trim() : 'Linux');
+  const cpuCores = int(parseSection(raw, 'NPROC')) || parseInt(uf.kv.nproc?.match(/\d+/)?.[0] ?? '') || 0;
+  let memory = parseMeminfo(parseSection(raw, 'MEMINFO'));
+  if (!memory.totalGB && uf.shellRan) {
+    const m = parseMemory(uf.kv); const sw = parseSwap(uf.kv);
+    memory = {
+      ...memory,
+      totalGB: round(m.totalGB), availableGB: round(m.availableGB), usedGB: round(m.totalGB - m.availableGB),
+      swapTotalGB: round(sw.totalGB), swapUsedGB: round(sw.usedGB),
+    };
+  }
 
   const loadRaw = parseSection(raw, 'LOADAVG').split(/\s+/);
-  const loadAvg = [num(loadRaw[0]), num(loadRaw[1]), num(loadRaw[2])];
+  let loadAvg = [num(loadRaw[0]), num(loadRaw[1]), num(loadRaw[2])];
+  if (!loadAvg.some(Boolean) && uf.shellRan) loadAvg = parseLoad(uf.kv.load, uf.kv.uptime_raw);
   const runnable = loadRaw[3] ?? '0/0';
 
   const uptimeRaw = parseSection(raw, 'UPTIME').split(/\s+/);
-  const uptimeSeconds = num(uptimeRaw[0]);
+  const uptimeSeconds = num(uptimeRaw[0]) || (uf.shellRan ? Math.round(parseUptimeSeconds(uf.kv)) : 0);
 
   const disk = parseDisk(parseSection(raw, 'DISK'));
   const processes = parseProcesses(parseSection(raw, 'PS'));
@@ -319,7 +349,7 @@ export function parseProbeOutput(raw: string, host: string) {
     // no disks and no network — which is how a wedged mount on one box read
     // as "this machine reports no temperatures".
     truncated: !!hostname && !raw.includes('===SECTION:END==='),
-    system: { arch, kernel, os: osName, cpuModel: cpuInfo.model, cpuMhz: cpuInfo.mhz, cpuCache: cpuInfo.cacheSize, cpuCores },
+    system: { arch, kernel, os: osName, cpuModel: cpuInfo.model, cpuMhz: cpuInfo.mhz, cpuCache: cpuInfo.cacheSize, cpuCores, userland: uf.kv.userland },
     memory,
     loadAvg,
     runnable,

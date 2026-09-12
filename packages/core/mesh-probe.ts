@@ -44,6 +44,13 @@ export interface MeshNode {
   gpuUtil?: number;
   arch?: string;
   powerSource?: 'rapl' | 'nvidia' | 'tdp';
+  /** `uname -s` — Linux, FreeBSD, SunOS, Darwin, Windows_NT … */
+  os?: string;
+  osRelease?: string;
+  /** Which userland plugin answered — see packages/core/userland. */
+  userland?: string;
+  /** The probe script was cut before END; fields after the cut are blank. */
+  truncated?: boolean;
   error?: string;
 }
 
@@ -936,130 +943,8 @@ let refreshing = false;
 const MESH_CACHE_TTL = 15_000; // 15 seconds
 
 /**
- * One node, parsed from the combined output of our probe script.
- *
- * `host` wins over the hostname the machine reports when it carries a
- * domain, because that is what our SSH config calls it and what everything
- * else keys on.
+ * One node, parsed from the wire our userland probe script emits. The
+ * reader lives in userland/parse.ts beside the plugins that write it;
+ * this name is kept because the web route and the worker import it here.
  */
-export function parseRemoteProbe(host: string, stdout: string): MeshNode {
-  const fullOutput = stdout.trim();
-  const statsEnd = fullOutput.indexOf('---STATS_END---');
-  const raplEnd = fullOutput.indexOf('---RAPL_END---');
-  const gpuEnd = fullOutput.indexOf('---GPU_END---');
-
-  const statsSection = fullOutput.slice(0, statsEnd).trim();
-  const raplSection = fullOutput.slice(statsEnd + '---STATS_END---'.length, raplEnd).trim();
-  const gpuSection = fullOutput.slice(raplEnd + '---RAPL_END---'.length, gpuEnd).trim();
-
-  const lines = statsSection.split('\n');
-
-  const remoteHostname = lines[0];
-  const hostname = host.includes('.') ? host : (remoteHostname.includes('.') ? remoteHostname : host);
-  const cpuCores = parseInt(lines[1]);
-  const cpuModel = parseCpuModel(lines[2]);
-  const arch = lines[3]?.trim() || undefined;
-
-  const lsblkEndIdx = lines.findIndex(l => l.trim() === '---LSBLK_END---');
-  let spinningDisks = 0;
-  let ssdCount = 0;
-  if (lsblkEndIdx > 4) {
-    const lsblkText = lines.slice(4, lsblkEndIdx).join('\n');
-    spinningDisks = countSpinningDisks(lsblkText);
-    ssdCount = countSsds(lsblkText);
-  }
-
-  const meminfoLines = lines.slice(lsblkEndIdx > 0 ? lsblkEndIdx + 1 : 3);
-  const meminfoText = meminfoLines.join('\n');
-  const mem = parseMeminfo(meminfoText);
-  const memTotal = mem.totalGB;
-  const memAvailable = mem.availableGB;
-  const swapTotal = mem.swapTotalGB;
-  const swapFree = mem.swapFreeGB;
-
-  const loadLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+/.test(l));
-  const loadAvg = parseLoadavg(loadLine ?? '');
-
-  const uptimeLine = meminfoLines.find(l => /^\d+\.\d+\s+\d+\.\d+$/.test(l.trim()));
-  const uptimeSeconds = parseFloat(uptimeLine?.split(/\s/)[0] ?? '0');
-  const uptime = formatUptime(uptimeSeconds);
-
-  // Harness lines are prefixed HPROC so they survive being mixed into
-  // the single combined stats payload alongside meminfo, loadavg etc.
-  const remoteProcs = parseHarnessProcesses(
-    lines.filter((l: string) => l.startsWith('HPROC ')).map((l: string) => l.slice(6)).join('\n'),
-  );
-  const harnessCounts = countByHarness(remoteProcs);
-  const claudeProcesses = harnessCounts.claude ?? 0;
-
-  // Power
-  const cpuTdpWatts = cpuModel ? lookupCpuTdp(cpuModel) : null;
-  const isServer = cpuModel ? /xeon|epyc/i.test(cpuModel) : false;
-  const isLaptop = cpuModel ? /[0-9]U\b|[0-9]G[1-7]\b/i.test(cpuModel) : false;
-  let powerWatts: number | undefined;
-  let gpuPowerWatts: number | undefined;
-  let powerSource: MeshNode['powerSource'] | undefined;
-
-  // Parse RAPL
-  if (raplSection) {
-    const parts = raplSection.split(/\s+/).map(Number);
-    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[2])) {
-      let delta0 = parts[2] - parts[0];
-      if (delta0 < 0) delta0 += 2 ** 32;
-      let delta1 = 0;
-      if (!isNaN(parts[1]) && !isNaN(parts[3])) {
-        delta1 = parts[3] - parts[1];
-        if (delta1 < 0) delta1 += 2 ** 32;
-      }
-      const cpuWatts = round((delta0 + delta1) / (0.1 * 1e6));
-      if (cpuWatts > 0 && cpuWatts < 10000) {
-        powerWatts = cpuWatts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
-        powerSource = 'rapl';
-      }
-    }
-  }
-
-  // Parse nvidia-smi
-  let gpuModel: string | undefined;
-  let gpuMemTotalMB: number | undefined;
-  let gpuMemUsedMB: number | undefined;
-  let gpuUtil: number | undefined;
-  if (gpuSection) {
-    let totalPower = 0;
-    for (const line of gpuSection.split('\n')) {
-      const parts = line.split(',').map(s => s.trim());
-      const w = parseFloat(parts[0]);
-      if (!isNaN(w)) totalPower += w;
-      if (!gpuModel && parts[1]) gpuModel = parts[1];
-      if (parts[2]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + (num(parts[2]));
-      if (parts[3]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + (num(parts[3]));
-      if (parts[4]) gpuUtil = Math.max(gpuUtil ?? 0, num(parts[4]));
-    }
-    if (totalPower > 0) gpuPowerWatts = round(totalPower);
-  }
-
-  // TDP fallback
-  if (!powerWatts && cpuTdpWatts !== null) {
-    powerWatts = calcSystemWatts({
-      tdpWatts: cpuTdpWatts, cores: cpuCores, load1m: loadAvg[0],
-      memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop,
-    });
-    powerSource = 'tdp';
-  }
-
-  return {
-    hostname, reachable: true,
-    cpuModel: cpuModel ?? undefined, cpuTdpWatts: cpuTdpWatts ?? undefined,
-    spinningDisks, ssdCount, cpuCores,
-    memTotalGB: round(memTotal), memCapGB: memCapGB(memTotal), memUsedGB: round(memTotal - memAvailable), memAvailableGB: round(memAvailable),
-    loadAvg, uptime, uptimeSeconds,
-    cpuYear: cpuModel ? lookupCpuYear(cpuModel) ?? undefined : undefined,
-    claudeProcesses,
-    harnessCounts,
-    swapTotalGB: round(swapTotal), swapUsedGB: round(swapTotal - swapFree),
-    powerWatts, gpuPowerWatts: gpuPowerWatts ?? undefined,
-    gpuModel, gpuMemTotalMB: gpuMemTotalMB ? Math.round(gpuMemTotalMB) : undefined,
-    gpuMemUsedMB: gpuMemUsedMB ? Math.round(gpuMemUsedMB) : undefined,
-    gpuUtil, arch, powerSource,
-  };
-}
+export { parseWireProbe as parseRemoteProbe } from './userland/parse';
