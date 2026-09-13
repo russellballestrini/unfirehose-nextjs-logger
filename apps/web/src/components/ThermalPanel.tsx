@@ -25,6 +25,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import type { MergedTemp, SensorFan, ThrottleInfo, CpuTopology, TopoCore } from '@/lib/sensors';
+import { humanDelta } from '@unturf/unfirehose/ago';
 
 // Sensors lacking a declared crit still need a scale. Tjmax is ~100°C on
 // essentially every x86 part we run, so grade against that and mark it
@@ -714,13 +715,13 @@ export function ThermalPanel({
           ))}
 
           {throttle?.packageCount != null && (
-            <div title={`Total package throttle events since boot, from /sys/devices/system/cpu/*/thermal_throttle/package_throttle_count. Cumulative — useful as a lifetime measure of how thermally constrained this machine has been, not as a reading of right now.${throttle.packageMs ? ` Total time spent throttled: ${(throttle.packageMs / 3_600_000).toFixed(1)} hours.` : ''}`}>
+            <div title={`Total package throttle events since boot, from /sys/devices/system/cpu/*/thermal_throttle/package_throttle_count. Cumulative — useful as a lifetime measure of how thermally constrained this machine has been, not as a reading of right now.${throttle.packageMs ? ` Total time spent throttled: ${humanDelta(throttle.packageMs, { smallest: 'second' })}.` : ''}`}>
               <div className="text-2xl font-bold tabular-nums text-[var(--color-muted)]">
                 {throttle.packageCount.toLocaleString()}
               </div>
               <div className="text-xs text-[var(--color-muted)]">
                 throttle events since boot
-                {throttle.packageMs ? ` · ${(throttle.packageMs / 3_600_000).toFixed(1)}h` : ''}
+                {throttle.packageMs ? ` · ${humanDelta(throttle.packageMs, { abbreviate: true, smallest: 'second' })}` : ''}
               </div>
             </div>
           )}

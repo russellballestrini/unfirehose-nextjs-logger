@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
+import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
@@ -72,6 +73,11 @@ const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
 };
 
 const TIME_PRESETS = [5, 10, 15, 30, 60, 120];
+
+/** A todo estimate as a span: "45m", "1h, 30m". */
+function estimateLabel(minutes: number): string {
+  return humanDelta(minutes * 60_000, { abbreviate: true, smallest: 'minute' });
+}
 
 /**
  * One ring of celebration particles, scattered once at module level.
@@ -597,7 +603,7 @@ export function TodoBoard({ project }: { project?: string } = {}) {
       {/* Triage summary */}
       {!loading && counts.total > 0 && (
         <div className="flex gap-4 mb-6 text-sm text-[var(--color-muted)]">
-          {totalEstMinutes > 0 && <span>~{totalEstMinutes < 60 ? `${totalEstMinutes}m` : `${Math.floor(totalEstMinutes / 60)}h ${totalEstMinutes % 60}m`} remaining</span>}
+          {totalEstMinutes > 0 && <span>~{estimateLabel(totalEstMinutes)} remaining</span>}
           {unestimated.length > 0 && <span>{unestimated.length} unestimated</span>}
           {draggedTodo && (
             <span className="text-[var(--color-accent)] font-bold animate-pulse">
@@ -748,7 +754,7 @@ export function TodoBoard({ project }: { project?: string } = {}) {
                   <div className="flex items-center gap-2">
                     <Link href={`/projects/${encodeURIComponent(group.project)}`} className="font-medium hover:text-[var(--color-accent)] transition-colors">{group.display}</Link>
                     <span className="text-sm text-[var(--color-muted)]">{visibleTodos.length} todos</span>
-                    {groupEst > 0 && <span className="text-sm text-[var(--color-muted)]">~{groupEst < 60 ? `${groupEst}m` : `${Math.floor(groupEst / 60)}h ${groupEst % 60}m`}</span>}
+                    {groupEst > 0 && <span className="text-sm text-[var(--color-muted)]">~{estimateLabel(groupEst)}</span>}
                     <Link href={`/todos?project=${encodeURIComponent(group.project)}`} className="text-xs text-[var(--color-accent)] hover:underline">focus</Link>
                     {group.projectPath && (
                       <ProjectDeployButton

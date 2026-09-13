@@ -111,9 +111,9 @@ describe('summarise', () => {
   });
 
   it('labels a system event by its subtype, with the duration when it has one', () => {
-    expect(summarise([], { type: 'system', subtype: 'turn_duration', durationMs: 4200 }).preview).toBe('turn duration 4.2s');
+    expect(summarise([], { type: 'system', subtype: 'turn_duration', durationMs: 4200 }).preview).toBe('turn duration 4s, 200ms');
     expect(summarise([], { type: 'system', subtype: 'session_end' }).preview).toBe('session end');
-    expect(summarise([], { type: 'system', subtype: 'turn_duration', durationMs: 125_000 }).preview).toBe('turn duration 2m 5s');
+    expect(summarise([], { type: 'system', subtype: 'turn_duration', durationMs: 125_000 }).preview).toBe('turn duration 2m, 5s');
   });
 
   it('is empty, and says so, only when there is truly nothing', () => {

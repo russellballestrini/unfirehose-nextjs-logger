@@ -13,7 +13,7 @@ import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
 import { harnessesFor } from '@/lib/harnesses';
 import { HarnessPicker } from '@/components/HarnessPicker';
-import { human } from '@unturf/unfirehose/ago';
+import { human, humanDelta } from '@unturf/unfirehose/ago';
 
 const HARNESSES = harnessesFor('node');
 
@@ -646,12 +646,8 @@ export function OverviewTab(props: TabProps) {
         viewMaxRef.current = viewMax;
         chartDataRef.current = chartData;
         const viewSpanMs = viewMax - viewMin;
-        const fmtSpan = (ms: number) => {
-          if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-          if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
-          if (ms < 86_400_000) return `${(ms / 3_600_000).toFixed(1)}h`;
-          return `${(ms / 86_400_000).toFixed(1)}d`;
-        };
+        // The zoom window's width: "1d, 6h", never "1.3d".
+        const fmtSpan = (ms: number) => humanDelta(ms, { abbreviate: true, smallest: 'second' });
         const zoomBy = (factor: number) => {
           const mid = (viewMin + viewMax) / 2;
           const half = (viewSpanMs * factor) / 2;

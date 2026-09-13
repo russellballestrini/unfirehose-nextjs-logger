@@ -8,6 +8,7 @@ import { useState, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTokens } from '@unturf/unfirehose/format';
+import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -20,8 +21,9 @@ const METRIC_LABEL: Record<string, string> = {
   total_tokens: 'total (incl. cache)',
 };
 
+/** An alert window as a span: "15m", "5h", "7d" — not "168h". */
 function windowLabel(minutes: number) {
-  return minutes >= 60 ? `${minutes / 60}h` : `${minutes}m`;
+  return humanDelta(minutes * 60_000, { abbreviate: true, smallest: 'minute' });
 }
 
 function windowBadgeClass(minutes: number) {

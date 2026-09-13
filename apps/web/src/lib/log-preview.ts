@@ -13,6 +13,7 @@
  */
 
 import { isToolCall, isToolResult, isReasoning } from '@unturf/unfirehose/block-types';
+import { humanDelta } from '@unturf/unfirehose/ago';
 
 export interface PreviewBlock {
   block_type: string;
@@ -163,9 +164,7 @@ export function summarise(
   return out;
 }
 
+/** A turn's length: "4s, 200ms" under a minute, whole seconds above. */
 function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60_000);
-  return `${m}m ${Math.round((ms % 60_000) / 1000)}s`;
+  return humanDelta(ms, { abbreviate: true, smallest: ms < 60_000 ? 'millisecond' : 'second' });
 }
