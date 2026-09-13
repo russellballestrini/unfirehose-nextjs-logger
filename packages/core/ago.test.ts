@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { human, humanDelta, delta2dict, extractComponents, formatComponents, getDeltaFromSubject } from './ago';
+import { human, humanDelta, delta2dict, extractComponents, formatComponents, getDeltaFromSubject, TIME_UNITS } from './ago';
 
 /**
  * The python `ago` test-suite, carried over. Fixtures are the same ones:
@@ -57,6 +57,23 @@ describe('human', () => {
 
   it('throws on something that is not a time', () => {
     expect(() => human('not-a-date', { now: NOW })).toThrow(TypeError);
+    expect(() => human('', { now: NOW })).toThrow(/Cannot convert ""/);
+  });
+
+  it('floors at a unit so a page never reads milliseconds', () => {
+    expect(human(NOW - 60_004, { now: NOW, smallest: 'second' })).toBe('1 minute ago');
+    expect(human(NOW - 4, { now: NOW, smallest: 'second' })).toBe('just now');
+  });
+
+  it('lets a caller override the tense and the zero word together', () => {
+    expect(human(NOW - 5 * 3_600_000, { now: NOW, pastTense: 'up {}', zero: 'up just now' })).toBe('up 5 hours');
+    expect(human(NOW, { now: NOW, pastTense: 'up {}', zero: 'up just now' })).toBe('up just now');
+  });
+
+  it('crosses a year boundary the way python does: 365 days, no leap', () => {
+    expect(human(NOW - 365 * DAY, { now: NOW })).toBe('1 year ago');
+    expect(human(NOW - 364 * DAY, { now: NOW })).toBe('364 days ago');
+    expect(human(NOW - 730 * DAY, { now: NOW })).toBe('2 years ago');
   });
 
   it('measures against the wall clock when no now is given', () => {
@@ -85,6 +102,41 @@ describe('humanDelta', () => {
   it('joins with whatever separator the page wants', () => {
     expect(humanDelta(7_260_000, { abbreviate: true, separator: ' ' })).toBe('2h 1m');
   });
+
+  it('names the zero in the unit it was floored at', () => {
+    expect(humanDelta(0, { smallest: 'minute' })).toBe('0 minutes');
+    expect(humanDelta(59_999, { smallest: 'minute', abbreviate: true })).toBe('0m');
+    expect(humanDelta(0, { zero: 'none' })).toBe('none');
+  });
+
+  it('ignores a tense for a zero span', () => {
+    expect(humanDelta(0, { pastTense: '{} ago', zero: 'just now' })).toBe('just now');
+  });
+
+  it('carries the sign into the tense but never into the digits', () => {
+    expect(humanDelta(-90_000, { pastTense: '{} ago', futureTense: 'in {}' })).toBe('in 1 minute, 30 seconds');
+  });
+
+  it('takes precision past the unit count without complaint', () => {
+    expect(humanDelta(1500, { precision: 99 })).toBe('1 second, 500 milliseconds');
+    expect(humanDelta(1500, { precision: 0 })).toBe('');
+  });
+});
+
+describe('TIME_UNITS', () => {
+  it('runs year to millisecond, each a multiple of the next', () => {
+    expect(TIME_UNITS.map((u) => u.name)).toEqual(['year', 'day', 'hour', 'minute', 'second', 'millisecond']);
+    for (let i = 0; i + 1 < TIME_UNITS.length; i++) {
+      expect(TIME_UNITS[i].ms % TIME_UNITS[i + 1].ms).toBe(0);
+    }
+  });
+
+  it('extracts each digit modulo its parent, so nothing double-counts', () => {
+    const ms = 400 * DAY + 25 * 3_600_000 + 61 * 60_000 + 61_000 + 1001;
+    const d = delta2dict(ms);
+    const rebuilt = d.year * 365 * DAY + d.day * DAY + d.hour * 3_600_000 + d.minute * 60_000 + d.second * 1000 + d.millisecond;
+    expect(rebuilt).toBe(ms);
+  });
 });
 
 describe('delta2dict', () => {
@@ -111,6 +163,11 @@ describe('extractComponents', () => {
   it('is empty for zero', () => {
     expect(extractComponents(0)).toEqual([]);
   });
+
+  it('is empty below the floor, and unsigned', () => {
+    expect(extractComponents(999, 'second')).toEqual([]);
+    expect(extractComponents(-DAY)).toEqual([{ unit: 'day', abbr: 'd', value: 1 }]);
+  });
 });
 
 describe('formatComponents', () => {
@@ -120,11 +177,45 @@ describe('formatComponents', () => {
     expect(formatComponents(c, { abbreviate: true })).toBe('2y, 1d');
     expect(formatComponents(c, { precision: 1 })).toBe('2 years');
   });
+
+  it('is empty for no components', () => {
+    expect(formatComponents([])).toBe('');
+  });
+
+  it('never pluralizes an abbreviation', () => {
+    expect(formatComponents([{ unit: 'millisecond', abbr: 'ms', value: 250 }], { abbreviate: true })).toBe('250ms');
+    expect(formatComponents([{ unit: 'millisecond', abbr: 'ms', value: 1 }])).toBe('1 millisecond');
+  });
 });
 
 describe('getDeltaFromSubject', () => {
   it('reports positive as past, like python', () => {
     expect(getDeltaFromSubject(PAST, NOW)).toEqual({ deltaMs: NOW - PAST, isPast: true });
     expect(getDeltaFromSubject(FUTURE, NOW).isPast).toBe(false);
+  });
+
+  it('takes now as a Date as readily as a number', () => {
+    expect(getDeltaFromSubject(PAST, new Date(NOW)).deltaMs).toBe(NOW - PAST);
+  });
+
+  it('measures against the wall clock when no now is given', () => {
+    const { deltaMs, isPast } = getDeltaFromSubject(Date.now() - 1000);
+    expect(isPast).toBe(true);
+    expect(deltaMs).toBeGreaterThanOrEqual(1000);
+    expect(deltaMs).toBeLessThan(2000);
+  });
+
+  it('forgives the newline git leaves on a date', () => {
+    // `git log -1 --format=%aI` hands back its stdout verbatim.
+    expect(getDeltaFromSubject('2026-09-04T12:00:00Z\n', NOW).deltaMs).toBe(NOW - Date.UTC(2026, 8, 4, 12));
+  });
+
+  it('refuses an invalid Date object, not only a bad string', () => {
+    expect(() => getDeltaFromSubject(new Date('nope'), NOW)).toThrow(TypeError);
+    expect(() => getDeltaFromSubject(NaN, NOW)).toThrow(TypeError);
+  });
+
+  it('reads zero as past — the boundary python draws too', () => {
+    expect(getDeltaFromSubject(NOW, NOW)).toEqual({ deltaMs: 0, isPast: true });
   });
 });
