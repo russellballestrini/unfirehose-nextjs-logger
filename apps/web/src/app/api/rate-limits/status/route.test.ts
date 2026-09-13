@@ -24,7 +24,10 @@ vi.mock('@unturf/unfirehose/db/ingest', () => ({
   getSetting: () => setting,
   setSetting: (...a: [string, string]) => setSetting(...a),
 }));
-vi.mock('@unturf/unfirehose/status-pages', () => ({
+vi.mock('@unturf/unfirehose/status-pages', async (importOriginal) => ({
+  // The kind whitelist is the real one: the route must accept every kind
+  // core can poll, and this is where that drifts.
+  targetKind: (await importOriginal<typeof import('@unturf/unfirehose/status-pages')>()).targetKind,
   STATUS_TARGETS_SETTING: 'status_targets',
   getStatusCurrent: () => current(),
   getStatusHistory: (_db: unknown, id: string, hours: number) => history(id as never, hours as never),
@@ -111,6 +114,8 @@ describe('adding a target', () => {
     expect(stored().added[0].kind).toBe('statuspage-feed');
     await post({ action: 'add', target: { ...target, kind: 'http-probe' } });
     expect(stored().added[0].kind).toBe('http-probe');
+    await post({ action: 'add', target: { ...target, kind: 'datadog-config' } });
+    expect(stored().added[0].kind).toBe('datadog-config');
   });
 
   it('keeps expected status codes as numbers', async () => {

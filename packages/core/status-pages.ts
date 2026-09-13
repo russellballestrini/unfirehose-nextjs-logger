@@ -13,6 +13,8 @@
  * not fetch. The feed carries every incident with its update trail; what it
  * lacks is per-component state, so the indicator here is inferred from the
  * open incidents' titles rather than read from the vendor's own light.
+ * Datadog Status Pages publish no feed at all; there the page's own
+ * `config.json` is the source, and it does carry the component lights.
  *
  * robots.txt is fetched per host, cached for a day, and honoured for every
  * path we touch. A target whose path becomes disallowed reads
@@ -41,15 +43,18 @@ export interface StatusTarget {
   url: string;
   /**
    * `statuspage-feed`: an incident feed (Atlassian Statuspage / incident.io
-   * Atom, or RSS). `http-probe`: the vendor publishes no status page, so we
-   * ask its API directly — a cheap unauthenticated GET (a model list) once
-   * a minute, judged on status code and latency. That is the network edge
-   * (CDN, gateway, catalog), not inference; whether a model answers is a
-   * paid, authenticated question and belongs to a harness canary, whose
-   * failures arrive on the refusals tab as throttle records.
+   * Atom, or RSS). `datadog-config`: a Datadog Status Page, which publishes
+   * no feed — its `/config.json` carries the incidents with their update
+   * trails and, unlike a feed, every component's own light. `http-probe`:
+   * the vendor publishes no status page, so we ask its API directly — a
+   * cheap unauthenticated GET (a model list) once a minute, judged on
+   * status code and latency. That is the network edge (CDN, gateway,
+   * catalog), not inference; whether a model answers is a paid,
+   * authenticated question and belongs to a harness canary, whose failures
+   * arrive on the refusals tab as throttle records.
    */
-  kind: 'statuspage-feed' | 'http-probe';
-  /** Feed URL for `statuspage-feed`; the probe URL for `http-probe`. */
+  kind: 'statuspage-feed' | 'datadog-config' | 'http-probe';
+  /** Feed URL for `statuspage-feed`; config.json for `datadog-config`; the probe URL for `http-probe`. */
   feed: string;
   /** Status codes that mean "serving" for a probe. Default [200]. */
   expect?: number[];
@@ -85,9 +90,12 @@ export const DEFAULT_STATUS_TARGETS: StatusTarget[] = [
   // Custom Next.js site; the root is Cloudflare-walled but the RSS the page
   // advertises in its <head> is open. One item per affected component.
   { id: 'x-ai',       name: 'xAI / Grok', url: 'https://status.x.ai',            kind: 'statuspage-feed', feed: 'https://status.x.ai/feed.xml' },
-  // Statuspage under the hood after all — its RSS lives at a non-default
-  // path. robots.txt disallows /incidents$ and /incidents?, not this.
-  { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'statuspage-feed', feed: 'https://status.openrouter.ai/incidents.rss' },
+  // Moved from Atlassian Statuspage to Datadog Status Pages on 2026-09-11
+  // (every migrated incident carries that lastModifiedAt). The old
+  // /incidents.rss is now an S3 AccessDenied 403, as is every path but the
+  // SPA shell and the config.json it boots from. robots.txt is a 403 too,
+  // which reads as "no robots file" — nothing is disallowed.
+  { id: 'openrouter', name: 'OpenRouter', url: 'https://status.openrouter.ai',   kind: 'datadog-config', feed: 'https://status.openrouter.ai/config.json' },
   // Nous Portal publishes no status page (confirmed 2026-09-03: outages go to
   // their Discord and X). Their inference gateway lists models to anyone,
   // so we ask it directly — the same host our calls go to.
@@ -103,6 +111,11 @@ export const STATUS_TARGETS_SETTING = 'status_targets';
 
 interface TargetOverrides { added?: StatusTarget[]; removed?: string[] }
 
+/** A kind off the wire, or the default for anything that is not one. */
+export function targetKind(k: unknown): StatusTarget['kind'] {
+  return k === 'http-probe' || k === 'datadog-config' ? k : 'statuspage-feed';
+}
+
 /** Defaults plus the human's additions, minus their removals. */
 export function resolveStatusTargets(overridesJson: string | null): StatusTarget[] {
   let o: TargetOverrides = {};
@@ -113,7 +126,7 @@ export function resolveStatusTargets(overridesJson: string | null): StatusTarget
   for (const t of o.added ?? []) {
     if (!t || typeof t.id !== 'string' || typeof t.feed !== 'string') continue;
     if (removed.has(t.id)) continue;
-    byId.set(t.id, { id: t.id, feed: t.feed, kind: t.kind === 'http-probe' ? 'http-probe' : 'statuspage-feed', url: t.url ?? t.feed, name: t.name ?? t.id, note: t.note, expect: Array.isArray(t.expect) ? t.expect.map(Number) : undefined });
+    byId.set(t.id, { id: t.id, feed: t.feed, kind: targetKind(t.kind), url: t.url ?? t.feed, name: t.name ?? t.id, note: t.note, expect: Array.isArray(t.expect) ? t.expect.map(Number) : undefined });
   }
   return [...byId.values()];
 }
@@ -244,6 +257,67 @@ export function parseStatuspageFeed(xml: string): StatusIncident[] {
   return out;
 }
 
+/**
+ * Parse a Datadog Status Page's `config.json` (status.openrouter.ai,
+ * captured 2026-09-13). Incidents newest first, each with a `timeline` of
+ * updates newest first; every update names the components it touched and
+ * the state it left them in, so severity comes from the vendor's own
+ * component light rather than from words in the title.
+ *
+ * `base` is the human page — incident links are `${base}/incidents/${id}`
+ * on the custom domain, which the config does not know about (its
+ * `pageUrl` is the datadoghq.com one).
+ */
+export function parseDatadogConfig(json: string, base: string): StatusIncident[] {
+  let cfg: any;
+  try { cfg = JSON.parse(json); } catch { return []; }
+  const list: any[] = Array.isArray(cfg?.incidents) ? cfg.incidents : [];
+  const root = base.replace(/\/+$/, '');
+  return list.map((i) => {
+    const latest = Array.isArray(i.timeline) && i.timeline.length > 0 ? i.timeline[0] : null;
+    const rawStatus = String(latest?.status ?? i.currentStatus ?? 'unknown');
+    const status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
+    const open = i.resolved === false || (i.resolved == null && !RESOLVED.test(rawStatus));
+    const affected: any[] = Array.isArray(latest?.componentsAffected) ? latest.componentsAffected : Array.isArray(i.componentsAffected) ? i.componentsAffected : [];
+    const severity = worstComponentSeverity(affected.map((c) => String(c?.status ?? '')));
+    return {
+      title: String(i.title ?? '').trim(),
+      status,
+      updatedAt: String(i.lastModifiedAt ?? latest?.createdAt ?? i.publishedDate ?? ''),
+      link: i.id ? `${root}/incidents/${i.id}` : null,
+      open,
+      ...(severity ? { severity } : {}),
+    };
+  });
+}
+
+/**
+ * Datadog component states, worst first. `operational` and
+ * `under_maintenance` are not incidents; anything else is a light we pass
+ * through as the incident's severity word for `inferIndicator`.
+ */
+const DD_COMPONENT_RANK = ['major_outage', 'partial_outage', 'degraded'];
+
+function worstComponentSeverity(states: string[]): string | undefined {
+  for (const s of DD_COMPONENT_RANK) if (states.includes(s)) return s === 'degraded' ? 'degraded' : 'outage';
+  return undefined;
+}
+
+/** Every leaf component in a Datadog config, groups flattened. */
+export function datadogComponents(json: string): { name: string; status: string }[] {
+  let cfg: any;
+  try { cfg = JSON.parse(json); } catch { return []; }
+  const out: { name: string; status: string }[] = [];
+  const walk = (list: any[]) => {
+    for (const c of list) {
+      if (Array.isArray(c?.components)) walk(c.components);
+      else if (c?.name) out.push({ name: String(c.name), status: String(c.status ?? 'unknown') });
+    }
+  };
+  walk(Array.isArray(cfg?.components) ? cfg.components : []);
+  return out;
+}
+
 /** Roll open incidents up to one light. Titles decide minor vs major. */
 export function inferIndicator(incidents: StatusIncident[]): { indicator: StatusIndicator; description: string } {
   const open = incidents.filter((i) => i.open);
@@ -302,6 +376,24 @@ export async function pollStatusTarget(
       return { ...base, indicator, description: `GET ${u.pathname} → ${detail}`, httpStatus: res.status, latencyMs };
     }
     const body = await res.text();
+    if (target.kind === 'datadog-config') {
+      if (!/^\s*\{/.test(body)) {
+        return { ...base, indicator: 'unknown', description: 'Response is not a Datadog status config', httpStatus: res.status, latencyMs };
+      }
+      const incidents = parseDatadogConfig(body, target.url).slice(0, 20);
+      let { indicator, description } = inferIndicator(incidents);
+      // A component the vendor has marked down with no incident written up
+      // yet is still a light worth showing.
+      if (indicator === 'none') {
+        const lit = datadogComponents(body).filter((c) => c.status !== 'operational' && c.status !== 'under_maintenance');
+        if (lit.length > 0) {
+          const sev = worstComponentSeverity(lit.map((c) => c.status));
+          indicator = sev === 'outage' ? 'major' : 'minor';
+          description = `${lit[0].status.replace(/_/g, ' ')}: ${lit[0].name}${lit.length > 1 ? ` (+${lit.length - 1} more)` : ''}`;
+        }
+      }
+      return { ...base, indicator, description, incidents, httpStatus: res.status, latencyMs };
+    }
     if (!/<(?:feed|rss)[\s>]/i.test(body)) {
       return { ...base, indicator: 'unknown', description: 'Response is not an Atom or RSS feed', httpStatus: res.status, latencyMs };
     }

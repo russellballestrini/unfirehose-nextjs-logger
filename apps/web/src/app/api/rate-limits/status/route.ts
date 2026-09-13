@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getSetting, setSetting } from '@unturf/unfirehose/db/ingest';
 import {
-  getStatusCurrent, getStatusHistory, pollAllStatusTargets, STATUS_TARGETS_SETTING,
+  getStatusCurrent, getStatusHistory, pollAllStatusTargets, STATUS_TARGETS_SETTING, targetKind,
 } from '@unturf/unfirehose/status-pages';
 import type { StatusTarget } from '@unturf/unfirehose/status-pages';
 
@@ -11,7 +11,7 @@ import type { StatusTarget } from '@unturf/unfirehose/status-pages';
  *
  *   GET  /api/rate-limits/status                       → { current: [...] }
  *   GET  /api/rate-limits/status?history=<id>&hours=24 → { history: [...] }
- *   POST { action: 'add', target: { id, name, feed, url?, kind?: 'statuspage-feed' | 'http-probe', expect?: number[] } }
+ *   POST { action: 'add', target: { id, name, feed, url?, kind?: 'statuspage-feed' | 'datadog-config' | 'http-probe', expect?: number[] } }
  *   POST { action: 'remove', id }
  *   POST { action: 'poll' }                            → poll every target now
  */
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     let feed: URL;
     try { feed = new URL(t.feed); } catch { return NextResponse.json({ error: 'feed must be a URL' }, { status: 400 }); }
     if (feed.protocol !== 'https:') return NextResponse.json({ error: 'feed must be https' }, { status: 400 });
-    const kind = t.kind === 'http-probe' ? 'http-probe' : 'statuspage-feed';
+    const kind = targetKind(t.kind);
     overrides.added = overrides.added.filter((x) => x.id !== t.id).concat([{ id: String(t.id), name: String(t.name ?? t.id), feed: feed.toString(), url: t.url ?? feed.origin, kind, note: t.note, expect: Array.isArray(t.expect) ? t.expect.map(Number) : undefined }]);
     overrides.removed = overrides.removed.filter((id) => id !== t.id);
   } else if (body?.action === 'remove' && body.id) {

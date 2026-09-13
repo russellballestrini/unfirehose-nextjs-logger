@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseStatuspageFeed, inferIndicator, robotsAllows, resolveStatusTargets,
   pollStatusTarget, _resetRobotsCache, DEFAULT_STATUS_TARGETS,
+  parseDatadogConfig, datadogComponents, targetKind,
 } from './status-pages';
 
 // Trimmed from status.claude.com/history.atom, 2026-09-03 14:49Z.
@@ -267,5 +268,175 @@ describe('pollStatusTarget on an http-probe (nous)', () => {
       throw new Error('connect ECONNREFUSED');
     } });
     expect(p.indicator).toBe('unreachable');
+  });
+});
+
+// Trimmed from status.openrouter.ai/config.json (Datadog Status Pages),
+// 2026-09-13 21:15Z — the day the RSS went 403. Every incident here is
+// resolved; the open one is invented on the same shape, with a component
+// the vendor has marked degraded.
+const DD_CONFIG = JSON.stringify({
+  id: '3bdfe680-d6e4-4a0b-9c04-c25058c342e0',
+  name: 'OpenRouter',
+  pageUrl: 'https://openrouter.statuspage.datadoghq.com',
+  customDomain: '',
+  components: [
+    { id: 'g1', name: 'API - Gateway', position: 0, type: 'ComponentGroup', components: [
+      { id: 'c-chat', name: 'Chat (/api/v1/chat/completions)', position: 0, status: 'operational', type: 'Component' },
+      { id: 'c-video', name: 'Video (/api/v1/videos)', position: 1, status: 'operational', type: 'Component' },
+    ] },
+    { id: 'c-web', name: 'Web & Application Services', position: 1, status: 'operational', type: 'Component' },
+  ],
+  incidents: [
+    {
+      id: '2a3d415a-1eed-417f-b269-6e308a7f7990', title: 'Degraded video generation API',
+      currentStatus: 'resolved', resolved: true, description: 'This incident has been resolved.',
+      publishedDate: '2026-09-04T18:27:00Z', resolvedDate: '2026-09-04T21:12:00Z', lastModifiedAt: '2026-09-11T02:34:01.430225Z',
+      componentsAffected: [{ id: 'c-video', name: 'Video (/api/v1/videos)', status: 'operational', type: 'Component' }],
+      timeline: [
+        { id: 't1', status: 'resolved', description: 'This incident has been resolved.', startedAt: '2026-09-04T21:12:00Z', createdAt: '2026-09-11T02:34:01.430225Z',
+          componentsAffected: [{ id: 'c-video', name: 'Video (/api/v1/videos)', status: 'operational', type: 'Component' }] },
+        { id: 't2', status: 'investigating', description: 'We are investigating degraded availability for our video generation and batch jobs APIs.', startedAt: '2026-09-04T18:27:00Z', createdAt: '2026-09-11T02:34:01.430225Z',
+          componentsAffected: [{ id: 'c-video', name: 'Video (/api/v1/videos)', status: 'degraded', type: 'Component' }] },
+      ],
+    },
+    {
+      id: 'a80f04f9-7b2a-4094-bd45-e42dd5c2ed8a', title: 'Elevated 429s on Anthropic and OpenAI',
+      currentStatus: 'resolved', resolved: true, description: 'This incident has been resolved.',
+      publishedDate: '2026-08-28T02:15:00Z', resolvedDate: '2026-08-28T05:00:00Z', lastModifiedAt: '2026-09-11T02:38:43.9346Z',
+      componentsAffected: [], timeline: [],
+    },
+  ],
+  maintenances: null,
+});
+
+const withOpen = (componentStatus: string) => {
+  const cfg = JSON.parse(DD_CONFIG);
+  cfg.incidents.unshift({
+    id: 'open-1', title: 'Elevated errors on chat completions', currentStatus: 'identified', resolved: false,
+    publishedDate: '2026-09-13T20:00:00Z', lastModifiedAt: '2026-09-13T20:30:00Z',
+    timeline: [
+      { id: 'u2', status: 'identified', description: 'A provider is rate limiting us.', createdAt: '2026-09-13T20:30:00Z',
+        componentsAffected: [{ id: 'c-chat', name: 'Chat (/api/v1/chat/completions)', status: componentStatus, type: 'Component' }] },
+      { id: 'u1', status: 'investigating', description: 'Looking.', createdAt: '2026-09-13T20:00:00Z',
+        componentsAffected: [{ id: 'c-chat', name: 'Chat (/api/v1/chat/completions)', status: 'degraded', type: 'Component' }] },
+    ],
+  });
+  cfg.components[0].components[0].status = componentStatus;
+  return JSON.stringify(cfg);
+};
+
+describe('parseDatadogConfig (openrouter, after the move)', () => {
+  it('reads resolved incidents with their last update as status', () => {
+    const inc = parseDatadogConfig(DD_CONFIG, 'https://status.openrouter.ai');
+    expect(inc).toHaveLength(2);
+    expect(inc[0]).toEqual({
+      title: 'Degraded video generation API', status: 'Resolved', open: false,
+      updatedAt: '2026-09-11T02:34:01.430225Z',
+      link: 'https://status.openrouter.ai/incidents/2a3d415a-1eed-417f-b269-6e308a7f7990',
+    });
+    // No timeline at all: currentStatus stands in.
+    expect(inc[1]).toMatchObject({ status: 'Resolved', open: false, link: 'https://status.openrouter.ai/incidents/a80f04f9-7b2a-4094-bd45-e42dd5c2ed8a' });
+  });
+
+  it('links on the custom domain, not the datadoghq pageUrl, and tolerates a trailing slash', () => {
+    const [i] = parseDatadogConfig(DD_CONFIG, 'https://status.openrouter.ai/');
+    expect(i.link).toBe('https://status.openrouter.ai/incidents/2a3d415a-1eed-417f-b269-6e308a7f7990');
+  });
+
+  it('takes severity from the latest update\'s component light', () => {
+    const [deg] = parseDatadogConfig(withOpen('degraded'), 'https://status.openrouter.ai');
+    expect(deg).toMatchObject({ status: 'Identified', open: true, severity: 'degraded' });
+    const [out] = parseDatadogConfig(withOpen('major_outage'), 'https://status.openrouter.ai');
+    expect(out.severity).toBe('outage');
+    const [part] = parseDatadogConfig(withOpen('partial_outage'), 'https://status.openrouter.ai');
+    expect(part.severity).toBe('outage');
+    const [ok] = parseDatadogConfig(withOpen('operational'), 'https://status.openrouter.ai');
+    expect(ok.severity).toBeUndefined();
+  });
+
+  it('decides open from the resolved flag, and from the status word when the flag is missing', () => {
+    const cfg = JSON.parse(DD_CONFIG);
+    delete cfg.incidents[0].resolved;
+    cfg.incidents[0].timeline[0].status = 'monitoring';
+    const [i] = parseDatadogConfig(JSON.stringify(cfg), 'https://x');
+    expect(i.open).toBe(true);
+  });
+
+  it('is empty on garbage, on a config with no incidents, and on an incident with nothing in it', () => {
+    expect(parseDatadogConfig('<!DOCTYPE html>', 'https://x')).toEqual([]);
+    expect(parseDatadogConfig('{}', 'https://x')).toEqual([]);
+    expect(parseDatadogConfig(JSON.stringify({ incidents: [{}] }), 'https://x')).toEqual([
+      { title: '', status: 'Unknown', updatedAt: '', link: null, open: true },
+    ]);
+  });
+});
+
+describe('datadogComponents', () => {
+  it('flattens groups to leaves', () => {
+    expect(datadogComponents(DD_CONFIG)).toEqual([
+      { name: 'Chat (/api/v1/chat/completions)', status: 'operational' },
+      { name: 'Video (/api/v1/videos)', status: 'operational' },
+      { name: 'Web & Application Services', status: 'operational' },
+    ]);
+    expect(datadogComponents('nope')).toEqual([]);
+  });
+});
+
+describe('targetKind', () => {
+  it('accepts the three kinds and defaults the rest to a feed', () => {
+    expect(targetKind('http-probe')).toBe('http-probe');
+    expect(targetKind('datadog-config')).toBe('datadog-config');
+    expect(targetKind('statuspage-feed')).toBe('statuspage-feed');
+    expect(targetKind('rss')).toBe('statuspage-feed');
+    expect(targetKind(undefined)).toBe('statuspage-feed');
+  });
+});
+
+describe('pollStatusTarget on a datadog-config (openrouter)', () => {
+  beforeEach(() => _resetRobotsCache());
+  const or = DEFAULT_STATUS_TARGETS.find((t) => t.id === 'openrouter')!;
+  // status.openrouter.ai answers 403 for robots.txt itself — no robots file.
+  const mk = (body: string, status = 200) => async (url: string) => url.endsWith('/robots.txt')
+    ? { status: 403, text: async () => '<Error><Code>AccessDenied</Code></Error>' }
+    : { status, text: async () => body };
+
+  it('is the config.json, not the dead RSS', () => {
+    expect(or.kind).toBe('datadog-config');
+    expect(or.feed).toBe('https://status.openrouter.ai/config.json');
+  });
+
+  it('reads no open incidents as clear', async () => {
+    const p = await pollStatusTarget(or, { fetchImpl: mk(DD_CONFIG) });
+    expect(p.indicator).toBe('none');
+    expect(p.description).toBe('No open incidents');
+    expect(p.incidents).toHaveLength(2);
+    expect(p.httpStatus).toBe(200);
+  });
+
+  it('lights minor on a degraded component and major on an outage', async () => {
+    expect((await pollStatusTarget(or, { fetchImpl: mk(withOpen('degraded')) })).indicator).toBe('minor');
+    _resetRobotsCache();
+    const p = await pollStatusTarget(or, { fetchImpl: mk(withOpen('major_outage')) });
+    expect(p.indicator).toBe('major');
+    expect(p.description).toBe('Identified: Elevated errors on chat completions');
+  });
+
+  it('lights from a component the vendor marked down before writing an incident', async () => {
+    const cfg = JSON.parse(DD_CONFIG);
+    cfg.components[0].components[1].status = 'partial_outage';
+    cfg.components[1].status = 'degraded';
+    const p = await pollStatusTarget(or, { fetchImpl: mk(JSON.stringify(cfg)) });
+    expect(p.indicator).toBe('major');
+    expect(p.description).toBe('partial outage: Video (/api/v1/videos) (+1 more)');
+  });
+
+  it('is unknown on the SPA shell and unreachable on the S3 403', async () => {
+    const a = await pollStatusTarget(or, { fetchImpl: mk('<!DOCTYPE html><html><title>Status Pages Site</title></html>') });
+    expect(a.indicator).toBe('unknown');
+    _resetRobotsCache();
+    const b = await pollStatusTarget(or, { fetchImpl: mk('<Error><Code>AccessDenied</Code></Error>', 403) });
+    expect(b.indicator).toBe('unreachable');
+    expect(b.description).toBe('HTTP 403');
   });
 });
