@@ -81,7 +81,7 @@ describe('the ingest lag banner', () => {
     // Ten hours and five minutes, on the day this was written.
     payload = dash({ ingestLagMinutes: 605 });
     const text = (await show()).container.textContent!;
-    expect(text).toContain('Last ingest 10h 5m ago');
+    expect(text).toContain('Last ingest 10h, 5m ago');
     expect(text).toContain('not shown yet');
   });
 

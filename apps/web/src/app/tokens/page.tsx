@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens } from '@unturf/unfirehose/format';
+import { humanDelta } from '@unturf/unfirehose/ago';
 import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
@@ -1220,9 +1221,7 @@ function PriceBookPanel({ book }: { book: any }) {
 
   const age = (s: number | null) => {
     if (s === null || s === undefined) return 'never';
-    if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
-    if (s < 86400) return `${(s / 3600).toFixed(1)}h ago`;
-    return `${(s / 86400).toFixed(1)}d ago`;
+    return humanDelta(s * 1000, { abbreviate: true, smallest: 'minute', pastTense: '{} ago', zero: 'just now' });
   };
   const stale = (s: number | null) => s === null || s === undefined || s > 2 * 86400;
   const money = (n: number) => `$${n.toFixed(n >= 1 ? 2 : 3)}`;

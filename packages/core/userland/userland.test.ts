@@ -421,7 +421,7 @@ describe('every userland comes out as a node', () => {
     expect(rb.powerWatts).toBe(20);                  // not a desktop's 65W
     expect(rb.memTotalGB).toBe(0.3);                 // 256MiB, at the one decimal a node carries
     expect(rb.loadAvg).toEqual([0.2, 0.2, 0.2]);     // 5% of 4
-    expect(rb.uptime).toBe('9d 3h');
+    expect(rb.uptime).toBe('9d, 3h');
 
     const zos = parseWireProbe('h', wire(FIXTURES.generic!));
     expect(zos.cpuModel).toBeUndefined();      // uname -p echoing -m is not a model

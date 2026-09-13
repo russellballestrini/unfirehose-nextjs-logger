@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
-import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab } from './tabs';
+import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab, containerStatus } from './tabs';
 
 /**
  * The five tabs of a node's detail page.
@@ -388,6 +388,45 @@ describe('panels that need the hardware to exist', () => {
     // process table.
     const { container } = render(<OverviewTab {...bag()} />);
     expect(container.textContent).toContain('open-webui');
+  });
+
+  /**
+   * "Up 20 minutes" says neither which twenty minutes nor, after a month,
+   * more than "4 weeks". With the inspect instants the line reads two
+   * units and the hover holds the wall clock.
+   */
+  describe('containerStatus', () => {
+    const startedAt = new Date(Date.now() - (20 * 86_400_000 + 3 * 3_600_000 + 7 * 60_000)).toISOString();
+
+    it('reads two units off StartedAt for a running container', () => {
+      const { label, title } = containerStatus({ status: 'Up 2 weeks', state: 'running', startedAt });
+      expect(label).toBe('up 20 days, 3 hours');
+      expect(title).toMatch(/^started .*2026/);
+    });
+
+    it('keeps docker\'s health verdict on the line', () => {
+      const { label } = containerStatus({ status: 'Up 2 weeks (healthy)', state: 'running', startedAt });
+      expect(label).toBe('up 20 days, 3 hours (healthy)');
+    });
+
+    it('dates a stopped container by when it stopped, exit code kept', () => {
+      const finishedAt = new Date(Date.now() - 2 * 86_400_000 - 5 * 3_600_000).toISOString();
+      const { label, title } = containerStatus({ status: 'Exited (137) 2 days ago', state: 'exited', startedAt, finishedAt, exitCode: 137 });
+      expect(label).toBe('exited (137) 2 days, 5 hours ago');
+      expect(title).toMatch(/^stopped /);
+    });
+
+    it('falls back to the ps Status when inspect had nothing to say', () => {
+      expect(containerStatus({ status: 'Up 4 weeks (healthy)' })).toEqual({ label: 'Up 4 weeks (healthy)', title: undefined });
+      expect(containerStatus({ status: 'Created', state: 'created', startedAt: null })).toEqual({ label: 'Created', title: undefined });
+    });
+
+    it('renders the hover on the status span', () => {
+      const probe = { ...bag().probe, containers: [{ id: 'abc', name: 'peer-000', image: 'arborist-peer', status: 'Up 20 minutes', state: 'running', startedAt, ports: '' }] };
+      const { container } = render(<OverviewTab {...bag({ probe })} />);
+      const span = container.querySelector('span[title^="started "]');
+      expect(span?.textContent).toBe('up 20 days, 3 hours');
+    });
   });
 
   it('shows the ps -ejH tree by default, with agents marked', () => {

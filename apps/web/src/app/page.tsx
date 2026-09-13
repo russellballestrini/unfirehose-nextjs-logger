@@ -27,6 +27,7 @@ const ModelUsagePie = dynamic(() => import('./DashboardCharts').then((m) => m.Mo
   ssr: false, loading: () => <div className="w-[200px] h-[200px] rounded-full animate-pulse bg-[var(--color-surface)]" />,
 });
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
+import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
@@ -180,8 +181,7 @@ const STALE_AFTER_MINUTES = 30;
 
 function IngestLag({ minutes }: { minutes: number | null | undefined }) {
   if (minutes == null || minutes < STALE_AFTER_MINUTES) return null;
-  const hours = Math.floor(minutes / 60);
-  const ago = hours >= 1 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+  const ago = humanDelta(minutes * 60_000, { abbreviate: true, smallest: 'minute' });
   return (
     <div
       className="rounded border border-[var(--color-error)]/40 bg-[var(--color-error)]/5 px-4 py-2 text-sm"

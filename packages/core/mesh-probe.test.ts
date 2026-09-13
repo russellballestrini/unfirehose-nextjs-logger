@@ -48,7 +48,7 @@ describe('parseRemoteProbe', () => {
     expect(node.ssdCount).toBe(1);
     expect(node.loadAvg).toEqual([0.52, 0.41, 0.38]);
     expect(node.uptimeSeconds).toBe(864000);
-    expect(node.uptime).toBe('10d 0h');
+    expect(node.uptime).toBe('10d');
   });
 
   it('prefers the name our SSH config uses when it carries a domain', () => {
@@ -187,8 +187,9 @@ describe('the small parsers', () => {
 
   it('formats uptime at the scale a reader cares about', () => {
     expect(formatUptime(90)).toBe('1m');
-    expect(formatUptime(3700)).toBe('1h 1m');
-    expect(formatUptime(200000)).toBe('2d 7h');
+    expect(formatUptime(3700)).toBe('1h, 1m');
+    expect(formatUptime(200000)).toBe('2d, 7h');
+    expect(formatUptime(30)).toBe('0m');
   });
 
   it('keeps one decimal, which is all a watt reading is worth', () => {

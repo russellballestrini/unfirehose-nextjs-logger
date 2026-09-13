@@ -1,4 +1,5 @@
-import { formatDistanceToNow, format, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { human, humanDelta } from './ago';
 
 export function formatTokens(n: number): string {
   // Cache read alone runs into the billions on a coding-agent workload, and
@@ -17,9 +18,14 @@ export function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
+/**
+ * "3 hours, 12 minutes ago" — ago's two-unit default, whole seconds so a
+ * minute-old row never reads "1 minute, 4 milliseconds ago". Unparseable
+ * input comes back as it was.
+ */
 export function formatRelativeTime(iso: string): string {
   try {
-    return formatDistanceToNow(parseISO(iso), { addSuffix: true });
+    return human(iso, { smallest: 'second' });
   } catch {
     return iso;
   }
@@ -41,15 +47,9 @@ export function formatDate(iso: string): string {
   }
 }
 
+/** A span in ago's abbreviated form, whole seconds: "1m, 30s", "2h, 1m". */
 export function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${secs}s`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}h ${mins}m`;
+  return humanDelta(ms, { abbreviate: true, smallest: 'second' });
 }
 
 /**

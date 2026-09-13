@@ -52,6 +52,8 @@ Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from 
 
 Private workspaces: `apps/web` (Next.js 15 App Router), `apps/worker` (background ingestion), `packages/config` (shared tsconfig).
 
+**Time in words: `@unturf/unfirehose/ago`** — a port of russell ballestrini's `ago` (`~/git/ago`). `human(instant, opts)` → "1 year, 127 days ago" / "in 2 days, 3 hours"; `humanDelta(ms, opts)` → bare "2h, 5m". Two non-zero units by default; `abbreviate`, `precision`, `smallest`, `pastTense`/`futureTense`, `now` for tests. `formatRelativeTime`, `formatDuration`, `formatUptime` are thin wrappers over it. Never hand-roll `${h}h ago`.
+
 ### Project identity (rename-resilient)
 
 Claude Code and every other harness identify a project by encoded filesystem path (`-home-fox-git-foo`). Rename the repo on disk and they start writing to a new dir — a defect we treat as upstream and outlast.

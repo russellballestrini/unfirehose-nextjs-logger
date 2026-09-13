@@ -97,7 +97,7 @@ describe('buildBlockers', () => {
       [{ prompt: 'refactor the thing', timestamp: old }],
     );
     const stalled = b.blockers.find(x => x.type === 'agent-stalled');
-    expect(stalled?.description).toMatch(/5h ago/);
+    expect(stalled?.description).toMatch(/5h(, \d+m)? ago/);
     expect(b.needsHuman).toBe(true);
   });
 

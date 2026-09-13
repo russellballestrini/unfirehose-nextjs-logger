@@ -13,6 +13,7 @@ import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
 import { harnessesFor } from '@/lib/harnesses';
 import { HarnessPicker } from '@/components/HarnessPicker';
+import { human } from '@unturf/unfirehose/ago';
 
 const HARNESSES = harnessesFor('node');
 
@@ -321,6 +322,34 @@ export function ProcessesTab(props: TabProps) {
   );
 }
 
+/**
+ * What a container's status line says, and what its hover says.
+ *
+ * `docker ps` rounds to one unit: "Up 4 weeks" is anywhere from 28 to 34
+ * days, and "Exited (0) 2 days ago" hides the hour. With the inspect
+ * instants the label reads two units — "up 20 days, 3 hours" — and the
+ * hover holds the wall-clock moment it happened, in the viewer's zone.
+ * A probe without inspect data (older worker, docker socket refused) falls
+ * back to the ps Status verbatim.
+ */
+export function containerStatus(c: {
+  status: string; state?: string; startedAt?: string | null; finishedAt?: string | null; exitCode?: number | null;
+}): { label: string; title?: string } {
+  const at = (iso: string) => new Date(iso).toLocaleString([], {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  // "(healthy)" / "(unhealthy)" / "(health: starting)" ride along on the ps line.
+  const health = c.status.match(/\((healthy|unhealthy|health: [^)]+)\)/)?.[0];
+  if (c.state === 'running' && c.startedAt) {
+    const up = human(c.startedAt, { pastTense: 'up {}', zero: 'up just now' });
+    return { label: health ? `${up} ${health}` : up, title: `started ${at(c.startedAt)}` };
+  }
+  if ((c.state === 'exited' || c.state === 'dead') && c.finishedAt) {
+    const code = c.exitCode != null ? ` (${c.exitCode})` : '';
+    return { label: `${c.state}${code} ${human(c.finishedAt)}`, title: `stopped ${at(c.finishedAt)}` };
+  }
+  return { label: c.status, title: c.startedAt ? `started ${at(c.startedAt)}` : undefined };
+}
 
 /** The Overview tab: system, memory, disks and the node charts. */
 export function OverviewTab(props: TabProps) {
@@ -552,16 +581,19 @@ export function OverviewTab(props: TabProps) {
           {probe?.containers?.length > 0 && (
             <Section title={`Containers (${probe.containers.length})`}>
               <div className="space-y-2">
-                {probe.containers.map((c: any) => (
+                {probe.containers.map((c: any) => {
+                  const { label, title } = containerStatus(c);
+                  return (
                   <div key={c.id} className="text-sm">
                     <div className="flex items-center gap-2">
                       <span className="font-bold">{c.name}</span>
-                      <span className="text-xs text-[var(--color-muted)]">{c.status}</span>
+                      <span className="text-xs text-[var(--color-muted)]" title={title}>{label}</span>
                     </div>
                     <div className="text-xs text-[var(--color-muted)]">{c.image}</div>
                     {c.ports && <div className="text-xs text-[var(--color-muted)] font-mono">{c.ports}</div>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </Section>
           )}

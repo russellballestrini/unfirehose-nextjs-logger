@@ -48,6 +48,7 @@
     "./uncloseai-adapter": "./uncloseai-adapter.ts",
     "./jsonl-reader": "./jsonl-reader.ts",
     "./format": "./format.ts",
+    "./ago": "./ago.ts",
     "./types": "./types.ts",
     "./pii": "./pii.ts",
     "./session-name": "./session-name.ts",

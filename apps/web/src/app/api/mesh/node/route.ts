@@ -225,6 +225,12 @@ cat /proc/diskstats 2>/dev/null | head -20 || echo 'n/a'
 echo '===SECTION:DOCKER==='
 \$T docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | head -50 || echo 'none'
 
+# --- container clocks ---
+# docker ps rounds its Status to one unit -- "Up 4 weeks" -- and never
+# says since when. inspect has the instants; the page does the words.
+echo '===SECTION:DOCKER_STATE==='
+\$T docker ps -aq 2>/dev/null | head -50 | \$T xargs -r docker inspect --format '{{.Id}}\t{{.State.Status}}\t{{.State.StartedAt}}\t{{.State.FinishedAt}}\t{{.State.ExitCode}}' 2>/dev/null || echo 'none'
+
 # --- tmux sessions ---
 echo '===SECTION:TMUX==='
 \$T tmux list-sessions 2>/dev/null || echo 'none'

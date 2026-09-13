@@ -237,4 +237,11 @@ describe('staying out of the way', () => {
     await get('?host=neoblanka');
     expect(probeCommands()[0]).toContain('docker ps -a ');
   });
+
+  it('asks inspect for the instants docker ps rounds away', async () => {
+    // "Up 4 weeks" is 28 to 34 days; StartedAt is a nanosecond.
+    await get('?host=neoblanka');
+    expect(probeCommands()[0]).toContain('docker inspect --format');
+    expect(probeCommands()[0]).toContain('{{.State.StartedAt}}');
+  });
 });

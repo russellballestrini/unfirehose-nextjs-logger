@@ -72,7 +72,7 @@ describe('formatRelativeTime', () => {
   it('returns relative time string for a recent ISO date', () => {
     const recent = new Date(Date.now() - 60_000).toISOString();
     const result = formatRelativeTime(recent);
-    expect(result).toContain('ago');
+    expect(result).toBe('1 minute ago');
   });
 
   it('returns the original string for an invalid ISO date', () => {
@@ -107,15 +107,16 @@ describe('formatDuration', () => {
     expect(formatDuration(59_000)).toBe('59s');
   });
 
-  it('formats minutes range as Xm Ys', () => {
-    expect(formatDuration(60_000)).toBe('1m 0s');
-    expect(formatDuration(90_000)).toBe('1m 30s');
-    expect(formatDuration(3_540_000)).toBe('59m 0s');
+  it('formats minutes range as Xm, Ys — a zero unit takes no slot', () => {
+    expect(formatDuration(60_000)).toBe('1m');
+    expect(formatDuration(90_000)).toBe('1m, 30s');
+    expect(formatDuration(3_540_000)).toBe('59m');
   });
 
-  it('formats hours range as Xh Ym', () => {
-    expect(formatDuration(3_600_000)).toBe('1h 0m');
-    expect(formatDuration(7_260_000)).toBe('2h 1m');
+  it('formats hours range as Xh, Ym', () => {
+    expect(formatDuration(3_600_000)).toBe('1h');
+    expect(formatDuration(7_260_000)).toBe('2h, 1m');
+    expect(formatDuration(7_265_000)).toBe('2h, 1m');
   });
 });
 

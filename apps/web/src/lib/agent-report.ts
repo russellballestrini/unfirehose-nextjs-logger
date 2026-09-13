@@ -12,6 +12,8 @@
  * surface, so nothing defined there can be imported by a test.
  */
 
+import { human } from '@unturf/unfirehose/ago';
+
 export interface GitSnapshot {
   branch: string;
   isDirty: boolean;
@@ -118,7 +120,7 @@ export function buildBlockers(git: GitSnapshot | null, prompts: any[]) {
     if (promptAge > 3_600_000 && git.isDirty) {
       blockers.push({
         type: 'agent-stalled',
-        description: `Last prompt was ${Math.floor(promptAge / 3_600_000)}h ago, work still uncommitted: "${(last.prompt ?? '').slice(0, 100)}"`,
+        description: `Last prompt was ${human(last.timestamp, { abbreviate: true, smallest: 'minute' })}, work still uncommitted: "${(last.prompt ?? '').slice(0, 100)}"`,
         severity: 'error',
       });
     }

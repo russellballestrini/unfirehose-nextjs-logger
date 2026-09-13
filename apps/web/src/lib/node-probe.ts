@@ -25,7 +25,7 @@ import { num, int } from '@/lib/num';
 export const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
   'LOADAVG', 'UPTIME', 'DISK', 'PS', 'PS_TREE', 'CLAUDE_PS', 'UF', 'NVIDIA', 'NVIDIA_PS',
-  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'TMUX', 'SCREEN', 'END',
+  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'DOCKER_STATE', 'TMUX', 'SCREEN', 'END',
 ];
 
 export function parseSection(output: string, marker: string): string {
@@ -255,6 +255,53 @@ export function parseDocker(raw: string) {
   }).filter(Boolean);
 }
 
+/**
+ * Docker's own zero time. A container that was created but never started
+ * carries this as StartedAt; one still running carries it as FinishedAt.
+ */
+const DOCKER_NEVER = '0001-01-01T00:00:00Z';
+
+export interface ContainerState {
+  state: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  exitCode: number | null;
+}
+
+/**
+ * `docker inspect` state lines, keyed by full container id. `docker ps`
+ * prints the short id, so lookups go by prefix -- see `attachDockerState`.
+ */
+export function parseDockerState(raw: string): Map<string, ContainerState> {
+  const out = new Map<string, ContainerState>();
+  if (!raw || raw === 'none') return out;
+  for (const line of raw.split('\n')) {
+    const parts = line.split('\t');
+    if (parts.length < 4 || !parts[0]) continue;
+    const instant = (s: string | undefined) => (s && s !== DOCKER_NEVER && !Number.isNaN(Date.parse(s))) ? s : null;
+    const code = parts[4] !== undefined && parts[4] !== '' ? Number(parts[4]) : null;
+    out.set(parts[0], {
+      state: parts[1],
+      startedAt: instant(parts[2]),
+      finishedAt: instant(parts[3]),
+      exitCode: Number.isFinite(code) ? code : null,
+    });
+  }
+  return out;
+}
+
+/** Marry each `docker ps` row to its inspect state. Rows without one keep the ps Status alone. */
+export function attachDockerState<C extends { id: string }>(
+  containers: C[], states: Map<string, ContainerState>,
+): (C & Partial<ContainerState>)[] {
+  if (states.size === 0) return containers;
+  const full = [...states.keys()];
+  return containers.map((c) => {
+    const key = full.find((k) => k.startsWith(c.id));
+    return key ? { ...c, ...states.get(key)! } : c;
+  });
+}
+
 export function parseTmux(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
@@ -335,7 +382,7 @@ export function parseProbeOutput(raw: string, host: string) {
   const cpuTopology = parseCpuTopology(parseSection(raw, 'CPUTOPO'));
   const netInterfaces = parseNetInterfaces(parseSection(raw, 'NET'));
   const netDev = parseNetDev(parseSection(raw, 'NETSTAT'));
-  const docker = parseDocker(parseSection(raw, 'DOCKER'));
+  const docker = attachDockerState(parseDocker(parseSection(raw, 'DOCKER')), parseDockerState(parseSection(raw, 'DOCKER_STATE')));
   const tmuxSessions = parseTmux(parseSection(raw, 'TMUX'));
   const screenSessions = parseScreen(parseSection(raw, 'SCREEN'));
 

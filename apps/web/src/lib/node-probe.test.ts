@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseProcessTree, parseNvidiaGpu,
-  parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseProbeOutput,
+  parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseDockerState, attachDockerState, parseProbeOutput,
 } from './node-probe';
 
 /**
@@ -226,6 +226,66 @@ describe('parseDocker', () => {
     expect(containers.map(c => c!.name))
       .toEqual(['peer-000', 'peer-001', 'peer-002']);
     expect(containers[2]!.ports).toBe('');
+  });
+});
+
+/**
+ * The instants behind "Up 4 weeks".
+ *
+ * docker ps rounds to one unit and never says since when; docker inspect
+ * has StartedAt and FinishedAt to the nanosecond. The two are joined on
+ * the id -- ps prints twelve characters of it, inspect all sixty-four.
+ */
+describe('parseDockerState', () => {
+  const FULL = 'abc123def4567890abc123def4567890abc123def4567890abc123def4567890';
+
+  it('reads a running container and a stopped one', () => {
+    const states = parseDockerState([
+      `${FULL}\trunning\t2026-08-20T18:03:22.123456789Z\t0001-01-01T00:00:00Z\t0`,
+      `${'f'.repeat(64)}\texited\t2026-09-01T10:00:00Z\t2026-09-11T09:30:00.5Z\t137`,
+    ].join('\n'));
+    expect(states.get(FULL)).toEqual({
+      state: 'running', startedAt: '2026-08-20T18:03:22.123456789Z', finishedAt: null, exitCode: 0,
+    });
+    expect(states.get('f'.repeat(64))).toMatchObject({ state: 'exited', finishedAt: '2026-09-11T09:30:00.5Z', exitCode: 137 });
+  });
+
+  it('treats docker\'s year-one zero time as no instant at all', () => {
+    // A container created but never started carries it as StartedAt.
+    const [s] = parseDockerState(`${FULL}\tcreated\t0001-01-01T00:00:00Z\t0001-01-01T00:00:00Z\t0`).values();
+    expect(s.startedAt).toBeNull();
+    expect(s.finishedAt).toBeNull();
+  });
+
+  it('reads nothing without docker', () => {
+    expect(parseDockerState('none').size).toBe(0);
+    expect(parseDockerState('').size).toBe(0);
+  });
+
+  it('marries ps rows to inspect state by id prefix, leaving strangers alone', () => {
+    const rows = [{ id: 'abc123def456', name: 'a' }, { id: 'ffffffffffff', name: 'b' }, { id: '000000000000', name: 'c' }];
+    const states = parseDockerState([
+      `${FULL}\trunning\t2026-08-20T18:03:22Z\t0001-01-01T00:00:00Z\t0`,
+      `${'f'.repeat(64)}\texited\t2026-09-01T10:00:00Z\t2026-09-11T09:30:00Z\t1`,
+    ].join('\n'));
+    const out = attachDockerState(rows, states);
+    expect(out[0]).toMatchObject({ name: 'a', state: 'running', startedAt: '2026-08-20T18:03:22Z' });
+    expect(out[1]).toMatchObject({ name: 'b', state: 'exited', exitCode: 1 });
+    expect(out[2]).toEqual({ id: '000000000000', name: 'c' });
+  });
+
+  it('flows through a whole probe', () => {
+    const probe = [
+      '===SECTION:HOSTNAME===', 'box',
+      '===SECTION:DOCKER===',
+      'abc123def456\topen-webui\tghcr.io/open-webui:0.6\tUp 4 weeks (healthy)\t8080/tcp',
+      '===SECTION:DOCKER_STATE===',
+      `${FULL}\trunning\t2026-08-20T18:03:22Z\t0001-01-01T00:00:00Z\t0`,
+      '===SECTION:TMUX===', 'none',
+      '===SECTION:END===',
+    ].join('\n');
+    const out = parseProbeOutput(probe);
+    expect(out.containers[0]).toMatchObject({ name: 'open-webui', status: 'Up 4 weeks (healthy)', state: 'running', startedAt: '2026-08-20T18:03:22Z' });
   });
 });
 

@@ -15,6 +15,7 @@
 
 import { parseHarnessProcesses, countByHarness } from './harness-procs';
 import { num, int } from './num';
+import { humanDelta } from './ago';
 
 export interface MeshNode {
   hostname: string;
@@ -910,13 +911,9 @@ export function calcNonCpuWatts(opts: {
   return round(opts.isLaptop ? subtotal : subtotal / 0.9);
 }
 
+/** "37d, 9h" / "2h, 5m" / "12m" — two units, nothing under a minute. */
 export function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
+  return humanDelta(seconds * 1000, { abbreviate: true, smallest: 'minute' });
 }
 
 export function round(n: number): number {

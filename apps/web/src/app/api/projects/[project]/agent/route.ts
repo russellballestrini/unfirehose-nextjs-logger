@@ -6,6 +6,7 @@ import { getProjectRecentPrompts } from '@unturf/unfirehose/db/ingest';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 import { gitExec } from '@unturf/unfirehose/git-exec';
+import { human } from '@unturf/unfirehose/ago';
 import {
   type GitSnapshot, buildStatus, buildBlockers, buildNudgePrompt,
 } from '@/lib/agent-report';
@@ -29,14 +30,12 @@ async function getGitSnapshot(repoPath: string): Promise<GitSnapshot | null> {
     // branch name is interpolated into every summary line below.
     const branchName = branch.trim();
 
+    // A date git could not give (an unborn branch, a shallow oddity) leaves
+    // the age unknown; it does not sink the rest of the snapshot.
     let lastCommitAge: string | null = null;
-    if (lastCommitDate) {
-      const ageMs = Date.now() - new Date(lastCommitDate).getTime();
-      if (ageMs < 60_000) lastCommitAge = 'just now';
-      else if (ageMs < 3_600_000) lastCommitAge = `${Math.floor(ageMs / 60_000)}m ago`;
-      else if (ageMs < 86_400_000) lastCommitAge = `${Math.floor(ageMs / 3_600_000)}h ago`;
-      else lastCommitAge = `${Math.floor(ageMs / 86_400_000)}d ago`;
-    }
+    try {
+      if (lastCommitDate) lastCommitAge = human(lastCommitDate, { abbreviate: true, smallest: 'minute' });
+    } catch { /* not a date */ }
 
     return {
       branch: branchName,
