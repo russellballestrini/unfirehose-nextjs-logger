@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createTestDb, seedProject, seedSession, seedMessage } from './test/db-helper';
+import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from './test/db-helper';
 
 /**
  * Messages per week, and the sessions active in each, as the payload
@@ -16,10 +16,11 @@ import { createTestDb, seedProject, seedSession, seedMessage } from './test/db-h
 const db = createTestDb();
 vi.mock('./db/schema', () => ({ getDb: () => db }));
 const { buildScrobblePayload, weekKey } = await import('./scrobble');
+const { sliceScrobble } = await import('./scrobble-range');
 
 let pid: number;
 beforeEach(() => {
-  db.prepare('DELETE FROM messages').run(); db.prepare('DELETE FROM sessions').run(); db.prepare('DELETE FROM projects').run();
+  db.prepare('DELETE FROM content_blocks').run(); db.prepare('DELETE FROM messages').run(); db.prepare('DELETE FROM sessions').run(); db.prepare('DELETE FROM projects').run();
   pid = seedProject(db, 'p', 'p');
 });
 const velocity = () => buildScrobblePayload(db).timeSeries.weeklyVelocity as Array<{ week: string; messages: number; sessions: number; partial?: boolean }>;
@@ -74,5 +75,50 @@ describe('weekKey', () => {
       if (weekKey(day) !== w) disagreements.push(`${day}: js ${weekKey(day)} sqlite ${w}`);
     }
     expect(disagreements).toEqual([]);
+  });
+});
+
+/**
+ * The day grain the page re-folds for a range. Its whole point is that
+ * folding every day gives back exactly what the worker computed, so the
+ * lifetime view and the range view are the same arithmetic.
+ */
+describe('the day grain in the payload', () => {
+  it('sums back to the lifetime figures, and carries the hour histogram', () => {
+    const s1 = seedSession(db, pid, 's1');
+    const m1 = seedMessage(db, s1, { timestamp: '2026-06-15T09:10:00Z', model: 'claude-opus-4-1', inputTokens: 100, outputTokens: 10, cacheReadTokens: 1000 });
+    seedMessage(db, s1, { timestamp: '2026-06-15T22:00:00Z', model: 'claude-opus-4-1', inputTokens: 100, outputTokens: 10 });
+    seedMessage(db, s1, { timestamp: '2026-06-16T09:00:00Z', model: 'claude-haiku-4-5', inputTokens: 50, outputTokens: 5 });
+    const s2 = seedSession(db, pid, 's2');
+    seedMessage(db, s2, { timestamp: '2026-06-16T10:00:00Z', model: 'claude-haiku-4-5', inputTokens: 50, outputTokens: 5 });
+    seedContentBlock(db, m1, { blockType: 'tool_use', toolName: 'Bash' });
+
+    const p = buildScrobblePayload(db);
+    expect(p.daily.map((d: any) => [d.date, d.messages, d.sessions])).toEqual([['2026-06-15', 2, 1], ['2026-06-16', 2, 1]]);
+    expect(p.daily[0].hours[9]).toBe(1);
+    expect(p.daily[0].hours[22]).toBe(1);
+    expect(p.daily[0].cacheRead).toBe(1000);
+    expect(p.modelDaily).toContainEqual({ date: '2026-06-16', model: 'claude-haiku-4-5', messages: 2, inputTokens: 100, outputTokens: 10 });
+    expect(p.harnessDaily).toEqual([
+      { date: '2026-06-15', harness: 'claude-code', sessions: 1, messages: 2 },
+      { date: '2026-06-16', harness: 'claude-code', sessions: 1, messages: 2 },
+    ]);
+    expect(p.toolDaily).toEqual([{ date: '2026-06-15', name: 'Bash', count: 1 }]);
+
+    const all = sliceScrobble(p, undefined);
+    expect(all.lifetime).toMatchObject({
+      totalSessions: p.lifetime.totalSessions, totalMessages: p.lifetime.totalMessages, activeDays: p.lifetime.activeDays,
+      totalInputTokens: p.lifetime.totalInputTokens, totalOutputTokens: p.lifetime.totalOutputTokens,
+      totalCacheRead: p.lifetime.totalCacheRead, totalCacheWrite: p.lifetime.totalCacheWrite, totalCostUSD: p.lifetime.totalCostUSD,
+    });
+    expect(all.activity.heatmap).toEqual(expect.arrayContaining(p.activity.heatmap));
+    expect(all.activity.heatmap).toHaveLength(p.activity.heatmap.length);
+    expect(all.models.map((m) => [m.model, m.messages]).sort()).toEqual(p.models.map((m: any) => [m.model, m.messages]).sort());
+    expect(all.tools).toEqual(p.tools);
+
+    const day2 = sliceScrobble(p, '2026-06-16');
+    expect(day2.lifetime).toMatchObject({ totalSessions: 1, totalMessages: 2, activeDays: 1, totalInputTokens: 100 });
+    expect(day2.models).toEqual([{ model: 'claude-haiku-4-5', messages: 2, inputTokens: 100, outputTokens: 10 }]);
+    expect(day2.tools).toEqual([]);
   });
 });

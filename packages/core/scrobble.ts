@@ -14,27 +14,13 @@ import { costForUsage } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
 import { storePayload, readPayload } from './precomputed';
 import { TOOL_CALL_SQL } from './block-types';
+import { weekKey } from './scrobble-range';
+import type { DailyGrain, ModelDaily, HarnessDaily, ToolDaily } from './scrobble-range';
+
+/** Re-exported: the pure half lives beside the range fold, this file needs the database. */
+export { weekKey };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-/**
- * SQLite's strftime('%Y-W%W') for an ISO date, so the weekly series is keyed
- * the way every other week in this database is.
- *
- * %W starts a week on Monday, and the days before a year's first Monday are
- * week 00. The mirror this replaced started weeks on Sunday, so every Sunday
- * landed in the week after SQLite's — the "disagrees on some days" that once
- * forced the week to be keyed by SQLite itself. Checked against SQLite for
- * every day of eleven years in scrobble-velocity.test.ts.
- */
-export function weekKey(date: string): string {
-  const d = new Date(`${date.slice(0, 10)}T00:00:00Z`);
-  const year = d.getUTCFullYear();
-  const yday = Math.round((d.getTime() - Date.UTC(year, 0, 1)) / 86400000);
-  const monday0 = (d.getUTCDay() + 6) % 7;
-  const week = Math.floor((yday + 7 - monday0) / 7);
-  return `${year}-W${String(week).padStart(2, '0')}`;
-}
 
 export interface WeekVelocity {
   week: string;
@@ -169,6 +155,19 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
     // the (model, day) pair is the unit — the finer hour grouping folds into
     // it first, otherwise a day's price would be applied 24 times.
     const modelDay = new Map<string, { model: string; date: string; inp: number; out: number; cr: number; cw: number; messages: number }>();
+    // One row per calendar day with the hour histogram, so the page can
+    // re-fold the heatmap, the hour-of-day bars and every stat for a range
+    // without a second payload. The lifetime figures above are these summed.
+    const dayGrain = new Map<string, DailyGrain>();
+    const dayOf = (date: string) => {
+      let d = dayGrain.get(date);
+      if (!d) {
+        d = { date, messages: 0, sessions: 0, inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, costUSD: 0,
+              costSplit: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, hours: new Array(24).fill(0) };
+        dayGrain.set(date, d);
+      }
+      return d;
+    };
 
     // UTC weekday per calendar day, memoised — one Date construction per day
     // instead of per row.
@@ -188,6 +187,11 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
 
       hourMap.set(g.hour, (hourMap.get(g.hour) ?? 0) + g.messages);
       dowMap.set(g.dow, (dowMap.get(g.dow) ?? 0) + g.messages);
+      if (g.date) {
+        const day = dayOf(g.date);
+        day.messages += g.messages ?? 0;
+        if (g.hour >= 0 && g.hour < 24) day.hours[g.hour] += g.messages ?? 0;
+      }
       const hk = `${g.dow}:${g.hour}`;
       const cell = heatKey.get(hk) ?? { dow: g.dow, hour: g.hour, count: 0 };
       cell.count += g.messages;
@@ -198,6 +202,11 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
       totalOutput += g.out ?? 0;
       totalCacheRead += g.cr ?? 0;
       totalCacheWrite += g.cw ?? 0;
+      if (g.date) {
+        const day = dayOf(g.date);
+        day.inputTokens += g.inp ?? 0; day.outputTokens += g.out ?? 0;
+        day.cacheRead += g.cr ?? 0; day.cacheWrite += g.cw ?? 0;
+      }
       const key = `${g.model}\u0000${g.date}`;
       const md = modelDay.get(key) ?? { model: g.model, date: g.date, inp: 0, out: 0, cr: 0, cw: 0, messages: 0 };
       md.inp += g.inp ?? 0; md.out += g.out ?? 0; md.cr += g.cr ?? 0; md.cw += g.cw ?? 0;
@@ -206,6 +215,7 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
     }
 
     const dailyAgg: Record<string, { cost: number; count: number }> = {};
+    const modelDaily: ModelDaily[] = [];
     for (const m of modelDay.values()) {
       const c = costForUsage({ model: m.model, input: m.inp, output: m.out, cacheRead: m.cr, cacheWrite: m.cw, at: m.date });
       totalCost += c.total;
@@ -224,6 +234,11 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
       if (!dailyAgg[m.date]) dailyAgg[m.date] = { cost: 0, count: 0 };
       dailyAgg[m.date].cost += c.total;
       dailyAgg[m.date].count += m.messages;
+      const day = dayOf(m.date);
+      day.costUSD += c.total;
+      day.costSplit.input += c.input; day.costSplit.output += c.output;
+      day.costSplit.cacheRead += c.cacheRead; day.costSplit.cacheWrite += c.cacheWrite;
+      modelDaily.push({ date: m.date, model: m.model, messages: m.messages, inputTokens: m.inp, outputTokens: m.out });
     }
     const models = [...modelAgg.values()].sort((a, b) => b.messages - a.messages);
     const heatmapRows = [...heatKey.values()];
@@ -252,12 +267,31 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const harnessAgg = new Map<string, { harness: string; sessions: number; messages: number }>();
+    // A session belongs to the day it began, so a range's session count is
+    // "sessions started in the range" and the days sum to the lifetime.
+    const harnessDay = new Map<string, HarnessDaily>();
+    const harnessDayOf = (harness: string, date: string) => {
+      const k = `${harness}\u0000${date}`;
+      let h = harnessDay.get(k);
+      if (!h) { h = { date, harness, sessions: 0, messages: 0 }; harnessDay.set(k, h); }
+      return h;
+    };
+    for (const d of sessionDays) {
+      const harness = harnessOf.get(d.id);
+      if (harness === undefined || !d.date) continue;
+      harnessDayOf(harness, d.date).messages += d.messages ?? 0;
+    }
     let durationSum = 0, durationCount = 0;
     for (const s0 of sessionRows) {
       const h = harnessAgg.get(s0.harness) ?? { harness: s0.harness, sessions: 0, messages: 0 };
       h.sessions += 1;
       h.messages += s0.messages ?? 0;
       harnessAgg.set(s0.harness, h);
+      if (s0.first_ts) {
+        const started = s0.first_ts.slice(0, 10);
+        dayOf(started).sessions += 1;
+        harnessDayOf(s0.harness, started).sessions += 1;
+      }
 
       if (s0.messages > 1 && s0.first_ts && s0.last_ts) {
         durationSum += new Date(s0.last_ts).getTime() - new Date(s0.first_ts).getTime();
@@ -276,6 +310,14 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
       WHERE block_type ${TOOL_CALL_SQL} AND tool_name IS NOT NULL
       GROUP BY tool_name ORDER BY count DESC LIMIT 30
     `).all() as any[];
+    // The same tools by the day they were called — cheap (a few hundred
+    // rows on 1.7M blocks) because the type index does the narrowing.
+    const toolDaily = db.prepare(`
+      SELECT cb.tool_name AS name, substr(m.timestamp, 1, 10) AS date, COUNT(*) AS count
+      FROM content_blocks cb JOIN messages m ON m.id = cb.message_id
+      WHERE cb.block_type ${TOOL_CALL_SQL} AND cb.tool_name IS NOT NULL AND m.timestamp IS NOT NULL
+      GROUP BY cb.tool_name, date
+    `).all() as ToolDaily[];
     t.mark('tools');
 
     const projectStats = db.prepare(`
@@ -338,6 +380,14 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
         heatmap: heatmapRows.map((d: any) => ({ dow: d.dow, hour: d.hour, count: d.count })),
       },
       timeSeries: { dailyMessages, dailyCost: dailyCostSeries, weeklyVelocity: weeklyVelocityRows },
+      // The day grain everything above is folded from, so a reader can
+      // re-fold it for any range. See `sliceScrobble` in scrobble-range.ts.
+      daily: [...dayGrain.values()]
+        .map((d) => ({ ...d, costUSD: Math.round(d.costUSD * 100) / 100 }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
+      modelDaily: modelDaily.sort((a, b) => a.date.localeCompare(b.date) || a.model.localeCompare(b.model)),
+      harnessDaily: [...harnessDay.values()].sort((a, b) => a.date.localeCompare(b.date) || a.harness.localeCompare(b.harness)),
+      toolDaily: toolDaily.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)),
       models,
       harnesses: harnesses.map((h: any) => ({ harness: h.harness, sessions: h.sessions, messages: h.messages })),
       tools: tools.map((t: any) => ({ name: t.tool_name, count: t.count })),

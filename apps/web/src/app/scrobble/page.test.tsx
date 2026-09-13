@@ -252,6 +252,87 @@ describe('the scrobble page', () => {
     expect(container.textContent).toContain('last 7 days');
   });
 
+  /**
+   * With the day grain in the payload, the range folds everything — the
+   * strip, the heatmap, the hour bars, the model and tool lists — not only
+   * the two dated series. Before, "last 7 days" was a label on a page whose
+   * numbers had not moved.
+   */
+  describe('with the day grain', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const hours = (at: Record<number, number>) => { const h = new Array(24).fill(0); for (const [k, v] of Object.entries(at)) h[Number(k)] = v; return h; };
+    const grain = () => full({
+      daily: [
+        { date: '2026-01-15', messages: 1000, sessions: 100, inputTokens: 100_000, outputTokens: 30_000, cacheRead: 8_000_000, cacheWrite: 250_000, costUSD: 200,
+          costSplit: { input: 8, output: 30, cacheRead: 150, cacheWrite: 12 }, hours: hours({ 3: 1000 }) },
+        { date: today, messages: 20, sessions: 2, inputTokens: 20_000, outputTokens: 10_000, cacheRead: 1_000_000, cacheWrite: 50_000, costUSD: 14.5,
+          costSplit: { input: 2, output: 10, cacheRead: 0, cacheWrite: 2.5 }, hours: hours({ 14: 20 }) },
+      ],
+      modelDaily: [
+        { date: '2026-01-15', model: 'claude-opus-4-6-20260301', messages: 1000, inputTokens: 100_000, outputTokens: 30_000 },
+        { date: today, model: 'claude-haiku-4-5-20251001', messages: 20, inputTokens: 20_000, outputTokens: 10_000 },
+      ],
+      harnessDaily: [
+        { date: '2026-01-15', harness: 'claude', sessions: 100, messages: 1000 },
+        { date: today, harness: 'uncloseai', sessions: 2, messages: 20 },
+      ],
+      toolDaily: [
+        { date: '2026-01-15', name: 'Bash', count: 4200 },
+        { date: today, name: 'Read', count: 7 },
+      ],
+    });
+    // The selector remembers its last choice; an earlier test left it on 7d.
+    beforeEach(() => { try { localStorage.removeItem('scrobble_range'); } catch { /* jsdom */ } });
+    const pick = async (container: HTMLElement, value: string) => {
+      const select = [...container.querySelectorAll('select')].find((el) => el.textContent?.includes('Lifetime'))!;
+      await act(async () => { fireEvent.change(select, { target: { value } }); });
+    };
+
+    it('folds the strip for the range, and lifetime is the whole grain', async () => {
+      payload = grain();
+      const { container } = await show();
+      expect(container.textContent).toContain('1,020');   // messages, lifetime
+      expect(container.textContent).toContain('Figures below are lifetime');
+      await pick(container, '7d');
+      expect(container.textContent).toContain('Figures below are last 7 days');
+      expect(container.textContent).not.toContain('1,020');
+      expect(container.textContent).toContain('$14.5');
+    });
+
+    it('re-folds the heatmap and hour bars, and re-ranks models, harnesses and tools', async () => {
+      payload = grain();
+      const { container } = await show();
+      expect(container.textContent).toContain('Bash');
+      expect(container.textContent).toContain('opus-4-6');
+      await pick(container, '7d');
+      expect(container.textContent).not.toContain('Bash');
+      expect(container.textContent).toContain('Read');
+      expect(container.textContent).not.toContain('opus-4-6');
+      expect(container.textContent).toContain('haiku-4-5');
+      expect(container.textContent).toContain('uncloseai');
+      expect(container.textContent).not.toContain('100 sessions');
+      expect(container.textContent).toContain('Activity Heatmap — last 7 days');
+      expect(container.textContent).toContain('Hour of Day — last 7 days');
+    });
+
+    it('does not mistake a quiet range for a first run', async () => {
+      payload = grain({ daily: [{ date: '2026-01-15', messages: 5, sessions: 1, inputTokens: 1, outputTokens: 1, cacheRead: 0, cacheWrite: 0, costUSD: 0, costSplit: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, hours: hours({ 3: 5 }) }] });
+      const { container } = await show();
+      await pick(container, '7d');
+      expect(container.textContent).not.toContain('no sessions to scrobble');
+      expect(container.textContent).toContain('Figures below are last 7 days');
+    });
+
+    it('says the figures stay lifetime when the payload predates the grain', async () => {
+      payload = full();
+      const { container } = await show();
+      await pick(container, '7d');
+      expect(container.textContent).toContain('Figures below are lifetime');
+      expect(container.textContent).toContain('predates the day grain');
+      expect(container.textContent).toContain('18,402');
+    });
+  });
+
   it('calls the same hooks while loading as after, so React never sees the order change', async () => {
     // The range hook briefly sat below the loading return. React caught it on
     // the first real navigation; the tests had not, because they never
