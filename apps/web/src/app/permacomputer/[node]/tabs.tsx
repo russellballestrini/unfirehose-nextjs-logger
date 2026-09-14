@@ -600,17 +600,36 @@ export function OverviewTab(props: TabProps) {
           )}
 
           {probe?.containers?.length > 0 && (
-            <Section title={`Containers (${probe.containers.length})`}>
+            <Section title={
+              <span className="flex items-center justify-between gap-3">
+                <span>Containers ({probe.containers.length})</span>
+                <a href="#Containers" className="text-xs font-normal normal-case tracking-normal text-[var(--color-accent)] hover:underline">details →</a>
+              </span>
+            }>
               <div className="space-y-2">
                 {probe.containers.map((c: any) => {
                   const { label, title } = containerStatus(c);
+                  const r = c.resources;
                   return (
                   <div key={c.id} className="text-sm">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold">{c.name}</span>
                       <span className="text-xs text-[var(--color-muted)]" title={title}>{label}</span>
+                      {r && (
+                        <span className="text-xs font-mono text-[var(--color-muted)]">
+                          {r.cpuPct != null && <span className={parseFloat(r.cpuPct) > 90 ? 'text-[var(--color-error)]' : ''}>{r.cpuPct}% cpu</span>}
+                          {r.memUsed != null && <span> · {formatBytes(r.memUsed)}</span>}
+                          {r.tasks != null && <span> · {r.tasks} tasks</span>}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-xs text-[var(--color-muted)]">{c.image}</div>
+                    <div className="text-xs text-[var(--color-muted)] font-mono">
+                      {[
+                        c.image || (c.rootComm ? `runs ${c.rootComm}` : ''),
+                        c.id ? String(c.id).slice(0, 12) : '',
+                      ].filter(Boolean).join(' · ')}
+                      {c.viaCgroup && <span title="Found via the cgroup filesystem — the docker socket was not granted, so name/image/ports are unavailable"> · via cgroup</span>}
+                    </div>
                     {c.ports && <div className="text-xs text-[var(--color-muted)] font-mono">{c.ports}</div>}
                   </div>
                   );
@@ -1283,9 +1302,12 @@ export function ContainersTab(props: TabProps) {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[var(--color-muted)] font-mono mt-1">
-                  <span>{c.image}</span>
+                  {c.image
+                    ? <span>{c.image}</span>
+                    : c.rootComm && <span title="root process — the runtime's own name lives behind the docker socket, which this node did not grant">runs {c.rootComm}</span>}
                   <span title="container id">{String(c.id).slice(0, 12)}</span>
                   {c.pid && <span title="the container's init, as our host numbers it">host pid {c.pid}</span>}
+                  {c.viaCgroup && <span title="Found through the cgroup filesystem, not the docker socket — our user is not in the docker group here, so name, image, ports, health and uptime are unavailable. Resources and processes are read straight from the kernel.">via cgroup</span>}
                   {c.ports && <span>{c.ports}</span>}
                   {(r?.cpuset ?? c.cpuset) && <span title="cpuset.cpus.effective">cpus {r?.cpuset ?? c.cpuset}</span>}
                 </div>

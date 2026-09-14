@@ -240,6 +240,32 @@ echo '===SECTION:DOCKER_STATE==='
 DSTATE=\$(\$T docker ps -aq 2>/dev/null | head -50 | \$T xargs -r docker inspect --format '{{.Id}}	{{.State.Status}}	{{.State.StartedAt}}	{{.State.FinishedAt}}	{{.State.ExitCode}}	{{.State.Pid}}	{{.HostConfig.NanoCpus}}	{{.HostConfig.Memory}}	{{.HostConfig.PidsLimit}}	{{.HostConfig.CpusetCpus}}	{{.RestartCount}}	{{.State.OOMKilled}}	{{with index .State "Health"}}{{.Status}}{{end}}' 2>/dev/null)
 [ -n "\$DSTATE" ] && echo "\$DSTATE" || echo 'none'
 
+# --- containers seen through the kernel, without the docker socket ---
+# The docker CLI above needs the /var/run/docker.sock, and a user not in the
+# docker group is refused it -- on cammy fox is in sudo, not docker, so
+# \`docker ps\` returns nothing and a node running dozens of containers read
+# as empty. But every running container has a cgroup, and those are
+# world-readable: system.slice/docker-<id>.scope on the systemd driver,
+# /sys/fs/cgroup[/ctrl]/docker/<id> on the cgroupfs one. We enumerate them
+# straight from the filesystem, take each container's root pid from its
+# cgroup.procs, and name it by that pid's command since the runtime's own
+# names live behind the socket. This finds only RUNNING containers -- a
+# stopped one has no cgroup -- which is exactly the set that has resources
+# to show.
+echo '===SECTION:DOCKER_CGROUP==='
+CGSCAN=\$(for s in /sys/fs/cgroup/system.slice/docker-*.scope /sys/fs/cgroup/docker/* /sys/fs/cgroup/*/docker/*; do
+  [ -d "\$s" ] || continue
+  n=\$(basename "\$s"); cid=\$n
+  case "\$n" in docker-*.scope) cid=\${n#docker-}; cid=\${cid%.scope} ;; esac
+  case "\$cid" in *[!0-9a-f]*) continue ;; esac
+  [ \${#cid} -ge 12 ] || continue
+  rp=\$(head -1 "\$s/cgroup.procs" 2>/dev/null)
+  [ -n "\$rp" ] || rp=\$(cat "\$s"/*/cgroup.procs 2>/dev/null | head -1)
+  [ -n "\$rp" ] || continue
+  echo "\$cid|\$rp|\$(cat /proc/\$rp/comm 2>/dev/null)"
+done | sort -u | head -200)
+[ -n "\$CGSCAN" ] && echo "\$CGSCAN" || echo 'none'
+
 # --- container resources, read from our host kernel's cgroups ---
 # docker stats --no-stream costs 2.2s and docker top costs 200ms per
 # container (snap CLI startup) on a probe that runs every six seconds.
@@ -255,6 +281,15 @@ CG_ROOT=/sys/fs/cgroup
 NS0=\$(date +%s%N 2>/dev/null); case "\$NS0" in *N*|'') NS0='' ;; esac
 CG_LIST=''
 [ -n "\$DSTATE" ] && CG_LIST=\$(echo "\$DSTATE" | awk -F'\\t' '\$2=="running" && \$6>0 {print \$1"|"\$6}')
+# Fold in the cgroup-discovered containers the socket did not report -- every
+# one when the socket was denied, none extra when it answered (dedup by the
+# 12-char id the running set already carries).
+for e in \$CGSCAN; do
+  cid=\${e%%|*}; rp=\$(echo "\$e" | cut -d'|' -f2)
+  short=\$(echo "\$cid" | cut -c1-12)
+  case "\$CG_LIST" in *"\$short"*) ;; *) CG_LIST="\$CG_LIST\${CG_LIST:+
+}\$cid|\$rp" ;; esac
+done
 cg_v2_dir() { rel=\$(sed -n 's/^0:://p' /proc/\$1/cgroup 2>/dev/null | head -1); [ -n "\$rel" ] && [ -d "\$CG_ROOT\$rel" ] && echo "\$CG_ROOT\$rel"; }
 cg_v1_dir() { rel=\$(sed -n "s/^[0-9]*:[a-z,]*\$2[a-z,]*:\\(.*\\)\$/\\1/p" /proc/\$1/cgroup 2>/dev/null | head -1); [ -n "\$rel" ] || return; for c in "\$2" cpu,cpuacct cpuacct,cpu; do [ -d "\$CG_ROOT/\$c\$rel" ] && { echo "\$CG_ROOT/\$c\$rel"; return; }; done; }
 cg_cpu() { d=\$(cg_v2_dir \$2); if [ -n "\$d" ]; then echo "\$1|\$3|\$(awk '\$1=="usage_usec"{u=\$2} \$1=="nr_throttled"{t=\$2} \$1=="throttled_usec"{s=\$2} END{print u"|"t"|"s}' \$d/cpu.stat 2>/dev/null)"; else d=\$(cg_v1_dir \$2 cpuacct); [ -n "\$d" ] && echo "\$1|\$3|\$(( \$(cat \$d/cpuacct.usage 2>/dev/null || echo 0) / 1000 ))|\$(awk '\$1=="nr_throttled"{t=\$2} \$1=="throttled_time"{s=int(\$2/1000)} END{print t"|"s}' \$d/cpu.stat 2>/dev/null)"; fi; }

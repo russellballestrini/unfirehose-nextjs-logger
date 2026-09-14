@@ -4,6 +4,7 @@ import {
   parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseDockerState, attachDockerState, parseProbeOutput,
   parseCgroupStats, parsePsPpid, containerProcessTree, attachContainerResources,
   parseHarnessSessions, resolveHarnessSession, attachHarnessSessions,
+  parseDockerCgroup, mergeCgroupContainers,
 } from './node-probe';
 
 /**
@@ -670,5 +671,47 @@ describe('harness sessions', () => {
     expect(out[2].session).toBeUndefined();
     expect(out[3].session).toBeNull();
     expect(attachHarnessSessions(rows, new Map())).toBe(rows);
+  });
+});
+
+/**
+ * Containers found through the cgroup filesystem when the docker socket is
+ * refused -- a user in sudo but not docker (cammy) cannot run `docker ps`,
+ * yet every running container's cgroup is world-readable.
+ */
+describe('parseDockerCgroup', () => {
+  const RAW = [
+    '1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|3141442|tini',
+    'fb000e9f55d9aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777|8100|postgres',
+    'not-a-container|1|nope',
+  ].join('\n');
+  it('reads each running container with its short id, root pid and root command', () => {
+    const cs = parseDockerCgroup(RAW);
+    expect(cs).toHaveLength(2);
+    expect(cs[0]).toEqual({ id: '1e0b0369687f', fullId: '1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6', rootPid: 3141442, rootComm: 'tini' });
+    expect(cs[1].rootComm).toBe('postgres');
+  });
+  it('reads nothing without a scan', () => {
+    expect(parseDockerCgroup('none')).toEqual([]);
+    expect(parseDockerCgroup('')).toEqual([]);
+  });
+});
+
+describe('mergeCgroupContainers', () => {
+  const cg = parseDockerCgroup('1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|3141442|tini');
+  it('synthesizes a running row when docker ps saw nothing, named by short id and root command', () => {
+    const out = mergeCgroupContainers([], cg);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: '1e0b0369687f', name: 'tini', state: 'running', pid: 3141442, rootComm: 'tini', viaCgroup: true });
+  });
+  it('does not duplicate a container the socket already reported', () => {
+    const docker = [{ id: '1e0b0369687f', name: 'rhodecode', image: 'rhodecode:latest', status: 'Up 2 days', ports: '' }];
+    const out = mergeCgroupContainers(docker, cg);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ name: 'rhodecode' });
+  });
+  it('leaves the docker list untouched when the scan found nothing', () => {
+    const docker = [{ id: 'abc', name: 'x' }];
+    expect(mergeCgroupContainers(docker, [])).toBe(docker);
   });
 });

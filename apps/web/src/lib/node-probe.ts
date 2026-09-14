@@ -25,7 +25,7 @@ import { num, int } from '@/lib/num';
 export const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
   'LOADAVG', 'UPTIME', 'DISK', 'PS', 'PS_TREE', 'CLAUDE_PS', 'UF', 'NVIDIA', 'NVIDIA_PS',
-  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'DOCKER_STATE', 'CGROUP_STATS', 'PS_PPID', 'HARNESS_SESSIONS', 'TMUX', 'SCREEN', 'END',
+  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'DOCKER_STATE', 'DOCKER_CGROUP', 'CGROUP_STATS', 'PS_PPID', 'HARNESS_SESSIONS', 'TMUX', 'SCREEN', 'END',
 ];
 
 export function parseSection(output: string, marker: string): string {
@@ -656,6 +656,63 @@ export function attachHarnessSessions<P extends { pid: number; harness?: string 
   });
 }
 
+/**
+ * Containers discovered from the cgroup filesystem, when the docker socket
+ * could not be reached. `id|rootpid|comm` per running container. This is the
+ * only view of containers on a node where our user is not in the docker
+ * group (cammy: fox is in sudo, not docker), so `docker ps` is refused; the
+ * cgroups it cannot forbid still name every running container.
+ */
+export interface CgroupContainer {
+  /** Short (12-char) id, as docker ps prints it. */
+  id: string;
+  /** Full id, for matching cgroup stats keyed by it. */
+  fullId: string;
+  rootPid: number;
+  /** The root process's command name -- a stand-in for the image the socket would name. */
+  rootComm: string;
+}
+
+export function parseDockerCgroup(raw: string): CgroupContainer[] {
+  if (!raw || raw === 'none') return [];
+  const out: CgroupContainer[] = [];
+  for (const line of raw.split('\n')) {
+    const parts = line.split('|');
+    const full = parts[0]?.trim();
+    if (!full || !/^[0-9a-f]{12,}$/.test(full)) continue;
+    const pid = parseInt(parts[1] ?? '');
+    out.push({ id: full.slice(0, 12), fullId: full, rootPid: Number.isFinite(pid) ? pid : 0, rootComm: (parts[2] ?? '').trim() });
+  }
+  return out;
+}
+
+/**
+ * Add the cgroup-discovered containers that `docker ps` did not list. When
+ * the socket answered, its rows win (they carry names, images, ports); the
+ * cgroup scan only fills in what the socket could not see -- which is
+ * everything, on a node where the socket is denied. A synthesized row is
+ * marked running (a cgroup means a live container) and named by its short
+ * id, since the runtime's name lives behind the socket we were refused.
+ */
+export function mergeCgroupContainers<C extends { id: string; state?: string }>(
+  docker: C[], cgroup: CgroupContainer[],
+): (C | { id: string; name: string; image: string; status: string; ports: string; state: string; pid: number; rootComm: string; viaCgroup: true })[] {
+  if (cgroup.length === 0) return docker;
+  const have = docker.map((c) => c.id);
+  const seen = (full: string) => have.some((h) => full.startsWith(h) || h.startsWith(full.slice(0, 12)));
+  const extra = cgroup
+    .filter((c) => !seen(c.fullId))
+    .map((c) => ({
+      // Named by the root process, not the opaque hex id -- "postgres",
+      // "uvicorn", "tini" reads far better than a 12-char prefix, and the id
+      // is still on the meta line. The runtime's own name is behind the
+      // socket we were refused.
+      id: c.id, name: c.rootComm || c.id, image: '', status: 'running', ports: '',
+      state: 'running', pid: c.rootPid, rootComm: c.rootComm, viaCgroup: true as const,
+    }));
+  return [...docker, ...extra];
+}
+
 export function parseTmux(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
@@ -740,7 +797,13 @@ export function parseProbeOutput(raw: string, host: string) {
   const netInterfaces = parseNetInterfaces(parseSection(raw, 'NET'));
   const netDev = parseNetDev(parseSection(raw, 'NETSTAT'));
   const docker = attachContainerResources(
-    attachDockerState(parseDocker(parseSection(raw, 'DOCKER')), parseDockerState(parseSection(raw, 'DOCKER_STATE'))),
+    attachDockerState(
+      mergeCgroupContainers(
+        parseDocker(parseSection(raw, 'DOCKER')),
+        parseDockerCgroup(parseSection(raw, 'DOCKER_CGROUP')),
+      ),
+      parseDockerState(parseSection(raw, 'DOCKER_STATE')),
+    ),
     parseCgroupStats(parseSection(raw, 'CGROUP_STATS')),
     parsePsPpid(parseSection(raw, 'PS_PPID')),
   );
