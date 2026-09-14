@@ -60,9 +60,15 @@ export function getDb(): Database.Database {
   // 512MB mmap so SQLite uses zero-copy reads off the OS page cache instead
   // of read() syscalls. Helps the big sequential scans on `messages`.
   _db.pragma('mmap_size = 536870912');
-  // SQLite normally spills GROUP BY temp B-trees to disk; pinning them to
-  // memory removes a class of latency spike on /api/tokens.
-  _db.pragma('temp_store = MEMORY');
+  // temp B-trees (the scratch a big GROUP BY or ORDER BY builds) spill to
+  // disk, the SQLite default. They were pinned to memory to shave a latency
+  // spike off /api/tokens — cheap when the database was small. At 4.9GB and
+  // 1.67M messages the dashboard and ingest aggregations build temp trees of
+  // hundreds of MB to GBs, and in memory they are UNBOUNDED: the worker's
+  // boot-time refresh over the whole history could grow until the box was
+  // out of RAM and killed. On disk they cost latency, not the machine. The
+  // 256MB page cache and 512MB mmap above stay — those are bounded.
+  _db.pragma('temp_store = DEFAULT');
 
   migrate(_db);
   return _db;
