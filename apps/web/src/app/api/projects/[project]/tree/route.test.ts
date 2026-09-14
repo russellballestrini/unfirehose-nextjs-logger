@@ -170,11 +170,28 @@ describe('GET with an explicit ref', () => {
     expect((catFiles[0] as unknown[])[1]).toContain('--batch-check');
   });
 
-  it('refuses to inline a file too big to display, but still reports its size', async () => {
-    // Sending a 4MB blob down to a browser tab hangs the viewer. The size
-    // is still the real one, so the page can offer something else.
-    git({ 'cat-file': `0abc blob ${4 * 1024 * 1024}`, 'show:v1.0:big.bin': 'x'.repeat(64), log: '' });
+  it('reports a binary file as binary, with its size, never as text', async () => {
+    // A .bin is never source. It is named and sized, and no bytes are shown --
+    // reading it as utf-8 used to fill the viewer with mojibake, and git show
+    // is skipped for it entirely.
+    git({ 'cat-file': `0abc blob ${4 * 1024 * 1024}`, log: '' });
     const body = await (await get('?ref=v1.0&path=big.bin')).json();
+    expect(body.size).toBe(4 * 1024 * 1024);
+    expect(body.binary).toBe(true);
+    expect(body.content).toBeUndefined();
+  });
+
+  it('flags an image at a ref so the page can decide, without shipping bytes as text', async () => {
+    git({ 'cat-file': `0abc blob ${64}`, log: '' });
+    const body = await (await get('?ref=v1.0&path=logo.png')).json();
+    expect(body.image).toBe(true);
+    expect(body.binary).toBe(true);
+    expect(body.content).toBeUndefined();
+  });
+
+  it('caps a huge TEXT file rather than shipping megabytes to the tab', async () => {
+    git({ 'cat-file': `0abc blob ${4 * 1024 * 1024}`, 'show:v1.0:big.txt': 'x'.repeat(64), log: '' });
+    const body = await (await get('?ref=v1.0&path=big.txt')).json();
     expect(body.size).toBe(4 * 1024 * 1024);
     expect(body.content).toBe('(file too large to display)');
   });

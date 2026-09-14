@@ -1081,11 +1081,14 @@ const breadcrumbs = pathParts.map((part: string, i: number) => ({
           </div>
         )}
 
-        {/* File content viewer */}
+        {/* File content viewer. It stands on its own within the viewport --
+            a tall file scrolls inside this box, not down the page, so the
+            header stays put and the whole file is reachable by the box's own
+            scrollbar. A flex column: header fixed, content fills the rest. */}
         {treeData?.type === 'file' && (
-          <div className="border border-[var(--color-border)] rounded overflow-hidden">
+          <div className="border border-[var(--color-border)] rounded overflow-hidden flex flex-col max-h-[calc(100vh-140px)]">
             {/* File header */}
-            <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm">
+            <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm shrink-0">
               <span>{fileIcon(treeData.name, 'blob')}</span>
               <span className="font-mono font-bold">{treeData.name}</span>
               <span className="text-[var(--color-muted)]">{fmtSize(treeData.size)}</span>
@@ -1099,20 +1102,37 @@ const breadcrumbs = pathParts.map((part: string, i: number) => ({
                 </span>
               )}
             </div>
-            {/* Line-numbered content.
-                Two text nodes, not two DOM nodes per line. This was a
-                table with a <tr> and two <td> per line — 6,504 nodes for
-                pricing.ts, 8,748 for this file — which React reconciled
-                and the browser laid out on every open. That was the wait
-                when opening a file, not the fetch: the API answers in
-                7-15ms. */}
-            <div className="overflow-auto max-h-[700px] flex text-xs font-mono leading-[1.45]">
-              <pre
-                className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] opacity-50 shrink-0"
-                aria-hidden
-              >{lineNumbers}</pre>
-              <pre className="px-3 py-0 whitespace-pre flex-1">{treeData.content || ''}</pre>
-            </div>
+            {/* An image renders as an image; any other binary is named, not
+                dumped -- reading a PNG as utf-8 used to fill this pane with
+                mojibake. Text keeps the line-numbered view. */}
+            {treeData.image && treeData.dataUri ? (
+              <div className="p-4 bg-[var(--color-background)] flex justify-center overflow-auto flex-1 min-h-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={treeData.dataUri} alt={treeData.name} className="max-w-full object-contain" />
+              </div>
+            ) : treeData.binary ? (
+              <div className="p-8 text-center text-sm text-[var(--color-muted)]">
+                {treeData.image
+                  ? `Image too large to preview (${fmtSize(treeData.size)}).`
+                  : `Binary file — ${fmtSize(treeData.size)}. Not shown as text.`}
+              </div>
+            ) : (
+              /* Line-numbered content. Scrolls inside the box (both axes), so
+                 a long or wide file is read here, not by growing the page.
+                 Two text nodes, not two DOM nodes per line. This was a
+                 table with a <tr> and two <td> per line — 6,504 nodes for
+                 pricing.ts, 8,748 for this file — which React reconciled
+                 and the browser laid out on every open. That was the wait
+                 when opening a file, not the fetch: the API answers in
+                 7-15ms. */
+              <div className="overflow-auto flex-1 min-h-0 flex text-xs font-mono leading-[1.45]">
+                <pre
+                  className="px-3 py-0 text-right text-[var(--color-muted)] select-none border-r border-[var(--color-border)] opacity-50 shrink-0 sticky left-0 bg-[var(--color-background)]"
+                  aria-hidden
+                >{lineNumbers}</pre>
+                <pre className="px-3 py-0 whitespace-pre flex-1">{treeData.content || ''}</pre>
+              </div>
+            )}
           </div>
         )}
 

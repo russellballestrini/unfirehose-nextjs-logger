@@ -100,6 +100,62 @@ async function isGitRepo(repoPath: string): Promise<boolean> {
 /** Directories we never expand: enormous, uninteresting, and not the code. */
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.next', '__pycache__', '.venv', 'venv', '.pytest_cache', 'dist', 'build']);
 
+/**
+ * An image we can show inline, by extension → its media type. readFile with
+ * 'utf-8' does not throw on a PNG -- it just decodes the bytes to mojibake and
+ * the old code rendered that as source. So a file's kind is decided before it
+ * is read: an image is embedded as a data URI and drawn, any other binary is
+ * named and sized but never dumped, and text is read as text.
+ */
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
+  svg: 'image/svg+xml',
+};
+
+/** Extensions whose bytes are never source, so we never try to show them as text. */
+const BINARY_EXTS = new Set([
+  'pdf', 'zip', 'gz', 'tgz', 'tar', 'bz2', 'xz', 'zst', '7z', 'rar', 'lz4',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'mp3', 'wav', 'flac', 'ogg', 'opus', 'm4a', 'aac', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v',
+  'exe', 'dll', 'so', 'dylib', 'o', 'a', 'class', 'jar', 'bin', 'dat', 'wasm', 'node',
+  'db', 'sqlite', 'sqlite3', 'pyc', 'pack', 'idx', 'img', 'iso', 'dmg', 'deb', 'rpm',
+  'parquet', 'arrow', 'npy', 'npz', 'pt', 'pth', 'onnx', 'gguf', 'safetensors', 'pkl',
+]);
+
+/** How large an image we are willing to inline as base64 (bytes). */
+const MAX_INLINE_IMAGE = 8 * 1024 * 1024;
+
+/** A byte with no business in a text file — a NUL means binary. */
+function looksBinary(buf: Buffer): boolean {
+  const n = Math.min(buf.length, 8192);
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
+  return false;
+}
+
+/**
+ * The content fields for one file, its kind decided first. Returns `content`
+ * for text, `dataUri`+`image` for an inlined image, or `binary` alone for
+ * anything else — never mojibake.
+ */
+async function fileContentFields(resolved: string, ext: string, size: number): Promise<{
+  content?: string; dataUri?: string; image?: boolean; binary?: boolean;
+}> {
+  const e = ext.toLowerCase();
+  if (IMAGE_MIME[e]) {
+    if (size > MAX_INLINE_IMAGE) return { binary: true, image: true };
+    const buf = await readFile(resolved).catch(() => null);
+    if (!buf) return { binary: true, image: true };
+    return { image: true, binary: true, dataUri: `data:${IMAGE_MIME[e]};base64,${buf.toString('base64')}` };
+  }
+  if (BINARY_EXTS.has(e)) return { binary: true };
+  if (size > 512 * 1024) return { content: '(file too large to display)' };
+  const buf = await readFile(resolved).catch(() => null);
+  if (!buf) return { content: '(unreadable)' };
+  if (looksBinary(buf)) return { binary: true };
+  return { content: buf.toString('utf-8') };
+}
+
 /** Browse a plain directory. Same response shape as the git path, with the
  *  git-only fields null — a caller cannot tell which produced it. */
 async function readFromDisk(repoPath: string, subpath: string) {
@@ -113,12 +169,11 @@ async function readFromDisk(repoPath: string, subpath: string) {
   const st = await stat(resolved);
   if (st.isFile()) {
     const ext = subpath.split('.').pop() || '';
-    const tooBig = st.size > 512 * 1024;
     return {
       type: 'file' as const,
       path: subpath,
       name: subpath.split('/').pop(),
-      content: tooBig ? '(file too large to display)' : await readFile(resolved, 'utf-8').catch(() => '(binary or unreadable)'),
+      ...(await fileContentFields(resolved, ext, st.size)),
       size: st.size,
       language: EXT_TO_LANG[ext] || ext,
       lastCommit: null,
@@ -211,21 +266,32 @@ export async function GET(
         })).trim();
         const [, objType, sizeRaw] = check.split(/\s+/);
         if (objType === 'blob') {
+          const size = parseInt(sizeRaw, 10);
+          const ext = subpath.split('.').pop() || '';
+          const e = ext.toLowerCase();
+          // Decide kind by extension before asking git for bytes: an image or
+          // other binary is never shown as text, and skipping `git show` for
+          // it saves a spawn. (An image at a past ref is flagged but not
+          // inlined -- inlining reads the working-tree file, the default path.)
+          const isImage = !!IMAGE_MIME[e];
+          const isBinary = isImage || BINARY_EXTS.has(e);
           const [content, lastCommitRaw] = await Promise.all([
-            gitExec(repoPath, ['show', `${ref}:${subpath}`], { timeout: 15000 }),
+            isBinary ? Promise.resolve('') : gitExec(repoPath, ['show', `${ref}:${subpath}`], { timeout: 15000 }),
             gitExec(repoPath, ['log', '-1', '--format=%H|%s|%ar', '--', subpath]).then(s => s.trim()).catch(() => ''),
           ]);
-          const size = parseInt(sizeRaw, 10);
 
           const [commitHash, commitMsg, commitAge] = (lastCommitRaw || '||').split('|');
-          const ext = subpath.split('.').pop() || '';
           const lang = EXT_TO_LANG[ext] || ext;
 
+          const kind = isImage ? { image: true, binary: true }
+            : isBinary ? { binary: true }
+            : size > 512 * 1024 ? { content: '(file too large to display)' }
+            : { content };
           const fileResult = {
             type: 'file',
             path: subpath,
             name: subpath.split('/').pop(),
-            content: size > 512 * 1024 ? '(file too large to display)' : content,
+            ...kind,
             size,
             language: lang,
             lastCommit: commitHash ? { hash: commitHash, message: commitMsg, age: commitAge } : null,
