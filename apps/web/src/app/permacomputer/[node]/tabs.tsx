@@ -382,6 +382,23 @@ export function OverviewTab(props: TabProps) {
     zoomDomain,
     zoomDrivenRangeRef,
   } = props;
+
+  // The native mouse listener (attached at the document in the page) maps
+  // pixel x -> time by reading these refs. They must track the current view,
+  // but a ref write belongs in an effect, not in render. The listener only
+  // fires on pointer events, long after paint, so a one-frame lag is
+  // invisible; what matters is that the values are the latest committed ones.
+  const chartHasData = Array.isArray(chartData) && chartData.length > 0;
+  const chartDataMin = chartHasData ? chartData[0].tsMs : 0;
+  const chartDataMax = chartHasData ? chartData[chartData.length - 1].tsMs : 0;
+  const [viewMinEff, viewMaxEff] = zoomDomain ?? [chartDataMin, chartDataMax];
+  React.useEffect(() => {
+    if (!chartHasData) return;
+    viewMinRef.current = viewMinEff;
+    viewMaxRef.current = viewMaxEff;
+    chartDataRef.current = chartData;
+  }, [chartHasData, viewMinEff, viewMaxEff, chartData, viewMinRef, viewMaxRef, chartDataRef]);
+
   return (
     <div className="space-y-6">
       {/* min-w-0 on both tracks: a grid item defaults to min-width:auto, so
@@ -643,12 +660,9 @@ export function OverviewTab(props: TabProps) {
         const dataMin: number = chartData[0].tsMs;
         const dataMax: number = chartData[chartData.length - 1].tsMs;
         const [viewMin, viewMax] = zoomDomain ?? [dataMin, dataMax];
-        // Refs that the native mouse listener (outside this IIFE) reads to
-        // map pixel x → time and look up the nearest data point for the
-        // hover-details row. Mutating refs during render is safe.
-        viewMinRef.current = viewMin;
-        viewMaxRef.current = viewMax;
-        chartDataRef.current = chartData;
+        // The refs the native mouse listener reads (viewMin/Max, chartData)
+        // are written in an effect at the top of this component, not here —
+        // a ref write during render is what the linter rightly objects to.
         const viewSpanMs = viewMax - viewMin;
         // The zoom window's width: "1d, 6h", never "1.3d".
         const fmtSpan = (ms: number) => humanDelta(ms, { abbreviate: true, smallest: 'second' });
@@ -879,6 +893,10 @@ export function HarnessesTab(props: TabProps) {
     probe,
     setPreviewSession,
     tmuxData,
+    tailPath,
+    setTailPath,
+    tailContent,
+    tailRef,
   } = props;
       // tmuxData comes from /api/tmux/stream (with host param for remote)
       const sessions: string[] = tmuxData?.sessions ?? [];
@@ -901,6 +919,11 @@ export function HarnessesTab(props: TabProps) {
         mem: p.mem,
         start: p.start,
         command: (p.command ?? '').slice(0, 120),
+        // The JSONL this process is writing, tied host-side by the probe.
+        // Present for an agent whose session file we could see; absent for
+        // one in a container namespace, or an older probe.
+        session: p.session ?? null,
+        cwd: p.cwd ?? null,
       }));
 
       const allEntries = [...tmuxEntries, ...bareEntries];
@@ -977,28 +1000,55 @@ export function HarnessesTab(props: TabProps) {
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">Bare Processes ({bareEntries.length})</h3>
               <div className="grid grid-cols-1 gap-2">
-                {bareEntries.map(p => (
+                {bareEntries.map(p => {
+                  const path = p.session?.path ?? null;
+                  const isActive = path != null && tailPath === path;
+                  const clickable = path != null;
+                  return (
                   <div
                     key={p.pid}
-                    className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3"
+                    onClick={clickable ? () => setTailPath(isActive ? null : path) : undefined}
+                    className={`bg-[var(--color-surface)] rounded border p-3 transition-colors ${
+                      isActive ? 'border-[var(--color-accent)]' :
+                      clickable ? 'border-[var(--color-border)] hover:border-[var(--color-accent)]/50 cursor-pointer' :
+                      'border-[var(--color-border)]'
+                    }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                        <span className="font-bold font-mono text-sm">{p.name}</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse shrink-0" />
+                        <span className="font-bold font-mono text-sm shrink-0">{p.name}</span>
+                        {p.session && (
+                          <span
+                            className="text-xs font-mono text-[var(--color-muted)] truncate"
+                            title={`${p.session.harness} · ${p.session.sessionId}${p.session.matched === 'nearest' ? ' (best guess — nothing written since it started)' : ''}`}
+                          >
+                            {p.session.sessionId.slice(0, 8)}{p.session.matched === 'nearest' ? '?' : ''}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
+                      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] shrink-0">
                         {p.tty && <span>TTY {p.tty}</span>}
                         <span>CPU {p.cpu}%</span>
                         <span>MEM {p.mem}%</span>
-                        {p.start && <span>started {p.start}</span>}
+                        {clickable && (
+                          <span className="text-[var(--color-accent)] font-bold">{isActive ? 'Hide tail' : 'Tail ▸'}</span>
+                        )}
                       </div>
                     </div>
                     {p.command && (
                       <div className="mt-1 text-xs font-mono text-[var(--color-muted)] truncate">{p.command}</div>
                     )}
+                    {isActive && (
+                      <pre
+                        ref={tailRef}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-3 bg-[#0d0d0d] rounded border border-[var(--color-border)] p-3 overflow-auto max-h-[60vh] font-mono text-xs leading-relaxed text-[#d4d4d4] whitespace-pre-wrap break-words"
+                      >{tailContent || 'Connecting…'}</pre>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1006,7 +1056,7 @@ export function HarnessesTab(props: TabProps) {
           {allEntries.length > 0 && (
             <p className="text-xs text-[var(--color-muted)]">
               {tmuxEntries.length > 0 && <>Click a tmux session to preview live output. {isLocal ? 'Full View' : 'Watch'} opens the interactive terminal viewer. </>}
-              {bareEntries.length > 0 && <>Yellow dots indicate agent processes running outside tmux.</>}
+              {bareEntries.length > 0 && <>Yellow dots are agents running outside tmux. Click one with a session id to tail the JSONL it is writing.</>}
             </p>
           )}
         </div>

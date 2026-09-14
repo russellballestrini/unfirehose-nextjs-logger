@@ -286,6 +286,35 @@ done
 echo '===SECTION:PS_PPID==='
 { ps -eo pid,ppid,user,pcpu,pmem,rss,etimes,args 2>/dev/null || ps -eo pid,ppid,user,pcpu,pmem,rss,etime,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'n/a'
 
+# --- which session file each harness process is writing ---
+# A harness never holds its JSONL open; it appends and closes. So the tie
+# is made from what the host can see: the process's cwd names the project
+# dir under ~/.claude/projects (claude's encoding) or ~/.<harness>/unfirehose
+# (the native one), and the session is the file there written since the
+# process started. Every candidate goes out with its mtime and birth; the
+# parser pairs processes to files, so two agents in one cwd get two files.
+# The home is the process owner's, not ours: a root-run probe still finds
+# fox's sessions.
+echo '===SECTION:HARNESS_SESSIONS==='
+NOW=\$(date +%s)
+ps aux 2>/dev/null | hprocs | while read -r _ user pid _; do
+  cwd=\$(readlink /proc/\$pid/cwd 2>/dev/null) || continue
+  et=\$(ps -o etimes= -p \$pid 2>/dev/null | tr -d ' ')
+  home=\$(getent passwd "\$user" 2>/dev/null | cut -d: -f6)
+  [ -n "\$home" ] || home=\$HOME
+  enc=\$(echo "\$cwd" | sed 's#[/.]#-#g')
+  start=\$((NOW - \${et:-0}))
+  echo "\$pid|proc|\$start|\$cwd"
+  # An hour of slack before the start: a resumed session sits at its prompt
+  # with nothing written yet, and the parser needs a nearest file to name.
+  for f in "\$home/.claude/projects/\$enc"/*.jsonl "\$home"/.*/unfirehose/"\${enc#-}"/*.jsonl; do
+    [ -f "\$f" ] || continue
+    m=\$(stat -c %Y "\$f" 2>/dev/null) || m=\$(stat -f %m "\$f" 2>/dev/null) || continue
+    [ "\$m" -ge "\$((start - 3600))" ] || continue
+    echo "\$pid|file|\$m|\$(stat -c %W "\$f" 2>/dev/null || stat -f %B "\$f" 2>/dev/null)|\$f"
+  done
+done
+
 # --- tmux sessions ---
 echo '===SECTION:TMUX==='
 \$T tmux list-sessions 2>/dev/null || echo 'none'

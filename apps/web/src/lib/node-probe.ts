@@ -25,7 +25,7 @@ import { num, int } from '@/lib/num';
 export const SECTION_MARKERS = [
   'HOSTNAME', 'CPUINFO', 'ARCH', 'KERNEL', 'OS', 'NPROC', 'MEMINFO',
   'LOADAVG', 'UPTIME', 'DISK', 'PS', 'PS_TREE', 'CLAUDE_PS', 'UF', 'NVIDIA', 'NVIDIA_PS',
-  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'DOCKER_STATE', 'CGROUP_STATS', 'PS_PPID', 'TMUX', 'SCREEN', 'END',
+  'AMD_GPU', 'TEMPS', 'HWMON', 'THROTTLE', 'CPUTOPO', 'NVIDIA_CLOCKS', 'NET', 'NETSTAT', 'IOSTAT', 'DOCKER', 'DOCKER_STATE', 'CGROUP_STATS', 'PS_PPID', 'HARNESS_SESSIONS', 'TMUX', 'SCREEN', 'END',
 ];
 
 export function parseSection(output: string, marker: string): string {
@@ -549,6 +549,104 @@ export function attachDockerState<C extends { id: string }>(
   });
 }
 
+/** Where a harness process is writing, as far as our host can tell. */
+export interface HarnessSession {
+  sessionId: string;
+  /** The JSONL on the node's disk. */
+  path: string;
+  /** Encoded project dir the file sits in: claude's `-home-fox-x`, a native harness's `home-fox-x`. */
+  project: string;
+  /** claude-code for ~/.claude/projects, else the dotdir name (uncloseai, agnt …). */
+  harness: string;
+  /**
+   * How the file was chosen. `born` -- created within a minute after the
+   * process started, the strongest tie; `written` -- newest file touched
+   * since the process started; `nearest` -- nothing written since it
+   * started (a resumed session at its prompt), so the newest file at all.
+   */
+  matched: 'born' | 'written' | 'nearest';
+}
+
+interface HarnessSessionCandidate { path: string; mtime: number; birth: number | null }
+interface HarnessSessionProc { start: number; cwd: string; files: HarnessSessionCandidate[] }
+
+/**
+ * The HARNESS_SESSIONS section: `pid|proc|start_epoch|cwd`, then
+ * `pid|file|mtime|birth|path` for each JSONL in that cwd's project dirs.
+ */
+export function parseHarnessSessions(raw: string): Map<number, HarnessSessionProc> {
+  const out = new Map<number, HarnessSessionProc>();
+  if (!raw || raw === 'n/a') return out;
+  for (const line of raw.split('\n')) {
+    const parts = line.split('|');
+    const pid = parseInt(parts[0] ?? '');
+    if (!Number.isFinite(pid) || parts.length < 3) continue;
+    if (parts[1] === 'proc') {
+      out.set(pid, { start: parseInt(parts[2] ?? '') || 0, cwd: parts.slice(3).join('|'), files: [] });
+    } else if (parts[1] === 'file' && parts.length >= 5) {
+      const p = out.get(pid);
+      if (!p) continue;
+      const birth = parseInt(parts[3] ?? '');
+      p.files.push({
+        path: parts.slice(4).join('|'),
+        mtime: parseInt(parts[2] ?? '') || 0,
+        // stat prints 0 (or "-") for a filesystem that does not record birth.
+        birth: Number.isFinite(birth) && birth > 0 ? birth : null,
+      });
+    }
+  }
+  return out;
+}
+
+/** What a path under ~/.claude/projects or ~/.<harness>/unfirehose says about itself. */
+function sessionFromPath(path: string): Pick<HarnessSession, 'sessionId' | 'project' | 'harness'> | null {
+  const m = path.match(/\/\.([^/]+)\/(?:projects|unfirehose)\/([^/]+)\/([^/]+)\.jsonl$/);
+  if (!m) return null;
+  return { sessionId: m[3]!, project: m[2]!, harness: m[1] === 'claude' ? 'claude-code' : m[1]! };
+}
+
+/**
+ * The one file a process is writing, from the candidates the probe listed.
+ * Ties go by birth first: a session file created within a minute of the
+ * process starting is that process's session, however many others share
+ * the cwd. Then the newest file written since it started; a subagent
+ * forked into the same cwd lands on its parent's file this way, which is
+ * where its lines go. Last, the newest file at all, marked as a guess.
+ */
+export function resolveHarnessSession(p: HarnessSessionProc, harness?: string): HarnessSession | null {
+  // Only files of the process's own harness: an unclose run from a claude
+  // session shares its cwd, and claude's file is the newest thing there,
+  // but nothing unclose says lands in it. ps calls claude "claude"; the
+  // dotdir is .claude and the harness key claude-code.
+  const own = harness ? p.files.filter((f) => {
+    const h = sessionFromPath(f.path)?.harness;
+    return h === harness || (h === 'claude-code' && harness === 'claude');
+  }) : p.files;
+  if (own.length === 0) return null;
+  const byMtimeDesc = [...own].sort((a, b) => b.mtime - a.mtime);
+  const born = own
+    .filter((f) => f.birth !== null && f.birth >= p.start - 5 && f.birth <= p.start + 60)
+    .sort((a, b) => (a.birth! - p.start) - (b.birth! - p.start))[0];
+  const pick = born
+    ? { f: born, matched: 'born' as const }
+    : byMtimeDesc[0]!.mtime >= p.start
+      ? { f: byMtimeDesc[0]!, matched: 'written' as const }
+      : { f: byMtimeDesc[0]!, matched: 'nearest' as const };
+  const id = sessionFromPath(pick.f.path);
+  return id ? { ...id, path: pick.f.path, matched: pick.matched } : null;
+}
+
+/** Hang a session on each harness process row that the probe could place. */
+export function attachHarnessSessions<P extends { pid: number; harness?: string }>(
+  procs: P[], sessions: Map<number, HarnessSessionProc>,
+): (P & { cwd?: string; session?: HarnessSession | null })[] {
+  if (sessions.size === 0) return procs;
+  return procs.map((p) => {
+    const s = sessions.get(p.pid);
+    return s ? { ...p, cwd: s.cwd, session: resolveHarnessSession(s, p.harness) } : p;
+  });
+}
+
 export function parseTmux(raw: string) {
   if (!raw || raw === 'none') return [];
   return raw.split('\n').filter(l => l.trim()).map(line => {
@@ -612,7 +710,10 @@ export function parseProbeOutput(raw: string, host: string) {
   const processes = parseProcesses(parseSection(raw, 'PS'));
   const processTree = parseProcessTree(parseSection(raw, 'PS_TREE'));
   // Named CLAUDE_PS for wire compatibility; it carries every harness now.
-  const harnessProcesses = parseHarnessProcesses(parseSection(raw, 'CLAUDE_PS'));
+  const harnessProcesses = attachHarnessSessions(
+    parseHarnessProcesses(parseSection(raw, 'CLAUDE_PS')),
+    parseHarnessSessions(parseSection(raw, 'HARNESS_SESSIONS')),
+  );
   const harnessCounts = countByHarness(harnessProcesses);
   // claudeProcesses stays claude-only so existing callers keep their meaning.
   const claudeProcesses = harnessProcesses.filter((p: { harness: string }) => p.harness === 'claude');

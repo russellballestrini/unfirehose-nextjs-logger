@@ -321,6 +321,11 @@ export default function NodeDetailPage() {
   const [previewSession, setPreviewSession] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState('');
   const previewRef = useRef<HTMLPreElement>(null);
+  // A harness session's live tail — the JSONL a bare (non-tmux) agent is
+  // writing. Keyed on the file path, which the probe resolved per process.
+  const [tailPath, setTailPath] = useState<string | null>(null);
+  const [tailContent, setTailContent] = useState('');
+  const tailRef = useRef<HTMLPreElement>(null);
 
   // SSE connection for inline tmux preview (local or remote via SSH)
   useEffect(() => {
@@ -346,6 +351,30 @@ export default function NodeDetailPage() {
     connect();
     return () => { alive = false; es?.close(); };
   }, [previewSession, isLocal, host]);
+
+  // SSE connection for a harness session's live tail (local or over SSH).
+  // Separate from the tmux preview: a node can show a tmux pane and an
+  // agent's JSONL at once, and they key on different things.
+  useEffect(() => {
+    if (!tailPath) return;
+    setTailContent('');
+    let alive = true;
+    let es: EventSource;
+    const hostParam = !isLocal ? `&host=${encodeURIComponent(host)}` : '';
+    const connect = () => {
+      es = new EventSource(`/api/session/tail?path=${encodeURIComponent(tailPath)}${hostParam}`);
+      es.onmessage = (e) => {
+        try {
+          const atBottom = !tailRef.current || tailRef.current.scrollHeight - tailRef.current.scrollTop - tailRef.current.clientHeight < 60;
+          setTailContent(JSON.parse(e.data).content ?? '');
+          if (atBottom) requestAnimationFrame(() => { if (tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight; });
+        } catch { /* skip */ }
+      };
+      es.onerror = () => { es.close(); if (alive) setTimeout(connect, 2000); };
+    };
+    connect();
+    return () => { alive = false; es?.close(); };
+  }, [tailPath, isLocal, host]);
 
   const [sshEditing, setSshEditing] = useState(false);
   const [sshForm, setSshForm] = useState<{ name: string; hostname?: string; port?: string; user?: string; identityFile?: string; forwardAgent?: string }>({ name: host });
@@ -482,7 +511,7 @@ export default function NodeDetailPage() {
 
   // One bag rather than twenty-four props on each tab: these are the
   // page's state, and every tab reads some of it.
-  const tabProps = { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef };
+  const tabProps = { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, tailPath, setTailPath, tailContent, tailRef, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef };
 
   return (
     <div className="p-6 w-full">

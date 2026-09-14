@@ -477,7 +477,9 @@ describe('panels that need the hardware to exist', () => {
  * bar and to say plainly when a probe carried none.
  */
 describe('the containers tab', () => {
-  const startedAt = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  // A few seconds past 3h so wall-clock drift during the test never dips it
+  // under and re-rounds to "2 hours, 59 minutes".
+  const startedAt = new Date(Date.now() - (3 * 3_600_000 + 20_000)).toISOString();
   const resources = (over: Record<string, unknown> = {}) => ({
     cpuPct: 150, cpuQuota: 2, cpuset: '0-31', cpuThrottled: 0, cpuThrottledUsec: 0,
     memUsed: 663_195_648, memTotal: 700_000_000, memLimit: 4_294_967_296, memPeak: 792_817_664,

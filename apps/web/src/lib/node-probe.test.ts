@@ -3,6 +3,7 @@ import {
   parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseProcessTree, parseNvidiaGpu,
   parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseDockerState, attachDockerState, parseProbeOutput,
   parseCgroupStats, parsePsPpid, containerProcessTree, attachContainerResources,
+  parseHarnessSessions, resolveHarnessSession, attachHarnessSessions,
 } from './node-probe';
 
 /**
@@ -305,7 +306,7 @@ describe('parseDockerState', () => {
       '===SECTION:TMUX===', 'none',
       '===SECTION:END===',
     ].join('\n');
-    const out = parseProbeOutput(probe);
+    const out = parseProbeOutput(probe, 'guile');
     expect(out.containers[0]).toMatchObject({ name: 'open-webui', status: 'Up 4 weeks (healthy)', state: 'running', startedAt: '2026-08-20T18:03:22Z' });
   });
 });
@@ -573,5 +574,86 @@ describe('attachContainerResources', () => {
   it('leaves rows untouched when the probe carried no such sections', () => {
     const rows = [{ id: 'aaaaaaaaaaaa' }];
     expect(attachContainerResources(rows, new Map(), [])).toBe(rows);
+  });
+});
+
+/**
+ * Which session file a harness process is writing, tied from the host
+ * side: the cwd names the project dir, the file is the one born or written
+ * since the process started. A harness never holds the file open, so this
+ * is the only tie there is.
+ */
+describe('harness sessions', () => {
+  const CLAUDE = '/home/fox/.claude/projects/-home-fox-git-arborist';
+  const RAW = [
+    '9358|proc|1789379938|/home/fox/git/arborist',
+    `9358|file|1789396096|1789379940|${CLAUDE}/e79ed1ce-2af9-4184-ae1b-c5f4f7e07f9b.jsonl`,
+    `9358|file|1789351463|1789329647|${CLAUDE}/39e020df-a0df-42ce-8061-ed8e72e7a98e.jsonl`,
+    '1933745|proc|1789396050|/home/fox/git/arborist',
+    `1933745|file|1789396096|1789379940|${CLAUDE}/e79ed1ce-2af9-4184-ae1b-c5f4f7e07f9b.jsonl`,
+    '1940720|proc|1789396135|/home/fox/git/uncloseai-cli',
+    '1940720|file|1789396393|0|/home/fox/.uncloseai/unfirehose/home-fox-git-uncloseai-cli/d3dd7b3c-1e7b-406c-9556-4a5ae8b8f5a6.jsonl',
+    '1973159|proc|1789396338|/home/fox/git/arborist/bench/x',
+  ].join('\n');
+
+  it('reads each process with its start, cwd and candidate files', () => {
+    const m = parseHarnessSessions(RAW);
+    expect(m.size).toBe(4);
+    expect(m.get(9358)).toMatchObject({ start: 1789379938, cwd: '/home/fox/git/arborist' });
+    expect(m.get(9358)!.files).toHaveLength(2);
+    // Birth 0 is a filesystem that does not record it, not the epoch.
+    expect(m.get(1940720)!.files[0].birth).toBeNull();
+    expect(m.get(1973159)!.files).toEqual([]);
+  });
+
+  it('ties a process to the file born as it started', () => {
+    const s = resolveHarnessSession(parseHarnessSessions(RAW).get(9358)!)!;
+    expect(s).toEqual({
+      sessionId: 'e79ed1ce-2af9-4184-ae1b-c5f4f7e07f9b', project: '-home-fox-git-arborist', harness: 'claude-code',
+      path: `${CLAUDE}/e79ed1ce-2af9-4184-ae1b-c5f4f7e07f9b.jsonl`, matched: 'born',
+    });
+  });
+
+  it('gives a fork in the same cwd its parent\'s file, by the newest write since it started', () => {
+    const s = resolveHarnessSession(parseHarnessSessions(RAW).get(1933745)!, 'claude')!;
+    expect(s.sessionId).toBe('e79ed1ce-2af9-4184-ae1b-c5f4f7e07f9b');
+    expect(s.matched).toBe('written');
+  });
+
+  it('never ties a process to another harness\'s file', () => {
+    // unclose run from inside a claude session: same cwd, claude's file is
+    // the newest thing there, and nothing unclose says goes into it.
+    expect(resolveHarnessSession(parseHarnessSessions(RAW).get(1933745)!, 'uncloseai')).toBeNull();
+  });
+
+  it('names a native harness by its dotdir', () => {
+    const s = resolveHarnessSession(parseHarnessSessions(RAW).get(1940720)!)!;
+    expect(s).toMatchObject({ harness: 'uncloseai', project: 'home-fox-git-uncloseai-cli', sessionId: 'd3dd7b3c-1e7b-406c-9556-4a5ae8b8f5a6', matched: 'written' });
+  });
+
+  it('guesses the newest file, and says so, when nothing was written since the start', () => {
+    // A resumed session waiting at its prompt: the file predates the process.
+    const s = resolveHarnessSession({ start: 1789400000, cwd: '/x', files: [
+      { path: `${CLAUDE}/old.jsonl`, mtime: 1789390000, birth: 1789380000 },
+      { path: `${CLAUDE}/older.jsonl`, mtime: 1789300000, birth: null },
+    ] })!;
+    expect(s.sessionId).toBe('old');
+    expect(s.matched).toBe('nearest');
+  });
+
+  it('has nothing to say for a process whose files it cannot see', () => {
+    // unclose inside a container: its cwd and home are in another namespace.
+    expect(resolveHarnessSession(parseHarnessSessions(RAW).get(1973159)!)).toBeNull();
+  });
+
+  it('hangs the session on the matching harness process row and leaves the rest alone', () => {
+    const rows = [{ pid: 9358, harness: 'claude' }, { pid: 1973159, harness: 'uncloseai' }, { pid: 42, harness: 'claude' }, { pid: 1933745, harness: 'uncloseai' }];
+    const out = attachHarnessSessions(rows, parseHarnessSessions(RAW));
+    expect(out[0].session?.sessionId).toBe('e79ed1ce-2af9-4184-ae1b-c5f4f7e07f9b');
+    expect(out[0].cwd).toBe('/home/fox/git/arborist');
+    expect(out[1].session).toBeNull();
+    expect(out[2].session).toBeUndefined();
+    expect(out[3].session).toBeNull();
+    expect(attachHarnessSessions(rows, new Map())).toBe(rows);
   });
 });
