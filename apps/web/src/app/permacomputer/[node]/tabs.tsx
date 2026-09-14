@@ -335,13 +335,14 @@ export function ProcessesTab(props: TabProps) {
  * back to the ps Status verbatim.
  */
 export function containerStatus(c: {
-  status: string; state?: string; startedAt?: string | null; finishedAt?: string | null; exitCode?: number | null;
+  status?: string; state?: string; startedAt?: string | null; finishedAt?: string | null; exitCode?: number | null;
 }): { label: string; title?: string } {
   const at = (iso: string) => new Date(iso).toLocaleString([], {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   });
   // "(healthy)" / "(unhealthy)" / "(health: starting)" ride along on the ps line.
-  const health = c.status.match(/\((healthy|unhealthy|health: [^)]+)\)/)?.[0];
+  const status = c.status ?? '';
+  const health = status.match(/\((healthy|unhealthy|health: [^)]+)\)/)?.[0];
   // Whole seconds: two units of "3 hours, 573 milliseconds" is what ago
   // says when the minutes happen to be zero, and nobody wants it.
   if (c.state === 'running' && c.startedAt) {
@@ -352,7 +353,7 @@ export function containerStatus(c: {
     const code = c.exitCode != null ? ` (${c.exitCode})` : '';
     return { label: `${c.state}${code} ${human(c.finishedAt, { smallest: 'second' })}`, title: `stopped ${at(c.finishedAt)}` };
   }
-  return { label: c.status, title: c.startedAt ? `started ${at(c.startedAt)}` : undefined };
+  return { label: status || c.state || '', title: c.startedAt ? `started ${at(c.startedAt)}` : undefined };
 }
 
 /** The Overview tab: system, memory, disks and the node charts. */
@@ -607,7 +608,10 @@ export function OverviewTab(props: TabProps) {
               </span>
             }>
               <div className="space-y-2">
-                {probe.containers.map((c: any) => {
+                {[...probe.containers]
+                  .sort((a: any, b: any) => (b.resources?.cpuPct ?? -1) - (a.resources?.cpuPct ?? -1))
+                  .slice(0, 6)
+                  .map((c: any) => {
                   const { label, title } = containerStatus(c);
                   const r = c.resources;
                   return (
@@ -637,6 +641,11 @@ export function OverviewTab(props: TabProps) {
                   </div>
                   );
                 })}
+                {probe.containers.length > 6 && (
+                  <a href="#Containers" className="block text-xs font-mono text-[var(--color-accent)] hover:underline pt-1">
+                    and {probe.containers.length - 6} more — see Containers tab →
+                  </a>
+                )}
               </div>
             </Section>
           )}
@@ -1191,10 +1200,16 @@ export function ContainersTab(props: TabProps) {
   const raw = probe?.containers;
   const all: any[] = React.useMemo(() => Array.isArray(raw) ? raw : [], [raw]);
   const containers = React.useMemo(() => orderContainers(all), [all]);
-  // Collapsed trees, by id. Everything starts open: the tree is what the
-  // tab is for.
-  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
-  const toggle = (id: string) => setCollapsed((prev) => {
+  // A node can run hundreds of containers (cammy: ~395 LXD guests). Rows are
+  // collapsed by default -- opening one shows its bars, pressure, io and
+  // process tree. A search, a runtime filter and a sort keep the list
+  // navigable, and only a bounded slice renders until "show all" is asked.
+  const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const [query, setQuery] = React.useState('');
+  const [runtimeFilter, setRuntimeFilter] = React.useState('all');
+  const [sort, setSort] = React.useState<'cpu' | 'mem' | 'tasks' | 'name'>('cpu');
+  const [limit, setLimit] = React.useState(60);
+  const toggle = (id: string) => setExpanded((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
@@ -1204,6 +1219,34 @@ export function ContainersTab(props: TabProps) {
   const hostMemBytes: number = mem?.totalGB > 0 ? mem.totalGB * 1_073_741_824 : 0;
   const hasResources = all.some((c) => c.resources);
   const running = containers.filter((c) => c.state === 'running');
+
+  // Runtimes present, for the filter chips. docker is the unlabelled default.
+  const runtimeCounts = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of all) { const k = c.runtime || 'docker'; m.set(k, (m.get(k) ?? 0) + 1); }
+    return m;
+  }, [all]);
+
+  // Filter by runtime and free text, then sort -- running first always, then
+  // by the chosen key (cpu/mem/tasks desc, name asc). A container without live
+  // stats sorts below one that has them.
+  const filtered = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = containers;
+    if (runtimeFilter !== 'all') list = list.filter((c) => (c.runtime || 'docker') === runtimeFilter);
+    if (q) list = list.filter((c) =>
+      (c.name || '').toLowerCase().includes(q) ||
+      String(c.id).toLowerCase().includes(q) ||
+      (c.image || '').toLowerCase().includes(q) ||
+      (c.rootComm || '').toLowerCase().includes(q));
+    const val = (c: any) => sort === 'mem' ? (c.resources?.memUsed ?? -1)
+      : sort === 'tasks' ? (c.resources?.tasks ?? -1)
+      : (c.resources?.cpuPct ?? -1);
+    const rank = (c: any) => c.state === 'running' ? 0 : 1;
+    return [...list].sort((a, b) =>
+      rank(a) - rank(b) ||
+      (sort === 'name' ? String(a.name).localeCompare(String(b.name)) : val(b) - val(a)));
+  }, [containers, runtimeFilter, query, sort]);
 
   if (all.length === 0) {
     return (
@@ -1273,153 +1316,215 @@ export function ContainersTab(props: TabProps) {
         </Section>
       </div>
 
-      <div className="space-y-4">
-        {containers.map((c) => {
-          const r = c.resources ?? null;
-          const { label, title } = containerStatus(c);
-          const color = colorOf.get(c.id)!;
-          const procs: any[] = Array.isArray(c.processes) ? c.processes : [];
-          const isRunning = c.state === 'running';
-          // The ceiling a bar fills toward: the container's own limit when
-          // it has one, else the host. "of 2 cores (quota)" vs "of 32 cores".
-          const cpuCap = r?.cpuQuota ?? c.cpuLimit ?? null;
-          const cpuMaxPct = cpuCap ? cpuCap * 100 : hostCores ? hostCores * 100 : 100;
-          const memCap = r?.memLimit ?? c.memLimit ?? null;
-          const memMax = memCap ?? hostMemBytes ?? 0;
-          const taskCap = r?.tasksMax ?? c.pidsLimit ?? null;
-          const open = !collapsed.has(c.id);
-          return (
-            <div key={c.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)]" style={{ borderLeft: `3px solid ${color}` }}>
-              <div className="px-4 pt-3 pb-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold">{c.name}</span>
-                  {c.runtime && c.runtime !== 'docker' && (
-                    <Badge color="#60a5fa" title={`runtime: ${c.runtime}`}>{c.runtime}</Badge>
-                  )}
-                  <span className="text-xs text-[var(--color-muted)]" title={title}>{label}</span>
-                  {c.health && <Badge color={c.health === 'healthy' ? '#10b981' : c.health === 'unhealthy' ? '#ef4444' : '#eab308'}>{c.health}</Badge>}
-                  {c.oomKilled && <Badge color="#ef4444" title="The kernel killed this container for exceeding its memory limit">OOM killed</Badge>}
-                  {c.restartCount > 0 && <Badge color="#fb923c" title="Times the runtime restarted it">{c.restartCount} restart{c.restartCount === 1 ? '' : 's'}</Badge>}
-                  {r?.oomKills != null && r.oomKills > 0 && <Badge color="#ef4444" title="memory.events oom_kill">{r.oomKills} oom kill{r.oomKills === 1 ? '' : 's'}</Badge>}
-                  {r?.cpuThrottled != null && r.cpuThrottled > 0 && (
-                    <Badge color="#eab308" title={`cpu.stat: throttled ${r.cpuThrottled} periods, ${humanDelta((r.cpuThrottledUsec ?? 0) / 1000, { abbreviate: true })} in all`}>
-                      throttled ×{r.cpuThrottled}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[var(--color-muted)] font-mono mt-1">
-                  {c.image
-                    ? <span>{c.image}</span>
-                    : c.rootComm && <span title="root process — the runtime's own name lives behind the docker socket, which this node did not grant">runs {c.rootComm}</span>}
-                  <span title="container id">{String(c.id).slice(0, 12)}</span>
-                  {c.pid && <span title="the container's init, as our host numbers it">host pid {c.pid}</span>}
-                  {c.viaCgroup && <span title="Found through the cgroup filesystem, not the docker socket — our user is not in the docker group here, so name, image, ports, health and uptime are unavailable. Resources and processes are read straight from the kernel.">via cgroup</span>}
-                  {c.ports && <span>{c.ports}</span>}
-                  {(r?.cpuset ?? c.cpuset) && <span title="cpuset.cpus.effective">cpus {r?.cpuset ?? c.cpuset}</span>}
-                </div>
-              </div>
-
-              {isRunning && r && (
-                <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <ResourceBar
-                    label="CPU"
-                    pct={r.cpuPct == null ? null : r.cpuPct / cpuMaxPct * 100}
-                    value={r.cpuPct == null ? '—' : `${r.cpuPct.toFixed(1)}%`}
-                    ceiling={cpuCap ? `of ${cores(cpuCap)} (quota)` : hostCores ? `of ${cores(hostCores)}, no quota` : 'no quota'}
-                    thresholds={UTILISATION}
-                  />
-                  <ResourceBar
-                    label="Memory"
-                    pct={r.memUsed == null || !memMax ? null : r.memUsed / memMax * 100}
-                    value={r.memUsed == null ? '—' : formatBytes(r.memUsed)}
-                    ceiling={[
-                      memCap ? `of ${formatBytes(memCap)} limit` : hostMemBytes ? `of ${formatBytes(hostMemBytes)} host, no limit` : 'no limit',
-                      r.memPeak != null ? `peak ${formatBytes(r.memPeak)}` : '',
-                      r.swapUsed ? `swap ${formatBytes(r.swapUsed)}` : '',
-                    ].filter(Boolean).join(' · ')}
-                    thresholds={UTILISATION}
-                  />
-                  <ResourceBar
-                    label="Tasks"
-                    pct={r.tasks == null || !taskCap ? null : r.tasks / taskCap * 100}
-                    value={r.tasks == null ? '—' : `${r.tasks}`}
-                    ceiling={taskCap ? `of ${taskCap} pids.max` : `${procs.length} processes, no pids limit`}
-                    thresholds={UTILISATION}
-                  />
-                  <div className="sm:col-span-3 flex flex-wrap gap-x-6 gap-y-1 items-center">
-                    <Pressure psi={r.psi} />
-                    <span className="text-xs font-mono text-[var(--color-muted)]" title="io.stat, since the container started">
-                      io {r.ioRead == null ? '—' : `${formatBytes(r.ioRead)} read`} / {r.ioWrite == null ? '—' : `${formatBytes(r.ioWrite)} written`}
-                    </span>
-                    {r.memAnon != null && r.memFile != null && (
-                      <span className="text-xs font-mono text-[var(--color-muted)]" title="memory.stat anon / file">
-                        anon {formatBytes(r.memAnon)} · file {formatBytes(r.memFile)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {isRunning && r && (
-                <div className="border-t border-[var(--color-border)]">
-                  <button
-                    type="button"
-                    onClick={() => toggle(c.id)}
-                    className="w-full text-left px-4 py-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] font-mono"
-                  >
-                    {open ? '▾' : '▸'} {procs.length} process{procs.length === 1 ? '' : 'es'} · host pids
-                  </button>
-                  {open && procs.length > 0 && (
-                    <div className="overflow-x-auto px-4 pb-3">
-                      <table className="w-full text-xs font-mono whitespace-nowrap">
-                        <thead>
-                          <tr className="text-[var(--color-muted)] text-left">
-                            <th className="pb-1 pr-3 text-right">PID</th>
-                            <th className="pb-1 pr-3 text-right">PPID</th>
-                            <th className="pb-1 pr-3">USER</th>
-                            <th className="pb-1 pr-3 text-right">CPU%</th>
-                            <th className="pb-1 pr-3 text-right">MEM%</th>
-                            <th className="pb-1 pr-3 text-right">RSS</th>
-                            <th className="pb-1 pr-3 text-right">AGE</th>
-                            <th className="pb-1">CMD</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {procs.map((p: any) => (
-                            <tr key={p.pid} className="border-t border-[var(--color-border)]">
-                              <td className="py-0.5 pr-3 text-right">{p.pid}</td>
-                              <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.ppid}</td>
-                              <td className="py-0.5 pr-3 text-[var(--color-muted)]">{p.user}</td>
-                              <td className={`py-0.5 pr-3 text-right ${p.cpu > 50 ? 'text-[var(--color-error)]' : ''}`}>{p.cpu.toFixed(1)}</td>
-                              <td className="py-0.5 pr-3 text-right">{p.mem.toFixed(1)}</td>
-                              <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{formatBytes(p.rss * 1024)}</td>
-                              <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.elapsed == null ? '' : humanDelta(p.elapsed * 1000, { abbreviate: true, smallest: 'second' })}</td>
-                              <td className="py-0.5" style={{ paddingLeft: `${p.depth * 1.25}rem` }}>
-                                {p.depth > 0 && <span className="text-[var(--color-muted)]">└ </span>}
-                                <span>{p.cmd}</span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  {open && procs.length === 0 && (
-                    <div className="px-4 pb-3 text-xs text-[var(--color-muted)]">The cgroup lists no host pids ps could find.</div>
-                  )}
-                </div>
-              )}
-
-              {isRunning && !r && hasResources && (
-                <div className="px-4 pb-3 text-xs text-[var(--color-muted)]">No cgroup found for this container&apos;s root pid.</div>
-              )}
-              {!isRunning && c.exitCode != null && c.exitCode !== 0 && (
-                <div className="px-4 pb-3 text-xs text-[var(--color-error)]">exit code {c.exitCode}</div>
-              )}
-            </div>
-          );
-        })}
+      {/* Filter bar: search, runtime chips, sort. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setLimit(60); }}
+          placeholder={`Search ${all.length} containers…`}
+          className="flex-1 min-w-[180px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm font-mono focus:border-[var(--color-accent)] outline-none"
+        />
+        <div className="flex items-center gap-1 text-xs font-mono">
+          {['all', ...runtimeCounts.keys()].map((rt) => (
+            <button
+              key={rt}
+              type="button"
+              onClick={() => { setRuntimeFilter(rt); setLimit(60); }}
+              className={`px-2 py-1 rounded border ${runtimeFilter === rt
+                ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
+                : 'border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+            >
+              {rt}{rt !== 'all' && ` ${runtimeCounts.get(rt)}`}
+            </button>
+          ))}
+        </div>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as typeof sort)}
+          className="bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-xs font-mono outline-none"
+          title="Sort running containers by"
+        >
+          <option value="cpu">sort: CPU</option>
+          <option value="mem">sort: memory</option>
+          <option value="tasks">sort: tasks</option>
+          <option value="name">sort: name</option>
+        </select>
       </div>
+
+      {/* Compact table. A row expands to its bars, pressure, io and process tree. */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
+              <th className="py-1.5 pl-3 pr-2 w-5"></th>
+              <th className="py-1.5 pr-3">Container</th>
+              <th className="py-1.5 pr-3 hidden sm:table-cell">State</th>
+              <th className="py-1.5 pr-3 w-40">CPU</th>
+              <th className="py-1.5 pr-3 w-40">Memory</th>
+              <th className="py-1.5 pr-3 text-right hidden md:table-cell">Tasks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.slice(0, limit).map((c) => {
+              const r = c.resources ?? null;
+              const { label, title } = containerStatus(c);
+              const color = colorOf.get(c.id)!;
+              const procs: any[] = Array.isArray(c.processes) ? c.processes : [];
+              const isRunning = c.state === 'running';
+              const cpuCap = r?.cpuQuota ?? c.cpuLimit ?? null;
+              const cpuMaxPct = cpuCap ? cpuCap * 100 : hostCores ? hostCores * 100 : 100;
+              const memCap = r?.memLimit ?? c.memLimit ?? null;
+              const memMax = memCap ?? hostMemBytes ?? 0;
+              const taskCap = r?.tasksMax ?? c.pidsLimit ?? null;
+              const open = expanded.has(c.id);
+              const hurt = c.oomKilled || (r?.oomKills ?? 0) > 0 || (r?.cpuThrottled ?? 0) > 0;
+              return (
+                <React.Fragment key={c.id}>
+                  <tr
+                    onClick={() => toggle(c.id)}
+                    className="border-b border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-background)]/40"
+                    style={{ borderLeft: `3px solid ${isRunning ? color : 'transparent'}` }}
+                  >
+                    <td className="py-1.5 pl-3 pr-2 text-[var(--color-muted)] font-mono">{open ? '▾' : '▸'}</td>
+                    <td className="py-1.5 pr-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold">{c.name}</span>
+                        {c.runtime && c.runtime !== 'docker' && <Badge color="#60a5fa" title={`runtime: ${c.runtime}`}>{c.runtime}</Badge>}
+                        {c.health && <Badge color={c.health === 'healthy' ? '#10b981' : c.health === 'unhealthy' ? '#ef4444' : '#eab308'}>{c.health}</Badge>}
+                        {hurt && <Badge color="#ef4444" title="OOM killed, out-of-memory kills inside, or cpu throttling — expand for detail">!</Badge>}
+                        <span className="text-[10px] font-mono text-[var(--color-muted)]" title={c.image || (c.rootComm ? `runs ${c.rootComm}` : '')}>
+                          {c.image || (c.rootComm ? `runs ${c.rootComm}` : String(c.id).slice(0, 12))}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-1.5 pr-3 hidden sm:table-cell text-xs text-[var(--color-muted)]" title={title}>{label}</td>
+                    <td className="py-1.5 pr-3">
+                      {isRunning && r?.cpuPct != null ? (
+                        <div className="flex items-center gap-2">
+                          <GaugeTrack pct={r.cpuPct / cpuMaxPct * 100} thresholds={UTILISATION} className="flex-1 min-w-[40px]" />
+                          <span className="font-mono text-xs w-12 text-right shrink-0">{r.cpuPct.toFixed(1)}%</span>
+                        </div>
+                      ) : <span className="text-xs text-[var(--color-muted)]">—</span>}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      {isRunning && r?.memUsed != null ? (
+                        <div className="flex items-center gap-2">
+                          <GaugeTrack pct={memMax ? r.memUsed / memMax * 100 : 0} thresholds={UTILISATION} className="flex-1 min-w-[40px]" />
+                          <span className="font-mono text-xs w-16 text-right shrink-0">{formatBytes(r.memUsed)}</span>
+                        </div>
+                      ) : <span className="text-xs text-[var(--color-muted)]">—</span>}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right font-mono text-xs hidden md:table-cell">{r?.tasks ?? (isRunning ? '' : '—')}</td>
+                  </tr>
+                  {open && (
+                    <tr className="border-b border-[var(--color-border)] bg-[var(--color-background)]/30">
+                      <td></td>
+                      <td colSpan={5} className="py-3 pr-4">
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[var(--color-muted)] font-mono mb-3">
+                          <span title="container id">{String(c.id).slice(0, 12)}</span>
+                          {c.pid ? <span title="the container's init, as our host numbers it">host pid {c.pid}</span> : null}
+                          {c.viaCgroup && <span title="Found through the cgroup filesystem, not the docker socket — name, image, ports, health and uptime are unavailable. Resources and processes are read straight from the kernel.">via cgroup</span>}
+                          {c.ports && <span>{c.ports}</span>}
+                          {(r?.cpuset ?? c.cpuset) && <span title="cpuset.cpus.effective">cpus {r?.cpuset ?? c.cpuset}</span>}
+                          {c.oomKilled && <span className="text-[var(--color-error)]">OOM killed</span>}
+                          {c.restartCount > 0 && <span className="text-[#fb923c]">{c.restartCount} restart{c.restartCount === 1 ? '' : 's'}</span>}
+                          {r?.oomKills != null && r.oomKills > 0 && <span className="text-[var(--color-error)]" title="memory.events oom_kill">{r.oomKills} oom kill{r.oomKills === 1 ? '' : 's'}</span>}
+                          {r?.cpuThrottled != null && r.cpuThrottled > 0 && <span className="text-[#eab308]" title={`cpu.stat: ${r.cpuThrottled} periods throttled, ${humanDelta((r.cpuThrottledUsec ?? 0) / 1000, { abbreviate: true })} in all`}>throttled ×{r.cpuThrottled}</span>}
+                          {!isRunning && c.exitCode != null && c.exitCode !== 0 && <span className="text-[var(--color-error)]">exit code {c.exitCode}</span>}
+                        </div>
+
+                        {isRunning && r ? (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                              <ResourceBar label="CPU" pct={r.cpuPct == null ? null : r.cpuPct / cpuMaxPct * 100}
+                                value={r.cpuPct == null ? '—' : `${r.cpuPct.toFixed(1)}%`}
+                                ceiling={cpuCap ? `of ${cores(cpuCap)} (quota)` : hostCores ? `of ${cores(hostCores)}, no quota` : 'no quota'} thresholds={UTILISATION} />
+                              <ResourceBar label="Memory" pct={r.memUsed == null || !memMax ? null : r.memUsed / memMax * 100}
+                                value={r.memUsed == null ? '—' : formatBytes(r.memUsed)}
+                                ceiling={[
+                                  memCap ? `of ${formatBytes(memCap)} limit` : hostMemBytes ? `of ${formatBytes(hostMemBytes)} host, no limit` : 'no limit',
+                                  r.memPeak != null ? `peak ${formatBytes(r.memPeak)}` : '',
+                                  r.swapUsed ? `swap ${formatBytes(r.swapUsed)}` : '',
+                                ].filter(Boolean).join(' · ')} thresholds={UTILISATION} />
+                              <ResourceBar label="Tasks" pct={r.tasks == null || !taskCap ? null : r.tasks / taskCap * 100}
+                                value={r.tasks == null ? '—' : `${r.tasks}`}
+                                ceiling={taskCap ? `of ${taskCap} pids.max` : `${procs.length} processes, no pids limit`} thresholds={UTILISATION} />
+                            </div>
+                            <div className="flex flex-wrap gap-x-6 gap-y-1 items-center mt-2">
+                              <Pressure psi={r.psi} />
+                              <span className="text-xs font-mono text-[var(--color-muted)]" title="io.stat, since the container started">
+                                io {r.ioRead == null ? '—' : `${formatBytes(r.ioRead)} read`} / {r.ioWrite == null ? '—' : `${formatBytes(r.ioWrite)} written`}
+                              </span>
+                              {r.memAnon != null && r.memFile != null && (
+                                <span className="text-xs font-mono text-[var(--color-muted)]" title="memory.stat anon / file">anon {formatBytes(r.memAnon)} · file {formatBytes(r.memFile)}</span>
+                              )}
+                            </div>
+                            <div className="overflow-x-auto mt-3">
+                              <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] mb-1">{procs.length} process{procs.length === 1 ? '' : 'es'} · host pids</div>
+                              {procs.length > 0 ? (
+                                <table className="w-full text-xs font-mono whitespace-nowrap">
+                                  <thead>
+                                    <tr className="text-[var(--color-muted)] text-left">
+                                      <th className="pb-1 pr-3 text-right">PID</th>
+                                      <th className="pb-1 pr-3 text-right">PPID</th>
+                                      <th className="pb-1 pr-3">USER</th>
+                                      <th className="pb-1 pr-3 text-right">CPU%</th>
+                                      <th className="pb-1 pr-3 text-right">MEM%</th>
+                                      <th className="pb-1 pr-3 text-right">RSS</th>
+                                      <th className="pb-1 pr-3 text-right">AGE</th>
+                                      <th className="pb-1">CMD</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {procs.map((p: any) => (
+                                      <tr key={p.pid} className="border-t border-[var(--color-border)]">
+                                        <td className="py-0.5 pr-3 text-right">{p.pid}</td>
+                                        <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.ppid}</td>
+                                        <td className="py-0.5 pr-3 text-[var(--color-muted)]">{p.user}</td>
+                                        <td className={`py-0.5 pr-3 text-right ${p.cpu > 50 ? 'text-[var(--color-error)]' : ''}`}>{p.cpu.toFixed(1)}</td>
+                                        <td className="py-0.5 pr-3 text-right">{p.mem.toFixed(1)}</td>
+                                        <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{formatBytes(p.rss * 1024)}</td>
+                                        <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.elapsed == null ? '' : humanDelta(p.elapsed * 1000, { abbreviate: true, smallest: 'second' })}</td>
+                                        <td className="py-0.5" style={{ paddingLeft: `${p.depth * 1.25}rem` }}>
+                                          {p.depth > 0 && <span className="text-[var(--color-muted)]">└ </span>}
+                                          <span>{p.cmd}</span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              ) : <div className="text-xs text-[var(--color-muted)]">The cgroup lists no host pids ps could find.</div>}
+                            </div>
+                          </>
+                        ) : isRunning && hasResources ? (
+                          <div className="text-xs text-[var(--color-muted)]">Live resources were not computed for this container (beyond the per-probe stats cap). Its state, runtime and id are above.</div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {filtered.length > limit ? (
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={() => setLimit((n) => n + 200)}
+            className="text-xs font-mono text-[var(--color-accent)] hover:underline"
+          >
+            showing {limit} of {filtered.length} — show more
+          </button>
+        </div>
+      ) : (
+        <div className="text-center text-xs text-[var(--color-muted)] font-mono">
+          {filtered.length === all.length ? `${filtered.length} containers` : `${filtered.length} of ${all.length} match`}
+        </div>
+      )}
     </div>
   );
 }

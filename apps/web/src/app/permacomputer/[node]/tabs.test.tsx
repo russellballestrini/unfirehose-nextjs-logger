@@ -514,35 +514,49 @@ describe('the containers tab', () => {
     resources: null, processes: [],
   };
   const withContainers = (containers: unknown[]) => bag({ probe: { ...bag().probe, containers } });
+  // A container is one clickable row; its detail (bars, tree, badges) lives in
+  // a row that appears when it is expanded. Find the row by name and click it.
+  const expand = (container: HTMLElement, name: string) => {
+    const row = Array.from(container.querySelectorAll('tr')).find(
+      (r) => r.className.includes('cursor-pointer') && r.textContent?.includes(name),
+    )!;
+    act(() => { fireEvent.click(row); });
+    return row;
+  };
 
   it('says so when the node has none', () => {
     const { container } = render(<ContainersTab {...withContainers([])} />);
     expect(container.textContent).toContain('No containers on this node');
   });
 
-  it('shows each container with its state, image, host pid and health', () => {
+  it('shows each container in one row, its detail when expanded', () => {
     const { container } = render(<ContainersTab {...withContainers([web, old])} />);
-    const t = container.textContent!;
-    expect(t).toContain('open-webui');
-    expect(t).toMatch(/up 3 hours(, \d+ seconds)? \(healthy\)/);
-    expect(t).toContain('ghcr.io/open-webui:0.6');
-    expect(t).toContain('host pid 8354');
-    expect(t).toContain('healthy');
-    expect(t).toContain('1 running · 1 exited');
-    expect(t).toContain('exit code 1');
+    // Collapsed: name, health, image hint and the summary tile are all up front.
+    const t0 = container.textContent!;
+    expect(t0).toContain('open-webui');
+    expect(t0).toContain('ghcr.io/open-webui:0.6');
+    expect(t0).toContain('healthy');
+    expect(t0).toContain('1 running · 1 exited');
+    // Detail is behind the row.
+    expect(t0).not.toContain('host pid 8354');
+    expand(container, 'open-webui');
+    expect(container.textContent).toContain('host pid 8354');
+    expect(container.textContent).toMatch(/up 3 hours(, \d+ seconds)? \(healthy\)/);
+    expand(container, 'permissions');
+    expect(container.textContent).toContain('exit code 1');
   });
 
   it('measures cpu against the quota and memory against the limit', () => {
     const { container } = render(<ContainersTab {...withContainers([web])} />);
+    expand(container, 'open-webui');
     const t = container.textContent!;
     expect(t).toContain('150.0%');
     expect(t).toContain('of 2 cores (quota)');
     expect(t).toContain('632.5 MB');
     expect(t).toContain('of 4.0 GB limit');
     expect(t).toContain('peak 756.1 MB');
-    expect(t).toContain('72');
     expect(t).toContain('no pids limit');
-    // 150% of a 200% ceiling is a three-quarter bar.
+    // 150% of a 200% ceiling is a three-quarter bar (the detail's CPU bar).
     const fills = Array.from(container.querySelectorAll('div.h-full')) as HTMLElement[];
     expect(fills.map((f) => f.style.width)).toContain('75%');
   });
@@ -550,6 +564,7 @@ describe('the containers tab', () => {
   it('falls back to the host when a container has no limit of its own', () => {
     const free = { ...web, cpuLimit: null, memLimit: null, resources: resources({ cpuQuota: null, memLimit: null }) };
     const { container } = render(<ContainersTab {...withContainers([free])} />);
+    expand(container, 'open-webui');
     const t = container.textContent!;
     expect(t).toContain('of 32 cores, no quota');
     expect(t).toContain('of 377.8 GB host, no limit');
@@ -557,7 +572,13 @@ describe('the containers tab', () => {
 
   it('lists the process tree under a running container in host pids, nested', () => {
     const { container } = render(<ContainersTab {...withContainers([web])} />);
-    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    expand(container, 'open-webui');
+    // The process table is the one whose header carries a PID column.
+    const procTable = Array.from(container.querySelectorAll('table')).find(
+      (tbl) => tbl.querySelector('thead')?.textContent?.includes('PID'),
+    )!;
+    // Data rows only -- a pid in the first cell (jsdom folds the header tr in).
+    const rows = Array.from(procTable.querySelectorAll('tbody tr')).filter((r) => /^\d/.test(r.textContent || ''));
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain('8354');
     expect(rows[0].textContent).toContain('uvicorn');
@@ -566,23 +587,59 @@ describe('the containers tab', () => {
     expect((rows[1].querySelector('td:last-child') as HTMLElement).style.paddingLeft).toBe('1.25rem');
   });
 
-  it('folds a tree away and back on its header', () => {
+  it('folds a container open and shut on its row', () => {
     const { container } = render(<ContainersTab {...withContainers([web])} />);
-    const header = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('2 processes'))!;
-    act(() => { fireEvent.click(header); });
-    expect(container.querySelectorAll('tbody tr')).toHaveLength(0);
-    act(() => { fireEvent.click(header); });
-    expect(container.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(container.textContent).not.toContain('host pid 8354');
+    expand(container, 'open-webui');
+    expect(container.textContent).toContain('host pid 8354');
+    expand(container, 'open-webui');
+    expect(container.textContent).not.toContain('host pid 8354');
   });
 
-  it('flags OOM kills, restarts and cpu throttling on the line', () => {
+  it('flags a hurt container in its row and details it when expanded', () => {
     const hurt = { ...web, oomKilled: true, restartCount: 3, resources: resources({ cpuThrottled: 127, cpuThrottledUsec: 3_221_717, psi: { cpu: 30, memory: 6, io: 0 } }) };
     const { container } = render(<ContainersTab {...withContainers([hurt])} />);
+    expand(container, 'open-webui');
     const t = container.textContent!;
     expect(t).toContain('OOM killed');
     expect(t).toContain('3 restarts');
     expect(t).toContain('throttled ×127');
     expect(t).toContain('cpu 30.00%');
+  });
+
+  it('filters by search and by runtime', () => {
+    const lxc = { id: 'x', name: 'rhodecode-01', runtime: 'lxc', status: 'running', state: 'running', startedAt, resources: resources(), processes: [] };
+    const { container } = render(<ContainersTab {...withContainers([web, lxc])} />);
+    expect(container.textContent).toContain('open-webui');
+    expect(container.textContent).toContain('rhodecode-01');
+    // The aggregate donuts stay unfiltered by design, so scope to the table.
+    const tableText = () => Array.from(container.querySelectorAll('table'))
+      .find((t) => t.querySelector('thead')?.textContent?.includes('Container'))!.textContent!;
+    const search = container.querySelector('input[type="text"]') as HTMLInputElement;
+    act(() => { fireEvent.change(search, { target: { value: 'rhode' } }); });
+    expect(tableText()).toContain('rhodecode-01');
+    expect(tableText()).not.toContain('open-webui');
+    // The runtime chip narrows to lxc.
+    act(() => { fireEvent.change(search, { target: { value: '' } }); });
+    const chip = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'lxc 1')!;
+    act(() => { fireEvent.click(chip); });
+    expect(tableText()).not.toContain('open-webui');
+    expect(tableText()).toContain('rhodecode-01');
+  });
+
+  it('renders a bounded slice of a huge list, with a show-more', () => {
+    const many = Array.from({ length: 90 }, (_, i) => ({
+      id: `c${i}`, name: `svc-${i}`, status: 'running', state: 'running', startedAt,
+      resources: resources({ cpuPct: i }), processes: [],
+    }));
+    const { container } = render(<ContainersTab {...withContainers(many)} />);
+    expect(container.textContent).toContain('showing 60 of 90 — show more');
+    // Sorted by cpu desc, so the hottest (svc-89) is present, the coldest not.
+    expect(container.textContent).toContain('svc-89');
+    expect(container.textContent).not.toContain('svc-0 ');
+    const more = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('show more'))!;
+    act(() => { fireEvent.click(more); });
+    expect(container.textContent).toContain('90 containers');
   });
 
   it('says the kernel side is missing rather than drawing empty bars', () => {
