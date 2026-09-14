@@ -43,11 +43,11 @@ COPY apps/extension/package.json apps/extension/
 RUN npm ci
 
 COPY . .
-# Next traces the server into apps/web/.next/standalone (output: 'standalone'
-# with the workspace root as the tracing root, so the @unturf/* packages and
-# the hoisted node_modules come along). Build from the app dir: turbo's
-# --filter cannot find the package here, a known wart of this monorepo.
-RUN cd apps/web && npx next build
+# NEXT_STANDALONE turns on output:'standalone' and its monorepo-root file
+# tracing — gated so it never changes a local `next dev`/`next build`. Build
+# from the app dir: turbo's --filter cannot find the package here, a known
+# wart of this monorepo.
+RUN cd apps/web && NEXT_STANDALONE=1 npx next build
 
 # --- runtime ------------------------------------------------------
 FROM node:24-alpine
