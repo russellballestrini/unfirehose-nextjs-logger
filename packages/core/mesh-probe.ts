@@ -54,6 +54,9 @@ export interface MeshNode {
   kind?: 'compute' | 'hypervisor' | 'network';
   /** Guests on a hypervisor. */
   vms?: number;
+  /** Containers the runtime lists, stopped ones included, and how many run. Absent without a runtime. */
+  containers?: number;
+  containersRunning?: number;
   /** Vendor's model/board name where the OS says one (RouterOS, ESXi, macOS). */
   model?: string;
   /** The probe script was cut before END; fields after the cut are blank. */

@@ -28,6 +28,9 @@ export interface NodeVitals {
   swapUsedGB: number;
   uptime?: string;
   agents: number;
+  /** Containers the node's runtime lists, and how many of them run. 0/0 without a runtime. */
+  containers: number;
+  containersRunning: number;
   /** "3 claude, 1 codex" — empty when nothing is running. */
   agentLabel: string;
   /** compute (the default), a hypervisor, or network gear carrying the edges. */
@@ -110,6 +113,8 @@ export function nodeVitals(node: any, sshHost?: { name?: string; hostname?: stri
     swapUsedGB: node?.swapUsedGB ?? 0,
     uptime: node?.uptime,
     agents: fromCounts || (node?.claudeProcesses ?? 0),
+    containers: node?.containers ?? 0,
+    containersRunning: node?.containersRunning ?? 0,
     kind: node?.kind === 'network' || node?.kind === 'hypervisor' ? node.kind : 'compute',
     // A Linux says nothing here; anything else names itself, since the
     // OS is the surprising fact about a BSD, a Solaris or a switch.

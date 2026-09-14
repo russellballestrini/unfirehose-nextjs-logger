@@ -406,6 +406,14 @@ describe('every userland comes out as a node', () => {
     const esx = parseWireProbe('h', wire(FIXTURES.esxi!));
     expect(esx.kind).toBe('hypervisor');
     expect(esx.vms).toBe(7);
+
+    // Containers ride the wire as two counts; a node without a runtime says
+    // nothing, and the card must be able to tell that from zero of them.
+    const docked = parseWireProbe('h', 'uf=1\nos=Linux\nuserland=linux-gnu\nnproc=4\ncontainers=4\ncontainers_running=3\nuf_end=1\n');
+    expect(docked.containers).toBe(4);
+    expect(docked.containersRunning).toBe(3);
+    const bare = parseWireProbe('h', 'uf=1\nos=Linux\nuserland=linux-gnu\nnproc=4\nuf_end=1\n');
+    expect(bare.containers).toBeUndefined();
     expect(esx.memTotalGB).toBe(64);
     expect(esx.spinningDisks).toBe(1);
     expect(esx.loadAvg).toEqual([0.12, 0.1, 0.08]);   // busybox uptime's own line

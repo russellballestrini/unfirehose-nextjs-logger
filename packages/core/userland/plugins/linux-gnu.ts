@@ -48,6 +48,14 @@ export const LinuxGnu: Userland = {
 
   ps aux 2>/dev/null | hprocs
 
+  # Containers, counted from one ps: the card shows running/total and links
+  # to the node's Containers tab. A dead daemon makes the CLI wait; bound it.
+  if have docker; then
+    c=\`{ have timeout && timeout 5 docker ps -a --format '{{.State}}' || docker ps -a --format '{{.State}}'; } 2>/dev/null | awk '{t++} $1=="running"{r++} END{print t+0, r+0}'\`
+    kv containers "\`echo "$c" | cut -d' ' -f1\`"
+    kv containers_running "\`echo "$c" | cut -d' ' -f2\`"
+  fi
+
   # Intel RAPL: two energy readings a known interval apart. Old sleep
   # cannot do fractions; report which interval we actually got.
   e0=/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj

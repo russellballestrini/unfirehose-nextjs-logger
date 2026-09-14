@@ -378,12 +378,39 @@ function NodeCardGauges({ v }: { v: NodeVitals }) {
   );
 }
 
+/**
+ * The containers a node runs, as a way into its Containers tab. The card is
+ * itself a link to the node's Overview, and an anchor cannot nest in an
+ * anchor, so this is a button that navigates -- the same shape as the hide
+ * control in the header.
+ */
+function NodeCardContainers({ v }: { v: NodeVitals }) {
+  const router = useRouter();
+  if (!(v.containers > 0)) return null;
+  const idle = v.containersRunning === 0;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        router.push(`/permacomputer/${encodeURIComponent(v.probeHost)}#Containers`);
+      }}
+      title={`${v.containersRunning} running of ${v.containers} — open the Containers tab`}
+      className={`px-1.5 py-0.5 rounded font-mono hover:underline ${idle ? 'text-[var(--color-muted)] bg-[var(--color-border)]/40' : 'text-emerald-400 bg-emerald-400/10'}`}
+    >
+      {v.containersRunning}/{v.containers} container{v.containers !== 1 ? 's' : ''}
+    </button>
+  );
+}
+
 /** Where the machine is and who carries its traffic. */
 function NodeCardPlace({ v, econ, geoip }: { v: NodeVitals; econ: NodeEcon; geoip?: any }) {
   const provider = PROVIDERS.find((p) => p.value === econ.provider)?.label ?? econ.provider;
   return (
     <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] flex-wrap">
       <span>{v.cpuCores} cores</span>
+      <NodeCardContainers v={v} />
       {v.swapUsedGB > 0 && <span className="text-yellow-400">swap {v.swapUsedGB}G</span>}
       {v.uptime && <span>up {v.uptime}</span>}
       {geoip?.city

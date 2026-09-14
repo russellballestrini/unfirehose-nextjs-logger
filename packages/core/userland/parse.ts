@@ -316,6 +316,8 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
     gpuUtil, arch, powerSource,
     os: kv.os || undefined, osRelease: kv.osrel || undefined, userland: kv.userland || undefined,
     kind, vms: kv.vms ? parseInt(kv.vms) || 0 : undefined, model: kv.model || undefined,
+    containers: kv.containers !== undefined ? parseInt(kv.containers) || 0 : undefined,
+    containersRunning: kv.containers_running !== undefined ? parseInt(kv.containers_running) || 0 : undefined,
     truncated: !w.complete || undefined,
   };
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, fireEvent } from '@testing-library/react';
+import { useRouter } from 'next/navigation';
 import {
   MeshSummaryBar, NodeCard, UnsandboxProbeBody, UnsandboxServiceBody,
   UnsandboxNodeCard, FleetMetricsChart, FleetMetricsPanel, MeshEconomicsPanel, UnsandboxPanel, AddNodeButton,
@@ -15,7 +16,7 @@ import {
  */
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }), useParams: () => ({}),
+  useRouter: vi.fn(() => ({ push: vi.fn() })), useParams: () => ({}),
   usePathname: () => '/permacomputer', useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -80,6 +81,23 @@ describe('mesh panels', () => {
     );
     expect(container.textContent).toContain('cammy');
     expect(container.textContent).toContain('Breezeline');
+  });
+
+  it('offers the Containers tab from the card when the node runs any', () => {
+    const push = vi.fn();
+    vi.mocked(useRouter).mockReturnValue({ push } as never);
+    const { container } = render(
+      <NodeCard node={{ ...node, containers: 4, containersRunning: 3 }} sshHost={{ name: 'guile', hostname: 'guile.foxhop.net' }} econ={econ} />,
+    );
+    const pill = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === '3/4 containers')!;
+    expect(pill).toBeTruthy();
+    act(() => { fireEvent.click(pill); });
+    expect(push).toHaveBeenCalledWith('/permacomputer/guile.foxhop.net#Containers');
+  });
+
+  it('says nothing about containers on a node without a runtime', () => {
+    const { container } = render(<NodeCard node={node} econ={econ} />);
+    expect(container.textContent).not.toContain('container');
   });
 
   it('renders a node card for one that did not', () => {
