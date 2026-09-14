@@ -606,6 +606,21 @@ describe('harness sessions', () => {
     expect(m.get(1973159)!.files).toEqual([]);
   });
 
+  it('prefers the id-named file the command line resumes, at any age or slug', () => {
+    // unclose --resume <id>: the probe emits it as `idfile`, even though it
+    // predates the process by days and lives in a different slug dir than cwd.
+    const OLD = '/home/fox/.uncloseai/unfirehose/home-fox-git-arborist/51149aa4-d945-46fd-8aae-fd4967172650.jsonl';
+    const raw = [
+      '2100|proc|1789396000|/home/fox/git/arborist/bench/workspace',
+      `2100|idfile|1788000000|1787990000|${OLD}`,
+      '2100|file|1789396500|1789396400|/home/fox/.uncloseai/unfirehose/home-fox-git-arborist-bench-workspace/aaaa1111-2222-3333-4444-555566667777.jsonl',
+    ].join('\n');
+    const s = resolveHarnessSession(parseHarnessSessions(raw).get(2100)!, 'uncloseai')!;
+    expect(s.sessionId).toBe('51149aa4-d945-46fd-8aae-fd4967172650');
+    expect(s.matched).toBe('named');
+    expect(s.path).toBe(OLD);
+  });
+
   it('ties a process to the file born as it started', () => {
     const s = resolveHarnessSession(parseHarnessSessions(RAW).get(9358)!)!;
     expect(s).toEqual({

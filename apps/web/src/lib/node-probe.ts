@@ -564,10 +564,10 @@ export interface HarnessSession {
    * since the process started; `nearest` -- nothing written since it
    * started (a resumed session at its prompt), so the newest file at all.
    */
-  matched: 'born' | 'written' | 'nearest';
+  matched: 'named' | 'born' | 'written' | 'nearest';
 }
 
-interface HarnessSessionCandidate { path: string; mtime: number; birth: number | null }
+interface HarnessSessionCandidate { path: string; mtime: number; birth: number | null; authoritative?: boolean }
 interface HarnessSessionProc { start: number; cwd: string; files: HarnessSessionCandidate[] }
 
 /**
@@ -583,7 +583,7 @@ export function parseHarnessSessions(raw: string): Map<number, HarnessSessionPro
     if (!Number.isFinite(pid) || parts.length < 3) continue;
     if (parts[1] === 'proc') {
       out.set(pid, { start: parseInt(parts[2] ?? '') || 0, cwd: parts.slice(3).join('|'), files: [] });
-    } else if (parts[1] === 'file' && parts.length >= 5) {
+    } else if ((parts[1] === 'file' || parts[1] === 'idfile') && parts.length >= 5) {
       const p = out.get(pid);
       if (!p) continue;
       const birth = parseInt(parts[3] ?? '');
@@ -592,6 +592,9 @@ export function parseHarnessSessions(raw: string): Map<number, HarnessSessionPro
         mtime: parseInt(parts[2] ?? '') || 0,
         // stat prints 0 (or "-") for a filesystem that does not record birth.
         birth: Number.isFinite(birth) && birth > 0 ? birth : null,
+        // An idfile is the file the command line resumes by id -- the tie is
+        // exact, not inferred, so it wins over every heuristic below.
+        authoritative: parts[1] === 'idfile',
       });
     }
   }
@@ -623,6 +626,12 @@ export function resolveHarnessSession(p: HarnessSessionProc, harness?: string): 
     return h === harness || (h === 'claude-code' && harness === 'claude');
   }) : p.files;
   if (own.length === 0) return null;
+  // The command line named this session by id: exact, not inferred.
+  const named = own.filter((f) => f.authoritative).sort((a, b) => b.mtime - a.mtime)[0];
+  if (named) {
+    const id = sessionFromPath(named.path);
+    if (id) return { ...id, path: named.path, matched: 'named' };
+  }
   const byMtimeDesc = [...own].sort((a, b) => b.mtime - a.mtime);
   const born = own
     .filter((f) => f.birth !== null && f.birth >= p.start - 5 && f.birth <= p.start + 60)

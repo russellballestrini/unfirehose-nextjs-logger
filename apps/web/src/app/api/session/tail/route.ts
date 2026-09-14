@@ -133,6 +133,7 @@ export async function GET(request: NextRequest) {
     async start(controller) {
       let closed = false;
       let last = '';
+      let sentAny = false;
       const send = (data: object) => {
         if (closed) return;
         try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); }
@@ -143,9 +144,19 @@ export async function GET(request: NextRequest) {
         if (closed) return;
         try {
           const content = await snapshot(host, filePath, lines);
-          // Only resend when it changed; a session at rest costs one poll,
-          // not a repaint.
-          if (content !== last) { last = content; send({ type: 'tail', content }); }
+          // A poll can momentarily read nothing -- the file is being rewritten,
+          // an ssh tail timed out, the read raced a truncate. That is not the
+          // session going empty, and pushing '' would blank a good tail and
+          // flash "Connecting" on every viewer. So an empty read never
+          // overwrites a tail we have already shown; we send '' only once, up
+          // front, so the client can say "no output yet" instead of hanging on
+          // "Connecting". A real new line always arrives as non-empty and
+          // replaces it.
+          if (content) {
+            if (content !== last) { last = content; sentAny = true; send({ type: 'tail', content }); }
+          } else if (!sentAny) {
+            sentAny = true; send({ type: 'tail', content: '' });
+          }
         } catch { /* leave the last snapshot up */ }
       };
 

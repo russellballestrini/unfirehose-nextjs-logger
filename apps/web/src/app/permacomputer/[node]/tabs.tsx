@@ -896,6 +896,7 @@ export function HarnessesTab(props: TabProps) {
     tailPath,
     setTailPath,
     tailContent,
+    tailReady,
     tailRef,
   } = props;
       // tmuxData comes from /api/tmux/stream (with host param for remote)
@@ -1044,7 +1045,7 @@ export function HarnessesTab(props: TabProps) {
                         ref={tailRef}
                         onClick={(e) => e.stopPropagation()}
                         className="mt-3 bg-[#0d0d0d] rounded border border-[var(--color-border)] p-3 overflow-auto max-h-[60vh] font-mono text-xs leading-relaxed text-[#d4d4d4] whitespace-pre-wrap break-words"
-                      >{tailContent || 'Connecting…'}</pre>
+                      >{!tailReady ? 'Connecting…' : (tailContent || 'No output in this session yet.')}</pre>
                     )}
                   </div>
                   );

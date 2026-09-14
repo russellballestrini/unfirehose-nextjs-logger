@@ -325,6 +325,10 @@ export default function NodeDetailPage() {
   // writing. Keyed on the file path, which the probe resolved per process.
   const [tailPath, setTailPath] = useState<string | null>(null);
   const [tailContent, setTailContent] = useState('');
+  // Whether a frame has arrived for the current tail. "Connecting" shows only
+  // before the first frame; after that the last content stays put, even across
+  // a reconnect, so the pane never flashes back to "Connecting".
+  const [tailReady, setTailReady] = useState(false);
   const tailRef = useRef<HTMLPreElement>(null);
 
   // SSE connection for inline tmux preview (local or remote via SSH)
@@ -358,6 +362,7 @@ export default function NodeDetailPage() {
   useEffect(() => {
     if (!tailPath) return;
     setTailContent('');
+    setTailReady(false);
     let alive = true;
     let es: EventSource;
     const hostParam = !isLocal ? `&host=${encodeURIComponent(host)}` : '';
@@ -365,11 +370,17 @@ export default function NodeDetailPage() {
       es = new EventSource(`/api/session/tail?path=${encodeURIComponent(tailPath)}${hostParam}`);
       es.onmessage = (e) => {
         try {
+          const next = JSON.parse(e.data).content ?? '';
           const atBottom = !tailRef.current || tailRef.current.scrollHeight - tailRef.current.scrollTop - tailRef.current.clientHeight < 60;
-          setTailContent(JSON.parse(e.data).content ?? '');
+          setTailReady(true);
+          // The server never sends '' over a tail it already showed, so an
+          // empty here is only the genuine "nothing yet" frame.
+          setTailContent(next);
           if (atBottom) requestAnimationFrame(() => { if (tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight; });
         } catch { /* skip */ }
       };
+      // A dropped connection keeps the last tail on screen and quietly
+      // reconnects -- no clear, no "Connecting" flash.
       es.onerror = () => { es.close(); if (alive) setTimeout(connect, 2000); };
     };
     connect();
@@ -511,7 +522,7 @@ export default function NodeDetailPage() {
 
   // One bag rather than twenty-four props on each tab: these are the
   // page's state, and every tab reads some of it.
-  const tabProps = { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, tailPath, setTailPath, tailContent, tailRef, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef };
+  const tabProps = { applyZoom, bootFilter, bootHarness, bootHost, bootStatuses, chartData, chartDataRef, closestRangeForZoom, diskOverride, host, hoverTimerRef, isLocal, ispCost, kwhRate, liveDataMinMaxRef, loadPerCore, mem, memPct, node, previewContent, previewRef, previewSession, tailPath, setTailPath, tailContent, tailReady, tailRef, probe, probeLoading, range, rangeRef, saveSetting, saveSshHost, setBootFilter, setDiskOverride, setHoverInfo, setIspCost, setKwhRate, setPreviewSession, setRange, setSshEditing, setSshForm, setWattsOverride, setZoomDomain, sshEditing, sshForm, sshSaving, sys, tmuxData, viewMaxRef, viewMinRef, wattsOverride, zoomDomain, zoomDrivenRangeRef };
 
   return (
     <div className="p-6 w-full">

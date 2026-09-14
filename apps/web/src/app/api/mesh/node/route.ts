@@ -305,16 +305,43 @@ ps aux 2>/dev/null | hprocs | while read -r _ user pid _; do
   et=\$(ps -o etimes= -p \$pid 2>/dev/null | tr -d ' ')
   home=\$(getent passwd "\$user" 2>/dev/null | cut -d: -f6)
   [ -n "\$home" ] || home=\$HOME
+  # The process's OWN home, from its environ -- a fleet worker moves HOME per
+  # task, and a resumed file can sit under it. Only HOME is read out; no other
+  # env var is ever emitted, so no secret leaves the process. Searched only
+  # when it differs from the passwd home.
+  phome=\$(tr '\\0' '\\n' < /proc/\$pid/environ 2>/dev/null | sed -n 's/^HOME=//p' | head -1)
+  [ "\$phome" = "\$home" ] && phome=''
+  # unclose names its session on the command line: --resume <id>. That is the
+  # authoritative tie -- a resumed session's file predates the process by days,
+  # so no mtime heuristic can find it, but its id is right there in argv.
+  cmd=\$(tr '\\0' ' ' < /proc/\$pid/cmdline 2>/dev/null)
+  rid=\$(printf '%s' "\$cmd" | sed -n 's/.*--resume[= ]*\\([0-9A-Fa-f][0-9A-Fa-f-]\\{7,\\}\\).*/\\1/p')
   enc=\$(echo "\$cwd" | sed 's#[/.]#-#g')
   start=\$((NOW - \${et:-0}))
   echo "\$pid|proc|\$start|\$cwd"
-  # An hour of slack before the start: a resumed session sits at its prompt
-  # with nothing written yet, and the parser needs a nearest file to name.
-  for f in "\$home/.claude/projects/\$enc"/*.jsonl "\$home"/.*/unfirehose/"\${enc#-}"/*.jsonl; do
-    [ -f "\$f" ] || continue
-    m=\$(stat -c %Y "\$f" 2>/dev/null) || m=\$(stat -f %m "\$f" 2>/dev/null) || continue
-    [ "\$m" -ge "\$((start - 3600))" ] || continue
-    echo "\$pid|file|\$m|\$(stat -c %W "\$f" 2>/dev/null || stat -f %B "\$f" 2>/dev/null)|\$f"
+  # The id-named file, wherever it lives, at any age -- every slug dir under
+  # both homes. This is what tied a resumed unclose session that the cwd-slug
+  # glob and the mtime window both missed.
+  if [ -n "\$rid" ]; then
+    for h in "\$home" "\$phome"; do
+      [ -n "\$h" ] || continue
+      for f in "\$h"/.claude/projects/*/"\$rid".jsonl "\$h"/.*/unfirehose/*/"\$rid".jsonl; do
+        [ -f "\$f" ] || continue
+        echo "\$pid|idfile|\$(stat -c %Y "\$f" 2>/dev/null || echo 0)|\$(stat -c %W "\$f" 2>/dev/null || echo 0)|\$f"
+      done
+    done
+  fi
+  # Otherwise the cwd's project dir, files touched around or after the start.
+  # An hour of slack before it: a resumed session sits at its prompt with
+  # nothing written yet, and the parser needs a nearest file to name.
+  for h in "\$home" "\$phome"; do
+    [ -n "\$h" ] || continue
+    for f in "\$h/.claude/projects/\$enc"/*.jsonl "\$h"/.*/unfirehose/"\${enc#-}"/*.jsonl; do
+      [ -f "\$f" ] || continue
+      m=\$(stat -c %Y "\$f" 2>/dev/null) || m=\$(stat -f %m "\$f" 2>/dev/null) || continue
+      [ "\$m" -ge "\$((start - 3600))" ] || continue
+      echo "\$pid|file|\$m|\$(stat -c %W "\$f" 2>/dev/null || stat -f %B "\$f" 2>/dev/null)|\$f"
+    done
   done
 done
 
