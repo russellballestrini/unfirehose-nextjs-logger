@@ -1,7 +1,8 @@
 .PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
         test-core test-ui test-web test-scripts \
         cov-core cov-ui cov-web cov-scripts \
-        dev fix-watches persist-watches rescue-tool-results pricing pricing-report
+        dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
+        build docker docker-run
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -204,3 +205,25 @@ dev:
 # ingest downtime. Idempotent.
 rescue-tool-results:
 	npx tsx scripts/rescue-tool-results.ts
+
+# --- container image -------------------------------------------------
+IMAGE ?= unfirehose:latest
+
+# A production build of the dashboard, standalone, for a local check.
+build:
+	@cd apps/web && npx next build
+
+# The Alpine image. See Dockerfile for the coreutils/timeout tuning.
+docker:
+	@docker build -t $(IMAGE) .
+
+# Run it, wired to the operator's world: the mesh (~/.ssh), the harness
+# journals it ingests, the docker socket for the Containers tab, and a named
+# volume for its SQLite. Read-only mounts where it only reads.
+docker-run:
+	@docker run --rm -p 3000:3000 \
+	  -v $(HOME)/.ssh:/home/node/.ssh:ro \
+	  -v $(HOME)/.claude:/home/node/.claude:ro \
+	  -v /var/run/docker.sock:/var/run/docker.sock \
+	  -v unfirehose-data:/home/node/.unfirehose \
+	  $(IMAGE)

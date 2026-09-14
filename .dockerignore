@@ -1,0 +1,20 @@
+# Everything the build does not need, kept out of the context so a build is
+# not a 500MB upload of node_modules and generated output.
+**/node_modules
+**/.next
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+.git
+.gitignore
+**/dist
+**/build
+*.db
+*.sqlite
+*.sqlite3
+scratch/
+reports/
+**/.DS_Store
+Dockerfile
+.dockerignore
+npm-debug.log*

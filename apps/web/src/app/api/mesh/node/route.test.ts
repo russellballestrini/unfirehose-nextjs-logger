@@ -22,13 +22,34 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const commands = vi.fn();
 type ExecCb = (err: Error | null, stdout: string, stderr: string) => void;
 let deliver = (cb: () => void) => queueMicrotask(cb);
-vi.mock('child_process', () => ({
-  exec: (cmd: string, _opts: unknown, cb: ExecCb) => {
-    let out = '', err: Error | null = null;
-    try { out = commands(cmd); } catch (e) { err = e as Error; }
-    deliver(() => cb(err, out, ''));
-  },
-}));
+vi.mock('child_process', async () => {
+  const { EventEmitter } = await import('events');
+  return {
+    // ownNames() still asks `hostname` through exec.
+    exec: (cmd: string, _opts: unknown, cb: ExecCb) => {
+      let out = '', err: Error | null = null;
+      try { out = commands(cmd); } catch (e) { err = e as Error; }
+      deliver(() => cb(err, out, ''));
+    },
+    // run() spawns a detached shell (so it can kill the whole group on
+    // timeout). The command it runs is args[1] after `-c`; answer it the same
+    // way, then emit stdout and close like a real child.
+    spawn: (_file: string, args: string[]) => {
+      const cmd = args[1];
+      let out = '', err: Error | null = null;
+      try { out = commands(cmd); } catch (e) { err = e as Error; }
+      const child = new EventEmitter() as EventEmitter & { pid: number; stdout: EventEmitter & { setEncoding: () => void } };
+      child.pid = 4242;
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      child.stdout = stdout;
+      deliver(() => {
+        if (err) { child.emit('error', err); }
+        else { if (out) stdout.emit('data', out); child.emit('close', 0); }
+      });
+      return child;
+    },
+  };
+});
 
 const probeRemoteWire = vi.fn();
 vi.mock('@unturf/unfirehose/mesh-remote', () => ({ probeRemoteWire: (h: string) => probeRemoteWire(h) }));

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { parseProbeOutput } from '@/lib/node-probe';
 import { buildProbeScript } from '@unturf/unfirehose/userland';
 import { probeRemoteWire } from '@unturf/unfirehose/mesh-remote';
@@ -432,7 +432,8 @@ echo '===SECTION:END==='
 
 
 /**
- * Run a command off the event loop.
+ * Run a command off the event loop, and on timeout kill its whole process
+ * tree — not just the shell we spawned.
  *
  * This route used execSync. The probe is a shell script that takes 4 to 10
  * seconds on a loaded node, and for that whole time the process that answers
@@ -441,15 +442,44 @@ echo '===SECTION:END==='
  * and every other page felt it. Measured 2026-09-06: a 25ms endpoint took
  * 10.9s, 5.7s, 5.2s while one probe ran.
  *
- * A killed command (timeout) still yields what it wrote, as execSync's
+ * Why the process GROUP, not exec's `timeout` option. Node's timeout — like
+ * busybox's `timeout` on Alpine, and unlike GNU coreutils' on Ubuntu —
+ * signals only the direct child, here the shell. Its children (a `df` wedged
+ * on a stale mount, an `ssh` to a black-holed host, the whole PROBE_SCRIPT
+ * mid-run) are reparented and keep running. arborist measured the same on
+ * its first Alpine fleets: a `timeout` that killed the runner left two dozen
+ * orphaned interpreters and drove a 32GB host into swap. So the child gets
+ * its own process group (`detached` makes spawn call setsid), and on expiry
+ * `kill(-pid)` reaches every descendant — TERM, then KILL. This holds whether
+ * the base is Alpine or Ubuntu, and whatever `timeout` the script itself has.
+ *
+ * A killed command still yields what it wrote before the signal, as execSync's
  * e.stdout did; the parser flags the truncation.
  */
 function run(cmd: string, opts: { timeout: number; shell?: string }): Promise<string> {
   return new Promise((resolve) => {
-    exec(cmd, { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024, ...opts }, (err, stdout) => {
-      resolve(typeof stdout === 'string' ? stdout : '');
-      void err;
-    });
+    const shell = opts.shell ?? '/bin/sh';
+    const child = spawn(shell, ['-c', cmd], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    let size = 0;
+    const MAX = 16 * 1024 * 1024;
+    let done = false;
+    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(out); };
+
+    // Kill the group: -pid, because the child is its own group leader.
+    const killGroup = (sig: NodeJS.Signals) => {
+      try { if (child.pid) process.kill(-child.pid, sig); } catch { /* already gone */ }
+    };
+    const timer = setTimeout(() => {
+      killGroup('SIGTERM');
+      setTimeout(() => killGroup('SIGKILL'), 2000).unref();
+      finish();
+    }, opts.timeout);
+
+    child.stdout?.setEncoding('utf-8');
+    child.stdout?.on('data', (d: string) => { size += d.length; if (size <= MAX) out += d; });
+    child.on('close', finish);
+    child.on('error', finish);
   });
 }
 
