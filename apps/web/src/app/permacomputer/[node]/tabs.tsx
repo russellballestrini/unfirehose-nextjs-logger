@@ -293,9 +293,9 @@ export function ProcessesTab(props: TabProps) {
             </div>
           </Section>
         ) : (
-          <Section title={<span className="flex items-center justify-between gap-3"><span>Top Processes ({agentCount} agents)</span>{toggle}</span>}>
+          <Section title={<span className="flex items-center justify-between gap-3"><span>Processes ({top.length}, {agentCount} agents)</span>{toggle}</span>}>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-xs whitespace-nowrap">
                 <thead>
                   <tr className="text-[var(--color-muted)] text-left">
                     <th className="pb-1 pr-3">USER</th>
@@ -306,13 +306,13 @@ export function ProcessesTab(props: TabProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {top.slice(0, 40).map((p: any, i: number) => (
+                  {top.map((p: any, i: number) => (
                     <tr key={i} className="border-t border-[var(--color-border)]">
                       <td className="py-0.5 pr-3 text-[var(--color-muted)]">{p.user}</td>
                       <td className={`py-0.5 pr-3 text-right ${parseFloat(p.cpu) > 50 ? 'text-[var(--color-error)]' : ''}`}>{p.cpu}</td>
                       <td className="py-0.5 pr-3 text-right">{p.mem}</td>
                       <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.rss}</td>
-                      <td className="py-0.5 font-mono truncate max-w-[500px]">{p.command}</td>
+                      <td className="py-0.5 font-mono">{p.command}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1367,7 +1367,7 @@ export function ContainersTab(props: TabProps) {
                               <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.elapsed == null ? '' : humanDelta(p.elapsed * 1000, { abbreviate: true, smallest: 'second' })}</td>
                               <td className="py-0.5" style={{ paddingLeft: `${p.depth * 1.25}rem` }}>
                                 {p.depth > 0 && <span className="text-[var(--color-muted)]">└ </span>}
-                                <span title={p.cmd}>{p.cmd.length > 160 ? `${p.cmd.slice(0, 160)}…` : p.cmd}</span>
+                                <span>{p.cmd}</span>
                               </td>
                             </tr>
                           ))}

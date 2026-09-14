@@ -86,10 +86,13 @@ echo '===SECTION:DISK==='
 # kilobytes, which parseDisk renders.
 \$T df -h --output=source,size,used,avail,pcent,target 2>/dev/null | grep -E '^(/dev|tmpfs)' || \$T df -k 2>/dev/null | grep -E '^/' || echo 'n/a'
 
-# --- processes (top CPU consumers) ---
+# --- processes (CPU-sorted, whole table) ---
 echo '===SECTION:PS==='
 # --sort is procps; a BSD ps sorts in the pipe, and a System V ps has no aux.
-{ ps aux --sort=-%cpu 2>/dev/null || { ps aux 2>/dev/null | sed -n 1p; ps aux 2>/dev/null | sed 1d | sort -k3 -rn; } || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' | head -50 || echo 'n/a'
+# The whole table, not a head: the Processes tab shows every row, so a head
+# here is a truncation the tab cannot undo. It is bounded only by ps itself
+# and our 16MB read buffer -- a few hundred KB even on a busy box.
+{ ps aux --sort=-%cpu 2>/dev/null || { ps aux 2>/dev/null | sed -n 1p; ps aux 2>/dev/null | sed 1d | sort -k3 -rn; } || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'n/a'
 
 # --- process tree (ps -ejH: job hierarchy, session/group ids) ---
 # Our Processes tab shows this by default. The CPU-sorted list above answers

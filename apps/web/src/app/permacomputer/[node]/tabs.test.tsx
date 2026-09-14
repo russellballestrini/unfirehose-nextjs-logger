@@ -453,15 +453,25 @@ describe('panels that need the hardware to exist', () => {
     expect(claudeRow.className).toContain('color-tool');
   });
 
-  it('falls back to the cpu-sorted list for a probe without a tree', () => {
+  it('falls back to the cpu-sorted list for a probe without a tree, and truncates no command', () => {
     // A probe recorded before PS_TREE shipped still has processes to show.
+    const long = '/home/fox/.local/bin/claude ' + '--flag=value '.repeat(60);
     const probe = {
       ...bag().probe,
-      processes: [{ user: 'fox', pid: 1234, cpu: 2.1, mem: 1.4, rss: 65432, command: '/home/fox/.local/bin/claude' }],
+      processes: [{ user: 'fox', pid: 1234, cpu: 2.1, mem: 1.4, rss: 65432, command: long }],
     };
     const { container } = render(<ProcessesTab {...bag({ probe })} />);
-    expect(container.textContent).toContain('Top Processes');
+    expect(container.textContent).toContain('Processes (1,');
     expect(container.textContent).not.toContain('Process Tree');
+    // The whole command line is present, none of it clipped or ellipsed.
+    expect(container.querySelector('tbody tr td:last-child')!.textContent).toBe(long);
+  });
+
+  it('lists every process the probe returned, not a capped head of them', () => {
+    const processes = Array.from({ length: 120 }, (_, i) => ({ user: 'fox', pid: 1000 + i, cpu: 0, mem: 0, rss: 1, command: `proc-${i}` }));
+    const { container } = render(<ProcessesTab {...bag({ probe: { ...bag().probe, processes } })} />);
+    expect(container.textContent).toContain('Processes (120,');
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(120);
   });
 
   it('says so plainly when a node reported no processes', () => {
