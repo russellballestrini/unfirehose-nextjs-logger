@@ -225,11 +225,66 @@ cat /proc/diskstats 2>/dev/null | head -20 || echo 'n/a'
 echo '===SECTION:DOCKER==='
 \$T docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | head -50 || echo 'none'
 
-# --- container clocks ---
+# --- container clocks, root pid and limits ---
 # docker ps rounds its Status to one unit -- "Up 4 weeks" -- and never
 # says since when. inspect has the instants; the page does the words.
+# The root host PID is how our Containers tab sees inside from this side
+# of the kernel: /proc/<pid>/cgroup names the cgroup, and the cgroup
+# names every process, byte and cpu tick the container owns. PidsLimit
+# is a nil pointer when unset and prints "<no value>"; Health is absent
+# without a HEALTHCHECK, which a bare .State.Health.Status errors on.
 echo '===SECTION:DOCKER_STATE==='
-\$T docker ps -aq 2>/dev/null | head -50 | \$T xargs -r docker inspect --format '{{.Id}}\t{{.State.Status}}\t{{.State.StartedAt}}\t{{.State.FinishedAt}}\t{{.State.ExitCode}}' 2>/dev/null || echo 'none'
+DSTATE=\$(\$T docker ps -aq 2>/dev/null | head -50 | \$T xargs -r docker inspect --format '{{.Id}}	{{.State.Status}}	{{.State.StartedAt}}	{{.State.FinishedAt}}	{{.State.ExitCode}}	{{.State.Pid}}	{{.HostConfig.NanoCpus}}	{{.HostConfig.Memory}}	{{.HostConfig.PidsLimit}}	{{.HostConfig.CpusetCpus}}	{{.RestartCount}}	{{.State.OOMKilled}}	{{with index .State "Health"}}{{.Status}}{{end}}' 2>/dev/null)
+[ -n "\$DSTATE" ] && echo "\$DSTATE" || echo 'none'
+
+# --- container resources, read from our host kernel's cgroups ---
+# docker stats --no-stream costs 2.2s and docker top costs 200ms per
+# container (snap CLI startup) on a probe that runs every six seconds.
+# The cgroup files it reads cost microseconds and belong to the kernel,
+# not the runtime: anything with a root pid slots in here. CPU is a
+# usage_usec delta across one second, as docker stats samples it, so the
+# per-container figure is real on the first probe rather than the second.
+# Membership sweeps child cgroups: a container that runs an init or a
+# supervisor nests its workers one level down, where the top-level
+# cgroup.procs does not list them.
+echo '===SECTION:CGROUP_STATS==='
+CG_ROOT=/sys/fs/cgroup
+NS0=\$(date +%s%N 2>/dev/null); case "\$NS0" in *N*|'') NS0='' ;; esac
+CG_LIST=''
+[ -n "\$DSTATE" ] && CG_LIST=\$(echo "\$DSTATE" | awk -F'\\t' '\$2=="running" && \$6>0 {print \$1"|"\$6}')
+cg_v2_dir() { rel=\$(sed -n 's/^0:://p' /proc/\$1/cgroup 2>/dev/null | head -1); [ -n "\$rel" ] && [ -d "\$CG_ROOT\$rel" ] && echo "\$CG_ROOT\$rel"; }
+cg_v1_dir() { rel=\$(sed -n "s/^[0-9]*:[a-z,]*\$2[a-z,]*:\\(.*\\)\$/\\1/p" /proc/\$1/cgroup 2>/dev/null | head -1); [ -n "\$rel" ] || return; for c in "\$2" cpu,cpuacct cpuacct,cpu; do [ -d "\$CG_ROOT/\$c\$rel" ] && { echo "\$CG_ROOT/\$c\$rel"; return; }; done; }
+cg_cpu() { d=\$(cg_v2_dir \$2); if [ -n "\$d" ]; then echo "\$1|\$3|\$(awk '\$1=="usage_usec"{u=\$2} \$1=="nr_throttled"{t=\$2} \$1=="throttled_usec"{s=\$2} END{print u"|"t"|"s}' \$d/cpu.stat 2>/dev/null)"; else d=\$(cg_v1_dir \$2 cpuacct); [ -n "\$d" ] && echo "\$1|\$3|\$(( \$(cat \$d/cpuacct.usage 2>/dev/null || echo 0) / 1000 ))|\$(awk '\$1=="nr_throttled"{t=\$2} \$1=="throttled_time"{s=int(\$2/1000)} END{print t"|"s}' \$d/cpu.stat 2>/dev/null)"; fi; }
+for e in \$CG_LIST; do cg_cpu \${e%%|*} \${e##*|} a; done
+[ -n "\$CG_LIST" ] && sleep 1
+NS1=\$(date +%s%N 2>/dev/null); case "\$NS1" in *N*|'') NS1='' ;; esac
+if [ -n "\$NS0" ] && [ -n "\$NS1" ]; then echo "elapsed_ms|\$(( (NS1 - NS0) / 1000000 ))"; else echo "elapsed_ms|1000"; fi
+for e in \$CG_LIST; do
+  id=\${e%%|*}; pid=\${e##*|}
+  cg_cpu \$id \$pid b
+  d=\$(cg_v2_dir \$pid)
+  if [ -n "\$d" ]; then
+    echo "\$id|mem|\$(cat \$d/memory.current 2>/dev/null)|\$(cat \$d/memory.max 2>/dev/null)|\$(cat \$d/memory.peak 2>/dev/null)|\$(awk '\$1=="anon"{a=\$2} \$1=="file"{f=\$2} \$1=="inactive_file"{i=\$2} END{print a"|"f"|"i}' \$d/memory.stat 2>/dev/null)|\$(cat \$d/memory.swap.current 2>/dev/null)|\$(awk '\$1=="oom_kill"{print \$2}' \$d/memory.events 2>/dev/null)"
+    echo "\$id|pids|\$(cat \$d/pids.current 2>/dev/null)|\$(cat \$d/pids.max 2>/dev/null)"
+    echo "\$id|cpumax|\$(cat \$d/cpu.max 2>/dev/null)|\$(cat \$d/cpuset.cpus.effective 2>/dev/null)"
+    echo "\$id|io|\$(awk '{for(i=2;i<=NF;i++){split(\$i,kv,"=");s[kv[1]]+=kv[2]}} END{print s["rbytes"]+0"|"s["wbytes"]+0"|"s["rios"]+0"|"s["wios"]+0}' \$d/io.stat 2>/dev/null)"
+    echo "\$id|psi|\$(awk '\$1=="some"{print \$2}' \$d/cpu.pressure 2>/dev/null)|\$(awk '\$1=="some"{print \$2}' \$d/memory.pressure 2>/dev/null)|\$(awk '\$1=="some"{print \$2}' \$d/io.pressure 2>/dev/null)"
+    echo "\$id|procs|\$(cat \$d/cgroup.procs \$d/*/cgroup.procs \$d/*/*/cgroup.procs 2>/dev/null | tr '\\n' ' ')"
+  else
+    m=\$(cg_v1_dir \$pid memory); p=\$(cg_v1_dir \$pid pids)
+    [ -n "\$m" ] && echo "\$id|mem|\$(cat \$m/memory.usage_in_bytes 2>/dev/null)|\$(cat \$m/memory.limit_in_bytes 2>/dev/null)|\$(cat \$m/memory.max_usage_in_bytes 2>/dev/null)|\$(awk '\$1=="total_rss"{a=\$2} \$1=="total_cache"{f=\$2} \$1=="total_inactive_file"{i=\$2} END{print a"|"f"|"i}' \$m/memory.stat 2>/dev/null)||\$(awk '\$1=="oom_kill"{print \$2}' \$m/memory.oom_control 2>/dev/null)"
+    [ -n "\$p" ] && echo "\$id|pids|\$(cat \$p/pids.current 2>/dev/null)|\$(cat \$p/pids.max 2>/dev/null)"
+    [ -n "\$m" ] && echo "\$id|procs|\$(cat \$m/cgroup.procs \$m/*/cgroup.procs 2>/dev/null | tr '\\n' ' ')"
+  fi
+done
+
+# --- every process with its parent ---
+# ps -ejH draws a tree but carries no ppid, so nothing can be cut out of
+# it. With pid and ppid a container's tree is rebuilt from the host pids
+# its cgroup owns -- the view from this side of the kernel, where pid 1
+# inside is pid 8354 outside. etimes is procps; etime is what everyone has.
+echo '===SECTION:PS_PPID==='
+{ ps -eo pid,ppid,user,pcpu,pmem,rss,etimes,args 2>/dev/null || ps -eo pid,ppid,user,pcpu,pmem,rss,etime,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'n/a'
 
 # --- tmux sessions ---
 echo '===SECTION:TMUX==='

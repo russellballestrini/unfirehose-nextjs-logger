@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseSection, parseCpuInfo, parseMeminfo, parseProcesses, parseProcessTree, parseNvidiaGpu,
   parseDisk, parseNetInterfaces, parseNetDev, parseDocker, parseDockerState, attachDockerState, parseProbeOutput,
+  parseCgroupStats, parsePsPpid, containerProcessTree, attachContainerResources,
 } from './node-probe';
 
 /**
@@ -244,7 +245,7 @@ describe('parseDockerState', () => {
       `${FULL}\trunning\t2026-08-20T18:03:22.123456789Z\t0001-01-01T00:00:00Z\t0`,
       `${'f'.repeat(64)}\texited\t2026-09-01T10:00:00Z\t2026-09-11T09:30:00.5Z\t137`,
     ].join('\n'));
-    expect(states.get(FULL)).toEqual({
+    expect(states.get(FULL)).toMatchObject({
       state: 'running', startedAt: '2026-08-20T18:03:22.123456789Z', finishedAt: null, exitCode: 0,
     });
     expect(states.get('f'.repeat(64))).toMatchObject({ state: 'exited', finishedAt: '2026-09-11T09:30:00.5Z', exitCode: 137 });
@@ -255,6 +256,26 @@ describe('parseDockerState', () => {
     const [s] = parseDockerState(`${FULL}\tcreated\t0001-01-01T00:00:00Z\t0001-01-01T00:00:00Z\t0`).values();
     expect(s.startedAt).toBeNull();
     expect(s.finishedAt).toBeNull();
+  });
+
+  /**
+   * The line grew eight fields on 2026-09-14 for the Containers tab: root
+   * host pid, HostConfig limits, restarts, OOM, health. A probe from before
+   * then stops at exit code and every new field reads null.
+   */
+  it('reads the root pid, limits and health that follow the exit code', () => {
+    const [s] = parseDockerState(
+      `${FULL}\trunning\t2026-08-06T13:36:57Z\t0001-01-01T00:00:00Z\t0\t8354\t2000000000\t4294967296\t<no value>\t\t3\tfalse\thealthy`,
+    ).values();
+    expect(s).toMatchObject({
+      pid: 8354, cpuLimit: 2, memLimit: 4294967296, pidsLimit: null, cpuset: null,
+      restartCount: 3, oomKilled: false, health: 'healthy',
+    });
+  });
+
+  it('reads no limit as null, not zero, so a bar has nothing to divide by', () => {
+    const [s] = parseDockerState(`${FULL}\trunning\t2026-08-06T13:36:57Z\t0001-01-01T00:00:00Z\t0\t42\t0\t0\t0\t\t0\tfalse\t`).values();
+    expect(s).toMatchObject({ pid: 42, cpuLimit: null, memLimit: null, pidsLimit: null, health: null, oomKilled: false });
   });
 
   it('reads nothing without docker', () => {
@@ -417,5 +438,140 @@ describe('parseProbeOutput on a machine that is not Linux', () => {
     const p = parseProbeOutput(raw, 'h');
     expect(p.disk[0]).toMatchObject({ device: '/dev/ada0p2', size: '893.6G', usePct: 14, mount: '/' });
     expect(p.processes).toHaveLength(1);
+  });
+});
+
+/**
+ * A container's resources, read from our host kernel's cgroup rather than
+ * asked of the runtime. Two cpu readings a second apart make the percent;
+ * everything else is the file's own number, null when the file was absent.
+ */
+describe('parseCgroupStats', () => {
+  const ID = '5c6c59cd20db2eb81c1ddc49146135256d14485870daedccab49dfed36a5a386';
+  const RAW = [
+    `${ID}|a|10554376412|3|4780942`,
+    'elapsed_ms|1035',
+    `${ID}|b|10556446412|3|4780942`,
+    `${ID}|mem|778031104|4294967296|792817664|611782656|136884224|114835456|0|2`,
+    `${ID}|pids|72|max`,
+    `${ID}|cpumax|200000 100000|0-31`,
+    `${ID}|io|288591872|4096|14069|1`,
+    `${ID}|psi|avg10=1.50|avg10=0.00|avg10=0.25`,
+    `${ID}|procs|8354 9133 9407 `,
+  ].join('\n');
+
+  it('turns the usage delta over the interval into a percent of one core', () => {
+    const r = parseCgroupStats(RAW).get(ID)!;
+    // 2,070,000 usec of cpu across 1,035 ms of wall clock: two cores flat out.
+    expect(r.cpuPct).toBe(200);
+    expect(r.cpuQuota).toBe(2);
+    expect(r.cpuset).toBe('0-31');
+    expect(r.cpuThrottled).toBe(3);
+  });
+
+  it('reads memory as docker stats does: current less inactive file cache', () => {
+    const r = parseCgroupStats(RAW).get(ID)!;
+    expect(r.memUsed).toBe(778031104 - 114835456);
+    expect(r.memTotal).toBe(778031104);
+    expect(r.memLimit).toBe(4294967296);
+    expect(r.memPeak).toBe(792817664);
+    expect(r.memAnon).toBe(611782656);
+    expect(r.oomKills).toBe(2);
+  });
+
+  it('reads tasks, io, pressure and the pids it owns', () => {
+    const r = parseCgroupStats(RAW).get(ID)!;
+    expect(r.tasks).toBe(72);
+    expect(r.tasksMax).toBeNull();
+    expect(r.ioRead).toBe(288591872);
+    expect(r.ioWriteOps).toBe(1);
+    expect(r.psi).toEqual({ cpu: 1.5, memory: 0, io: 0.25 });
+    expect(r.pids).toEqual([8354, 9133, 9407]);
+  });
+
+  it('has no percent without both readings, and "max" reads as no limit', () => {
+    const r = parseCgroupStats([`${ID}|b|100||`, `${ID}|mem|10|max|||||`, `${ID}|cpumax|max 100000|`].join('\n')).get(ID)!;
+    expect(r.cpuPct).toBeNull();
+    expect(r.memLimit).toBeNull();
+    expect(r.cpuQuota).toBeNull();
+  });
+
+  it('reads nothing when the section is empty or the host has no containers', () => {
+    expect(parseCgroupStats('').size).toBe(0);
+    expect(parseCgroupStats('elapsed_ms|1').size).toBe(0);
+  });
+});
+
+describe('parsePsPpid', () => {
+  const RAW = [
+    '    PID    PPID USER     %CPU %MEM   RSS ELAPSED COMMAND',
+    '      1       0 root      0.0  0.0 15316   15428 /sbin/init splash',
+    '   8354    8330 fox       4.9  0.2 68328 3372014 python3 -m open_webui serve --host 0.0.0.0',
+  ].join('\n');
+
+  it('reads pid, parent, usage and the whole command line', () => {
+    const rows = parsePsPpid(RAW);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toEqual({
+      pid: 8354, ppid: 8330, user: 'fox', cpu: 4.9, mem: 0.2, rss: 68328, elapsed: 3372014,
+      cmd: 'python3 -m open_webui serve --host 0.0.0.0',
+    });
+  });
+
+  it('keeps a BSD etime clock as no seconds rather than a wrong number', () => {
+    const [r] = parsePsPpid('  7 1 root 0.0 0.0 100 01-02:03:04 sleep');
+    expect(r.elapsed).toBeNull();
+    expect(r.cmd).toBe('sleep');
+  });
+});
+
+/**
+ * The tree is cut from the host's process table by cgroup membership, so
+ * it carries host pids -- pid 1 inside the container is 8354 outside.
+ */
+describe('containerProcessTree', () => {
+  const ALL = parsePsPpid([
+    '1 0 root 0.0 0.0 1 1 init',
+    '8354 8330 fox 1.0 0.1 10 1 docker-init',
+    '8400 8354 fox 2.0 0.2 20 1 python3 worker',
+    '8500 8400 fox 0.5 0.1 5 1 sh -c hook',
+    '8401 8354 fox 0.1 0.1 5 1 redis-server',
+    '9999 1 root 0.0 0.0 1 1 unrelated',
+  ].join('\n'));
+
+  it('nests children under parents, in pid order, with depth', () => {
+    const tree = containerProcessTree([8354, 8400, 8401, 8500], ALL);
+    expect(tree.map((p) => [p.pid, p.depth])).toEqual([[8354, 0], [8400, 1], [8500, 2], [8401, 1]]);
+  });
+
+  it('leaves out pids the cgroup owns but ps no longer lists, and never pulls in outsiders', () => {
+    const tree = containerProcessTree([8354, 4242], ALL);
+    expect(tree.map((p) => p.pid)).toEqual([8354]);
+  });
+
+  it('starts a new branch for a process whose parent lives outside the cgroup', () => {
+    // A runtime that reparents an orphan to the host's init keeps it in the cgroup.
+    const tree = containerProcessTree([8400, 8500, 9999], ALL);
+    expect(tree.map((p) => [p.pid, p.depth])).toEqual([[8400, 0], [8500, 1], [9999, 0]]);
+  });
+});
+
+describe('attachContainerResources', () => {
+  const ID = 'a'.repeat(64);
+  it('marries stats and a tree onto the ps row by id prefix, and a stopped one gets neither', () => {
+    const stats = parseCgroupStats([`${ID}|a|0|0|0`, 'elapsed_ms|1000', `${ID}|b|500000|0|0`, `${ID}|procs|8354`].join('\n'));
+    const procs = parsePsPpid('8354 1 fox 3.0 0.1 10 5 python3');
+    const out = attachContainerResources(
+      [{ id: 'aaaaaaaaaaaa', name: 'web' }, { id: 'bbbbbbbbbbbb', name: 'old' }], stats, procs,
+    );
+    expect(out[0].resources?.cpuPct).toBe(50);
+    expect(out[0].processes?.map((p) => p.pid)).toEqual([8354]);
+    expect(out[1].resources).toBeNull();
+    expect(out[1].processes).toEqual([]);
+  });
+
+  it('leaves rows untouched when the probe carried no such sections', () => {
+    const rows = [{ id: 'aaaaaaaaaaaa' }];
+    expect(attachContainerResources(rows, new Map(), [])).toBe(rows);
   });
 });
