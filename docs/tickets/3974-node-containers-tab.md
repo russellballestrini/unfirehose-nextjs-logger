@@ -1,6 +1,6 @@
 # 3974: Containers tab on our node page
 
-**Status:** in-progress
+**Status:** done
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 120m
 **Todo IDs:** 3974
@@ -50,3 +50,6 @@ startup) on a probe that polls every 6s. cgroup files cost microseconds.
 - No history table for per-container series yet. If wanted, a
   `container_snapshots` table on the mesh tiered-storage template is a
   follow-up.
+- Shipped 2026-09-14. Verified against guile.foxhop.net (TrueNAS docker apps,
+  cgroup v2, 2-core quota, 4 GiB limit): emby reads throttled ×127, which
+  is the tab already earning its keep.

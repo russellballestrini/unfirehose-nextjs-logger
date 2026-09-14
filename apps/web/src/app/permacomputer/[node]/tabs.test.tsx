@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
-import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab, containerStatus } from './tabs';
+import { OverviewTab, HarnessesTab, ProcessesTab, ContainersTab, BootstrapTab, SettingsTab, containerStatus, orderContainers } from './tabs';
 
 /**
  * The five tabs of a node's detail page.
@@ -89,7 +89,7 @@ const bag = (over: Record<string, unknown> = {}) => ({
 });
 
 const tabs = {
-  Overview: OverviewTab, Harnesses: HarnessesTab, Processes: ProcessesTab,
+  Overview: OverviewTab, Harnesses: HarnessesTab, Processes: ProcessesTab, Containers: ContainersTab,
   Bootstrap: BootstrapTab, Settings: SettingsTab,
 };
 
@@ -404,6 +404,11 @@ describe('panels that need the hardware to exist', () => {
       expect(title).toMatch(/^started .*2026/);
     });
 
+    it('never names milliseconds when the minutes happen to be zero', () => {
+      const exact = new Date(Date.now() - 3 * 3_600_000 - 400).toISOString();
+      expect(containerStatus({ status: 'Up 3 hours', state: 'running', startedAt: exact }).label).toBe('up 3 hours');
+    });
+
     it('keeps docker\'s health verdict on the line', () => {
       const { label } = containerStatus({ status: 'Up 2 weeks (healthy)', state: 'running', startedAt });
       expect(label).toBe('up 20 days, 3 hours (healthy)');
@@ -462,5 +467,125 @@ describe('panels that need the hardware to exist', () => {
   it('says so plainly when a node reported no processes', () => {
     const { container } = render(<ProcessesTab {...bag({ probe: null })} />);
     expect(container.textContent).toContain('No process data available');
+  });
+});
+
+/**
+ * The Containers tab: what our host kernel says each container spends,
+ * and its process tree in host pids. The figures are cgroup readings the
+ * parser hung on each row; the tab's job is to put a ceiling under each
+ * bar and to say plainly when a probe carried none.
+ */
+describe('the containers tab', () => {
+  const startedAt = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  const resources = (over: Record<string, unknown> = {}) => ({
+    cpuPct: 150, cpuQuota: 2, cpuset: '0-31', cpuThrottled: 0, cpuThrottledUsec: 0,
+    memUsed: 663_195_648, memTotal: 700_000_000, memLimit: 4_294_967_296, memPeak: 792_817_664,
+    memAnon: 611_782_656, memFile: 136_884_224, swapUsed: 0, oomKills: 0, tasks: 72, tasksMax: null,
+    ioRead: 288_591_872, ioWrite: 4096, ioReadOps: 14069, ioWriteOps: 1,
+    psi: { cpu: 0, memory: 0, io: 0 }, pids: [8354, 8400],
+    ...over,
+  });
+  const web = {
+    id: '5c6c59cd20db', name: 'open-webui', image: 'ghcr.io/open-webui:0.6', status: 'Up 4 weeks (healthy)', ports: '8080/tcp',
+    state: 'running', startedAt, finishedAt: null, exitCode: 0, pid: 8354, cpuLimit: 2, memLimit: 4_294_967_296,
+    pidsLimit: null, cpuset: null, restartCount: 0, oomKilled: false, health: 'healthy',
+    resources: resources(),
+    processes: [
+      { pid: 8354, ppid: 8330, user: 'fox', cpu: 4.9, mem: 0.2, rss: 68328, elapsed: 10800, cmd: 'python3 -m uvicorn open_webui.main:app', depth: 0 },
+      { pid: 8400, ppid: 8354, user: 'fox', cpu: 0.1, mem: 0.1, rss: 1024, elapsed: 60, cmd: 'sh -c hook', depth: 1 },
+    ],
+  };
+  const old = {
+    id: '1cc06dd01c16', name: 'permissions', image: 'busybox', status: 'Exited (1) 10 months ago', ports: '',
+    state: 'exited', startedAt: null, finishedAt: '2025-10-27T18:04:50Z', exitCode: 1, pid: null,
+    resources: null, processes: [],
+  };
+  const withContainers = (containers: unknown[]) => bag({ probe: { ...bag().probe, containers } });
+
+  it('says so when the node has none', () => {
+    const { container } = render(<ContainersTab {...withContainers([])} />);
+    expect(container.textContent).toContain('No containers on this node');
+  });
+
+  it('shows each container with its state, image, host pid and health', () => {
+    const { container } = render(<ContainersTab {...withContainers([web, old])} />);
+    const t = container.textContent!;
+    expect(t).toContain('open-webui');
+    expect(t).toMatch(/up 3 hours(, \d+ seconds)? \(healthy\)/);
+    expect(t).toContain('ghcr.io/open-webui:0.6');
+    expect(t).toContain('host pid 8354');
+    expect(t).toContain('healthy');
+    expect(t).toContain('1 running · 1 exited');
+    expect(t).toContain('exit code 1');
+  });
+
+  it('measures cpu against the quota and memory against the limit', () => {
+    const { container } = render(<ContainersTab {...withContainers([web])} />);
+    const t = container.textContent!;
+    expect(t).toContain('150.0%');
+    expect(t).toContain('of 2 cores (quota)');
+    expect(t).toContain('632.5 MB');
+    expect(t).toContain('of 4.0 GB limit');
+    expect(t).toContain('peak 756.1 MB');
+    expect(t).toContain('72');
+    expect(t).toContain('no pids limit');
+    // 150% of a 200% ceiling is a three-quarter bar.
+    const fills = Array.from(container.querySelectorAll('div.h-full')) as HTMLElement[];
+    expect(fills.map((f) => f.style.width)).toContain('75%');
+  });
+
+  it('falls back to the host when a container has no limit of its own', () => {
+    const free = { ...web, cpuLimit: null, memLimit: null, resources: resources({ cpuQuota: null, memLimit: null }) };
+    const { container } = render(<ContainersTab {...withContainers([free])} />);
+    const t = container.textContent!;
+    expect(t).toContain('of 32 cores, no quota');
+    expect(t).toContain('of 377.8 GB host, no limit');
+  });
+
+  it('lists the process tree under a running container in host pids, nested', () => {
+    const { container } = render(<ContainersTab {...withContainers([web])} />);
+    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('8354');
+    expect(rows[0].textContent).toContain('uvicorn');
+    expect(rows[1].textContent).toContain('└');
+    expect(rows[1].textContent).toContain('sh -c hook');
+    expect((rows[1].querySelector('td:last-child') as HTMLElement).style.paddingLeft).toBe('1.25rem');
+  });
+
+  it('folds a tree away and back on its header', () => {
+    const { container } = render(<ContainersTab {...withContainers([web])} />);
+    const header = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('2 processes'))!;
+    act(() => { fireEvent.click(header); });
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(0);
+    act(() => { fireEvent.click(header); });
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+
+  it('flags OOM kills, restarts and cpu throttling on the line', () => {
+    const hurt = { ...web, oomKilled: true, restartCount: 3, resources: resources({ cpuThrottled: 127, cpuThrottledUsec: 3_221_717, psi: { cpu: 30, memory: 6, io: 0 } }) };
+    const { container } = render(<ContainersTab {...withContainers([hurt])} />);
+    const t = container.textContent!;
+    expect(t).toContain('OOM killed');
+    expect(t).toContain('3 restarts');
+    expect(t).toContain('throttled ×127');
+    expect(t).toContain('cpu 30.00%');
+  });
+
+  it('says the kernel side is missing rather than drawing empty bars', () => {
+    // A probe from a worker that predates CGROUP_STATS: rows without resources.
+    const bare = { id: 'abc', name: 'peer-000', image: 'arborist-peer', status: 'Up 20 minutes', state: 'running', startedAt, ports: '' };
+    const { container } = render(<ContainersTab {...withContainers([bare])} />);
+    expect(container.textContent).toContain('Kernel-side resources are missing');
+    expect(container.querySelectorAll('div.h-full')).toHaveLength(0);
+  });
+
+  it('orders running by cpu, hottest first, then the stopped by when they stopped', () => {
+    const a = { state: 'running', resources: { cpuPct: 5 }, name: 'a' };
+    const b = { state: 'running', resources: { cpuPct: 50 }, name: 'b' };
+    const c = { state: 'exited', finishedAt: '2026-09-01T00:00:00Z', name: 'c' };
+    const d = { state: 'exited', finishedAt: '2026-09-10T00:00:00Z', name: 'd' };
+    expect(orderContainers([c, a, d, b]).map((x) => x.name)).toEqual(['b', 'a', 'd', 'c']);
   });
 });

@@ -110,7 +110,7 @@ Our Permacomputer page (`/permacomputer`) manages a mesh of compute nodes. Nodes
 Key files:
 - `apps/web/src/app/permacomputer/page.tsx` — main mesh overview with node cards, economics, bootstrap panel
 - `apps/web/src/app/permacomputer/unsandbox/page.tsx` — unsandbox.com cloud node page
-- `apps/web/src/app/usage/node/[hostname]/page.tsx` — per-node detail (System/Harnesses/Processes tabs)
+- `apps/web/src/app/permacomputer/[node]/page.tsx` + `tabs.tsx` — per-node detail (Overview/Harnesses/Processes/Containers/Bootstrap/Settings tabs)
 - `apps/web/src/app/api/mesh/route.ts` — mesh summary (local + SSH probes, RAPL power, GPU via nvidia-smi)
 - `apps/web/src/app/api/mesh/node/route.ts` — detailed single-node probe via SSH
 - `apps/web/src/app/api/mesh/history/route.ts` — time-series from `mesh_snapshots` table

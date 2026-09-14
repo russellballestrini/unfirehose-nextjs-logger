@@ -8,12 +8,14 @@ import { TimeRangeSelect } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { ThermalPanel } from '@/components/ThermalPanel';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
-import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
+import { GaugeTrack, UTILISATION } from '@unturf/unfirehose-ui/Gauge';
 import { KV } from '@unturf/unfirehose-ui/KV';
 // uplot CSS is bundled by UPlotTimeChart's import
 import { harnessesFor } from '@/lib/harnesses';
 import { HarnessPicker } from '@/components/HarnessPicker';
 import { human, humanDelta } from '@unturf/unfirehose/ago';
+import { formatBytes } from '@unturf/unfirehose/format';
+import { Donut } from '@/components/Donut';
 
 const HARNESSES = harnessesFor('node');
 
@@ -340,13 +342,15 @@ export function containerStatus(c: {
   });
   // "(healthy)" / "(unhealthy)" / "(health: starting)" ride along on the ps line.
   const health = c.status.match(/\((healthy|unhealthy|health: [^)]+)\)/)?.[0];
+  // Whole seconds: two units of "3 hours, 573 milliseconds" is what ago
+  // says when the minutes happen to be zero, and nobody wants it.
   if (c.state === 'running' && c.startedAt) {
-    const up = human(c.startedAt, { pastTense: 'up {}', zero: 'up just now' });
+    const up = human(c.startedAt, { pastTense: 'up {}', zero: 'up just now', smallest: 'second' });
     return { label: health ? `${up} ${health}` : up, title: `started ${at(c.startedAt)}` };
   }
   if ((c.state === 'exited' || c.state === 'dead') && c.finishedAt) {
     const code = c.exitCode != null ? ` (${c.exitCode})` : '';
-    return { label: `${c.state}${code} ${human(c.finishedAt)}`, title: `stopped ${at(c.finishedAt)}` };
+    return { label: `${c.state}${code} ${human(c.finishedAt, { smallest: 'second' })}`, title: `stopped ${at(c.finishedAt)}` };
   }
   return { label: c.status, title: c.startedAt ? `started ${at(c.startedAt)}` : undefined };
 }
@@ -1007,6 +1011,338 @@ export function HarnessesTab(props: TabProps) {
           )}
         </div>
       );
+}
+
+/**
+ * One colour per container, by its position in the probe. The list is the
+ * tokens page's tool palette: plain colours, because a canvas cannot read a
+ * custom property.
+ */
+const CONTAINER_COLORS = [
+  '#10b981', '#a78bfa', '#60a5fa', '#fbbf24', '#f472b6',
+  '#34d399', '#818cf8', '#38bdf8', '#fb923c', '#e879f9',
+  '#2dd4bf', '#f87171', '#84cc16', '#22d3ee', '#facc15',
+];
+
+/** How a container state reads on the donut. Docker's own words, its own order. */
+const STATE_COLORS: Record<string, string> = {
+  running: '#10b981', paused: '#fbbf24', restarting: '#fb923c',
+  created: '#60a5fa', exited: '#71717a', dead: '#f87171', removing: '#71717a',
+};
+
+/**
+ * Running first, hottest first among them; the stopped ones after, most
+ * recently stopped first. A page of containers is read top-down for what
+ * is burning, then for what died.
+ */
+export function orderContainers<C extends { state?: string; resources?: { cpuPct: number | null } | null; finishedAt?: string | null }>(cs: C[]): C[] {
+  const rank = (c: C) => c.state === 'running' ? 0 : c.state === 'paused' || c.state === 'restarting' ? 1 : 2;
+  return [...cs].sort((a, b) => {
+    const r = rank(a) - rank(b);
+    if (r !== 0) return r;
+    if (rank(a) === 0) return (b.resources?.cpuPct ?? -1) - (a.resources?.cpuPct ?? -1);
+    return Date.parse(b.finishedAt ?? '') - Date.parse(a.finishedAt ?? '') || 0;
+  });
+}
+
+/** "2 cores", "0.5 core", or "cores" with the count unknown. */
+function cores(n: number | null | undefined): string {
+  if (n == null) return '';
+  return `${n} ${n === 1 ? 'core' : 'cores'}`;
+}
+
+/** A small filled pill: a state, a verdict, a count. */
+function Badge({ children, color, title }: { children: React.ReactNode; color: string; title?: string }) {
+  return (
+    <span
+      className="inline-block px-1.5 py-px rounded text-[10px] font-mono leading-4"
+      style={{ backgroundColor: `${color}22`, color, border: `1px solid ${color}55` }}
+      title={title}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A resource bar with its reading beside it and what it is measured
+ * against under it. The bar goes as far as the ceiling allows: a
+ * container's quota, its memory limit, or the whole host when unbounded.
+ */
+function ResourceBar({ label, pct, value, ceiling, thresholds }: {
+  label: string; pct: number | null; value: string; ceiling: string; thresholds?: { warn: number; danger: number };
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-[var(--color-muted)]">{label}</span>
+        <span className="font-mono">{value}</span>
+      </div>
+      <GaugeTrack pct={pct ?? 0} thresholds={thresholds} className="mt-1" />
+      <div className="text-[10px] text-[var(--color-muted)] mt-0.5">{ceiling}</div>
+    </div>
+  );
+}
+
+/**
+ * PSI: the share of the last ten seconds some task in the cgroup spent
+ * waiting on a resource. Zero is the normal reading and stays quiet;
+ * anything else is coloured, because a container at 20% cpu pressure is
+ * a container whose quota is too small, whatever its cpu bar says.
+ */
+function Pressure({ psi }: { psi: { cpu: number | null; memory: number | null; io: number | null } }) {
+  const cell = (k: 'cpu' | 'memory' | 'io') => {
+    const v = psi[k];
+    const color = v == null ? 'var(--color-muted)' : v >= 25 ? '#ef4444' : v >= 5 ? '#eab308' : 'var(--color-foreground)';
+    return (
+      <span key={k} className="font-mono" style={{ color }} title={`${k} pressure, some avg10`}>
+        {k} {v == null ? '—' : `${v.toFixed(2)}%`}
+      </span>
+    );
+  };
+  return <div className="flex gap-3 text-xs">{(['cpu', 'memory', 'io'] as const).map(cell)}</div>;
+}
+
+/**
+ * The Containers tab: every container the runtime lists, what our host
+ * kernel says each is spending, and its process tree in host pids.
+ *
+ * The figures come from cgroups, not from `docker stats`: the same bytes
+ * and ticks the runtime would report, read from where the runtime reads
+ * them, minus the two seconds it spends doing so. A probe from a worker
+ * that predates that section lists the containers and says the rest is
+ * missing rather than drawing empty bars.
+ */
+export function ContainersTab(props: TabProps) {
+  const { probe, sys, mem } = props;
+  const raw = probe?.containers;
+  const all: any[] = React.useMemo(() => Array.isArray(raw) ? raw : [], [raw]);
+  const containers = React.useMemo(() => orderContainers(all), [all]);
+  // Collapsed trees, by id. Everything starts open: the tree is what the
+  // tab is for.
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
+  const toggle = (id: string) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const hostCores: number = sys?.cpuCores > 0 ? sys.cpuCores : 0;
+  const hostMemBytes: number = mem?.totalGB > 0 ? mem.totalGB * 1_073_741_824 : 0;
+  const hasResources = all.some((c) => c.resources);
+  const running = containers.filter((c) => c.state === 'running');
+
+  if (all.length === 0) {
+    return (
+      <div className="text-sm text-[var(--color-muted)]">
+        {probe ? 'No containers on this node.' : 'No probe data available.'}
+      </div>
+    );
+  }
+
+  // Totals across the running set, for the strip and the share donuts.
+  const totalCpu = running.reduce((s, c) => s + (c.resources?.cpuPct ?? 0), 0);
+  const totalMem = running.reduce((s, c) => s + (c.resources?.memUsed ?? 0), 0);
+  const totalTasks = running.reduce((s, c) => s + (c.resources?.tasks ?? 0), 0);
+  const totalProcs = running.reduce((s, c) => s + (c.processes?.length ?? 0), 0);
+  const colorOf = new Map<string, string>(all.map((c, i) => [c.id, CONTAINER_COLORS[i % CONTAINER_COLORS.length]]));
+
+  const stateCounts = new Map<string, number>();
+  for (const c of all) {
+    const k = c.state ?? (/^Up\b/.test(c.status ?? '') ? 'running' : 'other');
+    stateCounts.set(k, (stateCounts.get(k) ?? 0) + 1);
+  }
+  const stateShares = [...stateCounts].map(([name, value]) => ({ name, value, color: STATE_COLORS[name] ?? '#71717a' }));
+  const cpuShares = running.map((c) => ({ name: c.name, value: c.resources?.cpuPct ?? 0, color: colorOf.get(c.id)! }));
+  const memShares = running.map((c) => ({ name: c.name, value: c.resources?.memUsed ?? 0, color: colorOf.get(c.id)! }));
+
+  const tile = (label: string, value: string, sub?: string) => (
+    <div key={label} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      <div className="text-lg font-mono leading-tight">{value}</div>
+      {sub && <div className="text-[10px] text-[var(--color-muted)]">{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {tile('Containers', String(all.length), [...stateCounts].map(([k, v]) => `${v} ${k}`).join(' · '))}
+        {tile('CPU', hasResources ? `${totalCpu.toFixed(1)}%` : '—',
+          hostCores ? `${(totalCpu / hostCores).toFixed(1)}% of ${cores(hostCores)}` : 'of one core = 100%')}
+        {tile('Memory', hasResources ? formatBytes(totalMem) : '—',
+          hostMemBytes ? `${(totalMem / hostMemBytes * 100).toFixed(1)}% of ${formatBytes(hostMemBytes)}` : undefined)}
+        {tile('Tasks', hasResources ? String(totalTasks) : '—', 'threads and processes')}
+        {tile('Processes', hasResources ? String(totalProcs) : '—', 'as our host lists them')}
+        {tile('Restarts', String(all.reduce((s, c) => s + (c.restartCount ?? 0), 0)),
+          all.some((c) => c.oomKilled) ? 'OOM killed: ' + all.filter((c) => c.oomKilled).map((c) => c.name).join(', ') : 'no OOM kills')}
+      </div>
+
+      {!hasResources && (
+        <div className="text-xs text-[var(--color-muted)] border border-[var(--color-border)] rounded px-3 py-2">
+          Kernel-side resources are missing from this probe — it predates the cgroup section, or this host keeps its cgroups somewhere our probe did not look. States and images still come from the runtime.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Section title="State">
+          <Donut data={stateShares} format={(v) => `${v}`} height={150} inner={0.6} />
+        </Section>
+        <Section title="CPU share">
+          {cpuShares.some((s) => s.value > 0)
+            ? <Donut data={cpuShares} format={(v) => `${v.toFixed(1)}%`} height={150} inner={0.6} />
+            : <div className="text-xs text-[var(--color-muted)]">Nothing running is using cpu.</div>}
+        </Section>
+        <Section title="Memory share">
+          {memShares.some((s) => s.value > 0)
+            ? <Donut data={memShares} format={formatBytes} height={150} inner={0.6} />
+            : <div className="text-xs text-[var(--color-muted)]">Nothing running holds memory.</div>}
+        </Section>
+      </div>
+
+      <div className="space-y-4">
+        {containers.map((c) => {
+          const r = c.resources ?? null;
+          const { label, title } = containerStatus(c);
+          const color = colorOf.get(c.id)!;
+          const procs: any[] = Array.isArray(c.processes) ? c.processes : [];
+          const isRunning = c.state === 'running';
+          // The ceiling a bar fills toward: the container's own limit when
+          // it has one, else the host. "of 2 cores (quota)" vs "of 32 cores".
+          const cpuCap = r?.cpuQuota ?? c.cpuLimit ?? null;
+          const cpuMaxPct = cpuCap ? cpuCap * 100 : hostCores ? hostCores * 100 : 100;
+          const memCap = r?.memLimit ?? c.memLimit ?? null;
+          const memMax = memCap ?? hostMemBytes ?? 0;
+          const taskCap = r?.tasksMax ?? c.pidsLimit ?? null;
+          const open = !collapsed.has(c.id);
+          return (
+            <div key={c.id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)]" style={{ borderLeft: `3px solid ${color}` }}>
+              <div className="px-4 pt-3 pb-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold">{c.name}</span>
+                  <span className="text-xs text-[var(--color-muted)]" title={title}>{label}</span>
+                  {c.health && <Badge color={c.health === 'healthy' ? '#10b981' : c.health === 'unhealthy' ? '#ef4444' : '#eab308'}>{c.health}</Badge>}
+                  {c.oomKilled && <Badge color="#ef4444" title="The kernel killed this container for exceeding its memory limit">OOM killed</Badge>}
+                  {c.restartCount > 0 && <Badge color="#fb923c" title="Times the runtime restarted it">{c.restartCount} restart{c.restartCount === 1 ? '' : 's'}</Badge>}
+                  {r?.oomKills != null && r.oomKills > 0 && <Badge color="#ef4444" title="memory.events oom_kill">{r.oomKills} oom kill{r.oomKills === 1 ? '' : 's'}</Badge>}
+                  {r?.cpuThrottled != null && r.cpuThrottled > 0 && (
+                    <Badge color="#eab308" title={`cpu.stat: throttled ${r.cpuThrottled} periods, ${humanDelta((r.cpuThrottledUsec ?? 0) / 1000, { abbreviate: true })} in all`}>
+                      throttled ×{r.cpuThrottled}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[var(--color-muted)] font-mono mt-1">
+                  <span>{c.image}</span>
+                  <span title="container id">{String(c.id).slice(0, 12)}</span>
+                  {c.pid && <span title="the container's init, as our host numbers it">host pid {c.pid}</span>}
+                  {c.ports && <span>{c.ports}</span>}
+                  {(r?.cpuset ?? c.cpuset) && <span title="cpuset.cpus.effective">cpus {r?.cpuset ?? c.cpuset}</span>}
+                </div>
+              </div>
+
+              {isRunning && r && (
+                <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <ResourceBar
+                    label="CPU"
+                    pct={r.cpuPct == null ? null : r.cpuPct / cpuMaxPct * 100}
+                    value={r.cpuPct == null ? '—' : `${r.cpuPct.toFixed(1)}%`}
+                    ceiling={cpuCap ? `of ${cores(cpuCap)} (quota)` : hostCores ? `of ${cores(hostCores)}, no quota` : 'no quota'}
+                    thresholds={UTILISATION}
+                  />
+                  <ResourceBar
+                    label="Memory"
+                    pct={r.memUsed == null || !memMax ? null : r.memUsed / memMax * 100}
+                    value={r.memUsed == null ? '—' : formatBytes(r.memUsed)}
+                    ceiling={[
+                      memCap ? `of ${formatBytes(memCap)} limit` : hostMemBytes ? `of ${formatBytes(hostMemBytes)} host, no limit` : 'no limit',
+                      r.memPeak != null ? `peak ${formatBytes(r.memPeak)}` : '',
+                      r.swapUsed ? `swap ${formatBytes(r.swapUsed)}` : '',
+                    ].filter(Boolean).join(' · ')}
+                    thresholds={UTILISATION}
+                  />
+                  <ResourceBar
+                    label="Tasks"
+                    pct={r.tasks == null || !taskCap ? null : r.tasks / taskCap * 100}
+                    value={r.tasks == null ? '—' : `${r.tasks}`}
+                    ceiling={taskCap ? `of ${taskCap} pids.max` : `${procs.length} processes, no pids limit`}
+                    thresholds={UTILISATION}
+                  />
+                  <div className="sm:col-span-3 flex flex-wrap gap-x-6 gap-y-1 items-center">
+                    <Pressure psi={r.psi} />
+                    <span className="text-xs font-mono text-[var(--color-muted)]" title="io.stat, since the container started">
+                      io {r.ioRead == null ? '—' : `${formatBytes(r.ioRead)} read`} / {r.ioWrite == null ? '—' : `${formatBytes(r.ioWrite)} written`}
+                    </span>
+                    {r.memAnon != null && r.memFile != null && (
+                      <span className="text-xs font-mono text-[var(--color-muted)]" title="memory.stat anon / file">
+                        anon {formatBytes(r.memAnon)} · file {formatBytes(r.memFile)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isRunning && r && (
+                <div className="border-t border-[var(--color-border)]">
+                  <button
+                    type="button"
+                    onClick={() => toggle(c.id)}
+                    className="w-full text-left px-4 py-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)] font-mono"
+                  >
+                    {open ? '▾' : '▸'} {procs.length} process{procs.length === 1 ? '' : 'es'} · host pids
+                  </button>
+                  {open && procs.length > 0 && (
+                    <div className="overflow-x-auto px-4 pb-3">
+                      <table className="w-full text-xs font-mono whitespace-nowrap">
+                        <thead>
+                          <tr className="text-[var(--color-muted)] text-left">
+                            <th className="pb-1 pr-3 text-right">PID</th>
+                            <th className="pb-1 pr-3 text-right">PPID</th>
+                            <th className="pb-1 pr-3">USER</th>
+                            <th className="pb-1 pr-3 text-right">CPU%</th>
+                            <th className="pb-1 pr-3 text-right">MEM%</th>
+                            <th className="pb-1 pr-3 text-right">RSS</th>
+                            <th className="pb-1 pr-3 text-right">AGE</th>
+                            <th className="pb-1">CMD</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {procs.map((p: any) => (
+                            <tr key={p.pid} className="border-t border-[var(--color-border)]">
+                              <td className="py-0.5 pr-3 text-right">{p.pid}</td>
+                              <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.ppid}</td>
+                              <td className="py-0.5 pr-3 text-[var(--color-muted)]">{p.user}</td>
+                              <td className={`py-0.5 pr-3 text-right ${p.cpu > 50 ? 'text-[var(--color-error)]' : ''}`}>{p.cpu.toFixed(1)}</td>
+                              <td className="py-0.5 pr-3 text-right">{p.mem.toFixed(1)}</td>
+                              <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{formatBytes(p.rss * 1024)}</td>
+                              <td className="py-0.5 pr-3 text-right text-[var(--color-muted)]">{p.elapsed == null ? '' : humanDelta(p.elapsed * 1000, { abbreviate: true, smallest: 'second' })}</td>
+                              <td className="py-0.5" style={{ paddingLeft: `${p.depth * 1.25}rem` }}>
+                                {p.depth > 0 && <span className="text-[var(--color-muted)]">└ </span>}
+                                <span title={p.cmd}>{p.cmd.length > 160 ? `${p.cmd.slice(0, 160)}…` : p.cmd}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {open && procs.length === 0 && (
+                    <div className="px-4 pb-3 text-xs text-[var(--color-muted)]">The cgroup lists no host pids ps could find.</div>
+                  )}
+                </div>
+              )}
+
+              {isRunning && !r && hasResources && (
+                <div className="px-4 pb-3 text-xs text-[var(--color-muted)]">No cgroup found for this container&apos;s root pid.</div>
+              )}
+              {!isRunning && c.exitCode != null && c.exitCode !== 0 && (
+                <div className="px-4 pb-3 text-xs text-[var(--color-error)]">exit code {c.exitCode}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export const NULL_TOOLTIP = () => null;

@@ -23,9 +23,9 @@ const DEFAULT_KWH_RATE = PRICING_DEFAULT_KWH_RATE;
 
 type BootStatus = { state: 'idle' } | { state: 'verifying' } | { state: 'success'; version: string; steps: any[] } | { state: 'error'; detail: string; steps?: any[] };
 
-const TABS = ['Overview', 'Harnesses', 'Processes', 'Bootstrap', 'Settings'] as const;
+const TABS = ['Overview', 'Harnesses', 'Processes', 'Containers', 'Bootstrap', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
-import { OverviewTab, HarnessesTab, ProcessesTab, BootstrapTab, SettingsTab } from './tabs';
+import { OverviewTab, HarnessesTab, ProcessesTab, ContainersTab, BootstrapTab, SettingsTab } from './tabs';
 import { harnessesFor } from '@/lib/harnesses';
 
 const HARNESSES = harnessesFor('node');
@@ -563,6 +563,7 @@ export default function NodeDetailPage() {
       {activeTab === 'Overview' && <OverviewTab {...tabProps} />}
       {activeTab === 'Harnesses' && <HarnessesTab {...tabProps} />}
       {activeTab === 'Processes' && <ProcessesTab {...tabProps} />}
+      {activeTab === 'Containers' && <ContainersTab {...tabProps} />}
 
       {/* ===== BOOTSTRAP TAB ===== */}
       {activeTab === 'Bootstrap' && <BootstrapTab {...tabProps} />}
