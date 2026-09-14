@@ -681,15 +681,27 @@ describe('harness sessions', () => {
  */
 describe('parseDockerCgroup', () => {
   const RAW = [
-    '1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|3141442|tini',
-    'fb000e9f55d9aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777|8100|postgres',
-    'not-a-container|1|nope',
+    'docker|1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|3141442|tini',
+    'docker|fb000e9f55d9aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777|8100|postgres',
+    'docker|not-hex|1|nope',
   ].join('\n');
   it('reads each running container with its short id, root pid and root command', () => {
     const cs = parseDockerCgroup(RAW);
     expect(cs).toHaveLength(2);
-    expect(cs[0]).toEqual({ id: '1e0b0369687f', fullId: '1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6', rootPid: 3141442, rootComm: 'tini' });
+    expect(cs[0]).toEqual({ runtime: 'docker', id: '1e0b0369687f', fullId: '1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6', rootPid: 3141442, rootComm: 'tini' });
     expect(cs[1].rootComm).toBe('postgres');
+  });
+  it('reads lxc and nspawn machines by their name, not a hex id', () => {
+    const cs = parseDockerCgroup([
+      'lxc|rhodecode-01|4001|systemd',
+      'nspawn|buildbot|4100|systemd',
+    ].join('\n'));
+    expect(cs[0]).toEqual({ runtime: 'lxc', id: 'rhodecode-01', fullId: 'rhodecode-01', rootPid: 4001, rootComm: 'systemd' });
+    expect(cs[1]).toMatchObject({ runtime: 'nspawn', id: 'buildbot' });
+  });
+  it('still reads the old two-field docker-only shape', () => {
+    const [c] = parseDockerCgroup('1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|900|tini');
+    expect(c).toMatchObject({ runtime: 'docker', id: '1e0b0369687f', rootPid: 900 });
   });
   it('reads nothing without a scan', () => {
     expect(parseDockerCgroup('none')).toEqual([]);
@@ -698,11 +710,19 @@ describe('parseDockerCgroup', () => {
 });
 
 describe('mergeCgroupContainers', () => {
-  const cg = parseDockerCgroup('1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|3141442|tini');
+  const cg = parseDockerCgroup('docker|1e0b0369687fe945abbb17cd3b5120d85532e10ea7d0c4fc491b82ae9dd0c1c6|3141442|tini');
   it('synthesizes a running row when docker ps saw nothing, named by short id and root command', () => {
     const out = mergeCgroupContainers([], cg);
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ id: '1e0b0369687f', name: 'tini', state: 'running', pid: 3141442, rootComm: 'tini', viaCgroup: true });
+    expect(out[0]).toMatchObject({ id: '1e0b0369687f', name: 'tini', state: 'running', pid: 3141442, rootComm: 'tini', runtime: 'docker', viaCgroup: true });
+  });
+  it('names an lxc/nspawn container by its machine name, not its root process', () => {
+    const out = mergeCgroupContainers([], parseDockerCgroup('lxc|rhodecode-01|4001|systemd'));
+    expect(out[0]).toMatchObject({ id: 'rhodecode-01', name: 'rhodecode-01', runtime: 'lxc', viaCgroup: true });
+  });
+  it('decodes a systemd-escaped machine name for display, keeps the raw id for stats', () => {
+    const out = mergeCgroupContainers([], parseDockerCgroup('nspawn|qemu\\x2d1\\x2d6akuma|4200|systemd'));
+    expect(out[0]).toMatchObject({ id: 'qemu\\x2d1\\x2d6akuma', name: 'qemu-1-6akuma', runtime: 'nspawn' });
   });
   it('does not duplicate a container the socket already reported', () => {
     const docker = [{ id: '1e0b0369687f', name: 'rhodecode', image: 'rhodecode:latest', status: 'Up 2 days', ports: '' }];

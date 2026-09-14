@@ -86,13 +86,25 @@ echo '===SECTION:DISK==='
 # kilobytes, which parseDisk renders.
 \$T df -h --output=source,size,used,avail,pcent,target 2>/dev/null | grep -E '^(/dev|tmpfs)' || \$T df -k 2>/dev/null | grep -E '^/' || echo 'n/a'
 
+# One ps aux, reused three times. It ran here, again for CLAUDE_PS, and a
+# third time piped to hprocs in HARNESS_SESSIONS -- three full-table walks
+# that on a 14,000-process host (cammy) cost a second each and helped push
+# the whole probe past our SSH timeout, truncating everything after it.
+# Captured once into PSAUX; the sections below read the variable. Empty on a
+# System V ps with no aux, where each section keeps its own fallback.
+PSAUX=\$(ps aux 2>/dev/null)
+
 # --- processes (CPU-sorted, whole table) ---
 echo '===SECTION:PS==='
 # --sort is procps; a BSD ps sorts in the pipe, and a System V ps has no aux.
 # The whole table, not a head: the Processes tab shows every row, so a head
 # here is a truncation the tab cannot undo. It is bounded only by ps itself
 # and our 16MB read buffer -- a few hundred KB even on a busy box.
-{ ps aux --sort=-%cpu 2>/dev/null || { ps aux 2>/dev/null | sed -n 1p; ps aux 2>/dev/null | sed 1d | sort -k3 -rn; } || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'n/a'
+if [ -n "\$PSAUX" ]; then
+  { printf '%s\\n' "\$PSAUX" | sed -n 1p; printf '%s\\n' "\$PSAUX" | sed 1d | sort -k3 -rn; } | grep -v '===SECTION:'
+else
+  ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null | grep -v '===SECTION:' || echo 'n/a'
+fi
 
 # --- process tree (ps -ejH: job hierarchy, session/group ids) ---
 # Our Processes tab shows this by default. The CPU-sorted list above answers
@@ -111,7 +123,7 @@ echo '===SECTION:PS_TREE==='
 # @unturf/unfirehose/harness-procs; we ship the whole table and apply it
 # server-side so adding a harness never means editing an embedded shell string.
 echo '===SECTION:CLAUDE_PS==='
-{ ps aux 2>/dev/null || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'none'
+{ [ -n "\$PSAUX" ] && printf '%s\\n' "\$PSAUX" || ps -eo user,pid,pcpu,pmem,vsz,rss,tty,s,stime,time,args 2>/dev/null; } | grep -v '===SECTION:' || echo 'none'
 
 # --- GPU nvidia ---
 echo '===SECTION:NVIDIA==='
@@ -252,18 +264,35 @@ DSTATE=\$(\$T docker ps -aq 2>/dev/null | head -50 | \$T xargs -r docker inspect
 # names live behind the socket. This finds only RUNNING containers -- a
 # stopped one has no cgroup -- which is exactly the set that has resources
 # to show.
+# Docker is not the only cgroup container. LXC/LXD name their cgroups
+# lxc.payload.<name> or lxc/<name> or system.slice/lxc-<name>.scope;
+# systemd-nspawn puts each machine at machine.slice/machine-<name>.scope.
+# All are the same kind of thing -- a cgroup with processes -- so all read
+# the same way. cammy runs hundreds of LXD containers, guile and blanka run
+# nspawn machines; none showed here before. docker ids are hex, the others
+# are names, and the runtime is carried so the tab can say which is which.
+# The scope dir rides along so CGROUP_STATS reads it directly.
 echo '===SECTION:DOCKER_CGROUP==='
-CGSCAN=\$(for s in /sys/fs/cgroup/system.slice/docker-*.scope /sys/fs/cgroup/docker/* /sys/fs/cgroup/*/docker/*; do
+CGSCAN=\$(for s in /sys/fs/cgroup/system.slice/docker-*.scope /sys/fs/cgroup/docker/* /sys/fs/cgroup/*/docker/* \\
+                   /sys/fs/cgroup/lxc.payload.*/ /sys/fs/cgroup/lxc/*/ /sys/fs/cgroup/*/lxc/*/ /sys/fs/cgroup/system.slice/lxc-*.scope \\
+                   /sys/fs/cgroup/machine.slice/machine-*.scope; do
   [ -d "\$s" ] || continue
-  n=\$(basename "\$s"); cid=\$n
-  case "\$n" in docker-*.scope) cid=\${n#docker-}; cid=\${cid%.scope} ;; esac
-  case "\$cid" in *[!0-9a-f]*) continue ;; esac
-  [ \${#cid} -ge 12 ] || continue
+  n=\$(basename "\$s"); rt=''; id="\$n"
+  case "\$n" in
+    docker-*.scope) rt=docker; id=\${n#docker-}; id=\${id%.scope} ;;
+    lxc-*.scope)    rt=lxc;    id=\${n#lxc-};    id=\${id%.scope} ;;
+    lxc.payload.*)  rt=lxc;    id=\${n#lxc.payload.} ;;
+    machine-*.scope) rt=nspawn; id=\${n#machine-}; id=\${id%.scope} ;;
+    *) case "\$s" in */docker/*) rt=docker ;; */lxc/*) rt=lxc ;; *) continue ;; esac ;;
+  esac
+  # A docker id is a 64-hex; an lxc or nspawn id is a human name.
+  if [ "\$rt" = docker ]; then case "\$id" in *[!0-9a-f]*) continue ;; esac; [ \${#id} -ge 12 ] || continue; fi
+  [ -n "\$id" ] || continue
   rp=\$(head -1 "\$s/cgroup.procs" 2>/dev/null)
   [ -n "\$rp" ] || rp=\$(cat "\$s"/*/cgroup.procs 2>/dev/null | head -1)
   [ -n "\$rp" ] || continue
-  echo "\$cid|\$rp|\$(cat /proc/\$rp/comm 2>/dev/null)"
-done | sort -u | head -200)
+  echo "\$rt|\$id|\$rp|\$(cat /proc/\$rp/comm 2>/dev/null)"
+done | sort -u | head -400)
 [ -n "\$CGSCAN" ] && echo "\$CGSCAN" || echo 'none'
 
 # --- container resources, read from our host kernel's cgroups ---
@@ -284,12 +313,22 @@ CG_LIST=''
 # Fold in the cgroup-discovered containers the socket did not report -- every
 # one when the socket was denied, none extra when it answered (dedup by the
 # 12-char id the running set already carries).
-for e in \$CGSCAN; do
-  cid=\${e%%|*}; rp=\$(echo "\$e" | cut -d'|' -f2)
-  short=\$(echo "\$cid" | cut -c1-12)
-  case "\$CG_LIST" in *"\$short"*) ;; *) CG_LIST="\$CG_LIST\${CG_LIST:+
-}\$cid|\$rp" ;; esac
-done
+CGEXTRA=\$(printf '%s\\n' "\$CGSCAN" | while IFS='|' read -r rt cid rp comm; do
+  [ -n "\$cid" ] && [ -n "\$rp" ] || continue
+  short=\$(printf '%s' "\$cid" | cut -c1-12)
+  case "\$CG_LIST" in *"\$short"*) continue ;; esac
+  echo "\$cid|\$rp"
+done)
+[ -n "\$CGEXTRA" ] && CG_LIST="\$CG_LIST\${CG_LIST:+
+}\$CGEXTRA"
+# Live cpu/mem/pid stats for every container mean a per-container double read
+# of cpu.stat around a one-second sleep, plus memory, pids, io and pressure.
+# On a host running hundreds (cammy: ~395 LXD guests) that is thousands of
+# forks in one probe, and the whole probe was truncated by our SSH timeout.
+# Every container is still LISTED from the scan above; we compute live stats
+# for a bounded slice so the probe always finishes. The rest render with
+# their name, runtime and root command, no bars.
+CG_LIST=\$(printf '%s\\n' "\$CG_LIST" | grep -v '^\$' | head -120)
 cg_v2_dir() { rel=\$(sed -n 's/^0:://p' /proc/\$1/cgroup 2>/dev/null | head -1); [ -n "\$rel" ] && [ -d "\$CG_ROOT\$rel" ] && echo "\$CG_ROOT\$rel"; }
 cg_v1_dir() { rel=\$(sed -n "s/^[0-9]*:[a-z,]*\$2[a-z,]*:\\(.*\\)\$/\\1/p" /proc/\$1/cgroup 2>/dev/null | head -1); [ -n "\$rel" ] || return; for c in "\$2" cpu,cpuacct cpuacct,cpu; do [ -d "\$CG_ROOT/\$c\$rel" ] && { echo "\$CG_ROOT/\$c\$rel"; return; }; done; }
 cg_cpu() { d=\$(cg_v2_dir \$2); if [ -n "\$d" ]; then echo "\$1|\$3|\$(awk '\$1=="usage_usec"{u=\$2} \$1=="nr_throttled"{t=\$2} \$1=="throttled_usec"{s=\$2} END{print u"|"t"|"s}' \$d/cpu.stat 2>/dev/null)"; else d=\$(cg_v1_dir \$2 cpuacct); [ -n "\$d" ] && echo "\$1|\$3|\$(( \$(cat \$d/cpuacct.usage 2>/dev/null || echo 0) / 1000 ))|\$(awk '\$1=="nr_throttled"{t=\$2} \$1=="throttled_time"{s=int(\$2/1000)} END{print t"|"s}' \$d/cpu.stat 2>/dev/null)"; fi; }
@@ -335,7 +374,7 @@ echo '===SECTION:PS_PPID==='
 # fox's sessions.
 echo '===SECTION:HARNESS_SESSIONS==='
 NOW=\$(date +%s)
-ps aux 2>/dev/null | hprocs | while read -r _ user pid _; do
+{ [ -n "\$PSAUX" ] && printf '%s\\n' "\$PSAUX" || ps aux 2>/dev/null; } | hprocs | while read -r _ user pid _; do
   cwd=\$(readlink /proc/\$pid/cwd 2>/dev/null) || continue
   et=\$(ps -o etimes= -p \$pid 2>/dev/null | tr -d ' ')
   home=\$(getent passwd "\$user" 2>/dev/null | cut -d: -f6)
@@ -417,15 +456,21 @@ function run(cmd: string, opts: { timeout: number; shell?: string }): Promise<st
 function probeLocal(): Promise<string> {
   // UF_POSIX set: the script is an argument here, not stdin, so its
   // re-exec-a-POSIX-shell preamble must not fire (it would read nothing).
-  return run(`UF_POSIX=1 bash -c '${PROBE_SCRIPT.replace(/'/g, "'\\''")}'`, { timeout: 15000 });
+  return run(`UF_POSIX=1 bash -c '${PROBE_SCRIPT.replace(/'/g, "'\\''")}'`, { timeout: 30000 });
 }
 
 function probeRemote(host: string): Promise<string> {
   // `sh`, not `bash`: a BSD, a Solaris or an AIX has no bash to hand the
   // script to, and the script's own first lines find a POSIX shell.
+  //
+  // 45s, not 25: a host running hundreds of containers on tens of thousands
+  // of processes (cammy: ~395 LXD guests, 14k procs) takes ~30s to walk its
+  // cgroups and process table, and a shorter cap truncated the whole probe --
+  // losing every section after the cut. The route answers off the event loop,
+  // so a slow probe delays only its own card, not the server.
   return run(
     `ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${host} sh << 'PROBE_EOF'\n${PROBE_SCRIPT}\nPROBE_EOF`,
-    { timeout: 25000, shell: '/bin/bash' },
+    { timeout: 45000, shell: '/bin/bash' },
   );
 }
 

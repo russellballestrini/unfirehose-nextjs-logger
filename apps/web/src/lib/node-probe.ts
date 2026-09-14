@@ -664,7 +664,9 @@ export function attachHarnessSessions<P extends { pid: number; harness?: string 
  * cgroups it cannot forbid still name every running container.
  */
 export interface CgroupContainer {
-  /** Short (12-char) id, as docker ps prints it. */
+  /** docker | lxc | nspawn -- which runtime owns this cgroup. */
+  runtime: string;
+  /** Short id (docker: 12-char hex; lxc/nspawn: the machine name). */
   id: string;
   /** Full id, for matching cgroup stats keyed by it. */
   fullId: string;
@@ -673,15 +675,40 @@ export interface CgroupContainer {
   rootComm: string;
 }
 
+/**
+ * Containers found in the cgroup filesystem: `runtime|id|pid|comm` per line.
+ * docker rows carry a 64-hex id; lxc/LXD and systemd-nspawn carry a human
+ * machine name. The older two-field `id|pid|comm` shape (docker only) still
+ * parses, read as runtime docker.
+ */
+/**
+ * systemd escapes a machine unit name -- a hyphen becomes \x2d, so a libvirt
+ * guest tracked by machined reads "qemu\x2d1\x2dvm". Decode for display; the
+ * raw form stays the cgroup key.
+ */
+export function unescapeMachineName(v: string): string {
+  return v.replace(/\\x([0-9a-fA-F]{2})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
 export function parseDockerCgroup(raw: string): CgroupContainer[] {
   if (!raw || raw === 'none') return [];
   const out: CgroupContainer[] = [];
   for (const line of raw.split('\n')) {
     const parts = line.split('|');
-    const full = parts[0]?.trim();
-    if (!full || !/^[0-9a-f]{12,}$/.test(full)) continue;
-    const pid = parseInt(parts[1] ?? '');
-    out.push({ id: full.slice(0, 12), fullId: full, rootPid: Number.isFinite(pid) ? pid : 0, rootComm: (parts[2] ?? '').trim() });
+    let runtime: string, full: string, pidStr: string, comm: string;
+    if (/^(docker|lxc|nspawn)$/.test(parts[0]?.trim() ?? '')) {
+      runtime = parts[0]!.trim(); full = (parts[1] ?? '').trim(); pidStr = parts[2] ?? ''; comm = (parts[3] ?? '').trim();
+    } else {
+      runtime = 'docker'; full = (parts[0] ?? '').trim(); pidStr = parts[1] ?? ''; comm = (parts[2] ?? '').trim();
+    }
+    if (!full) continue;
+    // A docker id must look like one; a named runtime's id is free text.
+    if (runtime === 'docker' && !/^[0-9a-f]{12,}$/.test(full)) continue;
+    const pid = parseInt(pidStr);
+    // id stays raw -- it is the key cgroup stats are reported under, so it
+    // must match byte for byte. The display name is decoded in the merge.
+    const id = runtime === 'docker' ? full.slice(0, 12) : full;
+    out.push({ runtime, id, fullId: full, rootPid: Number.isFinite(pid) ? pid : 0, rootComm: comm });
   }
   return out;
 }
@@ -696,19 +723,22 @@ export function parseDockerCgroup(raw: string): CgroupContainer[] {
  */
 export function mergeCgroupContainers<C extends { id: string; state?: string }>(
   docker: C[], cgroup: CgroupContainer[],
-): (C | { id: string; name: string; image: string; status: string; ports: string; state: string; pid: number; rootComm: string; viaCgroup: true })[] {
+): (C | { id: string; name: string; image: string; status: string; ports: string; state: string; pid: number; rootComm: string; runtime: string; viaCgroup: true })[] {
   if (cgroup.length === 0) return docker;
   const have = docker.map((c) => c.id);
   const seen = (full: string) => have.some((h) => full.startsWith(h) || h.startsWith(full.slice(0, 12)));
   const extra = cgroup
     .filter((c) => !seen(c.fullId))
     .map((c) => ({
-      // Named by the root process, not the opaque hex id -- "postgres",
-      // "uvicorn", "tini" reads far better than a 12-char prefix, and the id
-      // is still on the meta line. The runtime's own name is behind the
-      // socket we were refused.
-      id: c.id, name: c.rootComm || c.id, image: '', status: 'running', ports: '',
-      state: 'running', pid: c.rootPid, rootComm: c.rootComm, viaCgroup: true as const,
+      // An lxc/nspawn cgroup already carries a human name; a docker one is a
+      // hex id, so it reads better named by its root process ("postgres",
+      // "uvicorn", "tini") with the id kept on the meta line. The runtime's
+      // own name, where it has one, lives behind the socket we were refused.
+      id: c.id,
+      name: c.runtime === 'docker' ? (c.rootComm || c.id) : unescapeMachineName(c.id),
+      image: '', status: 'running', ports: '',
+      state: 'running', pid: c.rootPid, rootComm: c.rootComm,
+      runtime: c.runtime, viaCgroup: true as const,
     }));
   return [...docker, ...extra];
 }

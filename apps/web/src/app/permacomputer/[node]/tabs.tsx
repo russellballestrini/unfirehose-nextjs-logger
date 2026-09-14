@@ -614,6 +614,9 @@ export function OverviewTab(props: TabProps) {
                   <div key={c.id} className="text-sm">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold">{c.name}</span>
+                      {c.runtime && c.runtime !== 'docker' && (
+                        <span className="text-[10px] font-mono px-1 rounded bg-[#60a5fa]/15 text-[#60a5fa]" title={`runtime: ${c.runtime}`}>{c.runtime}</span>
+                      )}
                       <span className="text-xs text-[var(--color-muted)]" title={title}>{label}</span>
                       {r && (
                         <span className="text-xs font-mono text-[var(--color-muted)]">
@@ -1290,6 +1293,9 @@ export function ContainersTab(props: TabProps) {
               <div className="px-4 pt-3 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-bold">{c.name}</span>
+                  {c.runtime && c.runtime !== 'docker' && (
+                    <Badge color="#60a5fa" title={`runtime: ${c.runtime}`}>{c.runtime}</Badge>
+                  )}
                   <span className="text-xs text-[var(--color-muted)]" title={title}>{label}</span>
                   {c.health && <Badge color={c.health === 'healthy' ? '#10b981' : c.health === 'unhealthy' ? '#ef4444' : '#eab308'}>{c.health}</Badge>}
                   {c.oomKilled && <Badge color="#ef4444" title="The kernel killed this container for exceeding its memory limit">OOM killed</Badge>}
