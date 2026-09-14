@@ -1208,7 +1208,6 @@ export function ContainersTab(props: TabProps) {
   const [query, setQuery] = React.useState('');
   const [runtimeFilter, setRuntimeFilter] = React.useState('all');
   const [sort, setSort] = React.useState<'cpu' | 'mem' | 'tasks' | 'name'>('cpu');
-  const [limit, setLimit] = React.useState(60);
   const toggle = (id: string) => setExpanded((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -1321,7 +1320,7 @@ export function ContainersTab(props: TabProps) {
         <input
           type="text"
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setLimit(60); }}
+          onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${all.length} containers…`}
           className="flex-1 min-w-[180px] bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm font-mono focus:border-[var(--color-accent)] outline-none"
         />
@@ -1330,7 +1329,7 @@ export function ContainersTab(props: TabProps) {
             <button
               key={rt}
               type="button"
-              onClick={() => { setRuntimeFilter(rt); setLimit(60); }}
+              onClick={() => setRuntimeFilter(rt)}
               className={`px-2 py-1 rounded border ${runtimeFilter === rt
                 ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
                 : 'border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
@@ -1366,7 +1365,7 @@ export function ContainersTab(props: TabProps) {
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, limit).map((c) => {
+            {filtered.map((c) => {
               const r = c.resources ?? null;
               const { label, title } = containerStatus(c);
               const color = colorOf.get(c.id)!;
@@ -1510,21 +1509,9 @@ export function ContainersTab(props: TabProps) {
         </table>
       </div>
 
-      {filtered.length > limit ? (
-        <div className="text-center">
-          <button
-            type="button"
-            onClick={() => setLimit((n) => n + 200)}
-            className="text-xs font-mono text-[var(--color-accent)] hover:underline"
-          >
-            showing {limit} of {filtered.length} — show more
-          </button>
-        </div>
-      ) : (
-        <div className="text-center text-xs text-[var(--color-muted)] font-mono">
-          {filtered.length === all.length ? `${filtered.length} containers` : `${filtered.length} of ${all.length} match`}
-        </div>
-      )}
+      <div className="text-center text-xs text-[var(--color-muted)] font-mono">
+        {filtered.length === all.length ? `${filtered.length} containers` : `${filtered.length} of ${all.length} match`}
+      </div>
     </div>
   );
 }

@@ -627,19 +627,19 @@ describe('the containers tab', () => {
     expect(tableText()).toContain('rhodecode-01');
   });
 
-  it('renders a bounded slice of a huge list, with a show-more', () => {
-    const many = Array.from({ length: 90 }, (_, i) => ({
+  it('renders every container of a huge list, collapsed, no pagination', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({
       id: `c${i}`, name: `svc-${i}`, status: 'running', state: 'running', startedAt,
       resources: resources({ cpuPct: i }), processes: [],
     }));
     const { container } = render(<ContainersTab {...withContainers(many)} />);
-    expect(container.textContent).toContain('showing 60 of 90 — show more');
-    // Sorted by cpu desc, so the hottest (svc-89) is present, the coldest not.
-    expect(container.textContent).toContain('svc-89');
-    expect(container.textContent).not.toContain('svc-0 ');
-    const more = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('show more'))!;
-    act(() => { fireEvent.click(more); });
-    expect(container.textContent).toContain('90 containers');
+    expect(container.textContent).not.toContain('show more');
+    expect(container.textContent).toContain('300 containers');
+    // Every one is a row -- collapsed rows are cheap, so all render at once.
+    const rows = Array.from(container.querySelectorAll('tr')).filter((r) => r.className.includes('cursor-pointer'));
+    expect(rows).toHaveLength(300);
+    expect(container.textContent).toContain('svc-299');
+    expect(container.textContent).toContain('svc-0');
   });
 
   it('says the kernel side is missing rather than drawing empty bars', () => {
