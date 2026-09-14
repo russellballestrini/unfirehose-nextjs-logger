@@ -2,7 +2,7 @@
 
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
-import { use, useState, useEffect, useMemo } from 'react';
+import { use, useState, useEffect, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
@@ -1003,6 +1003,25 @@ const lineNumbers = useMemo(() => {
   return out;
 }, [treeData?.content]);
 
+// The viewer fills the screen from wherever it starts down to the bottom, so
+// a file is read inside it without the page needing to scroll first. Measured,
+// not guessed: the chrome above it (title, tabs, branch row, sub-tabs,
+// breadcrumb) changes height with the path, so a fixed offset was always
+// wrong. Recomputed on mount, on resize, and whenever the open file changes.
+const viewerRef = useRef<HTMLDivElement>(null);
+const [viewerMaxH, setViewerMaxH] = useState<string | undefined>(undefined);
+useEffect(() => {
+  const el = viewerRef.current;
+  if (!el) return;
+  const fit = () => {
+    const top = el.getBoundingClientRect().top;
+    setViewerMaxH(`${Math.max(240, window.innerHeight - top - 24)}px`);
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  return () => window.removeEventListener('resize', fit);
+}, [treeData?.type, treeData?.path, treePath]);
+
 // Breadcrumb from treePath
 const pathParts = treePath ? treePath.split('/') : [];
 const breadcrumbs = pathParts.map((part: string, i: number) => ({
@@ -1086,7 +1105,7 @@ const breadcrumbs = pathParts.map((part: string, i: number) => ({
             header stays put and the whole file is reachable by the box's own
             scrollbar. A flex column: header fixed, content fills the rest. */}
         {treeData?.type === 'file' && (
-          <div className="border border-[var(--color-border)] rounded overflow-hidden flex flex-col max-h-[calc(100vh-140px)]">
+          <div ref={viewerRef} style={{ maxHeight: viewerMaxH }} className="border border-[var(--color-border)] rounded overflow-hidden flex flex-col">
             {/* File header */}
             <div className="px-4 py-2.5 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center gap-3 text-sm shrink-0">
               <span>{fileIcon(treeData.name, 'blob')}</span>
