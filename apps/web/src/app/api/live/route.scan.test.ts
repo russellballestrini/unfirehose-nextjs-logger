@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -46,7 +46,7 @@ beforeAll(() => {
   const cold = path.join(claudeProjects, '-home-demo', 'cold.jsonl');
   writeFileSync(cold, line({ type: 'user', message: { role: 'user', content: 'old' } }));
   const hourAgo = new Date(Date.now() - 3600 * 1000);
-  require('fs').utimesSync(cold, hourAgo, hourAgo);
+  utimesSync(cold, hourAgo, hourAgo);
 
   mkdirSync(path.join(nativeRoot, 'proj-slug'), { recursive: true });
   writeFileSync(path.join(nativeRoot, 'proj-slug', 'native.jsonl'), [
