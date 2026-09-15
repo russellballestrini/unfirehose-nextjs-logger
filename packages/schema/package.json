@@ -1,6 +1,6 @@
 {
   "name": "@unturf/unfirehose-schema",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "unfirehose/1.0 \u2014 schema specification for machine learning agent session logging across coding harnesses",
   "type": "module",
   "license": "AGPL-3.0-only",
