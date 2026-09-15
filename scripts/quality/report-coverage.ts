@@ -15,14 +15,7 @@ import { ROOT, WORKSPACES, workspaceOf } from './workspaces.ts';
 import { loadCoverage, totals, percent, reportPath, type FileCoverage } from './coverage.ts';
 import { args, table, heading, bar, dim, grade, writeJson } from './render.ts';
 
-/**
- * The report, as a function.
- *
- * These bodies used to run on import, which is what a script does — and it
- * also meant nothing could call one without printing to a terminal and
- * exiting. A `main` that takes its arguments can be tested; the line at the
- * bottom keeps `npx tsx` and `make` working exactly as before.
- */
+/** The report as a function — see `args` in render.ts for why. */
 export function main(argv: string[] = process.argv.slice(2)): void {
   const flags = args(argv);
   const worst = flags.num('worst', 15);

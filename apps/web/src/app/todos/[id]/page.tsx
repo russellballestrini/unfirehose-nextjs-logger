@@ -286,7 +286,7 @@ function AttachmentsTab({ todo }: { todo: any }) {
         <a key={a.id} href={`/api/todos/attachments/${a.hash}`} target="_blank" rel="noopener"
           className="border border-[var(--color-border)] rounded-lg p-4 hover:border-[var(--color-accent)]/50 transition-colors">
           <div className="flex items-center gap-3">
-            {a.mimeType.startsWith('image/') ? (
+            {(a.mimeType ?? '').startsWith('image/') ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={`/api/todos/attachments/${a.hash}`} alt={a.filename} className="w-12 h-12 rounded object-cover" />
             ) : (

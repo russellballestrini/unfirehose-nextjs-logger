@@ -7,11 +7,12 @@ import { join } from 'path';
 
 export const dynamic = 'force-dynamic';
 
+// Two decimals where core's formatBytes keeps one: a database size is read
+// for its growth between polls, and "1.23 GB" moves where "1.2 GB" sits still.
+const UNITS: [string, number, number][] = [['GB', 1073741824, 2], ['MB', 1048576, 2], ['KB', 1024, 1]];
 function fmtBytes(n: number): string {
-  if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
-  if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
-  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${n} B`;
+  const unit = UNITS.find(([, size]) => n >= size);
+  return unit ? `${(n / unit[1]).toFixed(unit[2])} ${unit[0]}` : `${n} B`;
 }
 
 export async function GET() {

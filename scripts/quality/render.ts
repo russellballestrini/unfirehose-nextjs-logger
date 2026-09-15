@@ -83,7 +83,16 @@ export function heading(text: string): string {
   return `\n${bold(text)}\n${dim('═'.repeat(text.length))}`;
 }
 
-/** `--flag=value`, `--flag value`, and bare `--flag`. */
+/**
+ * `--flag=value`, `--flag value`, and bare `--flag`.
+ *
+ * Every report is `main(argv)` over this, not a body that runs on import.
+ * A script that runs on import prints to a terminal and exits, so nothing
+ * could call one from a test; a `main` that takes its arguments can be
+ * tested, and one line at the bottom of each script keeps `npx tsx` and
+ * `make` working exactly as before. Said once, here, rather than in four
+ * identical docblocks the duplication report counted as clones.
+ */
 export function args(argv = process.argv.slice(2)) {
   const flags = new Map<string, string>();
   for (let i = 0; i < argv.length; i += 1) {

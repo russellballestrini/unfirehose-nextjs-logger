@@ -40,7 +40,7 @@ const full = (over: Record<string, unknown> = {}) => ({
   session: { uuid: 'sess-1', display: 'demo #1', firstPrompt: 'add a test' },
   deployments: [{ id: 7, tmuxSession: 'demo', tmuxWindow: '120000', status: 'completed',
                   startedAt: '2026-09-01T11:00:00Z', stoppedAt: '2026-09-01T11:30:00Z' }],
-  attachments: [{ id: 3, filename: 'screenshot.png', hash: 'abc123', bytes: 4096 }],
+  attachments: [{ id: 3, filename: 'screenshot.png', hash: 'abc123', mimeType: 'image/png', sizeBytes: 4096 }],
   events: [{ oldStatus: 'pending', newStatus: 'in_progress', at: '2026-09-01T11:00:00Z' }],
   ...over,
 });
@@ -73,6 +73,9 @@ const show = async () => {
 
 const byText = (s: string) =>
   [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === s);
+/** A tab button, whose label may carry a count ("Deployments1"). */
+const tabButton = (label: string) =>
+  [...document.querySelectorAll('button')].find(b => (b.textContent ?? '').trim().startsWith(label));
 
 describe('todo detail', () => {
   it('shows what the todo says and where it came from', async () => {
@@ -95,9 +98,57 @@ describe('todo detail', () => {
   it('renders every tab', async () => {
     const { container } = await show();
     for (const name of ['Deployments', 'Session', 'Attachments']) {
-      await act(async () => { byText(name)?.click(); });
+      const tab = tabButton(name);
+      expect(tab, name).toBeTruthy();
+      await act(async () => { tab!.click(); });
       expect(container.textContent!.length).toBeGreaterThan(100);
     }
+  });
+
+  it('lists each deployment with its state, its tmux window and when it ran', async () => {
+    todo = full({ deployments: [
+      { id: 1, tmuxSession: 'demo', tmuxWindow: '120000', status: 'running', startedAt: '2026-09-01T11:00:00Z', stoppedAt: null },
+      { id: 2, tmuxSession: 'demo', tmuxWindow: null, status: 'completed', startedAt: '2026-09-01T09:00:00Z', stoppedAt: '2026-09-01T09:30:00Z' },
+      { id: 3, tmuxSession: 'other', tmuxWindow: 'w2', status: 'failed', startedAt: null, stoppedAt: null },
+    ] });
+    const { container } = await show();
+    await act(async () => { tabButton('Deployments')!.click(); });
+    const text = container.textContent!;
+    expect(text).toContain('RUNNING');
+    expect(text).toContain('COMPLETED');
+    expect(text).toContain('FAILED');
+    expect(text).toContain('demo:120000');
+    expect(text).toContain('other:w2');
+    expect(text).toMatch(/Stopped:/);
+    const links = [...container.querySelectorAll('a')].map(a => a.getAttribute('href'));
+    expect(links).toContain('/tmux/demo?window=120000');
+    expect(links).toContain('/tmux/demo');
+    expect(links).toContain('/tmux/other?window=w2');
+    // One pulse for the one still running.
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(1);
+  });
+
+  it('shows an image attachment as a picture and any other as its type and size', async () => {
+    todo = full({ attachments: [
+      { id: 3, filename: 'shot.png', hash: 'h1', mimeType: 'image/png', sizeBytes: 4096 },
+      { id: 4, filename: 'log.txt', hash: 'h2', mimeType: 'text/plain', sizeBytes: 2048 },
+      { id: 5, filename: 'legacy.bin', hash: 'h3', sizeBytes: 10 },          // ingested before mime types were recorded
+    ] });
+    const { container } = await show();
+    await act(async () => { tabButton('Attachments')!.click(); });
+    expect(container.querySelectorAll('img')).toHaveLength(1);
+    expect(container.textContent).toContain('text/plain');
+    expect(container.textContent).toContain('2.0 KB');
+    expect(container.textContent).toContain('legacy.bin');
+    const hrefs = [...container.querySelectorAll('a')].map(a => a.getAttribute('href'));
+    expect(hrefs).toContain('/api/todos/attachments/h2');
+  });
+
+  it('says so when a todo was never deployed', async () => {
+    todo = full({ deployments: [] });
+    const { container } = await show();
+    await act(async () => { tabButton('Deployments')!.click(); });
+    expect(container.textContent).toContain('No deployments for this todo.');
   });
 
   it('counts what is on the tabs that have counts', async () => {

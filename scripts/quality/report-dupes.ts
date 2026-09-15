@@ -15,14 +15,7 @@ import { ROOT, WORKSPACES, sourcesOf } from './workspaces.ts';
 import { findClones, MIN_TOKENS } from './duplication.ts';
 import { args, table, heading, dim, bold, grade, writeJson, checkBudget } from './render.ts';
 
-/**
- * The report, as a function.
- *
- * These bodies used to run on import, which is what a script does — and it
- * also meant nothing could call one without printing to a terminal and
- * exiting. A `main` that takes its arguments can be tested; the line at the
- * bottom keeps `npx tsx` and `make` working exactly as before.
- */
+/** The report as a function — see `args` in render.ts for why. */
 export function main(argv: string[] = process.argv.slice(2)): void {
   const flags = args(argv);
   const min = flags.num('min', MIN_TOKENS);

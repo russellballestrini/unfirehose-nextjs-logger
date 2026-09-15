@@ -21,18 +21,22 @@ import { archiveToolResultsForSession } from '@unturf/unfirehose/db/ingest';
 
 const PROJECTS = path.join(homedir(), '.claude', 'projects');
 
-async function main() {
-  if (!existsSync(PROJECTS)) {
-    console.error(`no such directory: ${PROJECTS}`);
+/**
+ * `projects` and `db` are parameters so a test can point this at a temp
+ * tree and a scratch database; make and npx take the defaults. Returns
+ * the tallies it prints, so a caller can assert on them.
+ */
+export async function main(projects = PROJECTS, db = getDb()) {
+  if (!existsSync(projects)) {
+    console.error(`no such directory: ${projects}`);
     process.exit(1);
   }
 
-  const db = getDb();
   const result = { filesScanned: 0 };
   let sessionsWithSpills = 0;
 
-  for (const project of readdirSync(PROJECTS)) {
-    const projectDir = path.join(PROJECTS, project);
+  for (const project of readdirSync(projects)) {
+    const projectDir = path.join(projects, project);
     if (!statSync(projectDir).isDirectory()) continue;
 
     for (const entry of readdirSync(projectDir)) {
@@ -59,9 +63,13 @@ async function main() {
   console.log(`rows in tool_results : ${row.c}`);
   console.log(`distinct blobs       : ${row.blobs}`);
   console.log(`archived total       : ${(row.bytes / 1048576).toFixed(1)} MB`);
+  return { sessionsWithSpills, archived: result.filesScanned, rows: row.c, blobs: row.blobs, bytes: row.bytes };
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Run when invoked directly, which is how make and npx call it.
+if (process.argv[1]?.endsWith('rescue-tool-results.ts')) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
