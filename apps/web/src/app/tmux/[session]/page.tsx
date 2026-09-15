@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 

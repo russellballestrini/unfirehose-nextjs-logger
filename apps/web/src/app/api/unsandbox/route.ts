@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { readFile, stat } from 'fs/promises';

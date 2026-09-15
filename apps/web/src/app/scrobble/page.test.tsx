@@ -239,17 +239,25 @@ describe('the scrobble page', () => {
   });
 
   it('narrows the dated series to the chosen range, and says which', async () => {
-    charts.length = 0;
-    const { container } = await show();
-    const select = [...container.querySelectorAll('select')].find((el) => el.textContent?.includes('Lifetime'))!;
-    await act(async () => { fireEvent.change(select, { target: { value: '7d' } }); });
-    // A week from May is gone; the recent ones stay. The exact boundary
-    // depends on today's date, so the assertion is about the old week.
-    const chart = charts.at(-1)!;
-    const weeks = (chart.data as Array<{ week: string }>).map((w) => w.week);
-    expect(weeks).not.toContain('2026-W20');
-    expect(weeks).toContain('2026-W35');
-    expect(container.textContent).toContain('last 7 days');
+    // The 7-day cut is measured from today, and the fixture's newest week
+    // is 2026-W35 — so this test was true for one week of September and
+    // then failed every day after. Pin the clock inside that week.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-04T12:00:00Z'));
+    try {
+      charts.length = 0;
+      const { container } = await show();
+      const select = [...container.querySelectorAll('select')].find((el) => el.textContent?.includes('Lifetime'))!;
+      await act(async () => { fireEvent.change(select, { target: { value: '7d' } }); });
+      // A week from May is gone; the recent ones stay.
+      const chart = charts.at(-1)!;
+      const weeks = (chart.data as Array<{ week: string }>).map((w) => w.week);
+      expect(weeks).not.toContain('2026-W20');
+      expect(weeks).toContain('2026-W35');
+      expect(container.textContent).toContain('last 7 days');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   /**

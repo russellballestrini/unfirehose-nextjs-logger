@@ -96,10 +96,9 @@ beforeEach(() => {
     onmessage: ((e: { data: string }) => void) | null = null;
     onerror: (() => void) | null = null;
     constructor(public url: string) {
-      const self = this;
       streams.push({
         url, closed: false,
-        emit: (data: unknown) => self.onmessage?.({ data: JSON.stringify(data) }),
+        emit: (data: unknown) => this.onmessage?.({ data: JSON.stringify(data) }),
       });
     }
     close() { streams.find(s => s.url === this.url)!.closed = true; }

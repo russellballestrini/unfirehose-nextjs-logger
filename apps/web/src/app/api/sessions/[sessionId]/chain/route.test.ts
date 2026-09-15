@@ -26,7 +26,8 @@ const { GET } = await import('./route');
 const { SessionChainTracker } = await import('@unturf/unfirehose/db/provenance-ingest');
 
 const KAT = path.resolve(__dirname, '../../../../../../../../packages/schema/fixtures/chain-kat.jsonl');
-const vectors: any[] = readFileSync(KAT, 'utf8').split('\n')
+type Vector = { kind: string; label: string; lines: string[]; expect: Record<string, unknown> };
+const vectors: Vector[] = readFileSync(KAT, 'utf8').split('\n')
   .filter((l) => l.trim() && !l.startsWith('#')).map((l) => JSON.parse(l)).filter((r) => r.kind === 'session');
 const vector = (label: string) => vectors.find((v) => v.label === label)!;
 

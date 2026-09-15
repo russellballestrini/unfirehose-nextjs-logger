@@ -199,9 +199,12 @@ export function UPlotCategoryChart({
     };
     if (horizontal) {
       // uPlot's orientation switch: x becomes the vertical axis.
-      opts.axes![0].side = 3; opts.axes![1].side = 0;
-      opts.scales!.x!.ori = 1; opts.scales!.y!.ori = 0;
-      opts.scales!.x!.dir = -1;
+      opts.axes = opts.axes!.map((a, i) => (i === 0 ? { ...a, side: 3 } : i === 1 ? { ...a, side: 0 } : a));
+      opts.scales = {
+        ...opts.scales,
+        x: { ...opts.scales!.x, ori: 1, dir: -1 },
+        y: { ...opts.scales!.y, ori: 0 },
+      };
     }
 
     const aligned: uPlot.AlignedData = [labels.map((_, i) => i), ...drawnColumns];

@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
@@ -38,7 +39,7 @@ beforeAll(() => {
 
 afterEach(cleanup);
 
-const modules = import.meta.glob('./**/*.tsx', { eager: false });
+const modules = import.meta.glob('./**/*.tsx', { eager: false }) as Record<string, () => Promise<unknown>>;
 
 /** Broad enough that a component finds whatever it reads. */
 const PROPS = {
@@ -55,7 +56,7 @@ const PROPS = {
   block: { type: 'text', text: 'hi' },
   items: [], rows: [], entries: [], children: null,
   onChange: vi.fn(), onSelect: vi.fn(), onClose: vi.fn(), onSave: vi.fn(),
-} as never;
+} as Record<string, unknown>;
 
 describe('every published component mounts', () => {
   it('finds them, so this cannot quietly cover nothing', () => {
@@ -72,7 +73,7 @@ describe('every published component mounts', () => {
       );
 
       for (const [, Component] of components) {
-        const C = Component as (p: never) => React.ReactNode;
+        const C = Component as React.ComponentType<Record<string, unknown>>;
         const { container, unmount } = render(<C {...PROPS} />);
         for (const b of container.querySelectorAll('button')) {
           act(() => { (b as HTMLElement).click(); });

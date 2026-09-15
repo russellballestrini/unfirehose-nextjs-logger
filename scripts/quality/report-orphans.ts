@@ -51,6 +51,8 @@ export function main(argv: string[] = process.argv.slice(2)): void {
     'apps/web/src/middleware.ts',
     'apps/web/src/instrumentation.ts',
     'apps/worker/src/main.ts',
+    // Spawned by POST /api/ingest as its own process, never imported.
+    'apps/worker/src/ingest-once.ts',
     'packages/router/src/cli.ts',
   ];
 

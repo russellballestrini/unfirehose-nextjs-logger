@@ -73,6 +73,7 @@ const OUTBOUND = [
   './api/projects/[project]/agent/route.ts',
   './api/apmonitor/route.ts',         // reads statefiles from every mesh node
   './api/ingest/route.ts',            // POST runs a real pass over $HOME
+  './api/projects/route.ts',          // walks every dir under ~/.claude/projects — minutes on a box with thousands
 ];
 
 const routes = Object.entries(import.meta.glob('./api/**/route.ts'))

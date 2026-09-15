@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createTestDb, seedProject, seedSession, seedMessage, seedContentBlock } from '@unturf/unfirehose/test/db-helper';
@@ -301,7 +302,7 @@ describe('what a row says', () => {
     const m = seedMessage(db, sid, { type: 'system', timestamp: '2026-04-03T10:00:00Z' });
     db.prepare("UPDATE messages SET subtype = 'turn_duration', duration_ms = 4200 WHERE id = ?").run(m);
     const { body } = await get('?session=sess-sys');
-    expect(body.entries[0]).toMatchObject({ kind: 'system', preview: 'turn duration 4.2s', durationMs: 4200 });
+    expect(body.entries[0]).toMatchObject({ kind: 'system', preview: 'turn duration 4s, 200ms', durationMs: 4200 });
   });
 
   it('says a message reasoned even when the reasoning is sealed', async () => {
