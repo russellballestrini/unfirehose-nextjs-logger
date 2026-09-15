@@ -1271,6 +1271,9 @@ export function ContainersTab(props: TabProps) {
   const cpuShares = running.map((c) => ({ name: c.name, value: c.resources?.cpuPct ?? 0, color: colorOf.get(c.id)! }));
   const memShares = running.map((c) => ({ name: c.name, value: c.resources?.memUsed ?? 0, color: colorOf.get(c.id)! }));
 
+  const openCount = filtered.reduce((n, c) => n + (expanded.has(c.id) ? 1 : 0), 0);
+  const anyOpen = openCount > 0;
+
   const tile = (label: string, value: string, sub?: string) => (
     <div key={label} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2">
       <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
@@ -1349,6 +1352,17 @@ export function ContainersTab(props: TabProps) {
           <option value="tasks">sort: tasks</option>
           <option value="name">sort: name</option>
         </select>
+        {/* One toggle: opens every row the filter shows, or closes every open
+            row. A node with hundreds of containers is otherwise a click per
+            row each way. */}
+        <button
+          type="button"
+          onClick={() => setExpanded(anyOpen ? new Set() : new Set(filtered.map((c) => c.id)))}
+          className="px-2 py-1 rounded border border-[var(--color-border)] text-xs font-mono text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+          title={anyOpen ? `Close ${openCount} open row${openCount === 1 ? '' : 's'}` : `Open all ${filtered.length} shown`}
+        >
+          {anyOpen ? `close all (${openCount})` : `open all (${filtered.length})`}
+        </button>
       </div>
 
       {/* Compact table. A row expands to its bars, pressure, io and process tree.

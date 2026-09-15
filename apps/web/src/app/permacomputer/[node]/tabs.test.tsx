@@ -546,6 +546,32 @@ describe('the containers tab', () => {
     expect(container.textContent).toContain('exit code 1');
   });
 
+  it('opens every shown row at once, and closes them again', () => {
+    const { container } = render(<ContainersTab {...withContainers([web, old])} />);
+    const toggle = () => Array.from(container.querySelectorAll('button')).find((b) => /^(open|close) all/.test(b.textContent ?? ''))!;
+    expect(toggle().textContent).toBe('open all (2)');
+    act(() => { fireEvent.click(toggle()); });
+    expect(container.textContent).toContain('host pid 8354');
+    expect(container.textContent).toContain('exit code 1');
+    expect(toggle().textContent).toBe('close all (2)');
+    act(() => { fireEvent.click(toggle()); });
+    expect(container.textContent).not.toContain('host pid 8354');
+    expect(container.textContent).not.toContain('exit code 1');
+    expect(toggle().textContent).toBe('open all (2)');
+  });
+
+  it('opens only the rows the search shows', () => {
+    const { container } = render(<ContainersTab {...withContainers([web, old])} />);
+    const search = container.querySelector('input[type="text"]') as HTMLInputElement;
+    act(() => { fireEvent.change(search, { target: { value: 'permissions' } }); });
+    const toggle = Array.from(container.querySelectorAll('button')).find((b) => /^open all/.test(b.textContent ?? ''))!;
+    expect(toggle.textContent).toBe('open all (1)');
+    act(() => { fireEvent.click(toggle); });
+    act(() => { fireEvent.change(search, { target: { value: '' } }); });
+    expect(container.textContent).toContain('exit code 1');
+    expect(container.textContent).not.toContain('host pid 8354');
+  });
+
   it('measures cpu against the quota and memory against the limit', () => {
     const { container } = render(<ContainersTab {...withContainers([web])} />);
     expand(container, 'open-webui');
