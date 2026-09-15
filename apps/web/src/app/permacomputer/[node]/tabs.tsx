@@ -1351,17 +1351,23 @@ export function ContainersTab(props: TabProps) {
         </select>
       </div>
 
-      {/* Compact table. A row expands to its bars, pressure, io and process tree. */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] overflow-x-auto">
-        <table className="w-full text-sm">
+      {/* Compact table. A row expands to its bars, pressure, io and process tree.
+          Fixed layout on purpose: an expanded row's process tree shows every
+          command whole, and in an auto-layout table that width leaks up into
+          the cell, the table, and the wrapper -- the whole table then scrolls
+          sideways and the CPU bar leaves the screen. With fixed columns the
+          tree scrolls inside its own box and the bars stay put; a long
+          container name wraps instead of pushing them. */}
+      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
+        <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="text-[10px] uppercase tracking-wide text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
               <th className="py-1.5 pl-3 pr-2 w-5"></th>
               <th className="py-1.5 pr-3">Container</th>
-              <th className="py-1.5 pr-3 hidden sm:table-cell">State</th>
-              <th className="py-1.5 pr-3 w-40">CPU</th>
-              <th className="py-1.5 pr-3 w-40">Memory</th>
-              <th className="py-1.5 pr-3 text-right hidden md:table-cell">Tasks</th>
+              <th className="py-1.5 pr-3 w-24 hidden sm:table-cell">State</th>
+              <th className="py-1.5 pr-3 w-28 sm:w-40">CPU</th>
+              <th className="py-1.5 pr-3 w-32 sm:w-40">Memory</th>
+              <th className="py-1.5 pr-3 w-16 text-right hidden md:table-cell">Tasks</th>
             </tr>
           </thead>
           <tbody>
@@ -1386,7 +1392,7 @@ export function ContainersTab(props: TabProps) {
                     style={{ borderLeft: `3px solid ${isRunning ? color : 'transparent'}` }}
                   >
                     <td className="py-1.5 pl-3 pr-2 text-[var(--color-muted)] font-mono">{open ? '▾' : '▸'}</td>
-                    <td className="py-1.5 pr-3">
+                    <td className="py-1.5 pr-3 [overflow-wrap:anywhere]">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold">{c.name}</span>
                         {c.runtime && c.runtime !== 'docker' && <Badge color="#60a5fa" title={`runtime: ${c.runtime}`}>{c.runtime}</Badge>}
@@ -1419,7 +1425,7 @@ export function ContainersTab(props: TabProps) {
                   {open && (
                     <tr className="border-b border-[var(--color-border)] bg-[var(--color-background)]/30">
                       <td></td>
-                      <td colSpan={5} className="py-3 pr-4">
+                      <td colSpan={5} className="py-3 pr-4 [overflow-wrap:anywhere]">
                         <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[var(--color-muted)] font-mono mb-3">
                           <span title="container id">{String(c.id).slice(0, 12)}</span>
                           {c.pid ? <span title="the container's init, as our host numbers it">host pid {c.pid}</span> : null}
