@@ -48,15 +48,18 @@ publish:
     # v1.2.0, v1.3.1 and v1.3.3 all went "Passed" with four 404s in the log
     # and nothing on npm (2026-09-15). The registry is the only witness that
     # matters, so ask it: every package must answer at this version or the
-    # job fails, whatever the loop printed.
+    # job fails, whatever the loop printed. npm answers a publish with "being
+    # processed and may take a few minutes to become available" and means
+    # it — v1.3.4 published fine and was invisible for ~100 s — so ask
+    # again, up to five minutes, before calling one missing.
     - |
-      missing=0
       for pkg in packages/core packages/schema packages/router packages/ui; do
         name=$(node -p "require('$CI_PROJECT_DIR/$pkg/package.json').name")
-        if [ "$(npm view "$name@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
-          echo "on npm: $name@$VERSION"
-        else
-          echo "NOT on npm: $name@$VERSION"; missing=1
-        fi
+        for attempt in $(seq 1 20); do
+          if [ "$(npm view "$name@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "on npm: $name@$VERSION"; continue 2
+          fi
+          sleep 15
+        done
+        echo "NOT on npm after 5 minutes: $name@$VERSION"; exit 1
       done
-      exit $missing
