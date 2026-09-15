@@ -26,7 +26,9 @@
     "cwd": { "type": "string" },
     "gitBranch": { "type": "string" },
     "harness": { "type": "string" },
-    "harnessVersion": { "type": "string" }
+    "harnessVersion": { "type": "string" },
+    "prevHash": { "type": ["string", "null"], "description": "unfirehose-chain-v1: `hash` of the previous line this writer wrote to the same file; null on the first line. Optional — present only from a chaining writer." },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "unfirehose-chain-v1: SHA-256 of this line's bytes with the trailing `,\"hash\":\"…\"}` removed and a `}` restored. MUST be the last key in the object." }
   },
   "required": ["type", "role", "content"],
   "additionalProperties": true

@@ -48,7 +48,8 @@
     "./StatCard": "./components/StatCard.tsx",
     "./Gauge": "./components/Gauge.tsx",
     "./KV": "./components/KV.tsx",
-    "./json-output": "./json-output.ts"
+    "./json-output": "./json-output.ts",
+    "./ChainBadge": "./components/ChainBadge.tsx"
   },
   "scripts": {
     "lint": "tsc --noEmit",

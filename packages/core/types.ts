@@ -121,6 +121,8 @@ export interface SessionIndexEntry {
   gitBranch?: string;
   projectPath?: string;
   isSidechain?: boolean;
+  /** Provenance verdict as ingest recorded it (unfirehose-chain-v1); null until ingested. */
+  chain?: { state: 'unchained' | 'open' | 'verified' | 'corrupted'; breaks: number; firstBreak: number | null } | null;
 }
 
 export interface SessionsIndex {

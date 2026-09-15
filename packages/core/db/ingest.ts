@@ -13,6 +13,7 @@ import { fetchPaths } from '../fetch-paths';
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
+import { SessionChainTracker } from './provenance-ingest';
 export { recordHarnessRefusal } from './refusals';
 export type { HarnessRefusal } from './refusals';
 import { sanitizePII } from '../pii';
@@ -1347,7 +1348,25 @@ async function nativeSessionCwd(file: string): Promise<string | null> {
   finally { await handle.close(); }
 }
 
-async function ingestJsonlSource(
+/** True when the file's last byte is `\n` — i.e. its final line is complete. */
+async function lastByteIsNewline(file: string, size: number): Promise<boolean> {
+  if (size <= 0) return true;
+  const handle = await open(file, 'r').catch(() => null);
+  if (!handle) return true;
+  try {
+    const one = Buffer.alloc(1);
+    const { bytesRead } = await handle.read(one, 0, 1, size - 1);
+    return bytesRead === 1 && one[0] === 10;
+  } catch { return true; }
+  finally { await handle.close(); }
+}
+
+/**
+ * One harness root → every project dir → every session file, resumed
+ * from each file's byte offset. Exported for the ingest tests, which
+ * point it at a temp root; production reaches it through `ingestAll`.
+ */
+export async function ingestJsonlSource(
   db: ReturnType<typeof getDb>,
   harness: JsonlSource,
 ): Promise<Omit<IngestResult, 'alertsTriggered'>> {
@@ -1426,6 +1445,20 @@ async function ingestJsonlSource(
 
       if (!offset) result.sessionsAdded++;
 
+      // A writer can be mid-line when we read: the file's last byte is
+      // then not a newline and readline still hands us the partial
+      // tail. It is neither a message nor a chain break — it is not
+      // written yet — so it is held back and the offset stops BEFORE
+      // it, to be read whole next pass. Until 2026-09-15 the offset
+      // jumped to the file size and the rest of that line arrived
+      // next pass as an unparseable fragment: one lost message per race.
+      const endsWithNewline = await lastByteIsNewline(filePath, fstat.size);
+      let partialTail = '';
+
+      // Chain verification rides the same read (docs: LANE-PROVENANCE
+      // in uncloseai-cli; packages/schema/docs/sessions.md § Chain).
+      const chain = new SessionChainTracker(db, sessionUuid, { reset: startByte === 0 });
+
       const stream = createReadStream(filePath, {
         start: startByte,
         encoding: 'utf-8',
@@ -1435,6 +1468,7 @@ async function ingestJsonlSource(
       const batchInsert = db.transaction((lines: string[]) => {
         for (const line of lines) {
           if (!line.trim()) continue;
+          const rowHash = chain.feed(line);
           try {
             const entry = JSON.parse(line);
 
@@ -1534,6 +1568,7 @@ async function ingestJsonlSource(
             if (messageId === null) continue;
 
             result.messagesAdded++;
+            if (rowHash) db.prepare('UPDATE messages SET row_hash = ? WHERE id = ?').run(rowHash, messageId);
 
             if (Array.isArray(message.content)) {
               result.blocksAdded += insertContentBlocks(db, messageId, message.content);
@@ -1558,9 +1593,13 @@ async function ingestJsonlSource(
 
       const batch: string[] = [];
       let batchBytes = 0;
+      let held: string | null = null;      // the most recent line, not yet committed to a batch
       for await (const line of rl) {
-        batch.push(line);
-        batchBytes += Buffer.byteLength(line);
+        if (held !== null) {
+          batch.push(held);
+          batchBytes += Buffer.byteLength(held);
+        }
+        held = line;
         // Tool results can be megabytes each. A row-count-only batch can
         // pin gigabytes in one transaction and stall live ingestion on I/O.
         if (batch.length >= 500 || batchBytes >= 2 * 1024 * 1024) {
@@ -1568,9 +1607,14 @@ async function ingestJsonlSource(
           batchBytes = 0;
         }
       }
+      if (held !== null) {
+        if (endsWithNewline) batch.push(held);
+        else partialTail = held;
+      }
       if (batch.length > 0) {
         batchInsert(batch);
       }
+      db.transaction(() => chain.flush())();
 
       db.prepare(
         `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
@@ -1578,7 +1622,7 @@ async function ingestJsonlSource(
          ON CONFLICT(file_path) DO UPDATE SET
            byte_offset = excluded.byte_offset,
            last_ingested = excluded.last_ingested`
-      ).run(filePath, fstat.size);
+      ).run(filePath, fstat.size - Buffer.byteLength(partialTail));
 
       db.prepare(
         'UPDATE sessions SET updated_at = ? WHERE session_uuid = ?'
@@ -2840,10 +2884,14 @@ export function ingestJsonlLines(
   const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
     harness: 'cloud-ingest',
   });
+  // Batches arrive with no offset; the chain continues from what the
+  // previous batch for this session left persisted.
+  const chain = new SessionChainTracker(db, sessionUuid);
 
   const batchInsert = db.transaction((batch: string[]) => {
     for (const line of batch) {
       if (!line.trim()) continue;
+      const rowHash = chain.feed(line);
       try {
         const raw = JSON.parse(line);
         // Auto-detect format: unfirehose/1.0 has type:"message" + role, Claude Code has type:"user"|"assistant"
@@ -2859,6 +2907,7 @@ export function ingestJsonlLines(
           continue;
         }
         result.accepted++;
+        if (rowHash) db.prepare('UPDATE messages SET row_hash = ? WHERE id = ?').run(rowHash, messageId);
 
         if (Array.isArray(entry.content)) {
           insertContentBlocks(db, messageId, entry.content);
@@ -2882,5 +2931,6 @@ export function ingestJsonlLines(
   });
 
   batchInsert(lines);
+  db.transaction(() => chain.flush())();
   return result;
 }

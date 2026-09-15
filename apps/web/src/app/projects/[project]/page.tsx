@@ -16,6 +16,7 @@ import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 import { TodoBoard } from '@/components/TodoBoard';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
+import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -767,6 +768,15 @@ export function SessionsTab({ data, project }: { data: any; project: string }) {
                   </Link>
                   {session.isSidechain && (
                     <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">sidechain</span>
+                  )}
+                  {session.chain && session.chain.state !== 'unchained' && (
+                    <ChainBadge
+                      className="ml-2"
+                      state={session.chain.state}
+                      breaks={session.chain.breaks}
+                      firstBreak={session.chain.firstBreak}
+                      source="recorded"
+                    />
                   )}
                 </td>
                 <td className="py-2 pr-4 text-[var(--color-muted)]">{session.messageCount ?? '?'}</td>

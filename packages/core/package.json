@@ -84,7 +84,9 @@
     "./userland": "./userland/index.ts",
     "./num": "./num.ts",
     "./db/mesh-snapshots": "./db/mesh-snapshots.ts",
-    "./vllm-sample": "./vllm-sample.ts"
+    "./vllm-sample": "./vllm-sample.ts",
+    "./db/provenance-ingest": "./db/provenance-ingest.ts",
+    "./provenance": "./provenance.ts"
   },
   "scripts": {
     "test": "vitest run",

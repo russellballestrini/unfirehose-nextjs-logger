@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { ensureProvenanceTables } from './provenance-ingest';
 
 /**
  * The schema. One definition, applied everywhere a database is created:
@@ -497,6 +498,11 @@ export function migrate(db: Database.Database) {
   // free — an aggregator that quotes its own price is the only source that
   // cannot disagree with it.
   addColumn('messages', 'observed_cost_usd', 'REAL');
+  // Lane provenance: the line hash a chained writer stamped on this row
+  // (unfirehose-chain-v1), so a message on screen joins to the leaf its
+  // session root commits to. NULL for an unchained writer.
+  addColumn('messages', 'row_hash', 'TEXT');
+  ensureProvenanceTables(db);
   // One-time backfill: harness tells us provider with high confidence even when
   // the message row pre-dates endpoint/provider ingestion.
   //

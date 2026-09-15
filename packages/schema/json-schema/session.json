@@ -21,7 +21,11 @@
     "harness": { "type": "string" },
     "harnessVersion": { "type": "string" },
     "messageCount": { "type": "integer", "minimum": 0 },
-    "totalUsage": { "$ref": "usage.json" }
+    "totalUsage": { "$ref": "usage.json" },
+    "hashVersion": { "type": "string", "description": "unfirehose-chain-v1: the chain rule this writer follows; on the header and the closed record. Optional — present only from a chaining writer." },
+    "sessionRoot": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "On the closed record only: merkle-v1 root over the `hash` of every line written before it, in order (leaf = sha256(0x00 ‖ hash bytes), node = sha256(0x03 ‖ left ‖ right), odd layer self-duplicates, empty = 32 zero bytes)." },
+    "prevHash": { "type": ["string", "null"], "description": "unfirehose-chain-v1: `hash` of the previous line this writer wrote to the same file; null on the first line." },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "unfirehose-chain-v1: SHA-256 of this line's bytes with the trailing `,\"hash\":\"…\"}` removed and a `}` restored. MUST be the last key in the object." }
   },
   "required": ["type", "id"],
   "additionalProperties": true

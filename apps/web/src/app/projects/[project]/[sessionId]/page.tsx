@@ -10,6 +10,7 @@ import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
+import { ChainBadge, type ChainVerdict } from '@unturf/unfirehose-ui/ChainBadge';
 
 const HARNESS_COLORS: Record<string, string> = {
   'claude-code': '#a78bfa',
@@ -102,6 +103,15 @@ export default function SessionViewerPage({
   );
   const entries: ViewerEntry[] = sessionData?.entries ?? [];
 
+  // Provenance: recomputed from the file on every refresh (live=1), so
+  // the badge is the journal AS IT IS, not as ingest last saw it. The
+  // recorded verdict rides along for the tooltip's "(live)" honesty.
+  const { data: chainData } = useSWR<{
+    state: ChainVerdict;
+    live?: { breaks: number; first_break: number | null; first_break_reason: string | null;
+             root_computed: string | null; entries: number } | null;
+  }>(`/api/sessions/${sessionId}/chain?project=${project}&live=1`, fetcher, { refreshInterval: 15000 });
+
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -155,6 +165,7 @@ export default function SessionViewerPage({
           project: decodeURIComponent(project),
           entries: filteredEntries.length,
           reasoning_blocks: reasoningCount,
+          chain: chainData?.state ?? 'unknown',
           loading: loading ? 'yes' : 'no',
           show_thinking: showThinking ? 'yes' : 'no',
           show_tools: showTools ? 'yes' : 'no',
@@ -196,6 +207,17 @@ export default function SessionViewerPage({
             {loading && ' (loading…)'}
           </span>
           <ReasoningBadge count={reasoningCount} sealed={reasoningStats.sealed} />
+          {chainData && (
+            <ChainBadge
+              state={chainData.state}
+              breaks={chainData.live?.breaks}
+              firstBreak={chainData.live?.first_break}
+              firstBreakReason={chainData.live?.first_break_reason}
+              root={chainData.live?.root_computed}
+              entries={chainData.live?.entries}
+              source={chainData.live ? 'live' : 'recorded'}
+            />
+          )}
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"

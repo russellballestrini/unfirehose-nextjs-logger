@@ -35,7 +35,8 @@
     "types.d.ts",
     "docs",
     "extensions",
-    "README.md"
+    "README.md",
+    "fixtures"
   ],
   "exports": {
     ".": "./types.d.ts",
