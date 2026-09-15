@@ -3,6 +3,13 @@ import { createTestDb, seedProject, seedSession, seedMessage } from './test/db-h
 
 const db = createTestDb();
 vi.mock('./db/schema', () => ({ getDb: () => db }));
+// buildProjectList also lists the real ~/.claude/projects to mark which
+// projects are on disk; on a box with thousands of them that is the whole
+// 10 s budget. The database is the fixture here, so the disk side is empty.
+vi.mock('./claude-paths', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./claude-paths')>();
+  return { ...real, claudePaths: { ...real.claudePaths, projects: '/nonexistent/claude-projects' } };
+});
 
 const { buildDashboard } = await import('./dashboard');
 const { buildScrobblePayload } = await import('./scrobble');
