@@ -2915,7 +2915,7 @@ export function ingestJsonlLines(
   });
   // Batches arrive with no offset; the chain continues from what the
   // previous batch for this session left persisted.
-  const chain = new SessionChainTracker(db, sessionUuid);
+  const chain = new SessionChainTracker(db, sessionUuid, { reset: false, headKnown: true });
 
   const batchInsert = db.transaction((batch: string[]) => {
     for (const line of batch) {

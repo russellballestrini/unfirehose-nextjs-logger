@@ -81,6 +81,26 @@ export function ensureProvenanceTables(db: Database.Database) {
     try { db.exec(`ALTER TABLE session_chain ADD COLUMN ${col} TEXT`); } catch { /* exists */ }
   }
   try { db.exec("ALTER TABLE session_chain_leaves ADD COLUMN kind TEXT NOT NULL DEFAULT 'chain'"); } catch { /* exists */ }
+  // Rows the mid-file join wrote between 12:16 and the fix on 2026-09-16:
+  // unchained, numbered from the wrong line, audited "leaf 0 differs".
+  // They are a defect's output, not evidence; dropping them lets the
+  // backfill record the file properly from byte 0. Once.
+  try {
+    const done = db.prepare("SELECT value FROM settings WHERE key = 'witness_repair_2026_09_16'").get();
+    if (!done) {
+      const bad = db.prepare(
+        `SELECT session_uuid FROM session_chain
+          WHERE hashed = 0 AND anchor_state = 'rewritten'
+            AND anchor_detail = 'leaf 0 differs from what was recorded at ingest'
+            AND updated_at < '2026-09-16 13:00:00'`,
+      ).all() as { session_uuid: string }[];
+      for (const r of bad) {
+        db.prepare('DELETE FROM session_chain_leaves WHERE session_uuid = ?').run(r.session_uuid);
+        db.prepare('DELETE FROM session_chain WHERE session_uuid = ?').run(r.session_uuid);
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('witness_repair_2026_09_16', ?)").run(String(bad.length));
+    }
+  } catch { /* no settings table yet: a fresh database has nothing to repair */ }
 }
 
 /** Read a session's chain row, or null when nothing has been verified for it. */
@@ -114,14 +134,23 @@ export class SessionChainTracker {
    * with no offset, always continues.
    */
   private readonly filePath: string | null;
+  /** True when this pass started mid-file with no prior record: nothing is recorded. */
+  readonly deferred: boolean;
 
   constructor(
     private readonly db: Database.Database,
     private readonly sessionUuid: string,
-    opts: { reset: boolean; filePath?: string } = { reset: false },
+    opts: { reset: boolean; filePath?: string; headKnown?: boolean } = { reset: false },
   ) {
     this.filePath = opts.filePath ?? null;
     const existing = opts.reset ? null : getSessionChain(db, sessionUuid);
+    // Joining a file MID-WAY with no record of its head would number the
+    // leaves from the wrong line and the audit would then call line 0
+    // "rewritten" (2026-09-16 12:16, two live Claude Code transcripts).
+    // Such a session is left to backfillWitness, which reads from byte 0.
+    // The cloud batch path has no offset to consult and treats a session's
+    // first batch as its head (`headKnown`), which is what it did before.
+    this.deferred = !opts.reset && !existing && !opts.headKnown;
     if (existing) {
       const { session_uuid: _u, state: _s, updated_at: _t, ...data } = existing;
       // The chain resumes from the writer's own hashes; the witness list
@@ -144,6 +173,7 @@ export class SessionChainTracker {
 
   /** Feed one COMPLETE line (never a partial tail). Returns its hash, or null when unchained. */
   feed(line: string): string | null {
+    if (this.deferred) return null;
     const hash = this.state.feed(line);
     // Every line is witnessed; only a chained one is also a chain leaf.
     this.pendingLeaves.push([this.leafCount++, hash ?? witnessHash(line), hash !== null ? 'chain' : 'line']);
@@ -157,7 +187,7 @@ export class SessionChainTracker {
   /** Persist state and new leaves. Runs inside the caller's transaction when there is one. */
   flush() {
     const d = this.state.data;
-    if (d.entries === 0 && this.pendingLeaves.length === 0) return;
+    if (this.deferred || (d.entries === 0 && this.pendingLeaves.length === 0)) return;
     db_upsert(this.db, this.sessionUuid, this.state.verdict, d, this.filePath);
     const ins = this.db.prepare(
       'INSERT OR REPLACE INTO session_chain_leaves (session_uuid, seq, hash, kind) VALUES (?, ?, ?, ?)',

@@ -266,6 +266,24 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     expect(backfillWitness(db, 10, () => path.join(root, 'nope.jsonl'))).toBe(0);
   });
 
+  it('joining a file mid-way with no record of its head records nothing; the backfill takes it from byte 0', async () => {
+    const v = vector('verified/n=5');
+    writeSession('mid', v.lines);
+    // Pretend the first half was ingested before the witness existed: an
+    // offset past line 3, no session_chain row.
+    const file = path.join(root, SLUG, 'mid.jsonl');
+    const half = v.lines.slice(0, 3).join('\n') + '\n';
+    db.prepare(`INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested) VALUES (?, ?, datetime('now'))`)
+      .run(file, Buffer.byteLength(half));
+    await ingestJsonlSource(db, source());
+    expect(getSessionChain(db, 'mid')).toBeNull();               // deferred, not misnumbered
+    const resolve = (_p: string, id: string) => path.join(root, SLUG, `${id}.jsonl`);
+    expect(backfillWitness(db, 10, resolve)).toBeGreaterThanOrEqual(1);
+    const row = getSessionChain(db, 'mid')!;
+    expect(row.entries).toBe(v.lines.length);
+    expect(auditAnchor(db, 'mid')).toBe('intact');
+  });
+
   it('an empty session row has nothing to witness', async () => {
     const t = new SessionChainTracker(db, 'empty', { reset: true, filePath: '/nowhere' });
     t.flush();
