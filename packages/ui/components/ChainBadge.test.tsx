@@ -36,6 +36,14 @@ describe('ChainBadge', () => {
     expect(intact.getAttribute('title')).toContain('witness: intact');
   });
 
+  it('an unchained transcript the witness holds reads witnessed, not unchained', () => {
+    const el = render(<ChainBadge state="unchained" anchor="intact" entries={4} />).container.querySelector('[data-chain-state]')!;
+    expect(el.textContent).toContain('witnessed');
+    expect(el.getAttribute('title')).toContain('witnessed at ingest and unchanged since');
+    const plain = render(<ChainBadge state="unchained" />).container.querySelector('[data-chain-state]')!;
+    expect(plain.textContent).toContain('unchained');
+  });
+
   it('shows the root prefix on a verified chain and honest text on the rest', () => {
     expect(chainTitle({ state: 'verified', root: 'abcdef0123456789ff', entries: 1, source: 'live' }))
       .toBe('Chain verified · 1 line · root abcdef012345… (live)');

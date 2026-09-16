@@ -769,7 +769,7 @@ export function SessionsTab({ data, project }: { data: any; project: string }) {
                   {session.isSidechain && (
                     <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-[var(--color-surface-hover)] text-[var(--color-muted)]">sidechain</span>
                   )}
-                  {session.chain && session.chain.state !== 'unchained' && (
+                  {session.chain && (session.chain.state !== 'unchained' || session.chain.anchor) && (
                     <ChainBadge
                       className="ml-2"
                       state={session.chain.state}

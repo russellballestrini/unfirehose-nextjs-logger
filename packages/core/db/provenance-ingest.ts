@@ -18,7 +18,7 @@
  */
 import type Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
-import { ChainState, emptyChainState, splitChainedLine, type ChainStateData, type ChainVerdict } from '../provenance';
+import { ChainState, emptyChainState, witnessHash, type ChainStateData, type ChainVerdict } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
   session_uuid: string;
@@ -68,8 +68,9 @@ export function ensureProvenanceTables(db: Database.Database) {
     );
     CREATE TABLE IF NOT EXISTS session_chain_leaves (
       session_uuid TEXT NOT NULL,
-      seq INTEGER NOT NULL,                      -- position among HASHED lines
-      hash TEXT NOT NULL,
+      seq INTEGER NOT NULL,                      -- position among the lines this witness read
+      hash TEXT NOT NULL,                        -- the writer's hash for a chained line, sha256 of the bytes otherwise
+      kind TEXT NOT NULL DEFAULT 'chain',        -- chain | line
       PRIMARY KEY (session_uuid, seq)
     );
     CREATE INDEX IF NOT EXISTS idx_session_chain_state ON session_chain(state);
@@ -79,6 +80,7 @@ export function ensureProvenanceTables(db: Database.Database) {
     'file_path', 'anchor_state', 'anchor_checked_at', 'anchor_detail']) {
     try { db.exec(`ALTER TABLE session_chain ADD COLUMN ${col} TEXT`); } catch { /* exists */ }
   }
+  try { db.exec("ALTER TABLE session_chain_leaves ADD COLUMN kind TEXT NOT NULL DEFAULT 'chain'"); } catch { /* exists */ }
 }
 
 /** Read a session's chain row, or null when nothing has been verified for it. */
@@ -102,7 +104,7 @@ export function getChainSummary(db: Database.Database): Record<ChainVerdict, num
 /** The per-session tracker the ingest loops drive. */
 export class SessionChainTracker {
   private readonly state: ChainState;
-  private readonly pendingLeaves: [number, string][] = [];
+  private readonly pendingLeaves: [number, string, 'chain' | 'line'][] = [];
   private leafCount: number;
 
   /**
@@ -122,11 +124,14 @@ export class SessionChainTracker {
     const existing = opts.reset ? null : getSessionChain(db, sessionUuid);
     if (existing) {
       const { session_uuid: _u, state: _s, updated_at: _t, ...data } = existing;
+      // The chain resumes from the writer's own hashes; the witness list
+      // (every line, chained or not) only needs its length.
       const leaves = (db
-        .prepare('SELECT hash FROM session_chain_leaves WHERE session_uuid = ? ORDER BY seq')
+        .prepare("SELECT hash FROM session_chain_leaves WHERE session_uuid = ? AND kind = 'chain' ORDER BY seq")
         .all(sessionUuid) as { hash: string }[]).map((r) => r.hash);
       this.state = new ChainState({ ...emptyChainState(), ...data }, leaves);
-      this.leafCount = leaves.length;
+      this.leafCount = (db.prepare('SELECT COUNT(*) AS c FROM session_chain_leaves WHERE session_uuid = ?')
+        .get(sessionUuid) as { c: number }).c;
     } else {
       if (opts.reset) {
         db.prepare('DELETE FROM session_chain_leaves WHERE session_uuid = ?').run(sessionUuid);
@@ -140,7 +145,8 @@ export class SessionChainTracker {
   /** Feed one COMPLETE line (never a partial tail). Returns its hash, or null when unchained. */
   feed(line: string): string | null {
     const hash = this.state.feed(line);
-    if (hash !== null) this.pendingLeaves.push([this.leafCount++, hash]);
+    // Every line is witnessed; only a chained one is also a chain leaf.
+    this.pendingLeaves.push([this.leafCount++, hash ?? witnessHash(line), hash !== null ? 'chain' : 'line']);
     return hash;
   }
 
@@ -154,9 +160,9 @@ export class SessionChainTracker {
     if (d.entries === 0 && this.pendingLeaves.length === 0) return;
     db_upsert(this.db, this.sessionUuid, this.state.verdict, d, this.filePath);
     const ins = this.db.prepare(
-      'INSERT OR REPLACE INTO session_chain_leaves (session_uuid, seq, hash) VALUES (?, ?, ?)',
+      'INSERT OR REPLACE INTO session_chain_leaves (session_uuid, seq, hash, kind) VALUES (?, ?, ?, ?)',
     );
-    for (const [seq, hash] of this.pendingLeaves.splice(0)) ins.run(this.sessionUuid, seq, hash);
+    for (const [seq, hash, kind] of this.pendingLeaves.splice(0)) ins.run(this.sessionUuid, seq, hash, kind);
   }
 }
 
@@ -186,7 +192,7 @@ function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: 
  */
 export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorState | null {
   const row = getSessionChain(db, sessionUuid);
-  if (!row || !row.file_path || row.hashed === 0) return null;
+  if (!row || !row.file_path || row.entries === 0) return null;
   const recorded = (db
     .prepare('SELECT hash FROM session_chain_leaves WHERE session_uuid = ? ORDER BY seq')
     .all(sessionUuid) as { hash: string }[]).map((r) => r.hash);
@@ -202,8 +208,7 @@ export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorS
     const now: string[] = [];
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
-      const split = splitChainedLine(line);
-      if (split) now.push(split.hash);
+      now.push(witnessHash(line));
     }
     // The recorded leaves must still be a prefix of the file: the file
     // may have grown since, never changed or shrunk before the frontier.
@@ -249,7 +254,7 @@ export function auditAnchors(
     `SELECT c.session_uuid, p.name AS project FROM session_chain c
        JOIN sessions s ON s.session_uuid = c.session_uuid
        JOIN projects p ON p.id = s.project_id
-      WHERE c.file_path IS NULL AND c.hashed > 0 LIMIT ?`,
+      WHERE c.file_path IS NULL AND c.entries > 0 LIMIT ?`,
   ).all(limit) as { session_uuid: string; project: string }[];
   for (const r of unresolved) {
     try {
@@ -259,7 +264,7 @@ export function auditAnchors(
   }
   const rows = db.prepare(
     `SELECT session_uuid FROM session_chain
-      WHERE file_path IS NOT NULL AND hashed > 0
+      WHERE file_path IS NOT NULL AND entries > 0
       ORDER BY anchor_checked_at IS NOT NULL, anchor_checked_at ASC
       LIMIT ?`,
   ).all(limit) as { session_uuid: string }[];

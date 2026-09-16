@@ -1780,6 +1780,15 @@ export async function ingestAll(): Promise<IngestResult> {
 
       if (!offset) result.sessionsAdded++;
 
+      // A Claude Code transcript is not chained (its writer is not ours),
+      // but the witness records every line it reads all the same, so an
+      // edit after ingest is caught (see provenance-ingest.ts). A partial
+      // last line — the writer mid-flush — is held back and the offset
+      // stops before it, the same rule the native loop follows.
+      const ccEndsWithNewline = await lastByteIsNewline(filePath, fstat.size);
+      let ccPartialTail = '';
+      const chain = new SessionChainTracker(db, meta.sessionId, { reset: startByte === 0, filePath });
+
       // Stream new lines from the file
       const stream = createReadStream(filePath, {
         start: startByte,
@@ -1796,6 +1805,7 @@ export async function ingestAll(): Promise<IngestResult> {
         (lines: string[]) => {
           for (const line of lines) {
             if (!line.trim()) continue;
+            chain.feed(line);
             try {
               const entry = JSON.parse(line);
 
@@ -1864,17 +1874,26 @@ export async function ingestAll(): Promise<IngestResult> {
 
       const batch: string[] = [];
       let batchBytes = 0;
+      let held: string | null = null;
       for await (const line of rl) {
-        batch.push(line);
-        batchBytes += Buffer.byteLength(line);
+        if (held !== null) {
+          batch.push(held);
+          batchBytes += Buffer.byteLength(held);
+        }
+        held = line;
         if (batch.length >= 500 || batchBytes >= 2 * 1024 * 1024) {
           batchInsert(batch.splice(0));
           batchBytes = 0;
         }
       }
+      if (held !== null) {
+        if (ccEndsWithNewline) batch.push(held);
+        else ccPartialTail = held;
+      }
       if (batch.length > 0) {
         batchInsert(batch);
       }
+      db.transaction(() => chain.flush())();
 
       // Link delegation if detected during ingestion
       if (detectedDelegatedFrom) {
@@ -1888,14 +1907,14 @@ export async function ingestAll(): Promise<IngestResult> {
         uneofProjects.add(projectId);
       }
 
-      // Update ingestion offset
+      // Update ingestion offset — to the end of the last complete line.
       db.prepare(
         `INSERT INTO ingest_offsets (file_path, byte_offset, last_ingested)
          VALUES (?, ?, datetime('now'))
          ON CONFLICT(file_path) DO UPDATE SET
            byte_offset = excluded.byte_offset,
            last_ingested = excluded.last_ingested`
-      ).run(filePath, fstat.size);
+      ).run(filePath, fstat.size - Buffer.byteLength(ccPartialTail));
 
       // Update session modified timestamp
       db.prepare(

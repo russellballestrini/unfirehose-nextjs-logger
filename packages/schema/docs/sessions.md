@@ -177,7 +177,14 @@ compares: `anchor_state` is `intact` (recorded leaves are still a
 prefix of the file — it may have grown), `rewritten` (a recorded line
 now hashes differently, or the file lost lines), or `missing`. A
 forged journal that verifies perfectly on its own still reads
-`rewritten` here, and the badge says so in red. This is the floor
+`rewritten` here, and the badge says so in red. The witness does not
+need the writer's cooperation: every line of every journal is
+recorded (`session_chain_leaves.kind = 'line'` for an unchained one),
+so a Claude Code or Codex transcript — writers we do not own — gets
+the same tamper-evidence from the moment the watcher first reads it,
+shown as `witnessed` rather than `unchained`. What only a chaining
+writer adds is the commitment from BEFORE first ingest: `prevHash`
+and the closed record's root. This is the floor
 behind "an agent cannot fabricate what it did": the model authors
 its narration and its tool arguments; the harness authors tool
 results, inference rows, switch firings and the hashes; the witness

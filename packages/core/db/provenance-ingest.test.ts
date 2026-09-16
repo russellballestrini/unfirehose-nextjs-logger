@@ -218,10 +218,27 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     expect(['intact', 'missing']).toContain(row.anchor_state);
   });
 
-  it('an unchained journal has nothing to witness', async () => {
-    writeSession('legacy2', vector('unchained/legacy-writer').lines);
-    await ingestJsonlSource(db, source());
-    expect(auditAnchor(db, 'legacy2')).toBeNull();
+  it('an unchained journal is witnessed too: a Claude Code transcript gets tamper-evidence since ingest', async () => {
+    const lines = [
+      JSON.stringify({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'add a test' } }),
+      JSON.stringify({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } }),
+    ];
+    writeSession('cc', lines);
+    await ingestJsonlSource(db, { ...source(), toMessage: (e: any) => (e.type === 'user' || e.type === 'assistant' ? { type: 'message', role: e.type, content: [] } : null) });
+    expect(getSessionChain(db, 'cc')!.state).toBe('unchained');
+    expect(auditAnchor(db, 'cc')).toBe('intact');
+    const kinds = db.prepare("SELECT kind, COUNT(*) AS c FROM session_chain_leaves WHERE session_uuid = 'cc' GROUP BY kind").all();
+    expect(kinds).toEqual([{ kind: 'line', c: 2 }]);
+    // The agent edits its own transcript after the fact.
+    writeSession('cc', [lines[0], JSON.stringify({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'all tests pass' }] } })]);
+    expect(auditAnchor(db, 'cc')).toBe('rewritten');
+    expect(getSessionChain(db, 'cc')!.anchor_detail).toBe('leaf 1 differs from what was recorded at ingest');
+  });
+
+  it('an empty session row has nothing to witness', async () => {
+    const t = new SessionChainTracker(db, 'empty', { reset: true, filePath: '/nowhere' });
+    t.flush();
+    expect(auditAnchor(db, 'empty')).toBeNull();
   });
 });
 

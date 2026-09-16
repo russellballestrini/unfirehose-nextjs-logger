@@ -299,6 +299,20 @@ describe('ingestAll over a native harness', () => {
     expect(project?.name).toBe('-home-fox-git-demo');
   });
 
+  it('witnesses a Claude Code transcript it does not own, and audits it after the pass', async () => {
+    // The writer is Anthropic's, so the chain reads unchained — and the
+    // witness recorded every line anyway. ingestAll ends with an audit.
+    const { getSessionChain } = await import('./provenance-ingest');
+    const row = getSessionChain(db, 'cc111111-1111-2222-3333-444444444444')!;
+    expect(row.state).toBe('unchained');
+    expect(row.entries).toBeGreaterThanOrEqual(2);
+    expect(row.file_path).toBe(path.join(home, '.claude', 'projects', '-home-fox-git-demo', 'cc111111-1111-2222-3333-444444444444.jsonl'));
+    expect(row.anchor_state).toBe('intact');
+    const leaves = db.prepare("SELECT kind, COUNT(*) AS c FROM session_chain_leaves WHERE session_uuid = ? GROUP BY kind")
+      .all('cc111111-1111-2222-3333-444444444444') as { kind: string; c: number }[];
+    expect(leaves).toEqual([{ kind: 'line', c: row.entries }]);
+  });
+
   it('normalises a Claude Code turn into our columns', () => {
     const row = one<{ input: number; cacheRead: number; model: string }>(`
       SELECT input_tokens AS input, cache_read_tokens AS cacheRead, model

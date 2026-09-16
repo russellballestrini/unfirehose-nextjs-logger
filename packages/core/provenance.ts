@@ -144,6 +144,18 @@ export function lineHash(preimage: Buffer): string {
   return sha256(preimage).toString('hex');
 }
 
+/**
+ * What a witness records for ANY line, chained or not: the writer's own
+ * hash when the line carries one (so the witness and the chain agree on
+ * the same leaf), else the SHA-256 of the line's bytes. Every harness's
+ * journal gets tamper-evidence since first ingest this way, including
+ * the ones whose writers we do not own.
+ */
+export function witnessHash(line: string): string {
+  const split = splitChainedLine(line);
+  return split ? split.hash : sha256(Buffer.from(line.replace(/[\r\n]+$/, ''), 'utf8')).toString('hex');
+}
+
 export type ChainVerdict = 'unchained' | 'open' | 'verified' | 'corrupted';
 
 export interface ChainStateData {

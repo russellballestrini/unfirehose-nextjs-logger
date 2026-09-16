@@ -60,7 +60,9 @@ export function chainTitle(p: ChainBadgeProps): string {
       return `Chain corrupted${count}${where}${why}${lines}${src}`;
     }
     default:
-      return `Unchained journal — written before hash chaining, nothing to verify${lines}${src}`;
+      return p.anchor === 'intact'
+        ? `Unchained journal (its writer does not hash), witnessed at ingest and unchanged since${lines}`
+        : `Unchained journal — written before hash chaining, nothing to verify${lines}${src}`;
   }
 }
 
@@ -69,7 +71,10 @@ export function ChainBadge(props: ChainBadgeProps) {
   const tampered = props.anchor === 'rewritten' || props.anchor === 'missing';
   const look = tampered
     ? { glyph: '⛓✗', label: props.anchor === 'missing' ? 'missing' : 'rewritten', color: '#ef4444' }
-    : (LOOK[state] ?? LOOK.unchained);
+    : state === 'unchained' && props.anchor === 'intact'
+      // A writer we do not own, but the witness has its lines: not chained, still accountable.
+      ? { glyph: '◎', label: 'witnessed', color: '#22c55e' }
+      : (LOOK[state] ?? LOOK.unchained);
   return (
     <span
       className={`text-xs px-1.5 py-0.5 rounded inline-flex items-center gap-1 ${className}`}
