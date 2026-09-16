@@ -17,6 +17,8 @@ import {
   entryRole as effectiveType,
 } from '@unturf/unfirehose/stream-blocks';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
+import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
+import { useChainStates } from '@unturf/unfirehose-ui/useChainStates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -170,7 +172,7 @@ export function LiveEntry(props: any) {
   const {
 item, i, reasoningOnly, showThinking, expanded, setExpanded,
     getColorForSession, sessionNames, now, entries, hoveredEntry,
-    mostRecentOutputIdx, onEntryMouseEnter, onEntryMouseLeave,
+    mostRecentOutputIdx, onEntryMouseEnter, onEntryMouseLeave, chain,
   } = props;
         const e = item.entry;
         // Always extract reasoning info so reasoningOnly can filter against
@@ -253,6 +255,9 @@ item, i, reasoningOnly, showThinking, expanded, setExpanded,
                 >
                   {item.projectName}
                 </span>
+                {chain && (
+                  <ChainBadge state={chain.state} anchor={chain.anchor} breaks={chain.breaks} firstBreak={chain.firstBreak} source="recorded" />
+                )}
               </div>
 
               {/* Type badge */}
@@ -376,7 +381,10 @@ item, i, reasoningOnly, showThinking, expanded, setExpanded,
 
 export default function LivePage() {
   const [entries, setEntries] = useState<LiveEntry[]>([]);
+  // Chain verdict + witness state per session in view, so a line's provenance
+  // sits beside its project name and the sessions strip can show the same.
   const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const chains = useChainStates([...entries.map((e) => e.sessionId), ...sessions.map((s) => s.sessionId)]);
   const [connected, setConnected] = useState(false);
   const [showThinking, setShowThinking] = useState(true);
   const [reasoningOnly, setReasoningOnly] = useState(false);
@@ -634,6 +642,9 @@ export default function LivePage() {
                     {count > 1 && (
                       <span className="opacity-50">×{count}</span>
                     )}
+                    {chains[first.sessionId] && (
+                      <ChainBadge state={chains[first.sessionId].state} anchor={chains[first.sessionId].anchor} source="recorded" />
+                    )}
                   </Link>
                 );
               })}
@@ -664,6 +675,7 @@ export default function LivePage() {
             item={item} i={i}
             reasoningOnly={reasoningOnly} showThinking={showThinking}
             getColorForSession={getColorForSession}
+            chain={chains[item.sessionId]}
             entries={entries} hoveredEntry={hoveredEntry}
             mostRecentOutputIdx={mostRecentOutputIdx}
             onEntryMouseEnter={onEntryMouseEnter} onEntryMouseLeave={onEntryMouseLeave}

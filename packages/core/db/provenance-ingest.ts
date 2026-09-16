@@ -132,6 +132,24 @@ export function getSessionChain(db: Database.Database, sessionUuid: string): Ses
   return row ?? null;
 }
 
+/** Chain verdict and witness state for many sessions at once, keyed by uuid. */
+export function getSessionChains(
+  db: Database.Database,
+  uuids: string[],
+): Record<string, { state: ChainVerdict; anchor: AnchorState | null; breaks: number; firstBreak: number | null }> {
+  const out: Record<string, { state: ChainVerdict; anchor: AnchorState | null; breaks: number; firstBreak: number | null }> = {};
+  const ids = [...new Set(uuids)].filter(Boolean);
+  for (let i = 0; i < ids.length; i += 500) {
+    const slice = ids.slice(i, i + 500);
+    const rows = db.prepare(
+      `SELECT session_uuid, state, anchor_state, breaks, first_break FROM session_chain
+        WHERE session_uuid IN (${slice.map(() => '?').join(',')})`,
+    ).all(...slice) as { session_uuid: string; state: ChainVerdict; anchor_state: AnchorState | null; breaks: number; first_break: number | null }[];
+    for (const r of rows) out[r.session_uuid] = { state: r.state, anchor: r.anchor_state, breaks: r.breaks, firstBreak: r.first_break };
+  }
+  return out;
+}
+
 /** Counts per verdict across every session that has a chain row. */
 export function getChainSummary(db: Database.Database): Record<ChainVerdict, number> {
   const out: Record<ChainVerdict, number> = { unchained: 0, open: 0, verified: 0, corrupted: 0 };

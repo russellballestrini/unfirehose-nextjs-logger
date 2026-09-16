@@ -1,6 +1,8 @@
 'use client';
 
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
+import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
+import { useChainStates } from '@unturf/unfirehose-ui/useChainStates';
 
 import { useState, useMemo } from 'react';
 import useSWR from 'swr';
@@ -52,6 +54,7 @@ export default function AllLogsPage() {
 
   const { data, error, isLoading } = useSWR(`/api/logs?${params}`, fetcher);
   const entries = data?.entries ?? [];
+  const chains = useChainStates(entries.map((e: any) => e.sessionUuid));
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
@@ -116,7 +119,7 @@ export default function AllLogsPage() {
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         {groupBySession(entries).map((g) => (
-          <SessionGroup key={g.key} group={g} searchTerm={searchDebounced} />
+          <SessionGroup key={g.key} group={g} searchTerm={searchDebounced} chain={chains[g.entries[0]?.sessionUuid]} />
         ))}
         {!isLoading && entries.length === 0 && (
           <div className="text-center text-[var(--color-muted)] py-12 space-y-1">
@@ -173,7 +176,7 @@ function groupBySession(entries: any[]): Group[] {
   return out;
 }
 
-function SessionGroup({ group, searchTerm }: { group: Group; searchTerm: string }) {
+function SessionGroup({ group, searchTerm, chain }: { group: Group; searchTerm: string; chain?: ChainSummaryLike }) {
   const first = group.entries[0];
   const model = group.entries.find((e) => e.model)?.model;
   return (
@@ -198,6 +201,7 @@ function SessionGroup({ group, searchTerm }: { group: Group; searchTerm: string 
         ) : null}
         {model && <span className="text-[var(--color-muted)] shrink-0">{shortModel(model)}</span>}
         {first.isSidechain && <span className="text-[var(--color-muted)] shrink-0" title="subagent">↳ subagent</span>}
+        {chain && <ChainBadge state={chain.state} anchor={chain.anchor} breaks={chain.breaks} firstBreak={chain.firstBreak} source="recorded" />}
         <span className="ml-auto text-[var(--color-muted)] shrink-0">{group.entries.length}</span>
       </div>
       <div>
@@ -208,6 +212,8 @@ function SessionGroup({ group, searchTerm }: { group: Group; searchTerm: string 
     </section>
   );
 }
+
+type ChainSummaryLike = { state: 'unchained' | 'open' | 'verified' | 'corrupted'; anchor: 'intact' | 'rewritten' | 'missing' | null; breaks: number; firstBreak: number | null };
 
 const shortModel = (m: string) => m.replace('claude-', '').replace(/-\d{8}$/, '');
 

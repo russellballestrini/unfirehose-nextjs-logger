@@ -10,6 +10,8 @@ import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
+import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
+import { useChainStates } from '@unturf/unfirehose-ui/useChainStates';
 
 interface ActiveSession {
   id: number;
@@ -77,6 +79,7 @@ export default function ActivePage() {
   const totalSealedReasoning = totalReasoning - totalReadableReasoning;
   const sessionsWithReasoning = allSessions.filter((s) => (s.reasoningCount ?? 0) > 0).length;
 
+  const chains = useChainStates((data?.sessions ?? []).map((s) => s.sessionUuid));
   const { data: tmuxData } = useSWR<{ sessions: string[] }>(
     '/api/tmux/stream',
     fetcher,
@@ -175,6 +178,15 @@ export default function ActivePage() {
                       sealed={session.reasoningCount - (session.readableReasoningCount ?? 0)}
                       className="ml-auto"
                     />
+                    {chains[session.sessionUuid] && (
+                      <ChainBadge
+                        state={chains[session.sessionUuid].state}
+                        anchor={chains[session.sessionUuid].anchor}
+                        breaks={chains[session.sessionUuid].breaks}
+                        firstBreak={chains[session.sessionUuid].firstBreak}
+                        source="recorded"
+                      />
+                    )}
                   </div>
                   <h3 className="font-medium text-base truncate" title={session.displayName}>
                     {session.displayName}

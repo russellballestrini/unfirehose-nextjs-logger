@@ -19,6 +19,9 @@ vi.mock('swr', () => ({
     return { data, error: undefined, isLoading: data === undefined, mutate: vi.fn() };
   },
 }));
+// The chain lookup is its own SWR call; it must not be the "last key" the
+// query assertions below read.
+vi.mock('@unturf/unfirehose-ui/useChainStates', () => ({ useChainStates: () => ({}) }));
 vi.mock('@unturf/unfirehose-ui/TimeRangeSelect', () => ({
   TimeRangeSelect: () => null,
   useTimeRange: () => ['24h', vi.fn()],
