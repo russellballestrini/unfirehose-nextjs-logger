@@ -2,8 +2,11 @@ import { watch, type FSWatcher } from 'fs';
 import { stat } from 'fs/promises';
 import { claudePaths } from '../claude-paths';
 import { fetchPaths } from '../fetch-paths';
+import { join } from 'path';
 import { nativeHarnesses } from './ingest';
 import { ingestAll } from './ingest';
+import { getDb } from './schema';
+import { watchRewriteFile } from './rewrite-watch';
 
 let watcher: FSWatcher | null = null;
 let fetchWatcher: FSWatcher | null = null;
@@ -33,6 +36,41 @@ function debouncedIngest() {
   debounceTimer = setTimeout(onFileChange, DEBOUNCE_MS);
 }
 
+// The rewrite watch runs per change event, ahead of the ingest debounce:
+// a writer that appends a line and rewrites it within two seconds settles
+// before the pass ever looks, so the pass can only see the final state.
+// Leading edge on the first event of a burst, one trailing check 150 ms
+// after the last, per file; a check reads one live journal and compares
+// it with its shadow (a few ms). Never load-bearing: a failure is logged
+// once and ingest is untouched.
+const QUICK_TRAIL_MS = 150;
+const quickLast = new Map<string, number>();
+const quickPending = new Map<string, ReturnType<typeof setTimeout>>();
+let quickFailed = false;
+
+function quickRewriteCheck(filePath: string) {
+  try {
+    watchRewriteFile(getDb(), filePath);
+  } catch (err) {
+    if (!quickFailed) { quickFailed = true; console.error('[watcher] rewrite check failed:', err); }
+  }
+}
+
+export function onJournalEvent(filePath: string) {
+  const now = Date.now();
+  if (now - (quickLast.get(filePath) ?? 0) >= QUICK_TRAIL_MS) {
+    quickLast.set(filePath, now);
+    quickRewriteCheck(filePath);
+  }
+  const pending = quickPending.get(filePath);
+  if (pending) clearTimeout(pending);
+  quickPending.set(filePath, setTimeout(() => {
+    quickPending.delete(filePath);
+    quickLast.set(filePath, Date.now());
+    quickRewriteCheck(filePath);
+  }, QUICK_TRAIL_MS));
+}
+
 export async function startWatcher() {
   if (watcher) return;
 
@@ -42,6 +80,7 @@ export async function startWatcher() {
   try {
     if (!enabled || enabled.includes('claude-code')) watcher = watch(claudePaths.projects, { recursive: true }, (_event, filename) => {
       if (filename && (filename.endsWith('.jsonl') || filename.endsWith('sessions-index.json'))) {
+        if (filename.endsWith('.jsonl')) onJournalEvent(join(claudePaths.projects, String(filename)));
         debouncedIngest();
       }
     });
@@ -73,6 +112,7 @@ export async function startWatcher() {
     try {
       const w = watch(harness.root, { recursive: true }, (_event, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
+          onJournalEvent(join(harness.root, String(filename)));
           debouncedIngest();
         }
       });
@@ -97,6 +137,8 @@ export function stopWatcher() {
     w.close();
     harnessWatchers.delete(name);
   }
+  for (const t of quickPending.values()) clearTimeout(t);
+  quickPending.clear();
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;

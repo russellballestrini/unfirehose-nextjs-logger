@@ -11,7 +11,7 @@ vi.mock('./schema', () => ({
 }));
 
 const { witnessHash } = await import('../provenance');
-const { watchRewrites, getRewrites, getRewriteSummary, pruneShadows, classify, digestLine, SHADOW_TEXT_CAP } =
+const { watchRewrites, watchRewriteFile, getRewrites, getRewriteSummary, pruneShadows, classify, digestLine, SHADOW_TEXT_CAP } =
   await import('./rewrite-watch');
 
 /**
@@ -236,6 +236,27 @@ describe('watchRewrites: the live shadow', () => {
     age('warm1', 61);
     expect(watchRewrites(db, { limit: 10 }).pruned).toBe(1);
     expect(shadowOf('warm1')).toEqual([]);
+  });
+
+  it('watchRewriteFile: one journal on demand, with the same gates as the pass', () => {
+    // The file watcher runs this on every change event, ahead of the
+    // ingest debounce, so an append and its rewrite two hundred
+    // milliseconds later are seen apart instead of settled.
+    const before = assistant('done', { input_tokens: 10, output_tokens: 2 });
+    seed('evt1', [user('add a test'), before]);
+    expect(watchRewriteFile(db, fileOf('evt1'))).toEqual({ rewrites: 0, truncations: 0 });
+    writeLines('evt1', [user('add a test'), assistant('done', { input_tokens: 10, output_tokens: 7 })]);
+    expect(watchRewriteFile(db, fileOf('evt1'))).toEqual({ rewrites: 1, truncations: 0 });
+    expect(getRewrites(db)[0].changed_keys).toEqual(['message.usage']);
+    // Gates: not a journal path, a quiescent file, a chained session.
+    expect(watchRewriteFile(db, path.join(root, 'notes.txt'))).toBeNull();
+    seed('old1', [user('x')]);
+    const ago = new Date(Date.now() - 11 * 60_000);
+    utimesSync(fileOf('old1'), ago, ago);
+    expect(watchRewriteFile(db, fileOf('old1'))).toBeNull();
+    seed('ch1', [user('x')]);
+    db.prepare("INSERT INTO session_chain (session_uuid, state, entries, hashed) VALUES ('ch1', 'open', 1, 1)").run();
+    expect(watchRewriteFile(db, fileOf('ch1'))).toBeNull();
   });
 
   it('a file that is not a journal at all is skipped, never fatal', () => {

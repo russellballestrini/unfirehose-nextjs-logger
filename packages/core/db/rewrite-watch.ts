@@ -253,63 +253,106 @@ export function watchRewrites(db: Database.Database, opts: { limit?: number } = 
   const limit = opts.limit ?? 25;
   const out: WatchResult = { files: 0, rewrites: 0, truncations: 0, pruned: 0 };
   ensureRewriteTables(db);
-
-  const harnessOf = db.prepare('SELECT harness FROM sessions WHERE session_uuid = ?');
-  const shadowOf = db.prepare('SELECT seq, hash, text, len, truncated, digest FROM session_shadow_leaves WHERE session_uuid = ? ORDER BY seq');
-  const putShadow = db.prepare(
-    `INSERT OR REPLACE INTO session_shadow_leaves (session_uuid, seq, hash, text, len, truncated, digest)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  );
-  const dropPast = db.prepare('DELETE FROM session_shadow_leaves WHERE session_uuid = ? AND seq >= ?');
-  const insRewrite = db.prepare(
-    `INSERT INTO session_rewrites (session_uuid, harness, seq, kind, file_lines, tail_distance,
-       before_hash, after_hash, before_text, after_text, before_len, after_len, truncated,
-       changed_keys, content_changed, before_type, after_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-
+  const stmts = prepare(db);
   for (const c of candidates(db, limit)) {
-    try {
-      const lines = completeLines(c.file_path);
-      const harness = (harnessOf.get(c.session_uuid) as { harness: string | null } | undefined)?.harness ?? null;
-      const shadow = shadowOf.all(c.session_uuid) as ShadowRow[];
-      const fileLines = lines.length;
-      db.transaction(() => {
-        const hashes = lines.map(witnessHash);
-        for (const s of shadow) {
-          if (s.seq >= fileLines) {
-            insRewrite.run(c.session_uuid, harness, s.seq, 'truncated', fileLines, fileLines - 1 - s.seq,
-              s.hash, null, s.text, null, s.len, null, s.truncated, '[]', 0,
-              parseDigest(s)?.type ?? null, null);
-            out.truncations += 1;
-            continue;
-          }
-          if (hashes[s.seq] === s.hash) continue;
-          const line = lines[s.seq];
-          const after = cap(line);
-          const before = parseDigest(s);
-          const cls = classify(before, digestLine(line));
-          insRewrite.run(c.session_uuid, harness, s.seq, 'rewritten', fileLines, fileLines - 1 - s.seq,
-            s.hash, hashes[s.seq], s.text, after.text, s.len, line.length, s.truncated || after.truncated ? 1 : 0,
-            JSON.stringify(cls.changed_keys), cls.content_changed, cls.before_type, cls.after_type);
-          out.rewrites += 1;
-        }
-        // Bring the shadow to the file as it is now: replace changed lines,
-        // append new ones, forget those past the end.
-        const known = new Map(shadow.map((s) => [s.seq, s.hash]));
-        for (let seq = 0; seq < fileLines; seq++) {
-          if (known.get(seq) === hashes[seq]) continue;
-          const t = cap(lines[seq]);
-          putShadow.run(c.session_uuid, seq, hashes[seq], t.text, lines[seq].length, t.truncated,
-            JSON.stringify(digestLine(lines[seq])));
-        }
-        if (shadow.length > fileLines) dropPast.run(c.session_uuid, fileLines);
-      })();
-      out.files += 1;
-    } catch { /* one unreadable file never stops the pass */ }
+    const r = compareOne(db, stmts, c);
+    if (!r) continue;
+    out.files += 1;
+    out.rewrites += r.rewrites;
+    out.truncations += r.truncations;
   }
-
   out.pruned = pruneShadows(db, limit * 4);
+  return out;
+}
+
+/**
+ * The same comparison for ONE journal, run from the file watcher on every
+ * change event rather than once per ingest pass. The pass is debounced two
+ * seconds behind the last write, which is long enough for an append and
+ * its rewrite to land as one settled state that the shadow never saw
+ * apart (two hours of live Claude Code sessions, zero rows, 2026-09-16).
+ * Returns null when the file is not a live unchained journal — quiescent,
+ * chained, or not a session file — so the caller needs no rule of its own.
+ */
+export function watchRewriteFile(db: Database.Database, filePath: string): { rewrites: number; truncations: number } | null {
+  const session_uuid = uuidOf(filePath);
+  if (!session_uuid) return null;
+  let mtime: number;
+  try { mtime = statSync(filePath).mtimeMs; } catch { return null; }
+  if (Date.now() - mtime >= QUIESCENT_MS) return null;
+  ensureRewriteTables(db);
+  const row = db.prepare('SELECT hashed FROM session_chain WHERE session_uuid = ?')
+    .get(session_uuid) as { hashed: number } | undefined;
+  if (row && row.hashed > 0) return null;
+  return compareOne(db, prepare(db), { session_uuid, file_path: filePath, mtime });
+}
+
+interface Stmts {
+  harnessOf: Database.Statement; shadowOf: Database.Statement; putShadow: Database.Statement;
+  dropPast: Database.Statement; insRewrite: Database.Statement;
+}
+
+function prepare(db: Database.Database): Stmts {
+  return {
+    harnessOf: db.prepare('SELECT harness FROM sessions WHERE session_uuid = ?'),
+    shadowOf: db.prepare('SELECT seq, hash, text, len, truncated, digest FROM session_shadow_leaves WHERE session_uuid = ? ORDER BY seq'),
+    putShadow: db.prepare(
+      `INSERT OR REPLACE INTO session_shadow_leaves (session_uuid, seq, hash, text, len, truncated, digest)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    dropPast: db.prepare('DELETE FROM session_shadow_leaves WHERE session_uuid = ? AND seq >= ?'),
+    insRewrite: db.prepare(
+      `INSERT INTO session_rewrites (session_uuid, harness, seq, kind, file_lines, tail_distance,
+         before_hash, after_hash, before_text, after_text, before_len, after_len, truncated,
+         changed_keys, content_changed, before_type, after_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+  };
+}
+
+/** Compare one journal with its shadow, record what moved, bring the shadow up to date. */
+function compareOne(db: Database.Database, st: Stmts, c: Candidate): { rewrites: number; truncations: number } | null {
+  const out = { rewrites: 0, truncations: 0 };
+  try {
+    const lines = completeLines(c.file_path);
+    const harness = (st.harnessOf.get(c.session_uuid) as { harness: string | null } | undefined)?.harness ?? null;
+    const shadow = st.shadowOf.all(c.session_uuid) as ShadowRow[];
+    const fileLines = lines.length;
+    db.transaction(() => {
+      const hashes = lines.map(witnessHash);
+      for (const s of shadow) {
+        if (s.seq >= fileLines) {
+          st.insRewrite.run(c.session_uuid, harness, s.seq, 'truncated', fileLines, fileLines - 1 - s.seq,
+            s.hash, null, s.text, null, s.len, null, s.truncated, '[]', 0,
+            parseDigest(s)?.type ?? null, null);
+          out.truncations += 1;
+          continue;
+        }
+        if (hashes[s.seq] === s.hash) continue;
+        const line = lines[s.seq];
+        const after = cap(line);
+        const before = parseDigest(s);
+        const cls = classify(before, digestLine(line));
+        st.insRewrite.run(c.session_uuid, harness, s.seq, 'rewritten', fileLines, fileLines - 1 - s.seq,
+          s.hash, hashes[s.seq], s.text, after.text, s.len, line.length, s.truncated || after.truncated ? 1 : 0,
+          JSON.stringify(cls.changed_keys), cls.content_changed, cls.before_type, cls.after_type);
+        out.rewrites += 1;
+      }
+      // Bring the shadow to the file as it is now: replace changed lines,
+      // append new ones, forget those past the end.
+      const known = new Map(shadow.map((s) => [s.seq, s.hash]));
+      for (let seq = 0; seq < fileLines; seq++) {
+        if (known.get(seq) === hashes[seq]) continue;
+        const t = cap(lines[seq]);
+        st.putShadow.run(c.session_uuid, seq, hashes[seq], t.text, lines[seq].length, t.truncated,
+          JSON.stringify(digestLine(lines[seq])));
+      }
+      if (shadow.length > fileLines) st.dropPast.run(c.session_uuid, fileLines);
+    })();
+  } catch { return null; /* one unreadable file never stops the pass */ }
+  if (out.rewrites || out.truncations) {
+    console.log(`[rewrite-watch] ${c.session_uuid.slice(0, 8)}: ${out.rewrites} rewritten, ${out.truncations} truncated`);
+  }
   return out;
 }
 
