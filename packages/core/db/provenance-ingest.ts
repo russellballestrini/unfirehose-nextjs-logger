@@ -161,28 +161,24 @@ export class SessionChainTracker {
   }
 }
 
+const CHAIN_COLUMNS = [
+  'state', 'entries', 'hashed', 'breaks', 'first_break', 'first_break_reason',
+  'last_hash', 'root_expected', 'root_computed', 'root_seq', 'hash_version',
+  'merkle_version', 'encoding_version', 'root_semantics',
+] as const;
+
 function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: ChainStateData, filePath: string | null) {
+  const values: Record<string, unknown> = { ...d, state };
+  const cols = ['session_uuid', ...CHAIN_COLUMNS, 'file_path'];
+  const sets = [...CHAIN_COLUMNS.map((c) => `${c} = excluded.${c}`),
+    // A later pass without a path (the cloud batch route) keeps the one ingest recorded.
+    'file_path = COALESCE(excluded.file_path, session_chain.file_path)',
+    "updated_at = datetime('now')"];
   db.prepare(
-    `INSERT INTO session_chain (
-       session_uuid, state, entries, hashed, breaks, first_break, first_break_reason,
-       last_hash, root_expected, root_computed, root_seq, hash_version,
-       merkle_version, encoding_version, root_semantics, file_path, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(session_uuid) DO UPDATE SET
-       state = excluded.state, entries = excluded.entries, hashed = excluded.hashed,
-       breaks = excluded.breaks, first_break = excluded.first_break,
-       first_break_reason = excluded.first_break_reason, last_hash = excluded.last_hash,
-       root_expected = excluded.root_expected, root_computed = excluded.root_computed,
-       root_seq = excluded.root_seq, hash_version = excluded.hash_version,
-       merkle_version = excluded.merkle_version, encoding_version = excluded.encoding_version,
-       root_semantics = excluded.root_semantics,
-       file_path = COALESCE(excluded.file_path, session_chain.file_path),
-       updated_at = excluded.updated_at`,
-  ).run(
-    uuid, state, d.entries, d.hashed, d.breaks, d.first_break, d.first_break_reason,
-    d.last_hash, d.root_expected, d.root_computed, d.root_seq, d.hash_version,
-    d.merkle_version, d.encoding_version, d.root_semantics, filePath,
-  );
+    `INSERT INTO session_chain (${cols.join(', ')}, updated_at)
+     VALUES (${cols.map(() => '?').join(', ')}, datetime('now'))
+     ON CONFLICT(session_uuid) DO UPDATE SET ${sets.join(', ')}`,
+  ).run(uuid, ...CHAIN_COLUMNS.map((c) => values[c] ?? null), filePath);
 }
 
 /**
