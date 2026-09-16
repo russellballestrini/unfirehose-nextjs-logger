@@ -224,11 +224,38 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(home, '.ssh'), { recursive: true });
   fs.mkdirSync(path.join(home, '.claude', 'unfirehose'), { recursive: true });
 
+  // A fleet worker's journal, under a HOME bound into its run directory —
+  // outside every dot-dir of the user's own home. Chained, as the fleet's
+  // harness writes it (the n=3 vector from the shared known-answer file).
+  const missions = path.join(home, 'git', 'arborist', 'bench', 'missions');
+  const workerHome = path.join(missions, 'demo_mission', 'results', '2026-09-16_abc', 'fleet', 'workers', 'worker_003', 'home');
+  const workerDir = path.join(workerHome, '.uncloseai', 'unfirehose', 'home-user-proj');
+  fs.mkdirSync(workerDir, { recursive: true });
+  const kat = fs.readFileSync(path.join(__dirname, '..', '..', 'schema', 'fixtures', 'chain-kat.jsonl'), 'utf8')
+    .split('\n').filter((l) => l.trim() && !l.startsWith('#')).map((l) => JSON.parse(l))
+    .find((r) => r.kind === 'session' && r.label === 'verified/n=3');
+  fs.writeFileSync(path.join(workerDir, 'ffffffff-0000-4000-8000-000000000003.jsonl'), kat.lines.join('\n') + '\n');
+  process.env.UNFIREHOSE_FLEET_ROOTS = missions;
+
   const { ingestAll } = await import('./ingest');
   await ingestAll();
 });
 
-afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
+afterAll(() => { delete process.env.UNFIREHOSE_FLEET_ROOTS; fs.rmSync(home, { recursive: true, force: true }); });
+
+describe('ingestAll over a fleet worker home', () => {
+  it('finds a journal a worker wrote under its private HOME and verifies its chain', async () => {
+    const { getSessionChain } = await import('./provenance-ingest');
+    const session = one<{ harness: string; project: string }>(`
+      SELECT s.harness, p.name AS project FROM sessions s JOIN projects p ON p.id = s.project_id
+       WHERE s.session_uuid = 'ffffffff-0000-4000-8000-000000000003'`);
+    expect(session).toEqual({ harness: 'uncloseai', project: 'uncloseai:home-user-proj' });
+    const row = getSessionChain(db, 'ffffffff-0000-4000-8000-000000000003')!;
+    expect(row.state).toBe('verified');
+    expect(row.breaks).toBe(0);
+    expect(row.file_path).toContain('/fleet/workers/worker_003/home/.uncloseai/unfirehose/');
+  });
+});
 
 const one = <T,>(sql: string): T => db.prepare(sql).get() as T;
 const all = <T,>(sql: string): T[] => db.prepare(sql).all() as T[];

@@ -14,6 +14,7 @@ import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
 import { SessionChainTracker, auditAnchors, backfillWitness } from './provenance-ingest';
+import { discoverFleetHarnesses } from '../fleet-roots';
 import { resolveSessionFile } from '../session-paths';
 export { recordHarnessRefusal } from './refusals';
 export type { HarnessRefusal } from './refusals';
@@ -1952,8 +1953,11 @@ export async function ingestAll(): Promise<IngestResult> {
     result.providenceAdded += fetchResult.providenceAdded;
   }
 
-  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.)
-  for (const harness of nativeHarnesses) {
+  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.),
+  // then the same harnesses under every fleet worker's private HOME
+  // (fleet-roots.ts) — found each pass, never fs-watched.
+  const fleet = (!enabled || enabled.includes('fleet')) ? discoverFleetHarnesses() : [];
+  for (const harness of [...nativeHarnesses, ...fleet]) {
     if (enabled && !enabled.includes(harness.name)) continue;
     const hResult = await ingestJsonlSource(db, {
       name: harness.name,

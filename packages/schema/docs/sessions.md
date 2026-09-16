@@ -188,7 +188,20 @@ tail of a live transcript — so an unchained journal is recorded only
 once its file has been quiet for ten minutes, and audited only when
 quiet again; a chained journal is append-only by contract and needs
 no such grace. What only a chaining writer adds is the commitment
-from BEFORE first ingest: `prevHash` and the closed record's root. This is the floor
+from BEFORE first ingest: `prevHash` and the closed record's root.
+
+**Fleet journals.** A fleet worker runs with `HOME` bound into its run
+directory, so its harnesses journal under
+`<run>/fleet/workers/worker_00N/home/.<harness>/unfirehose/` — where
+a scan of the user's own home never looks (3,433 worker homes and
+20,808 journals on one laptop, 2026-09-16). The ingester now finds
+them each pass from `UNFIREHOSE_FLEET_ROOTS` (mission roots, default
+`~/git/arborist/bench/missions` when present) and from the roots
+uncloseai-cli itself remembers from live processes
+(`~/.uncloseai/firehose-roots.json`), plus every harness dot-dir
+beside a found one. They are ingested and witnessed like any other
+journal, never fs-watched (thousands of recursive watchers would
+exhaust inotify; the poll finds them). This is the floor
 behind "an agent cannot fabricate what it did": the model authors
 its narration and its tool arguments; the harness authors tool
 results, inference rows, switch firings and the hashes; the witness
