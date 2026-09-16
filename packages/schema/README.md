@@ -101,18 +101,28 @@ A minimal unfirehose/1.0 JSONL session:
 
 Three tiers of adoption, one source of truth each:
 
-| Tier | Strategy | Example |
-|------|----------|---------|
-| 1 — Native | Harness writes unfirehose/1.0 as its only format | agnt, uncloseai-cli |
-| 2 — Extension | Extension hooks harness lifecycle, writes unfirehose/1.0 | pi (`extensions/pi-unfirehose.ts`) |
-| 3 — Adapter | Unfirehose reads harness native format, transforms on ingest | Claude Code, Cursor, aider |
+| Tier | Strategy | Example | Tamper evidence |
+|------|----------|---------|-----------------|
+| 1 — Native | Harness writes unfirehose/1.0 as its only format | agnt, uncloseai-cli, arborist, orchestra (Go SDK) | chained + witnessed |
+| 2 — Extension | Extension hooks harness lifecycle, writes unfirehose/1.0 | pi (`extensions/pi-unfirehose.ts`) | chained + witnessed |
+| 3 — Adapter | Unfirehose reads harness native format, transforms on ingest | Claude Code, Cursor, aider | witnessed only, once the file is quiet |
 
 To adopt unfirehose/1.0 in a new harness:
 
 1. Log JSONL with `$schema: "unfirehose/1.0"` header
 2. Use canonical content block types (`text`, `reasoning`, `tool-call`, `tool-result`)
 3. Include session envelope as first line (optional but recommended)
-4. Store at `~/.{harness}/projects/{slug}/{session-uuid}.jsonl`
+4. Store at `~/.{harness}/unfirehose/{project-slug}/{session-uuid}.jsonl`; any
+   `~/.{name}/unfirehose/` directory is discovered on the next ingest pass
+5. Chain every line (`unfirehose-chain-v1`, [sessions.md](docs/sessions.md#chain--unfirehose-chain-v1-optional)):
+   `prevHash` inside, `hash` as the last key, `sessionRoot` on the closed
+   record, header & closed record naming their rules. Replay
+   `fixtures/chain-kat.jsonl` in your tests so your bytes agree with every
+   other writer's. Reference writers: `@unturf/unfirehose/provenance`
+   (TypeScript), uncloseai-cli `provenance.py` (Python), the Go SDK's
+   `chain.go`, agnt `chainline.js`. A chained journal is verified by the
+   dashboard from its first byte; an unchained one is only witnessed, after
+   ten quiet minutes, & its live rewrites are recorded leaf by leaf.
 
 ### Extensions (Tier 2)
 

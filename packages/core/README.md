@@ -1,8 +1,8 @@
 # @unturf/unfirehose
 
-Core data layer for [unfirehose](https://github.com/russellballestrini/unfirehose-nextjs-logger) — a local-first observability dashboard for Claude Code.
+Core data layer for [unfirehose](https://github.com/russellballestrini/unfirehose-nextjs-logger), a local-first observability dashboard for machine learning agent harnesses.
 
-Reads JSONL session logs from `~/.claude/`, `~/.fetch/`, and `~/.uncloseai/`, normalizes them into SQLite, and provides types and utilities for building tools on top.
+Reads JSONL session journals from every harness under `~/.{name}/unfirehose/` plus `~/.claude/` & `~/.fetch/`, normalizes them into SQLite, verifies each journal's hash chain & witnesses every line it reads, & provides types and utilities for building tools on top.
 
 ## Install
 
@@ -88,6 +88,42 @@ import { uuidv7 } from '@unturf/unfirehose/uuidv7'
 uuidv7() // time-ordered, sortable UUID
 ```
 
+### Tamper evidence — chain, verify, witness
+
+```ts
+import { chainLine, verifyLines, sessionRoot, versionFields } from '@unturf/unfirehose/provenance'
+import { getSessionChain, auditAnchor } from '@unturf/unfirehose/db/provenance-ingest'
+
+// Write a chained journal (unfirehose-chain-v1): every line ends with its
+// own hash, carries the previous line's hash, & a closed session record
+// carries the merkle-v1 root over every line before it.
+let prev: string | null = null
+for (const entry of entries) {
+  const { line, hash } = chainLine(entry, prev)   // line ends `,"hash":"…"}`
+  out.write(line + '\n')
+  prev = hash
+}
+const closed = { type: 'session', status: 'closed', sessionRoot: sessionRoot(hashes), ...versionFields() }
+
+// Read one back: unchained | open | verified | corrupted, with the break index & reason.
+verifyLines(fs.readFileSync(path, 'utf8').split('\n')).state
+
+// What the ingester recorded: the chain verdict plus the witness verdict —
+// anchor_state intact | rewritten | missing against leaves this process
+// wrote down as the file first grew, which a writer cannot re-hash.
+getSessionChain(db, sessionUuid)
+```
+
+A `verified` chain proves the bytes on disk are the bytes their writer
+hashed, in order, under a root that recomputes; the witness proves nobody
+altered the file after this process first saw it. Neither proves a session
+is true. Spec: `@unturf/unfirehose-schema` `docs/sessions.md` ("Chain");
+known-answer files `fixtures/chain-kat.jsonl` & `fixtures/merkle-kat.jsonl`
+pin every implementation (Python, TypeScript, Go, JavaScript) to one set of
+bytes. Writers we do not own (Claude Code, Codex) are witnessed only, after
+their file has been quiet ten minutes; `db/rewrite-watch` records what such
+a writer changes in a live file, leaf before & after.
+
 ### Multi-tenant & auth
 
 ```ts
@@ -122,6 +158,11 @@ import { TIERS } from '@unturf/unfirehose/tiers'
 | `./auth` | Request authentication |
 | `./rate-limit` | Rate limiting |
 | `./apmonitor-adapter` | Agent performance monitoring adapter |
+| `./provenance` | unfirehose-chain-v1 writer & verifier, merkle-v1 roots & proofs |
+| `./db/provenance-ingest` | Chain verdicts & the witness: recorded leaves, anchor audits |
+| `./db/rewrite-watch` | Live-journal rewrite diagnostic: before/after leaf per changed line |
+| `./stream-blocks` | One view of a streamed entry across harness shapes |
+| `./shell-pretty` | A bash one-liner laid out as a script, idempotent & fail-open |
 
 ## Architecture
 
