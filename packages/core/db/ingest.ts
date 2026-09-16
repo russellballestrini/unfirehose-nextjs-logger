@@ -14,6 +14,7 @@ import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
 import { SessionChainTracker, auditAnchors, backfillWitness } from './provenance-ingest';
+import { watchRewrites } from './rewrite-watch';
 import { discoverFleetHarnesses } from '../fleet-roots';
 import { resolveSessionFile } from '../session-paths';
 export { recordHarnessRefusal } from './refusals';
@@ -2121,9 +2122,15 @@ export async function ingestAll(): Promise<IngestResult> {
   // against the leaves recorded when they were first ingested. A file
   // its writer re-hashed still verifies; it does not still agree with
   // what this process saw before the rewrite.
+  //
+  // The rewrite watch is the witness's opposite number: it keeps a live
+  // shadow of the unchained files the witness will not touch yet, and
+  // records before/after when a writer changes a line it already saw
+  // (rewrite-watch.ts). A diagnostic, never evidence.
   try {
     backfillWitness(db, 50, resolveSessionFile);
     auditAnchors(db, 25, resolveSessionFile);
+    watchRewrites(db, { limit: 25 });
   } catch { /* the witness is evidence, never a dependency of ingest */ }
 
   setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());

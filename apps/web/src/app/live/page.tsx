@@ -19,6 +19,7 @@ import {
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
 import { useChainStates } from '@unturf/unfirehose-ui/useChainStates';
+import { RewritesTab, RewritesTabBadge, fetchRewriteCount } from './RewritesTab';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -386,6 +387,11 @@ export default function LivePage() {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const chains = useChainStates([...entries.map((e) => e.sessionId), ...sessions.map((s) => s.sessionId)]);
   const [connected, setConnected] = useState(false);
+  // Feed is everything this page always was; Rewrites is the witness's
+  // ledger of harnesses caught rewriting a live journal (RewritesTab.tsx).
+  const [tab, setTab] = useState<'feed' | 'rewrites'>('feed');
+  const [rewriteCount, setRewriteCount] = useState(0);
+  useEffect(() => { fetchRewriteCount().then(setRewriteCount); }, []);
   const [showThinking, setShowThinking] = useState(true);
   const [reasoningOnly, setReasoningOnly] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -547,6 +553,27 @@ export default function LivePage() {
           </span>
         </div>
 
+        {/* Tab strip */}
+        <div className="flex items-center gap-1 mt-2 border-b border-[var(--color-border)]/50" role="tablist">
+          {([['feed', 'Feed'], ['rewrites', 'Rewrites']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={`text-base px-3 py-1 -mb-px border-b-2 cursor-pointer transition-colors ${
+                tab === id
+                  ? 'border-[var(--color-accent)] text-[var(--color-foreground)]'
+                  : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
+              }`}
+            >
+              {label}
+              {id === 'rewrites' && <RewritesTabBadge count={rewriteCount} />}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'feed' && (
         <div className="flex items-center gap-4 mt-2 flex-wrap">
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
@@ -596,9 +623,10 @@ export default function LivePage() {
             Clear
           </button>
         </div>
+        )}
 
         {/* Active sessions bar — grouped by project, single scrollable row */}
-        {sessions.length > 0 && (
+        {tab === 'feed' && sessions.length > 0 && (
           <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-0.5 min-h-[2rem]">
             <span className="text-base text-[var(--color-muted)] shrink-0 whitespace-nowrap">
               {sessions.length} hot
@@ -652,10 +680,14 @@ export default function LivePage() {
         )}
       </div>
 
-      {/* Live stream */}
+      {tab === 'rewrites' && <RewritesTab onTotal={setRewriteCount} />}
+
+      {/* Live stream — kept mounted (hidden) under the Rewrites tab so the
+          buffer, colors and scroll position survive a tab switch. */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-auto font-mono text-base"
+        hidden={tab !== 'feed'}
       >
         {entries.length === 0 && connected && (
           <div className="text-[var(--color-muted)] text-base py-8 text-center">

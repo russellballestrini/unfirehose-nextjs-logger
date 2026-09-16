@@ -276,8 +276,9 @@ function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: 
  */
 export const QUIESCENT_MS = 10 * 60_000;
 
-function quiescent(filePath: string): boolean {
-  try { return Date.now() - statSync(filePath).mtimeMs >= QUIESCENT_MS; } catch { return true; }
+/** True once the file has gone `windowMs` without a write, or is gone. Shared with rewrite-watch.ts. */
+export function quiescent(filePath: string, windowMs = QUIESCENT_MS): boolean {
+  try { return Date.now() - statSync(filePath).mtimeMs >= windowMs; } catch { return true; }
 }
 
 export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorState | null {

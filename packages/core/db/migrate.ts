@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { ensureProvenanceTables } from './provenance-ingest';
+import { ensureRewriteTables } from './rewrite-watch';
 
 /**
  * The schema. One definition, applied everywhere a database is created:
@@ -503,6 +504,7 @@ export function migrate(db: Database.Database) {
   // session root commits to. NULL for an unchained writer.
   addColumn('messages', 'row_hash', 'TEXT');
   ensureProvenanceTables(db);
+  ensureRewriteTables(db);
   // One-time backfill: harness tells us provider with high confidence even when
   // the message row pre-dates endpoint/provider ingestion.
   //

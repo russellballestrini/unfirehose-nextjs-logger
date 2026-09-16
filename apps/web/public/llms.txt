@@ -36,6 +36,23 @@ All thinking blocks from a specific session.
 - `?project=...`
 → `[{ sessionId, project, timestamp, thinking, precedingPrompt, model }]`
 
+### GET /api/sessions/{sessionId}/chain
+Provenance verdict for one session as the ingester recorded it — `unchained` / `open` / `verified` / `corrupted` — with the first break's index and reason, and the root the closed record committed to.
+- `?project=...&live=1` — re-read the journal from disk and verify it now; a trailing partial line is reported as `partialTail`, never counted as a break
+→ `{ sessionId, state, recorded: {...} | null, live?: { state, breaks, ..., partialTail, path } }`
+
+### GET /api/sessions/chains
+Chain verdict and witness state for many sessions in one call — what a list view shows beside each id. A session the ingester has not recorded yet is absent.
+- `?ids=a,b,c` — session uuids, up to 2000
+→ `{ chains: { [uuid]: { state, anchor: intact|rewritten|missing|null, breaks, firstBreak } } }`
+
+### GET /api/sessions/rewrites
+Harnesses caught in the act. The witness records an unchained journal (Claude Code, Codex, hermes-agent…) only once its file has been quiet ten minutes, because such a writer rewrites lines near the tail of a live transcript. This endpoint is the diagnostic on the other side of that gate: a live shadow of every line, and a row for each line that came back different — before and after text and hash, how far from the tail it sat, and which JSON keys moved (`message.usage` is a refresh, `message.content` an edit). `truncated` rows are lines the file lost.
+- `?hours=24` — window for both summary and rows
+- `?limit=50` — rows, newest first
+- `?session=<uuid>` / `?harness=claude-code` — narrow the rows
+→ `{ summary: { total, sessions, byHarness, maxTailDistance, contentChanged, metadataOnly, truncations, byChangedKey }, rows: [{ id, session_uuid, project, harness, seq, kind: rewritten|truncated, observed_at, file_lines, tail_distance, before_hash, after_hash, before_text, after_text, before_len, after_len, truncated, changed_keys: [...], content_changed, before_type, after_type }] }`
+
 ### GET /api/tool-results
 Archived tool-result spill files. Claude Code writes large tool outputs to
 `~/.claude/projects/<project>/<session>/tool-results/` and keeps only the path

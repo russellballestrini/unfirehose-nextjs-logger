@@ -86,6 +86,7 @@
     "./db/mesh-snapshots": "./db/mesh-snapshots.ts",
     "./vllm-sample": "./vllm-sample.ts",
     "./db/provenance-ingest": "./db/provenance-ingest.ts",
+    "./db/rewrite-watch": "./db/rewrite-watch.ts",
     "./provenance": "./provenance.ts"
   },
   "scripts": {
