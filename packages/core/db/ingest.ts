@@ -13,7 +13,7 @@ import { fetchPaths } from '../fetch-paths';
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
-import { SessionChainTracker, auditAnchors } from './provenance-ingest';
+import { SessionChainTracker, auditAnchors, backfillWitness } from './provenance-ingest';
 import { resolveSessionFile } from '../session-paths';
 export { recordHarnessRefusal } from './refusals';
 export type { HarnessRefusal } from './refusals';
@@ -2117,7 +2117,10 @@ export async function ingestAll(): Promise<IngestResult> {
   // against the leaves recorded when they were first ingested. A file
   // its writer re-hashed still verifies; it does not still agree with
   // what this process saw before the rewrite.
-  try { auditAnchors(db, 25, resolveSessionFile); } catch { /* the audit is evidence, never a dependency of ingest */ }
+  try {
+    backfillWitness(db, 50, resolveSessionFile);
+    auditAnchors(db, 25, resolveSessionFile);
+  } catch { /* the witness is evidence, never a dependency of ingest */ }
 
   setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
 

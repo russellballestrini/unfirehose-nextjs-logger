@@ -233,6 +233,46 @@ export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorS
 }
 
 /**
+ * Sessions ingested before the witness existed have no leaves on record:
+ * their offsets sit at end-of-file, so ingest never re-reads them. This
+ * reads such a journal once from byte 0 — recording leaves only, never
+ * re-inserting messages — so the whole history comes under the witness,
+ * a bounded number per pass. The recorded leaves are then what the file
+ * held at backfill time, which is as early as this witness can start.
+ */
+export function backfillWitness(
+  db: Database.Database,
+  limit: number,
+  resolve: (project: string, sessionUuid: string) => string,
+): number {
+  const rows = db.prepare(
+    `SELECT s.session_uuid, p.name AS project FROM sessions s
+       JOIN projects p ON p.id = s.project_id
+      WHERE NOT EXISTS (SELECT 1 FROM session_chain c WHERE c.session_uuid = s.session_uuid)
+      ORDER BY s.id DESC LIMIT ?`,
+  ).all(limit) as { session_uuid: string; project: string }[];
+  let done = 0;
+  for (const r of rows) {
+    let filePath: string;
+    try { filePath = resolve(r.project, r.session_uuid); } catch { continue; }
+    let text: string | null = null;
+    try { text = readFileSync(filePath, 'utf8'); } catch { text = null; }
+    const tracker = new SessionChainTracker(db, r.session_uuid, { reset: true, filePath });
+    if (text !== null) {
+      if (text.length && !text.endsWith('\n')) text = text.slice(0, text.lastIndexOf('\n') + 1);
+      for (const line of text.split('\n')) if (line.trim()) tracker.feed(line);
+    }
+    // A missing file still gets a row, so the session is not retried every pass.
+    db.transaction(() => { tracker.flush(); if (text === null) {
+      db.prepare(`INSERT OR IGNORE INTO session_chain (session_uuid, state, file_path) VALUES (?, 'unchained', ?)`)
+        .run(r.session_uuid, filePath);
+    } })();
+    done += 1;
+  }
+  return done;
+}
+
+/**
  * One bounded pass of anchor audits — the sessions least recently
  * checked first, never-checked ones ahead of all. Runs after every
  * ingest pass; `limit` keeps a 16,000-journal host from re-reading

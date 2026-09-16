@@ -11,7 +11,7 @@ vi.mock('./schema', () => ({
 }));
 
 const { ingestJsonlSource, ingestJsonlLines } = await import('./ingest');
-const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, auditAnchors } = await import('./provenance-ingest');
+const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, auditAnchors, backfillWitness } = await import('./provenance-ingest');
 
 /**
  * The chain verdict a session lands with, driven through the REAL
@@ -233,6 +233,37 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     writeSession('cc', [lines[0], JSON.stringify({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'all tests pass' }] } })]);
     expect(auditAnchor(db, 'cc')).toBe('rewritten');
     expect(getSessionChain(db, 'cc')!.anchor_detail).toBe('leaf 1 differs from what was recorded at ingest');
+  });
+
+  it('a session ingested before the witness existed is read once and brought under it', async () => {
+    const v = vector('verified/n=3');
+    writeSession('pre', v.lines);
+    await ingestJsonlSource(db, source());
+    db.prepare('DELETE FROM session_chain WHERE session_uuid = ?').run('pre');
+    db.prepare('DELETE FROM session_chain_leaves WHERE session_uuid = ?').run('pre');
+    const resolve = (_p: string, id: string) => path.join(root, SLUG, `${id}.jsonl`);
+    expect(backfillWitness(db, 10, resolve)).toBe(1);
+    const row = getSessionChain(db, 'pre')!;
+    expect(row.state).toBe('verified');                       // chained: the full verdict comes back
+    expect(row.entries).toBe(v.lines.length);
+    expect(auditAnchor(db, 'pre')).toBe('intact');
+    expect(backfillWitness(db, 10, resolve)).toBe(0);         // nothing left to bring in
+    // Messages were not re-inserted: the count is what ingest left (three
+    // messages plus the session_end system row), unchanged by the backfill.
+    const count = () => (db.prepare('SELECT COUNT(*) AS c FROM messages m JOIN sessions s ON s.id = m.session_id WHERE s.session_uuid = ?').get('pre') as { c: number }).c;
+    const before = count();
+    db.prepare('DELETE FROM session_chain WHERE session_uuid = ?').run('pre');
+    backfillWitness(db, 10, resolve);
+    expect(count()).toBe(before);
+  });
+
+  it('a pre-witness session whose journal is gone gets a row so it is not retried', async () => {
+    const proj = db.prepare("SELECT id FROM projects LIMIT 1").get() as { id: number } | undefined;
+    const pid = proj?.id ?? (db.prepare("INSERT INTO projects (name, display_name) VALUES ('p', 'p')").run().lastInsertRowid as number);
+    db.prepare("INSERT INTO sessions (session_uuid, project_id) VALUES ('gone', ?)").run(pid);
+    expect(backfillWitness(db, 10, () => path.join(root, 'nope.jsonl'))).toBe(1);
+    expect(getSessionChain(db, 'gone')!.state).toBe('unchained');
+    expect(backfillWitness(db, 10, () => path.join(root, 'nope.jsonl'))).toBe(0);
   });
 
   it('an empty session row has nothing to witness', async () => {
