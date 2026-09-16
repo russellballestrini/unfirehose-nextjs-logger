@@ -196,9 +196,14 @@ function isClosedRecord(entry: unknown): entry is {
  * the ingester persists both between passes. Same state machine as
  * `provenance.ChainState` in uncloseai-cli.
  */
+/** How many breaks one verifier keeps by index; the count keeps going past it. */
+export const BREAK_LOG_CAP = 1000;
+
 export class ChainState {
   data: ChainStateData;
   leaves: string[];
+  /** Every break this verifier found, by line index — not just the first (capped). */
+  breakLog: { seq: number; reason: string }[] = [];
 
   constructor(data: ChainStateData = emptyChainState(), leaves: string[] = []) {
     this.data = data;
@@ -211,6 +216,7 @@ export class ChainState {
       this.data.first_break = seq;
       this.data.first_break_reason = reason;
     }
+    if (this.breakLog.length < BREAK_LOG_CAP) this.breakLog.push({ seq, reason });
   }
 
   /** Feed one complete line. Returns the line's claimed hash, or null when unchained. */

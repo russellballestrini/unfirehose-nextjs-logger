@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { getSessionChain } from '@unturf/unfirehose/db/provenance-ingest';
+import { getSessionChain, getAnchorEvents } from '@unturf/unfirehose/db/provenance-ingest';
 import { verifyLines } from '@unturf/unfirehose/provenance';
 import { harnessFor } from '@unturf/unfirehose/session-paths';
 
@@ -20,6 +20,11 @@ export const revalidate = 0;
  * reached yet, or confirm the recorded one against the file as it is
  * this second. A trailing partial line (a writer mid-write) is set aside
  * and reported as `partialTail`, never counted as a break.
+ *
+ * `events` lists every finding by line index — each leaf the witness saw
+ * differ (`rewritten`, or `hash_mismatch` when the line's bytes changed
+ * under its own hash), each range of lines the file lost, each chain
+ * break the verifier hit — oldest line first, up to 200.
  */
 export async function GET(
   request: NextRequest,
@@ -35,6 +40,7 @@ export async function GET(
     sessionId,
     recorded: recorded ?? null,
     state: recorded?.state ?? 'unchained',
+    events: getAnchorEvents(getDb(), sessionId, 200),
   };
 
   if (live) {

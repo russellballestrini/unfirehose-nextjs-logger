@@ -39,7 +39,15 @@ All thinking blocks from a specific session.
 ### GET /api/sessions/{sessionId}/chain
 Provenance verdict for one session as the ingester recorded it — `unchained` / `open` / `verified` / `corrupted` — with the first break's index and reason, and the root the closed record committed to.
 - `?project=...&live=1` — re-read the journal from disk and verify it now; a trailing partial line is reported as `partialTail`, never counted as a break
-→ `{ sessionId, state, recorded: {...} | null, live?: { state, breaks, ..., partialTail, path } }`
+- `events` — every finding for the session by line index, oldest line first (up to 200): each leaf the witness saw differ (`rewritten`; `hash_mismatch` when a chained line's bytes changed under its own hash), each range of lines the file lost (`lost`, `seq`..`seq_to`), each chain break the verifier hit by reason. One row per finding, never one per session.
+→ `{ sessionId, state, recorded: {...} | null, events: [{ id, seq, seq_to, kind, recorded_hash, current_hash, current_text, observed_at }], live?: { state, breaks, ..., partialTail, path } }`
+
+### GET /api/sessions/anchor-events
+Every tamper finding across every session, newest first — the feed behind the per-session `events`. A session with two edits is two rows; a re-audit that finds the same two again adds none; a line edited a second time is a new row because its current hash is new.
+- `?hours=24` — window
+- `?limit=100` — rows, newest first (max 1000)
+- `?kind=rewritten|hash_mismatch|lost|prev_mismatch|root_mismatch|…` — one finding kind
+→ `{ hours, events: [{ id, session_uuid, project, harness, seq, seq_to, kind, recorded_hash, current_hash, current_text, observed_at }] }`
 
 ### GET /api/sessions/chains
 Chain verdict and witness state for many sessions in one call — what a list view shows beside each id. A session the ingester has not recorded yet is absent.

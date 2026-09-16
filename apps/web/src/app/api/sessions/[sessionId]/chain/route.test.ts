@@ -43,7 +43,7 @@ describe('GET /api/sessions/:sessionId/chain', () => {
   it('is unchained with no recorded row and no live check', async () => {
     const res = await call('nobody');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ sessionId: 'nobody', recorded: null, state: 'unchained' });
+    expect(await res.json()).toEqual({ sessionId: 'nobody', recorded: null, state: 'unchained', events: [] });
   });
 
   it('returns the verdict ingest recorded', async () => {
@@ -55,6 +55,9 @@ describe('GET /api/sessions/:sessionId/chain', () => {
     expect(data.state).toBe('corrupted');
     expect(data.recorded.first_break).toBe(v.expect.first_break);
     expect(data.recorded.first_break_reason).toBe(v.expect.first_break_reason);
+    // Every break the verifier hit rides along as its own event.
+    expect(data.events.length).toBe(data.recorded.breaks);
+    expect(data.events[0]).toMatchObject({ seq: v.expect.first_break, kind: v.expect.first_break_reason });
   });
 
   it('live=1 needs a project', async () => {

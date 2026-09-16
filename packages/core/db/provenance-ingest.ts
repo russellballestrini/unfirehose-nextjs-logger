@@ -18,7 +18,7 @@
  */
 import type Database from 'better-sqlite3';
 import { readFileSync, statSync } from 'fs';
-import { ChainState, emptyChainState, witnessHash, type ChainStateData, type ChainVerdict } from '../provenance';
+import { ChainState, emptyChainState, witnessHash, type ChainStateData, type ChainVerdict, splitChainedLine, lineHash } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
   session_uuid: string;
@@ -74,6 +74,25 @@ export function ensureProvenanceTables(db: Database.Database) {
       PRIMARY KEY (session_uuid, seq)
     );
     CREATE INDEX IF NOT EXISTS idx_session_chain_state ON session_chain(state);
+    -- One row per finding, never one per session: every leaf the witness
+    -- sees differ, every range of lines a file lost, every chain break the
+    -- verifier hit. A re-audit that finds the same divergence again adds
+    -- nothing (unique below); a line rewritten a second time is a second
+    -- event, because its current hash is new.
+    CREATE TABLE IF NOT EXISTS session_anchor_events (
+      id INTEGER PRIMARY KEY,
+      session_uuid TEXT NOT NULL,
+      seq INTEGER NOT NULL,                      -- 0-based line index (first of a lost range)
+      seq_to INTEGER,                            -- last index of a lost range, else NULL
+      kind TEXT NOT NULL,                        -- rewritten | lost | hash_mismatch | prev_mismatch | root_mismatch | unchained_line | late_genesis | unparseable | unknown_rules
+      recorded_hash TEXT,                        -- what the witness / chain expected at seq
+      current_hash TEXT,                         -- what the file holds now (NULL when lost)
+      current_text TEXT,                         -- the line as it is now, capped
+      observed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_anchor_events_once
+      ON session_anchor_events(session_uuid, seq, kind, IFNULL(current_hash, ''));
+    CREATE INDEX IF NOT EXISTS idx_anchor_events_observed ON session_anchor_events(observed_at DESC);
   `);
   // A database created before the rule columns were named.
   for (const col of ['merkle_version', 'encoding_version', 'root_semantics',
@@ -238,6 +257,11 @@ export class SessionChainTracker {
       'INSERT OR REPLACE INTO session_chain_leaves (session_uuid, seq, hash, kind) VALUES (?, ?, ?, ?)',
     );
     for (const [seq, hash, kind] of this.pendingLeaves.splice(0)) ins.run(this.sessionUuid, seq, hash, kind);
+    // Every chain break the verifier hit is its own finding, by index and
+    // reason — the row keeps the first and the count, the events keep all.
+    for (const b of this.state.breakLog.splice(0)) {
+      recordAnchorEvent(this.db, this.sessionUuid, { seq: b.seq, kind: b.reason });
+    }
   }
 }
 
@@ -281,6 +305,53 @@ export function quiescent(filePath: string, windowMs = QUIESCENT_MS): boolean {
   try { return Date.now() - statSync(filePath).mtimeMs >= windowMs; } catch { return true; }
 }
 
+/** Events one audit records by index before it only counts; a rewrite of a whole file is one fact, not ten thousand rows. */
+export const ANCHOR_EVENTS_PER_AUDIT = 500;
+/** Longest line body an event keeps verbatim. */
+export const ANCHOR_EVENT_TEXT_CAP = 4096;
+
+export interface AnchorEvent {
+  id: number; session_uuid: string; seq: number; seq_to: number | null; kind: string;
+  recorded_hash: string | null; current_hash: string | null; current_text: string | null; observed_at: string;
+}
+
+/** Record one finding; a repeat of the same finding (same seq, kind and current hash) is ignored. */
+export function recordAnchorEvent(
+  db: Database.Database, sessionUuid: string,
+  e: { seq: number; kind: string; seq_to?: number | null; recorded_hash?: string | null; current_hash?: string | null; current_text?: string | null },
+): boolean {
+  const text = e.current_text == null ? null : String(e.current_text).slice(0, ANCHOR_EVENT_TEXT_CAP);
+  const r = db.prepare(
+    `INSERT OR IGNORE INTO session_anchor_events (session_uuid, seq, seq_to, kind, recorded_hash, current_hash, current_text)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(sessionUuid, e.seq, e.seq_to ?? null, e.kind, e.recorded_hash ?? null, e.current_hash ?? null, text);
+  return r.changes > 0;
+}
+
+/** A session's findings, oldest line first. */
+export function getAnchorEvents(db: Database.Database, sessionUuid: string, limit = 200): AnchorEvent[] {
+  return db.prepare(
+    'SELECT * FROM session_anchor_events WHERE session_uuid = ? ORDER BY seq ASC, id ASC LIMIT ?',
+  ).all(sessionUuid, limit) as AnchorEvent[];
+}
+
+/** Findings across every session, newest first, for a feed. */
+export function getRecentAnchorEvents(
+  db: Database.Database, opts: { hours?: number; limit?: number; kind?: string } = {},
+): (AnchorEvent & { project: string | null; harness: string | null })[] {
+  const hours = opts.hours ?? 24;
+  const params: unknown[] = [`-${hours} hours`];
+  let where = "WHERE e.observed_at >= datetime('now', ?)";
+  if (opts.kind) { where += ' AND e.kind = ?'; params.push(opts.kind); }
+  params.push(opts.limit ?? 100);
+  return db.prepare(
+    `SELECT e.*, p.name AS project, s.harness AS harness FROM session_anchor_events e
+       LEFT JOIN sessions s ON s.session_uuid = e.session_uuid
+       LEFT JOIN projects p ON p.id = s.project_id
+       ${where} ORDER BY e.observed_at DESC, e.id DESC LIMIT ?`,
+  ).all(...params) as (AnchorEvent & { project: string | null; harness: string | null })[];
+}
+
 export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorState | null {
   const row = getSessionChain(db, sessionUuid);
   if (!row || !row.file_path || row.entries === 0) return null;
@@ -304,15 +375,49 @@ export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorS
     }
     // The recorded leaves must still be a prefix of the file: the file
     // may have grown since, never changed or shrunk before the frontier.
-    let diverged = -1;
-    for (let i = 0; i < recorded.length; i++) {
-      if (now[i] !== recorded[i]) { diverged = i; break; }
+    // Every divergence is its own event (fox, 2026-09-16: all the
+    // changes, not the first); the row's detail names the first and
+    // the count, which is what a badge can show.
+    const lines = text.split('\n').filter((l) => l.trim());
+    let differ = 0;
+    let first = -1;
+    const lost = now.length < recorded.length ? recorded.length - now.length : 0;
+    for (let i = 0; i < recorded.length && i < now.length; i++) {
+      let kind: string | null = null;
+      let current = now[i];
+      if (now[i] !== recorded[i]) {
+        kind = 'rewritten';
+      } else {
+        // A chained line's leaf IS its claimed hash, so an edit that
+        // leaves the 75-byte tail alone keeps the same leaf. Re-derive
+        // the hash from the bytes: content changed under its own hash
+        // is the needle a re-hashing forger would not bother to hide.
+        const split = splitChainedLine(lines[i]);
+        if (split && lineHash(split.preimage) !== split.hash) {
+          kind = 'hash_mismatch';
+          current = lineHash(split.preimage);
+        }
+      }
+      if (!kind) continue;
+      differ += 1;
+      if (first < 0) first = i;
+      if (differ <= ANCHOR_EVENTS_PER_AUDIT) {
+        recordAnchorEvent(db, sessionUuid, { seq: i, kind,
+          recorded_hash: recorded[i], current_hash: current, current_text: lines[i] });
+      }
     }
-    if (diverged >= 0) {
+    if (lost) {
+      recordAnchorEvent(db, sessionUuid, { seq: now.length, seq_to: recorded.length - 1, kind: 'lost',
+        recorded_hash: recorded[now.length] });
+      if (first < 0) first = now.length;
+    }
+    if (differ || lost) {
       state = 'rewritten';
-      detail = now.length < recorded.length && diverged >= now.length
-        ? `file has ${now.length} hashed lines, witness recorded ${recorded.length}`
-        : `leaf ${diverged} differs from what was recorded at ingest`;
+      const parts: string[] = [];
+      if (differ === 1) parts.push(`leaf ${first} differs from what was recorded at ingest`);
+      else if (differ) parts.push(`${differ} leaves differ from what was recorded at ingest (first at ${first})`);
+      if (lost) parts.push(`file has ${now.length} hashed lines, witness recorded ${recorded.length}`);
+      detail = parts.join('; ');
     } else {
       state = 'intact';
     }

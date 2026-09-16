@@ -11,7 +11,7 @@ vi.mock('./schema', () => ({
 }));
 
 const { ingestJsonlSource, ingestJsonlLines } = await import('./ingest');
-const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, auditAnchors, backfillWitness } = await import('./provenance-ingest');
+const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, getAnchorEvents, getRecentAnchorEvents, auditAnchors, backfillWitness } = await import('./provenance-ingest');
 
 /**
  * The chain verdict a session lands with, driven through the REAL
@@ -181,7 +181,7 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     writeSession('w2', forged.lines);
     expect(auditAnchor(db, 'w2')).toBe('rewritten');
     const row = getSessionChain(db, 'w2')!;
-    expect(row.anchor_detail).toMatch(/leaf \d+ differs/);   // the two fixtures share a header, so the split is later
+    expect(row.anchor_detail).toMatch(/differ from what was recorded at ingest/);   // the two fixtures share a header, so the split is later
     // A fresh reader of the forged file alone would call it verified.
     const { verifyLines } = await import('../provenance');
     expect(verifyLines(forged.lines).state).toBe('verified');
@@ -194,8 +194,62 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     writeSession('w3', v.lines.slice(0, 2));
     expect(auditAnchor(db, 'w3')).toBe('rewritten');
     expect(getSessionChain(db, 'w3')!.anchor_detail).toContain('witness recorded');
+    // The lost range is one event: lines 2..5 (the closed record included).
+    const lost = getAnchorEvents(db, 'w3').filter((e) => e.kind === 'lost');
+    expect(lost).toHaveLength(1);
+    expect([lost[0].seq, lost[0].seq_to]).toEqual([2, v.lines.length - 1]);
     rmSync(path.join(root, SLUG, 'w3.jsonl'));
     expect(auditAnchor(db, 'w3')).toBe('missing');
+  });
+
+  it('every differing leaf is its own event, a re-audit adds none, a second rewrite adds one', async () => {
+    // Fox, 2026-09-16: all the changes, not the first needle.
+    const v = vector('verified/n=5');
+    writeSession('w4', v.lines);
+    await ingestJsonlSource(db, source());
+    expect(auditAnchor(db, 'w4')).toBe('intact');
+    expect(getAnchorEvents(db, 'w4')).toEqual([]);
+    // Line 1: content edited under its own hash tail (the leaf, the
+    // writer's hash, is unchanged — only re-deriving it from the bytes
+    // tells). Line 3: replaced by a line from another session, whose
+    // hash is different (a re-hashing forger).
+    const other = vector('verified/n=2').lines[1];
+    const edited = v.lines.map((l, i) => (i === 1 ? l.replace('{', '{ ') : i === 3 ? other : l));
+    writeSession('w4', edited);
+    expect(auditAnchor(db, 'w4')).toBe('rewritten');
+    let ev = getAnchorEvents(db, 'w4');
+    expect(ev.map((e) => [e.seq, e.kind])).toEqual([[1, 'hash_mismatch'], [3, 'rewritten']]);
+    expect(ev[0].recorded_hash).not.toBe(ev[0].current_hash);
+    expect(ev[0].current_text).toBe(edited[1]);
+    expect(ev[1].current_hash).toBe((await import('../provenance')).witnessHash(other));
+    expect(getSessionChain(db, 'w4')!.anchor_detail).toBe('2 leaves differ from what was recorded at ingest (first at 1)');
+    // Same file, audited again: the same two findings, no new rows.
+    expect(auditAnchor(db, 'w4')).toBe('rewritten');
+    expect(getAnchorEvents(db, 'w4')).toHaveLength(2);
+    // Line 1 edited once more: its current hash is new, so a third event.
+    const again = edited.map((l, i) => (i === 1 ? l.replace('{ ', '{  ') : l));
+    writeSession('w4', again);
+    auditAnchor(db, 'w4');
+    ev = getAnchorEvents(db, 'w4');
+    expect(ev.map((e) => [e.seq, e.kind])).toEqual([[1, 'hash_mismatch'], [1, 'hash_mismatch'], [3, 'rewritten']]);
+    // The feed sees them newest first with the session's project joined.
+    const recent = getRecentAnchorEvents(db, { hours: 1, limit: 10 });
+    expect(recent.map((e) => e.session_uuid)).toContain('w4');
+    expect(recent.every((e) => typeof e.observed_at === 'string')).toBe(true);
+  });
+
+  it('every chain break the verifier hits is recorded by index and reason', async () => {
+    const v = vector('verified/n=5');
+    // Two rows damaged before ingest: their hashes no longer match their bytes.
+    const damaged = v.lines.map((l, i) => (i === 1 || i === 3 ? l.replace('{', '{ ') : l));
+    writeSession('w5', damaged);
+    await ingestJsonlSource(db, source());
+    const row = getSessionChain(db, 'w5')!;
+    expect(row.state).toBe('corrupted');
+    expect(row.breaks).toBe(2);
+    expect(row.first_break).toBe(1);
+    expect(getAnchorEvents(db, 'w5').map((e) => [e.seq, e.kind]))
+      .toEqual([[1, 'hash_mismatch'], [3, 'hash_mismatch']]);
   });
 
   it('a bounded pass checks the least recently checked first and runs after ingest', async () => {
