@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
+import * as fsMod from 'fs';
+import * as osMod from 'os';
 import path from 'path';
 import {
-  CHAIN_VERSION, MERKLE_VERSION, ZERO_HASH, ChainState, buildTree, hashCombine, hashLeaf,
-  lineHash, merkleRoot, proofFor, sessionRoot, splitChainedLine, verifyLines, verifyProof,
+  CHAIN_VERSION, MERKLE_VERSION, ZERO_HASH, ChainState, ChainedJournal, buildTree, chainLine, hashCombine, hashLeaf,
+  lineHash, merkleRoot, proofFor, sessionRoot, splitChainedLine, verifyLines, verifyProof, versionFields,
 } from './provenance';
 
 /**
@@ -198,5 +200,38 @@ describe('ChainState incremental use', () => {
     const rep = verifyLines([line]);
     expect(rep.first_break_reason).toBe('unparseable');
     expect(rep.state).toBe('corrupted');
+  });
+});
+
+describe('the writer side', () => {
+  it('chainLine produces a line the verifier accepts and owns its two keys', () => {
+    const a = chainLine({ type: 'session', id: 's', hash: 'smuggled', prevHash: 'smuggled' }, null);
+    const b = chainLine({ type: 'message', role: 'user', content: 'é 日本 🦊' }, a.hash);
+    const rep = verifyLines([a.line, b.line]);
+    expect(rep.state).toBe('open');
+    expect(rep.breaks).toBe(0);
+    const entry = JSON.parse(splitChainedLine(a.line)!.preimage.toString('utf8'));
+    expect(entry).toEqual({ type: 'session', id: 's', prevHash: null });
+  });
+
+  it('a ChainedJournal continues its chain across re-opens and closes with a root that verifies', () => {
+    const { mkdtempSync, readFileSync, rmSync } = fsMod;
+    const { tmpdir } = osMod;
+    const dir = mkdtempSync(path.join(tmpdir(), 'cj-'));
+    const file = path.join(dir, 's.jsonl');
+    try {
+      const j1 = new ChainedJournal(file);
+      j1.append({ type: 'session', id: 's', status: 'active', ...versionFields() });
+      j1.append({ type: 'message', role: 'user', content: [{ type: 'text', text: 'one' }] });
+      const j2 = new ChainedJournal(file);                // re-opened: recovers the head
+      j2.append({ type: 'message', role: 'assistant', content: [{ type: 'text', text: 'two' }] });
+      j2.close({ id: 's' });
+      const rep = verifyLines(readFileSync(file, 'utf8').split('\n'));
+      expect(rep.state).toBe('verified');
+      expect(rep.entries).toBe(4);
+      expect([rep.merkle_version, rep.root_semantics]).toEqual(['merkle-v1', 'SEQUENCE']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

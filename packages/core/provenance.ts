@@ -25,6 +25,7 @@
  *   corrupted  a break anywhere, or the root disagreed
  */
 import { createHash } from 'crypto';
+import * as nodeFs from 'fs';
 
 export const MERKLE_VERSION = 'merkle-v1';
 export const CHAIN_VERSION = 'unfirehose-chain-v1';
@@ -268,4 +269,70 @@ export function verifyLines(lines: Iterable<string>): ChainStateData & { state: 
   const st = new ChainState();
   for (const line of lines) if (line.trim()) st.feed(line);
   return { ...st.data, state: st.verdict };
+}
+
+// ── the writer side ──────────────────────────────────────────────
+
+/**
+ * Serialize one chained line: the entry with `prevHash` inside it, then
+ * the fixed 75-byte `,"hash":"…"}` tail over exactly those bytes. The
+ * writer owns `hash` and `prevHash` — whatever the caller put there is
+ * discarded, so a replayed row re-chains to THIS sequence. Bytes are
+ * whatever JSON.stringify emits; a reader in any language hashes the
+ * line as written, so no canonical form is needed (unfirehose-chain-v1).
+ */
+export function chainLine(entry: Record<string, unknown>, prev: string | null): { line: string; hash: string } {
+  const body: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(entry)) if (k !== 'hash' && k !== 'prevHash') body[k] = v;
+  body.prevHash = prev;
+  const preimage = JSON.stringify(body);
+  const hash = lineHash(Buffer.from(preimage, 'utf8'));
+  return { line: preimage.slice(0, -1) + HASH_KEY + hash + '"}', hash };
+}
+
+/** The version fields a chaining writer stamps on its header and closed record. */
+export function versionFields(): Record<string, string> {
+  return { hashVersion: CHAIN_VERSION, merkleVersion: MERKLE_VERSION, encodingVersion: ENCODING_VERSION, rootSemantics: ROOT_SEMANTICS };
+}
+
+/**
+ * A chained JSONL journal on disk: `append` chains each entry to the
+ * last line of the file (recovered from disk on first use, so a
+ * re-opened file continues its chain instead of restarting), and
+ * `close` writes the closed record carrying the root over every line
+ * before it. Harnesses that write unfirehose/1.0 in TypeScript or
+ * JavaScript get the whole rule from this one class.
+ */
+export class ChainedJournal {
+  private prev: string | null | undefined;      // undefined until recovered
+  private hashes: string[] = [];
+
+  constructor(readonly path: string, private readonly fs: Pick<typeof nodeFs, 'readFileSync' | 'appendFileSync'> = nodeFs) {}
+
+  private recover() {
+    if (this.prev !== undefined) return;
+    this.hashes = [];
+    try {
+      for (const line of this.fs.readFileSync(this.path, 'utf8').split('\n')) {
+        const split = splitChainedLine(line);
+        if (split) this.hashes.push(split.hash);
+      }
+    } catch { /* a new file */ }
+    this.prev = this.hashes.length ? this.hashes[this.hashes.length - 1] : null;
+  }
+
+  append(entry: Record<string, unknown>): string {
+    this.recover();
+    const { line, hash } = chainLine(entry, this.prev!);
+    this.fs.appendFileSync(this.path, line + '\n');
+    this.prev = hash;
+    this.hashes.push(hash);
+    return hash;
+  }
+
+  /** The closed session record, with `sessionRoot` over every line before it. */
+  close(record: Record<string, unknown>): string {
+    this.recover();
+    return this.append({ ...record, type: 'session', status: 'closed', sessionRoot: sessionRoot(this.hashes), ...versionFields() });
+  }
 }
