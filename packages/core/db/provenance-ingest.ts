@@ -17,7 +17,7 @@
  * silently. See packages/schema/docs/sessions.md § Chain.
  */
 import type Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import { ChainState, emptyChainState, witnessHash, type ChainStateData, type ChainVerdict } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
@@ -100,6 +100,20 @@ export function ensureProvenanceTables(db: Database.Database) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('witness_repair_2026_09_16', ?)").run(String(bad.length));
     }
+    // Unchained rows recorded before the quiescence rule, i.e. while their
+    // writer was still rewriting the tail; same reasoning, same day.
+    const done2 = db.prepare("SELECT value FROM settings WHERE key = 'witness_repair_2026_09_16b'").get();
+    if (!done2) {
+      const live = db.prepare(
+        `SELECT session_uuid FROM session_chain
+          WHERE hashed = 0 AND anchor_state = 'rewritten' AND updated_at < '2026-09-16 14:00:00'`,
+      ).all() as { session_uuid: string }[];
+      for (const r of live) {
+        db.prepare('DELETE FROM session_chain_leaves WHERE session_uuid = ?').run(r.session_uuid);
+        db.prepare('DELETE FROM session_chain WHERE session_uuid = ?').run(r.session_uuid);
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('witness_repair_2026_09_16b', ?)").run(String(live.length));
+    }
   } catch { /* no settings table yet: a fresh database has nothing to repair */ }
 }
 
@@ -136,6 +150,7 @@ export class SessionChainTracker {
   private readonly filePath: string | null;
   /** True when this pass started mid-file with no prior record: nothing is recorded. */
   readonly deferred: boolean;
+  private readonly headKnown: boolean;
 
   constructor(
     private readonly db: Database.Database,
@@ -151,6 +166,7 @@ export class SessionChainTracker {
     // The cloud batch path has no offset to consult and treats a session's
     // first batch as its head (`headKnown`), which is what it did before.
     this.deferred = !opts.reset && !existing && !opts.headKnown;
+    this.headKnown = !!opts.headKnown;
     if (existing) {
       const { session_uuid: _u, state: _s, updated_at: _t, ...data } = existing;
       // The chain resumes from the writer's own hashes; the witness list
@@ -188,6 +204,10 @@ export class SessionChainTracker {
   flush() {
     const d = this.state.data;
     if (this.deferred || (d.entries === 0 && this.pendingLeaves.length === 0)) return;
+    // An unchained journal is recorded by the backfill, once its writer
+    // has gone quiet (see QUIESCENT_MS): lines taken from a live file a
+    // non-append-only writer may still rewrite would be false memory.
+    if (d.hashed === 0 && !this.headKnown) return;
     db_upsert(this.db, this.sessionUuid, this.state.verdict, d, this.filePath);
     const ins = this.db.prepare(
       'INSERT OR REPLACE INTO session_chain_leaves (session_uuid, seq, hash, kind) VALUES (?, ?, ?, ?)',
@@ -220,9 +240,25 @@ function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: 
  * Re-read one journal from byte 0 and compare it with the leaves this
  * witness recorded when it first read it. Returns the verdict written.
  */
+/**
+ * A writer we do not own is not necessarily append-only: Claude Code
+ * rewrites lines near the tail of a LIVE transcript (this session's own
+ * file read "leaf 2255 differs" 37 s after backfill, 2026-09-16). Its
+ * bytes are evidence only once it has stopped writing, so the witness
+ * neither records nor audits an unchained file touched within this
+ * window. A chained journal is append-only by contract and needs no
+ * such grace.
+ */
+export const QUIESCENT_MS = 10 * 60_000;
+
+function quiescent(filePath: string): boolean {
+  try { return Date.now() - statSync(filePath).mtimeMs >= QUIESCENT_MS; } catch { return true; }
+}
+
 export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorState | null {
   const row = getSessionChain(db, sessionUuid);
   if (!row || !row.file_path || row.entries === 0) return null;
+  if (row.hashed === 0 && !quiescent(row.file_path)) return null;
   const recorded = (db
     .prepare('SELECT hash FROM session_chain_leaves WHERE session_uuid = ? ORDER BY seq')
     .all(sessionUuid) as { hash: string }[]).map((r) => r.hash);
@@ -285,9 +321,10 @@ export function backfillWitness(
   for (const r of rows) {
     let filePath: string;
     try { filePath = resolve(r.project, r.session_uuid); } catch { continue; }
+    if (!quiescent(filePath)) continue;          // still being written: not evidence yet
     let text: string | null = null;
     try { text = readFileSync(filePath, 'utf8'); } catch { text = null; }
-    const tracker = new SessionChainTracker(db, r.session_uuid, { reset: true, filePath });
+    const tracker = new SessionChainTracker(db, r.session_uuid, { reset: true, filePath, headKnown: true });
     if (text !== null) {
       if (text.length && !text.endsWith('\n')) text = text.slice(0, text.lastIndexOf('\n') + 1);
       for (const line of text.split('\n')) if (line.trim()) tracker.feed(line);

@@ -182,9 +182,13 @@ need the writer's cooperation: every line of every journal is
 recorded (`session_chain_leaves.kind = 'line'` for an unchained one),
 so a Claude Code or Codex transcript — writers we do not own — gets
 the same tamper-evidence from the moment the watcher first reads it,
-shown as `witnessed` rather than `unchained`. What only a chaining
-writer adds is the commitment from BEFORE first ingest: `prevHash`
-and the closed record's root. This is the floor
+shown as `witnessed` rather than `unchained`. A writer we do not own
+is not necessarily append-only — Claude Code rewrites lines near the
+tail of a live transcript — so an unchained journal is recorded only
+once its file has been quiet for ten minutes, and audited only when
+quiet again; a chained journal is append-only by contract and needs
+no such grace. What only a chaining writer adds is the commitment
+from BEFORE first ingest: `prevHash` and the closed record's root. This is the floor
 behind "an agent cannot fabricate what it did": the model authors
 its narration and its tool arguments; the harness authors tool
 results, inference rows, switch firings and the hashes; the witness

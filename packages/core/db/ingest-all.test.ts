@@ -302,7 +302,17 @@ describe('ingestAll over a native harness', () => {
   it('witnesses a Claude Code transcript it does not own, and audits it after the pass', async () => {
     // The writer is Anthropic's, so the chain reads unchained — and the
     // witness recorded every line anyway. ingestAll ends with an audit.
-    const { getSessionChain } = await import('./provenance-ingest');
+    const { getSessionChain, backfillWitness } = await import('./provenance-ingest');
+    const { resolveSessionFile } = await import('../session-paths');
+    const file = path.join(home, '.claude', 'projects', '-home-fox-git-demo', 'cc111111-1111-2222-3333-444444444444.jsonl');
+    // Fresh from the fixture, the transcript is still "being written" as far
+    // as the witness knows; age it past the quiescence window and pass again.
+    expect(getSessionChain(db, 'cc111111-1111-2222-3333-444444444444')).toBeNull();
+    const old = new Date(Date.now() - 11 * 60_000);
+    fs.utimesSync(file, old, old);
+    backfillWitness(db, 50, resolveSessionFile);
+    const { auditAnchors } = await import('./provenance-ingest');
+    auditAnchors(db, 50, resolveSessionFile);
     const row = getSessionChain(db, 'cc111111-1111-2222-3333-444444444444')!;
     expect(row.state).toBe('unchained');
     expect(row.entries).toBeGreaterThanOrEqual(2);

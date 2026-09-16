@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { createTestDb } from '../test/db-helper';
@@ -63,8 +63,14 @@ describe('chain verification through the file ingest loop', () => {
     for (const v of vectors) writeSession(v.label.replace(/\W/g, '_'), v.lines);
     await ingestJsonlSource(db, source());
     for (const v of vectors) {
-      const row = getSessionChain(db, v.label.replace(/\W/g, '_'))!;
+      const row = getSessionChain(db, v.label.replace(/\W/g, '_'));
+      if (v.expect.state === 'unchained') {
+        // Left to the quiescent backfill: a writer we do not own may still be rewriting.
+        expect(row, v.label).toBeNull();
+        continue;
+      }
       expect(row, v.label).not.toBeNull();
+      if (!row) continue;
       expect(row.state, v.label).toBe(v.expect.state);
       expect(row.breaks, v.label).toBe(v.expect.breaks);
       expect(row.first_break, v.label).toBe(v.expect.first_break);
@@ -73,7 +79,8 @@ describe('chain verification through the file ingest loop', () => {
       expect(row.entries, v.label).toBe(v.expect.entries);
     }
     const summary = getChainSummary(db);
-    expect(summary.verified + summary.open + summary.unchained + summary.corrupted).toBe(vectors.length);
+    expect(summary.verified + summary.open + summary.corrupted)
+      .toBe(vectors.filter((v) => v.expect.state !== 'unchained').length);
     expect(summary.corrupted).toBeGreaterThan(0);
     expect(summary.verified).toBeGreaterThan(0);
   });
@@ -136,6 +143,10 @@ describe('chain verification through the file ingest loop', () => {
     const v = vector('unchained/legacy-writer');
     writeSession('legacy', v.lines);
     await ingestJsonlSource(db, source());
+    expect(getSessionChain(db, 'legacy')).toBeNull();           // recorded later, by the backfill
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(path.join(root, SLUG, 'legacy.jsonl'), old, old);
+    backfillWitness(db, 10, (_p, id) => path.join(root, SLUG, `${id}.jsonl`));
     expect(getSessionChain(db, 'legacy')!.state).toBe('unchained');
     const nulls = db.prepare(
       `SELECT COUNT(*) AS c FROM messages m JOIN sessions s ON s.id = m.session_id
@@ -225,12 +236,24 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     ];
     writeSession('cc', lines);
     await ingestJsonlSource(db, { ...source(), toMessage: (e: any) => (e.type === 'user' || e.type === 'assistant' ? { type: 'message', role: e.type, content: [] } : null) });
+    // Ingest records nothing for an unchained journal still being written;
+    // the backfill takes it once the writer has been quiet for a while.
+    expect(getSessionChain(db, 'cc')).toBeNull();
+    const file = path.join(root, SLUG, 'cc.jsonl');
+    const resolve = (_p: string, id: string) => path.join(root, SLUG, `${id}.jsonl`);
+    expect(backfillWitness(db, 10, resolve)).toBe(0);            // too fresh
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(file, old, old);
+    expect(backfillWitness(db, 10, resolve)).toBe(1);
     expect(getSessionChain(db, 'cc')!.state).toBe('unchained');
     expect(auditAnchor(db, 'cc')).toBe('intact');
     const kinds = db.prepare("SELECT kind, COUNT(*) AS c FROM session_chain_leaves WHERE session_uuid = 'cc' GROUP BY kind").all();
     expect(kinds).toEqual([{ kind: 'line', c: 2 }]);
-    // The agent edits its own transcript after the fact.
+    // The agent edits its own transcript after the fact. While the file is
+    // fresh again the witness withholds judgement; once quiet, it rules.
     writeSession('cc', [lines[0], JSON.stringify({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'all tests pass' }] } })]);
+    expect(auditAnchor(db, 'cc')).toBeNull();
+    utimesSync(file, old, old);
     expect(auditAnchor(db, 'cc')).toBe('rewritten');
     expect(getSessionChain(db, 'cc')!.anchor_detail).toBe('leaf 1 differs from what was recorded at ingest');
   });
@@ -242,6 +265,8 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     db.prepare('DELETE FROM session_chain WHERE session_uuid = ?').run('pre');
     db.prepare('DELETE FROM session_chain_leaves WHERE session_uuid = ?').run('pre');
     const resolve = (_p: string, id: string) => path.join(root, SLUG, `${id}.jsonl`);
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(path.join(root, SLUG, 'pre.jsonl'), old, old);
     expect(backfillWitness(db, 10, resolve)).toBe(1);
     const row = getSessionChain(db, 'pre')!;
     expect(row.state).toBe('verified');                       // chained: the full verdict comes back
@@ -278,6 +303,8 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     await ingestJsonlSource(db, source());
     expect(getSessionChain(db, 'mid')).toBeNull();               // deferred, not misnumbered
     const resolve = (_p: string, id: string) => path.join(root, SLUG, `${id}.jsonl`);
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(file, old, old);
     expect(backfillWitness(db, 10, resolve)).toBeGreaterThanOrEqual(1);
     const row = getSessionChain(db, 'mid')!;
     expect(row.entries).toBe(v.lines.length);
