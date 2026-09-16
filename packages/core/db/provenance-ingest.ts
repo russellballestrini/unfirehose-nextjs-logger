@@ -18,6 +18,7 @@
  */
 import type Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
+import { resolveSessionFile } from '../session-paths';
 import { ChainState, emptyChainState, splitChainedLine, type ChainStateData, type ChainVerdict } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
@@ -239,6 +240,20 @@ export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorS
  */
 export function auditAnchors(db: Database.Database, limit = 25): Record<AnchorState, number> {
   const out: Record<AnchorState, number> = { intact: 0, rewritten: 0, missing: 0 };
+  // A row recorded before file_path existed still names its session and
+  // project, which is enough to know where its journal lives.
+  const unresolved = db.prepare(
+    `SELECT c.session_uuid, p.name AS project FROM session_chain c
+       JOIN sessions s ON s.session_uuid = c.session_uuid
+       JOIN projects p ON p.id = s.project_id
+      WHERE c.file_path IS NULL AND c.hashed > 0 LIMIT ?`,
+  ).all(limit) as { session_uuid: string; project: string }[];
+  for (const r of unresolved) {
+    try {
+      db.prepare('UPDATE session_chain SET file_path = ? WHERE session_uuid = ?')
+        .run(resolveSessionFile(r.project, r.session_uuid), r.session_uuid);
+    } catch { /* an adapter without a file layout: nothing to witness */ }
+  }
   const rows = db.prepare(
     `SELECT session_uuid FROM session_chain
       WHERE file_path IS NOT NULL AND hashed > 0

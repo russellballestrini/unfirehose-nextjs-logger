@@ -199,6 +199,25 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     expect(checked).toHaveLength(3);                 // the never-checked one came first in pass two
   });
 
+  it('a row recorded before file_path existed resolves its journal through the project', async () => {
+    const v = vector('verified/n=2');
+    writeSession('old1', v.lines);
+    await ingestJsonlSource(db, source());
+    db.prepare('UPDATE session_chain SET file_path = NULL WHERE session_uuid = ?').run('old1');
+    // The project row this session belongs to names the harness and slug.
+    const proj = db.prepare('SELECT p.name FROM projects p JOIN sessions s ON s.project_id = p.id WHERE s.session_uuid = ?')
+      .get('old1') as { name: string };
+    expect(proj.name).toBe(`uncloseai:${SLUG}`);
+    const { resolveSessionFile } = await import('../session-paths');
+    const expected = resolveSessionFile(proj.name, 'old1');
+    // The generic native adapter resolves to ~/.uncloseai/…; the test root is elsewhere,
+    // so only the resolution itself is asserted here, and the audit reads it as missing.
+    auditAnchors(db, 50);
+    const row = getSessionChain(db, 'old1')!;
+    expect(row.file_path).toBe(expected);
+    expect(['intact', 'missing']).toContain(row.anchor_state);
+  });
+
   it('an unchained journal has nothing to witness', async () => {
     writeSession('legacy2', vector('unchained/legacy-writer').lines);
     await ingestJsonlSource(db, source());
