@@ -280,7 +280,7 @@ function chainLine(obj: Record<string, unknown>): string {
 }
 
 function sessionRoot(hashes: string[]): string {
-  let layer = hashes.map((h) => sha(Buffer.from([0x00]), Buffer.from(h, "hex")));
+  let layer: Buffer[] = hashes.map((h) => sha(Buffer.from([0x00]), Buffer.from(h, "hex")));
   if (layer.length === 0) return "00".repeat(32);
   while (layer.length > 1) {
     const next: Buffer[] = [];

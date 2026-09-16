@@ -11,7 +11,7 @@ import { verifyLines } from './provenance';
  * writes with the ingester's own verifier — the writer never grades
  * itself.
  */
-const extension = (await import('../schema/extensions/pi-unfirehose.ts')).default;
+const extension = (await import('../schema/extensions/pi-unfirehose')).default;
 
 describe('pi extension writes a chained, rooted unfirehose/1.0 journal', () => {
   it('verifies end to end through the ingester’s verifier', async () => {
