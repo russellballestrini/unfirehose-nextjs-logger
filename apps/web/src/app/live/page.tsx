@@ -179,7 +179,7 @@ const SHELL_TOOLS = new Set(['bash', 'shell', 'terminal', 'execute']);
 function ToolDetailText({ name, detail, pretty }: { name: string; detail: string; pretty: boolean }) {
   if (pretty && SHELL_TOOLS.has((name ?? '').toLowerCase()) && shellHasStructure(detail)) {
     return (
-      <pre className="text-[var(--color-muted)] font-mono whitespace-pre text-sm leading-relaxed overflow-x-auto max-h-64 overflow-y-auto mt-0.5 mb-1">
+      <pre className="text-[var(--color-muted)] font-mono whitespace-pre text-sm leading-relaxed overflow-x-auto max-h-[60vh] overflow-y-auto mt-0.5 mb-1">
         {prettifyShell(detail)}
       </pre>
     );
