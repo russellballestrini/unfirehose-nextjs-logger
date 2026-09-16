@@ -282,6 +282,21 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     expect(count()).toBe(before);
   });
 
+  it('a session ingested from a fleet home is backfilled from where it was read, not from the project name', async () => {
+    const v = vector('verified/n=2');
+    writeSession('fleet1', v.lines);
+    await ingestJsonlSource(db, source());                 // ingest_offsets now names the real path
+    db.prepare('DELETE FROM session_chain WHERE session_uuid = ?').run('fleet1');
+    db.prepare('DELETE FROM session_chain_leaves WHERE session_uuid = ?').run('fleet1');
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(path.join(root, SLUG, 'fleet1.jsonl'), old, old);
+    // A resolver that points at the user's own home, where the file is not.
+    expect(backfillWitness(db, 10, () => '/home/nobody/.uncloseai/unfirehose/x/fleet1.jsonl')).toBe(1);
+    const row = getSessionChain(db, 'fleet1')!;
+    expect(row.file_path).toBe(path.join(root, SLUG, 'fleet1.jsonl'));
+    expect(row.state).toBe('verified');
+  });
+
   it('a pre-witness session whose journal is gone gets a row so it is not retried', async () => {
     const proj = db.prepare("SELECT id FROM projects LIMIT 1").get() as { id: number } | undefined;
     const pid = proj?.id ?? (db.prepare("INSERT INTO projects (name, display_name) VALUES ('p', 'p')").run().lastInsertRowid as number);

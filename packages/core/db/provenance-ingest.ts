@@ -114,6 +114,13 @@ export function ensureProvenanceTables(db: Database.Database) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('witness_repair_2026_09_16b', ?)").run(String(live.length));
     }
+    // Fleet sessions the backfill recorded as missing at a path resolved
+    // from the project name, before it learned to ask ingest_offsets.
+    const done3 = db.prepare("SELECT value FROM settings WHERE key = 'witness_repair_2026_09_16c'").get();
+    if (!done3) {
+      const n = db.prepare('DELETE FROM session_chain WHERE entries = 0 AND hashed = 0').run().changes;
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('witness_repair_2026_09_16c', ?)").run(String(n));
+    }
   } catch { /* no settings table yet: a fresh database has nothing to repair */ }
 }
 
@@ -318,9 +325,18 @@ export function backfillWitness(
       ORDER BY s.id DESC LIMIT ?`,
   ).all(limit) as { session_uuid: string; project: string }[];
   let done = 0;
+  // Where ingest actually read a session from — a fleet worker's journal
+  // sits under its private home, where a path resolved from the project
+  // name (the user's own home) does not exist. 850 fleet sessions were
+  // recorded as missing that way on 2026-09-16 before this lookup.
+  const seen = db.prepare(
+    "SELECT file_path FROM ingest_offsets WHERE file_path LIKE ? ORDER BY last_ingested DESC LIMIT 1",
+  );
   for (const r of rows) {
     let filePath: string;
-    try { filePath = resolve(r.project, r.session_uuid); } catch { continue; }
+    const known = seen.get(`%/${r.session_uuid}.jsonl`) as { file_path: string } | undefined;
+    if (known) filePath = known.file_path;
+    else { try { filePath = resolve(r.project, r.session_uuid); } catch { continue; } }
     if (!quiescent(filePath)) continue;          // still being written: not evidence yet
     let text: string | null = null;
     try { text = readFileSync(filePath, 'utf8'); } catch { text = null; }
