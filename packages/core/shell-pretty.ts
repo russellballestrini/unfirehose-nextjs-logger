@@ -4,8 +4,9 @@
 // line because the tool takes one string. Reading forty of those in a
 // feed is the thing nobody does. This splits a command at its top-level
 // control operators — `;` `&&` `||` `|` `&` — one statement per line,
-// continuation operators leading the next line the way a shell script
-// is written by hand, and indents the bodies of if/for/while/case. It
+// a `;` kept at the end of the line it ended, continuation operators
+// leading the next line the way a shell script is written by hand, and
+// indents the bodies of if/for/while/case. It
 // touches nothing inside quotes, `$( )`, `( )`, `{ }`, backticks or a
 // heredoc body, so a command it reformats still means the same thing.
 // Pure, idempotent (pretty(pretty(x)) === pretty(x)) and fail-open: an
@@ -203,7 +204,7 @@ export function prettifyShell(command: string): string {
     // `if …; then cmd` / `for …; do cmd`: the keyword stays on the
     // statement line, the command after it starts the indented body.
     if ((word === 'then' || word === 'do') && out.length && prevJoiner === ';') {
-      out[out.length - 1] += `; ${word}`;
+      out[out.length - 1] += out[out.length - 1].endsWith(';') ? ` ${word}` : `; ${word}`;
       indent += 1;
       text = text.slice(word.length).trim();
       if (!text) { prevJoiner = piece.joiner; continue; }
@@ -228,12 +229,17 @@ export function prettifyShell(command: string): string {
         emit(m[1], prevJoiner);
         indent += 1;
         emit(m[2], '');
+        if (piece.joiner === ';' && !m[2].endsWith(';;')) out[out.length - 1] += ';';
         prevJoiner = piece.joiner === '&' ? '' : piece.joiner;
         continue;
       }
     }
 
     emit(text, prevJoiner);
+    // A `;` stays where the author put it (fox, 2026-09-16): the split
+    // line still reads as the statement it was, and pasting the block
+    // back onto one line needs no repair. `;;` already ends a case arm.
+    if (piece.joiner === ';' && !text.endsWith(';;')) out[out.length - 1] += ';';
     if (piece.joiner === '&') out[out.length - 1] += ' &';
 
     const lastWord = (text.match(/[^\s]+$/) || [''])[0];

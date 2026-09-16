@@ -152,7 +152,7 @@ describe('MessageBlock', () => {
       );
       const code = container.querySelector('code');
       expect(code?.className).toContain('language-bash');
-      expect(code?.textContent).toBe('cd ~/git/x\n  && make test 2>&1\n  | tail -3\necho done\n');
+      expect(code?.textContent).toBe('cd ~/git/x\n  && make test 2>&1\n  | tail -3;\necho done\n');
       expect(screen.getByText('command:')).toBeTruthy();
       expect(container.textContent).toContain('"timeout": 5');
       expect(container.textContent).not.toContain('"command"');

@@ -163,7 +163,7 @@ describe('LiveEntry', () => {
     it('on lays the command out one statement per line', () => {
       const { container } = show(bash(oneLiner), { prettyShell: true });
       const pre = container.querySelector('pre');
-      expect(pre?.textContent).toBe('cd ~/git/x\n  && make test 2>&1\n  | tail -3\necho done');
+      expect(pre?.textContent).toBe('cd ~/git/x\n  && make test 2>&1\n  | tail -3;\necho done');
     });
 
     it('on leaves a command with nothing to split inline', () => {

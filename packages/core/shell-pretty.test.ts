@@ -7,13 +7,15 @@ import { prettifyShell, shellHasStructure } from './shell-pretty.js';
 const same = (s: string) => expect(prettifyShell(prettifyShell(s))).toBe(prettifyShell(s));
 
 describe('prettifyShell', () => {
-  it('splits at top-level operators, continuations leading the next line', () => {
+  it('splits at top-level operators, `;` kept where it was, continuations leading the next line', () => {
     const cmd = 'cd ~/git/x && make test 2>&1 | tail -3; echo done';
     expect(prettifyShell(cmd)).toBe(
-      'cd ~/git/x\n  && make test 2>&1\n  | tail -3\necho done');
+      'cd ~/git/x\n  && make test 2>&1\n  | tail -3;\necho done');
     same(cmd);
     expect(prettifyShell('a || b |& c')).toBe('a\n  || b\n  |& c');
     expect(prettifyShell('sleep 5 & wait')).toBe('sleep 5 &\nwait');
+    expect(prettifyShell('a; b; c')).toBe('a;\nb;\nc');
+    expect(prettifyShell('a;\nb;\nc')).toBe('a;\nb;\nc');
   });
 
   it('leaves quotes, substitutions, groups, comments and heredocs alone', () => {
@@ -36,15 +38,15 @@ describe('prettifyShell', () => {
 
   it('indents if/for/while/case bodies the way a script is written', () => {
     expect(prettifyShell('if [ -f x ]; then echo yes; else echo no; fi')).toBe(
-      'if [ -f x ]; then\n  echo yes\nelse\n  echo no\nfi');
+      'if [ -f x ]; then\n  echo yes;\nelse\n  echo no;\nfi');
     expect(prettifyShell('for f in a b; do echo "$f" && cat $f | wc -l; done; echo end')).toBe(
-      'for f in a b; do\n  echo "$f"\n    && cat $f\n    | wc -l\ndone\necho end');
+      'for f in a b; do\n  echo "$f"\n    && cat $f\n    | wc -l;\ndone;\necho end');
     expect(prettifyShell('if a; then b; elif c; then d; fi')).toBe(
-      'if a; then\n  b\nelif c; then\n  d\nfi');
+      'if a; then\n  b;\nelif c; then\n  d;\nfi');
     expect(prettifyShell('case $x in a) echo a;; b) echo b;; esac')).toBe(
       'case $x in\n  a) echo a;;\n  b) echo b;;\nesac');
     expect(prettifyShell('while read l; do echo $l; done < f')).toBe(
-      'while read l; do\n  echo $l\ndone < f');
+      'while read l; do\n  echo $l;\ndone < f');
     same('if [ -f x ]; then echo yes; else echo no; fi');
     same('for f in a b; do echo "$f" && cat $f | wc -l; done; echo end');
   });
