@@ -23,7 +23,7 @@
 import { writeFileSync, appendFileSync, mkdirSync, existsSync } from "fs";
 import { join, sep } from "path";
 import { homedir } from "os";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 
 // ── types (inlined to avoid import dependencies) ────────────────────
 
@@ -245,8 +245,55 @@ let outputDir: string;
 let messageCounter: number;
 let lastParentId: string | null;
 
+// ── unfirehose-chain-v1 (inlined, like the types) ───────────────────
+// Every line ends with a fixed 75-byte `,"hash":"<64 hex>"}` tail: SHA-256
+// over exactly the bytes before it, which carry `prevHash` inside them.
+// The closed record carries `sessionRoot`: the merkle-v1 root (leaf 0x00,
+// node 0x03, odd layer self-duplicates) over every line's hash before it.
+// The same rule uncloseai-cli, arborist and agnt write and the ingester
+// verifies; docs/sessions.md § Chain. Byte-level, so nothing canonical.
+
+const CHAIN_FIELDS = {
+  hashVersion: "unfirehose-chain-v1",
+  merkleVersion: "merkle-v1",
+  encodingVersion: "jsonl-bytes-v1",
+  rootSemantics: "SEQUENCE",
+};
+let prevHash: string | null = null;
+let lineHashes: string[] = [];
+
+const sha = (...parts: Buffer[]) => {
+  const h = createHash("sha256");
+  for (const p of parts) h.update(p);
+  return h.digest();
+};
+
+function chainLine(obj: Record<string, unknown>): string {
+  const body: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) if (k !== "hash" && k !== "prevHash") body[k] = v;
+  body.prevHash = prevHash;
+  const preimage = JSON.stringify(body);
+  const hash = sha(Buffer.from(preimage, "utf8")).toString("hex");
+  prevHash = hash;
+  lineHashes.push(hash);
+  return preimage.slice(0, -1) + ',"hash":"' + hash + '"}';
+}
+
+function sessionRoot(hashes: string[]): string {
+  let layer = hashes.map((h) => sha(Buffer.from([0x00]), Buffer.from(h, "hex")));
+  if (layer.length === 0) return "00".repeat(32);
+  while (layer.length > 1) {
+    const next: Buffer[] = [];
+    for (let i = 0; i < layer.length; i += 2) {
+      next.push(sha(Buffer.from([0x03]), layer[i], i + 1 < layer.length ? layer[i + 1] : layer[i]));
+    }
+    layer = next;
+  }
+  return layer[0].toString("hex");
+}
+
 function append(obj: UnfirehoseObject) {
-  appendFileSync(sessionPath, JSON.stringify(obj) + "\n");
+  appendFileSync(sessionPath, chainLine(obj as Record<string, unknown>) + "\n");
 }
 
 function msgId(): string {
@@ -295,8 +342,11 @@ export default function (pi: any) {
         cwd: event.cwd,
         harness: "pi",
         harnessVersion,
+        ...CHAIN_FIELDS,
       };
-      writeFileSync(sessionPath, JSON.stringify(session) + "\n");
+      prevHash = null;
+      lineHashes = [];
+      writeFileSync(sessionPath, chainLine(session as Record<string, unknown>) + "\n");
     }
   );
 
@@ -385,6 +435,17 @@ export default function (pi: any) {
   // ── session shutdown ────────────────────────────────────────────
   pi.on("session_shutdown", async () => {
     if (!sessionPath) return;
+    // The closed record: root over every line before it, then session_end.
+    append({
+      $schema: "unfirehose/1.0",
+      type: "session",
+      id: sessionId,
+      status: "closed",
+      closedAt: isoNow(),
+      updatedAt: isoNow(),
+      sessionRoot: sessionRoot(lineHashes),
+      ...CHAIN_FIELDS,
+    } as UnfirehoseObject);
     const line: UnfirehoseObject = {
       $schema: "unfirehose/1.0",
       type: "message",
