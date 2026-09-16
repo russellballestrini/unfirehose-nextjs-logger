@@ -18,7 +18,6 @@
  */
 import type Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
-import { resolveSessionFile } from '../session-paths';
 import { ChainState, emptyChainState, splitChainedLine, type ChainStateData, type ChainVerdict } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
@@ -234,11 +233,19 @@ export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorS
  * ingest pass; `limit` keeps a 16,000-journal host from re-reading
  * everything each cycle.
  */
-export function auditAnchors(db: Database.Database, limit = 25): Record<AnchorState, number> {
+export function auditAnchors(
+  db: Database.Database,
+  limit = 25,
+  // Injected rather than imported: session-paths pulls in the harness
+  // path modules, and a static import here reaches them through
+  // db-helper → migrate before a test file's own constants exist —
+  // which is exactly what a hoisted vi.mock factory trips over.
+  resolve?: (project: string, sessionUuid: string) => string,
+): Record<AnchorState, number> {
   const out: Record<AnchorState, number> = { intact: 0, rewritten: 0, missing: 0 };
   // A row recorded before file_path existed still names its session and
   // project, which is enough to know where its journal lives.
-  const unresolved = db.prepare(
+  const unresolved = !resolve ? [] : db.prepare(
     `SELECT c.session_uuid, p.name AS project FROM session_chain c
        JOIN sessions s ON s.session_uuid = c.session_uuid
        JOIN projects p ON p.id = s.project_id
@@ -247,7 +254,7 @@ export function auditAnchors(db: Database.Database, limit = 25): Record<AnchorSt
   for (const r of unresolved) {
     try {
       db.prepare('UPDATE session_chain SET file_path = ? WHERE session_uuid = ?')
-        .run(resolveSessionFile(r.project, r.session_uuid), r.session_uuid);
+        .run(resolve!(r.project, r.session_uuid), r.session_uuid);
     } catch { /* an adapter without a file layout: nothing to witness */ }
   }
   const rows = db.prepare(

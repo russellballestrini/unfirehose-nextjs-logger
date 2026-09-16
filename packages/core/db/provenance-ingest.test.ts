@@ -212,7 +212,7 @@ describe('the witness: anchor audit against the leaves recorded at ingest', () =
     const expected = resolveSessionFile(proj.name, 'old1');
     // The generic native adapter resolves to ~/.uncloseai/…; the test root is elsewhere,
     // so only the resolution itself is asserted here, and the audit reads it as missing.
-    auditAnchors(db, 50);
+    auditAnchors(db, 50, resolveSessionFile);
     const row = getSessionChain(db, 'old1')!;
     expect(row.file_path).toBe(expected);
     expect(['intact', 'missing']).toContain(row.anchor_state);
