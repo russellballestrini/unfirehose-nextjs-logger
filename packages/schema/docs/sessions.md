@@ -165,7 +165,23 @@ replayed by the TypeScript verifier's tests). A rule change bumps
 Ingest records the verdict in `session_chain` (one row per session,
 with the break index and reason and the root) and every line hash in
 `session_chain_leaves`; `messages.row_hash` joins a message to its
-leaf. `GET /api/sessions/{id}/chain?project=…&live=1` recomputes from
+leaf.
+
+**The witness.** A chain can be re-hashed by whoever can rewrite the
+file, so a `verified` file proves consistency, not history. The
+leaves the ingester recorded as the file first grew were written by
+another process — on a fleet, another host than the container the
+agent runs in — and cannot be rewritten from inside. After every
+ingest pass a bounded audit re-reads journals from byte 0 and
+compares: `anchor_state` is `intact` (recorded leaves are still a
+prefix of the file — it may have grown), `rewritten` (a recorded line
+now hashes differently, or the file lost lines), or `missing`. A
+forged journal that verifies perfectly on its own still reads
+`rewritten` here, and the badge says so in red. This is the floor
+behind "an agent cannot fabricate what it did": the model authors
+its narration and its tool arguments; the harness authors tool
+results, inference rows, switch firings and the hashes; the witness
+holds what the harness wrote before anyone could rewrite it. `GET /api/sessions/{id}/chain?project=…&live=1` recomputes from
 the file on demand, and the session page shows the verdict as a badge.
 
 ## Index Files

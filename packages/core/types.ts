@@ -122,7 +122,9 @@ export interface SessionIndexEntry {
   projectPath?: string;
   isSidechain?: boolean;
   /** Provenance verdict as ingest recorded it (unfirehose-chain-v1); null until ingested. */
-  chain?: { state: 'unchained' | 'open' | 'verified' | 'corrupted'; breaks: number; firstBreak: number | null } | null;
+  chain?: { state: 'unchained' | 'open' | 'verified' | 'corrupted'; breaks: number; firstBreak: number | null;
+    /** The witness's verdict on the file since ingest; null until audited. */
+    anchor?: 'intact' | 'rewritten' | 'missing' | null } | null;
 }
 
 export interface SessionsIndex {

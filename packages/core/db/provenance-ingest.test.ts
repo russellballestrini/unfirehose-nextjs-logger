@@ -11,7 +11,7 @@ vi.mock('./schema', () => ({
 }));
 
 const { ingestJsonlSource, ingestJsonlLines } = await import('./ingest');
-const { getSessionChain, getChainSummary, SessionChainTracker } = await import('./provenance-ingest');
+const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, auditAnchors } = await import('./provenance-ingest');
 
 /**
  * The chain verdict a session lands with, driven through the REAL
@@ -142,6 +142,67 @@ describe('chain verification through the file ingest loop', () => {
         WHERE s.session_uuid = 'legacy' AND m.row_hash IS NOT NULL`,
     ).get() as { c: number };
     expect(nulls.c).toBe(0);
+  });
+});
+
+describe('the witness: anchor audit against the leaves recorded at ingest', () => {
+  it('a journal left alone is intact, even after it grows', async () => {
+    const v = vector('verified/n=5');
+    writeSession('w1', v.lines.slice(0, 4));
+    await ingestJsonlSource(db, source());
+    expect(auditAnchor(db, 'w1')).toBe('intact');
+    appendFileSync(path.join(root, SLUG, 'w1.jsonl'), v.lines.slice(4).join('\n') + '\n');
+    expect(auditAnchor(db, 'w1')).toBe('intact');            // grown, prefix unchanged
+    const row = getSessionChain(db, 'w1')!;
+    expect(row.anchor_state).toBe('intact');
+    expect(row.anchor_checked_at).toBeTruthy();
+    expect(row.file_path).toBe(path.join(root, SLUG, 'w1.jsonl'));
+  });
+
+  it('a re-hashed rewrite verifies internally and is still caught by the witness', async () => {
+    const v = vector('verified/n=3');
+    writeSession('w2', v.lines);
+    await ingestJsonlSource(db, source());
+    expect(getSessionChain(db, 'w2')!.state).toBe('verified');
+    // The forger rewrites the whole file with a different, internally
+    // consistent chain — the other fixture session, fully verified.
+    const forged = vector('verified/n=2');
+    writeSession('w2', forged.lines);
+    expect(auditAnchor(db, 'w2')).toBe('rewritten');
+    const row = getSessionChain(db, 'w2')!;
+    expect(row.anchor_detail).toMatch(/leaf \d+ differs/);   // the two fixtures share a header, so the split is later
+    // A fresh reader of the forged file alone would call it verified.
+    const { verifyLines } = await import('../provenance');
+    expect(verifyLines(forged.lines).state).toBe('verified');
+  });
+
+  it('a truncated journal and a deleted one are named as such', async () => {
+    const v = vector('verified/n=5');
+    writeSession('w3', v.lines);
+    await ingestJsonlSource(db, source());
+    writeSession('w3', v.lines.slice(0, 2));
+    expect(auditAnchor(db, 'w3')).toBe('rewritten');
+    expect(getSessionChain(db, 'w3')!.anchor_detail).toContain('witness recorded');
+    rmSync(path.join(root, SLUG, 'w3.jsonl'));
+    expect(auditAnchor(db, 'w3')).toBe('missing');
+  });
+
+  it('a bounded pass checks the least recently checked first and runs after ingest', async () => {
+    for (const n of ['a1', 'a2', 'a3']) writeSession(n, vector('verified/n=2').lines);
+    await ingestJsonlSource(db, source());          // ingestJsonlSource alone does not audit
+    expect(getSessionChain(db, 'a1')!.anchor_state).toBeNull();
+    const first = auditAnchors(db, 2);
+    expect(first.intact).toBe(2);
+    const second = auditAnchors(db, 2);
+    expect(second.intact).toBe(2);
+    const checked = ['a1', 'a2', 'a3'].filter((n) => getSessionChain(db, n)!.anchor_state === 'intact');
+    expect(checked).toHaveLength(3);                 // the never-checked one came first in pass two
+  });
+
+  it('an unchained journal has nothing to witness', async () => {
+    writeSession('legacy2', vector('unchained/legacy-writer').lines);
+    await ingestJsonlSource(db, source());
+    expect(auditAnchor(db, 'legacy2')).toBeNull();
   });
 });
 

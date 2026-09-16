@@ -98,14 +98,14 @@ export async function GET(
 
     // Provenance verdict per session, as ingest recorded it. Absent for a
     // session ingest has not reached; the session page recomputes live.
-    const chains: Record<string, { state: string; breaks: number; firstBreak: number | null }> = {};
+    const chains: Record<string, { state: string; breaks: number; firstBreak: number | null; anchor: string | null }> = {};
     if (uuids.length > 0) {
       const rows = db.prepare(
-        `SELECT session_uuid, state, breaks, first_break FROM session_chain
+        `SELECT session_uuid, state, breaks, first_break, anchor_state FROM session_chain
           WHERE session_uuid IN (${uuids.map(() => '?').join(',')})`
-      ).all(...uuids) as Array<{ session_uuid: string; state: string; breaks: number; first_break: number | null }>;
+      ).all(...uuids) as Array<{ session_uuid: string; state: string; breaks: number; first_break: number | null; anchor_state: string | null }>;
       for (const row of rows) {
-        chains[row.session_uuid] = { state: row.state, breaks: row.breaks, firstBreak: row.first_break };
+        chains[row.session_uuid] = { state: row.state, breaks: row.breaks, firstBreak: row.first_break, anchor: row.anchor_state };
       }
     }
 

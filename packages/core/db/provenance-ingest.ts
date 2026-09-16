@@ -17,13 +17,30 @@
  * silently. See packages/schema/docs/sessions.md § Chain.
  */
 import type Database from 'better-sqlite3';
-import { ChainState, emptyChainState, type ChainStateData, type ChainVerdict } from '../provenance';
+import { readFileSync } from 'fs';
+import { ChainState, emptyChainState, splitChainedLine, type ChainStateData, type ChainVerdict } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
   session_uuid: string;
   state: ChainVerdict;
   updated_at: string;
+  file_path: string | null;
+  anchor_state: AnchorState | null;
+  anchor_checked_at: string | null;
+  anchor_detail: string | null;
 }
+
+/**
+ * What the file looks like now against what THIS process recorded as it
+ * grew. A chain can be re-hashed by whoever can rewrite the file; the
+ * leaves this ingester wrote down earlier cannot. So `intact` means the
+ * recorded leaves are still a prefix of the file, `rewritten` means a
+ * recorded line now hashes differently or the file lost lines, `missing`
+ * means the journal is gone. The witness is only as independent as the
+ * process running it: on the fleet, that is the host beside the
+ * container, which is the point.
+ */
+export type AnchorState = 'intact' | 'rewritten' | 'missing';
 
 export function ensureProvenanceTables(db: Database.Database) {
   db.exec(`
@@ -43,6 +60,10 @@ export function ensureProvenanceTables(db: Database.Database) {
       merkle_version TEXT,                       -- rules the root was minted under, as the record named them
       encoding_version TEXT,
       root_semantics TEXT,                       -- SET | SEQUENCE | MULTISET
+      file_path TEXT,                            -- where the journal was read from, for the anchor audit
+      anchor_state TEXT,                         -- intact | rewritten | missing — the file vs what this witness recorded
+      anchor_checked_at TEXT,
+      anchor_detail TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS session_chain_leaves (
@@ -54,7 +75,8 @@ export function ensureProvenanceTables(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_session_chain_state ON session_chain(state);
   `);
   // A database created before the rule columns were named.
-  for (const col of ['merkle_version', 'encoding_version', 'root_semantics']) {
+  for (const col of ['merkle_version', 'encoding_version', 'root_semantics',
+    'file_path', 'anchor_state', 'anchor_checked_at', 'anchor_detail']) {
     try { db.exec(`ALTER TABLE session_chain ADD COLUMN ${col} TEXT`); } catch { /* exists */ }
   }
 }
@@ -89,11 +111,14 @@ export class SessionChainTracker {
    * reading of the same bytes. The cloud path, which receives batches
    * with no offset, always continues.
    */
+  private readonly filePath: string | null;
+
   constructor(
     private readonly db: Database.Database,
     private readonly sessionUuid: string,
-    opts: { reset: boolean } = { reset: false },
+    opts: { reset: boolean; filePath?: string } = { reset: false },
   ) {
+    this.filePath = opts.filePath ?? null;
     const existing = opts.reset ? null : getSessionChain(db, sessionUuid);
     if (existing) {
       const { session_uuid: _u, state: _s, updated_at: _t, ...data } = existing;
@@ -127,7 +152,7 @@ export class SessionChainTracker {
   flush() {
     const d = this.state.data;
     if (d.entries === 0 && this.pendingLeaves.length === 0) return;
-    db_upsert(this.db, this.sessionUuid, this.state.verdict, d);
+    db_upsert(this.db, this.sessionUuid, this.state.verdict, d, this.filePath);
     const ins = this.db.prepare(
       'INSERT OR REPLACE INTO session_chain_leaves (session_uuid, seq, hash) VALUES (?, ?, ?)',
     );
@@ -135,13 +160,13 @@ export class SessionChainTracker {
   }
 }
 
-function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: ChainStateData) {
+function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: ChainStateData, filePath: string | null) {
   db.prepare(
     `INSERT INTO session_chain (
        session_uuid, state, entries, hashed, breaks, first_break, first_break_reason,
        last_hash, root_expected, root_computed, root_seq, hash_version,
-       merkle_version, encoding_version, root_semantics, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       merkle_version, encoding_version, root_semantics, file_path, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(session_uuid) DO UPDATE SET
        state = excluded.state, entries = excluded.entries, hashed = excluded.hashed,
        breaks = excluded.breaks, first_break = excluded.first_break,
@@ -149,10 +174,80 @@ function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: 
        root_expected = excluded.root_expected, root_computed = excluded.root_computed,
        root_seq = excluded.root_seq, hash_version = excluded.hash_version,
        merkle_version = excluded.merkle_version, encoding_version = excluded.encoding_version,
-       root_semantics = excluded.root_semantics, updated_at = excluded.updated_at`,
+       root_semantics = excluded.root_semantics,
+       file_path = COALESCE(excluded.file_path, session_chain.file_path),
+       updated_at = excluded.updated_at`,
   ).run(
     uuid, state, d.entries, d.hashed, d.breaks, d.first_break, d.first_break_reason,
     d.last_hash, d.root_expected, d.root_computed, d.root_seq, d.hash_version,
-    d.merkle_version, d.encoding_version, d.root_semantics,
+    d.merkle_version, d.encoding_version, d.root_semantics, filePath,
   );
+}
+
+/**
+ * Re-read one journal from byte 0 and compare it with the leaves this
+ * witness recorded when it first read it. Returns the verdict written.
+ */
+export function auditAnchor(db: Database.Database, sessionUuid: string): AnchorState | null {
+  const row = getSessionChain(db, sessionUuid);
+  if (!row || !row.file_path || row.hashed === 0) return null;
+  const recorded = (db
+    .prepare('SELECT hash FROM session_chain_leaves WHERE session_uuid = ? ORDER BY seq')
+    .all(sessionUuid) as { hash: string }[]).map((r) => r.hash);
+  let state: AnchorState;
+  let detail: string | null = null;
+  let text: string | null = null;
+  try { text = readFileSync(row.file_path, 'utf8'); } catch { text = null; }
+  if (text === null) {
+    state = 'missing';
+    detail = row.file_path;
+  } else {
+    if (text.length && !text.endsWith('\n')) text = text.slice(0, text.lastIndexOf('\n') + 1);
+    const now: string[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      const split = splitChainedLine(line);
+      if (split) now.push(split.hash);
+    }
+    // The recorded leaves must still be a prefix of the file: the file
+    // may have grown since, never changed or shrunk before the frontier.
+    let diverged = -1;
+    for (let i = 0; i < recorded.length; i++) {
+      if (now[i] !== recorded[i]) { diverged = i; break; }
+    }
+    if (diverged >= 0) {
+      state = 'rewritten';
+      detail = now.length < recorded.length && diverged >= now.length
+        ? `file has ${now.length} hashed lines, witness recorded ${recorded.length}`
+        : `leaf ${diverged} differs from what was recorded at ingest`;
+    } else {
+      state = 'intact';
+    }
+  }
+  db.prepare(
+    `UPDATE session_chain SET anchor_state = ?, anchor_checked_at = datetime('now'), anchor_detail = ?
+      WHERE session_uuid = ?`,
+  ).run(state, detail, sessionUuid);
+  return state;
+}
+
+/**
+ * One bounded pass of anchor audits — the sessions least recently
+ * checked first, never-checked ones ahead of all. Runs after every
+ * ingest pass; `limit` keeps a 16,000-journal host from re-reading
+ * everything each cycle.
+ */
+export function auditAnchors(db: Database.Database, limit = 25): Record<AnchorState, number> {
+  const out: Record<AnchorState, number> = { intact: 0, rewritten: 0, missing: 0 };
+  const rows = db.prepare(
+    `SELECT session_uuid FROM session_chain
+      WHERE file_path IS NOT NULL AND hashed > 0
+      ORDER BY anchor_checked_at IS NOT NULL, anchor_checked_at ASC
+      LIMIT ?`,
+  ).all(limit) as { session_uuid: string }[];
+  for (const r of rows) {
+    const s = auditAnchor(db, r.session_uuid);
+    if (s) out[s] += 1;
+  }
+  return out;
 }

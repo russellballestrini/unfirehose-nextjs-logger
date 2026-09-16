@@ -108,6 +108,7 @@ export default function SessionViewerPage({
   // recorded verdict rides along for the tooltip's "(live)" honesty.
   const { data: chainData } = useSWR<{
     state: ChainVerdict;
+    recorded?: { anchor_state: 'intact' | 'rewritten' | 'missing' | null } | null;
     live?: { breaks: number; first_break: number | null; first_break_reason: string | null;
              root_computed: string | null; entries: number } | null;
   }>(`/api/sessions/${sessionId}/chain?project=${project}&live=1`, fetcher, { refreshInterval: 15000 });
@@ -216,6 +217,7 @@ export default function SessionViewerPage({
               root={chainData.live?.root_computed}
               entries={chainData.live?.entries}
               source={chainData.live ? 'live' : 'recorded'}
+              anchor={chainData.recorded?.anchor_state ?? null}
             />
           )}
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">

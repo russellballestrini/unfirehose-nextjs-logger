@@ -13,7 +13,7 @@ import { fetchPaths } from '../fetch-paths';
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
-import { SessionChainTracker } from './provenance-ingest';
+import { SessionChainTracker, auditAnchors } from './provenance-ingest';
 export { recordHarnessRefusal } from './refusals';
 export type { HarnessRefusal } from './refusals';
 import { sanitizePII } from '../pii';
@@ -1457,7 +1457,7 @@ export async function ingestJsonlSource(
 
       // Chain verification rides the same read (docs: LANE-PROVENANCE
       // in uncloseai-cli; packages/schema/docs/sessions.md § Chain).
-      const chain = new SessionChainTracker(db, sessionUuid, { reset: startByte === 0 });
+      const chain = new SessionChainTracker(db, sessionUuid, { reset: startByte === 0, filePath });
 
       const stream = createReadStream(filePath, {
         start: startByte,
@@ -2093,6 +2093,12 @@ export async function ingestAll(): Promise<IngestResult> {
   // dashboard. This is the one fact that separates them, and it is
   // recorded here rather than in the worker because a manual run through
   // /api/ingest counts too.
+  // The witness pass: a bounded number of journals re-read from byte 0
+  // against the leaves recorded when they were first ingested. A file
+  // its writer re-hashed still verifies; it does not still agree with
+  // what this process saw before the rewrite.
+  try { auditAnchors(db); } catch { /* the audit is evidence, never a dependency of ingest */ }
+
   setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
 
   return result;

@@ -24,6 +24,12 @@ export interface ChainBadgeProps {
   entries?: number | null;
   /** `live` when the verdict was just recomputed from the file; `recorded` when read from ingest. */
   source?: 'live' | 'recorded';
+  /**
+   * The witness: what the file looks like now against the leaves the
+   * ingester recorded as it first read it. A re-hashed rewrite still
+   * verifies; it does not still match the witness.
+   */
+  anchor?: 'intact' | 'rewritten' | 'missing' | null;
   className?: string;
 }
 
@@ -37,7 +43,11 @@ const LOOK: Record<ChainVerdict, { glyph: string; label: string; color: string }
 export function chainTitle(p: ChainBadgeProps): string {
   const n = p.entries ?? null;
   const lines = n === null ? '' : ` · ${n} ${n === 1 ? 'line' : 'lines'}`;
-  const src = p.source ? ` (${p.source})` : '';
+  const anchor = p.anchor === 'rewritten'
+    ? ' · REWRITTEN after ingest: the file no longer matches what the witness recorded'
+    : p.anchor === 'missing' ? ' · journal file MISSING since ingest'
+    : p.anchor === 'intact' ? ' · witness: intact' : '';
+  const src = (p.source ? ` (${p.source})` : '') + anchor;
   switch (p.state) {
     case 'verified':
       return `Chain verified${lines} · root ${p.root ? p.root.slice(0, 12) + '…' : '?'}${src}`;
@@ -56,7 +66,10 @@ export function chainTitle(p: ChainBadgeProps): string {
 
 export function ChainBadge(props: ChainBadgeProps) {
   const { state, className = '' } = props;
-  const look = LOOK[state] ?? LOOK.unchained;
+  const tampered = props.anchor === 'rewritten' || props.anchor === 'missing';
+  const look = tampered
+    ? { glyph: '⛓✗', label: props.anchor === 'missing' ? 'missing' : 'rewritten', color: '#ef4444' }
+    : (LOOK[state] ?? LOOK.unchained);
   return (
     <span
       className={`text-xs px-1.5 py-0.5 rounded inline-flex items-center gap-1 ${className}`}
@@ -67,6 +80,7 @@ export function ChainBadge(props: ChainBadgeProps) {
       }}
       title={chainTitle(props)}
       data-chain-state={state}
+      data-anchor-state={props.anchor ?? undefined}
     >
       {look.glyph} {look.label}
       {state === 'corrupted' && props.firstBreak !== null && props.firstBreak !== undefined && (

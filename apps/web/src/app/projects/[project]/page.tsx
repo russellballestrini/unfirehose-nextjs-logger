@@ -775,6 +775,7 @@ export function SessionsTab({ data, project }: { data: any; project: string }) {
                       state={session.chain.state}
                       breaks={session.chain.breaks}
                       firstBreak={session.chain.firstBreak}
+                      anchor={session.chain.anchor ?? null}
                       source="recorded"
                     />
                   )}
