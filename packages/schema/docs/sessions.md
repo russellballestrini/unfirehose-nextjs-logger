@@ -112,8 +112,17 @@ Rule, byte for byte:
    self-duplicates its last element, the empty root is 32 zero bytes
    — the convention arborist and `proxy.unturf.com` already use, so a
    root minted by one verifies in all.
-6. `hashVersion` names the rule (`unfirehose-chain-v1`) on the header
-   and the closed record.
+6. The header and the closed record name the rules they were written
+   under — `hashVersion: unfirehose-chain-v1`, `merkleVersion:
+   merkle-v1`, `encodingVersion: jsonl-bytes-v1`, `rootSemantics:
+   SEQUENCE` — so a reader checks a root against the grammar that
+   minted it and never silently against its own. A root typed
+   `SEQUENCE` commits to order and multiplicity; `SET` would be
+   sorted, deduplicated membership; `MULTISET` multiplicity without
+   order. A reader that does not implement a named rule reports the
+   session `corrupted` with reason `unknown_rules` rather than
+   matching by luck; a record from before the rules were named
+   verifies under the reader's defaults.
 7. Bytes written are valid UTF-8, so a reader that decodes and
    re-encodes (Node's `readline`) sees the bytes the writer hashed.
 
@@ -129,10 +138,23 @@ Verdict per session, the same four words in every implementation:
 | `unchained` | no line carried a hash — an older writer; nothing claimed, nothing to check |
 | `open` | chained so far, no closed record yet |
 | `verified` | closed record present, root recomputed and matched, no break |
-| `corrupted` | a break anywhere (`hash_mismatch`, `prev_mismatch`, `unchained_line`, `late_genesis`, `unparseable`, `root_mismatch`), named by line index — or the root disagreed |
+| `corrupted` | a break anywhere (`hash_mismatch`, `prev_mismatch`, `unchained_line`, `late_genesis`, `unparseable`, `root_mismatch`, `unknown_rules`), named by line index — or the root disagreed |
 
 A line still being written (the file's last bytes with no newline) is
 set aside, never counted as a break.
+
+What a verdict is, and is not. `verified` means the bytes on disk
+are the bytes their writer hashed, in the order it wrote them, under
+a root that recomputes — relative to this file. It does not establish
+who the writer was, that a privileged writer did not rewrite line and
+hash together, or that anything in the session is true; an
+independently protected copy of `sessionRoot` makes later alteration
+detectable relative to that copy, and nothing makes a journal
+tamper-proof. Hashing after redaction hides what was removed before
+hashing and nothing else: two redacted lines with equal bytes have
+equal hashes, and a guessable retained value can be confirmed by
+guessing. (Corrections from arborist's ARBO PATCHSET 000073-000079
+v1.0, 2026-09-16, P-LANE-01/02/03.)
 
 Known-answer files pin every implementation to one set of bytes:
 `fixtures/merkle-kat.jsonl` (arborist's merkle-v1 vectors, verbatim)

@@ -23,6 +23,9 @@
     "messageCount": { "type": "integer", "minimum": 0 },
     "totalUsage": { "$ref": "usage.json" },
     "hashVersion": { "type": "string", "description": "unfirehose-chain-v1: the chain rule this writer follows; on the header and the closed record. Optional — present only from a chaining writer." },
+    "merkleVersion": { "type": "string", "description": "Merkle grammar the sessionRoot was minted under, e.g. `merkle-v1` (leaf 0x00, node 0x03, odd layer self-duplicates). A reader that implements a different grammar treats the root as unverifiable, never as matching." },
+    "encodingVersion": { "type": "string", "description": "What the line hash covers, e.g. `jsonl-bytes-v1`: the exact on-disk bytes of the line. There is no canonical JSON in this chain." },
+    "rootSemantics": { "type": "string", "enum": ["SET", "SEQUENCE", "MULTISET"], "description": "What the sessionRoot commits to. A session root is SEQUENCE: every leaf is a chained event hash, so order and multiplicity are part of the identity." },
     "sessionRoot": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "On the closed record only: merkle-v1 root over the `hash` of every line written before it, in order (leaf = sha256(0x00 ‖ hash bytes), node = sha256(0x03 ‖ left ‖ right), odd layer self-duplicates, empty = 32 zero bytes)." },
     "prevHash": { "type": ["string", "null"], "description": "unfirehose-chain-v1: `hash` of the previous line this writer wrote to the same file; null on the first line." },
     "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "unfirehose-chain-v1: SHA-256 of this line's bytes with the trailing `,\"hash\":\"…\"}` removed and a `}` restored. MUST be the last key in the object." }

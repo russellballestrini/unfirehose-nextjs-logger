@@ -131,6 +131,42 @@ describe('unfirehose-chain-v1 known answers (the Python writer’s vectors)', ()
   });
 });
 
+describe('the rules a root was minted under', () => {
+  it('are recorded from the closed record and match this reader', () => {
+    const r = records('chain-kat.jsonl', 'session').find((s) => s.label === 'verified/n=3');
+    const rep = verifyLines(r.lines);
+    expect([rep.merkle_version, rep.encoding_version, rep.root_semantics, rep.hash_version])
+      .toEqual(['merkle-v1', 'jsonl-bytes-v1', 'SEQUENCE', 'unfirehose-chain-v1']);
+    expect(rep.state).toBe('verified');
+  });
+
+  it('a root minted under rules this reader does not implement is a break, not a silent match', () => {
+    const r = records('chain-kat.jsonl', 'session').find((s) => s.label === 'verified/n=2');
+    const lines: string[] = r.lines.slice(0, -2);
+    const prev = splitChainedLine(lines[lines.length - 1])!.hash;
+    // Re-chain a closed record that names a different merkle grammar.
+    const body = JSON.stringify({ type: 'session', id: 'kat', status: 'closed',
+      sessionRoot: r.expect.root_expected, hashVersion: 'unfirehose-chain-v1',
+      merkleVersion: 'merkle-v2', rootSemantics: 'SET', prevHash: prev });
+    const line = body.slice(0, -1) + ',"hash":"' + lineHash(Buffer.from(body, 'utf8')) + '"}';
+    const rep = verifyLines([...lines, line]);
+    expect(rep.first_break_reason).toBe('unknown_rules');
+    expect(rep.state).toBe('corrupted');
+  });
+
+  it('a record from before the rules were named verifies under the defaults', () => {
+    const r = records('chain-kat.jsonl', 'session').find((s) => s.label === 'verified/n=2');
+    const lines: string[] = r.lines.slice(0, -2);
+    const prev = splitChainedLine(lines[lines.length - 1])!.hash;
+    const body = JSON.stringify({ type: 'session', id: 'kat', status: 'closed',
+      sessionRoot: r.expect.root_expected, hashVersion: 'unfirehose-chain-v1', prevHash: prev });
+    const line = body.slice(0, -1) + ',"hash":"' + lineHash(Buffer.from(body, 'utf8')) + '"}';
+    const rep = verifyLines([...lines, line]);
+    expect(rep.state).toBe('verified');
+    expect(rep.merkle_version).toBeNull();
+  });
+});
+
 describe('splitChainedLine shape gate', () => {
   const good = records('chain-kat.jsonl', 'line')[0].line as string;
   it('rejects every wrong shape and tolerates a trailing newline', () => {

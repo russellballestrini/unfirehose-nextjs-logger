@@ -40,6 +40,9 @@ export function ensureProvenanceTables(db: Database.Database) {
       root_computed TEXT,                        -- root recomputed over the leaves before it
       root_seq INTEGER,                          -- line index of the closed record
       hash_version TEXT,
+      merkle_version TEXT,                       -- rules the root was minted under, as the record named them
+      encoding_version TEXT,
+      root_semantics TEXT,                       -- SET | SEQUENCE | MULTISET
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS session_chain_leaves (
@@ -50,6 +53,10 @@ export function ensureProvenanceTables(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_session_chain_state ON session_chain(state);
   `);
+  // A database created before the rule columns were named.
+  for (const col of ['merkle_version', 'encoding_version', 'root_semantics']) {
+    try { db.exec(`ALTER TABLE session_chain ADD COLUMN ${col} TEXT`); } catch { /* exists */ }
+  }
 }
 
 /** Read a session's chain row, or null when nothing has been verified for it. */
@@ -132,17 +139,20 @@ function db_upsert(db: Database.Database, uuid: string, state: ChainVerdict, d: 
   db.prepare(
     `INSERT INTO session_chain (
        session_uuid, state, entries, hashed, breaks, first_break, first_break_reason,
-       last_hash, root_expected, root_computed, root_seq, hash_version, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       last_hash, root_expected, root_computed, root_seq, hash_version,
+       merkle_version, encoding_version, root_semantics, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(session_uuid) DO UPDATE SET
        state = excluded.state, entries = excluded.entries, hashed = excluded.hashed,
        breaks = excluded.breaks, first_break = excluded.first_break,
        first_break_reason = excluded.first_break_reason, last_hash = excluded.last_hash,
        root_expected = excluded.root_expected, root_computed = excluded.root_computed,
        root_seq = excluded.root_seq, hash_version = excluded.hash_version,
-       updated_at = excluded.updated_at`,
+       merkle_version = excluded.merkle_version, encoding_version = excluded.encoding_version,
+       root_semantics = excluded.root_semantics, updated_at = excluded.updated_at`,
   ).run(
     uuid, state, d.entries, d.hashed, d.breaks, d.first_break, d.first_break_reason,
     d.last_hash, d.root_expected, d.root_computed, d.root_seq, d.hash_version,
+    d.merkle_version, d.encoding_version, d.root_semantics,
   );
 }

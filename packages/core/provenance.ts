@@ -28,6 +28,10 @@ import { createHash } from 'crypto';
 
 export const MERKLE_VERSION = 'merkle-v1';
 export const CHAIN_VERSION = 'unfirehose-chain-v1';
+/** The preimage is the exact on-disk bytes of the line; there is no canonical JSON in this chain. */
+export const ENCODING_VERSION = 'jsonl-bytes-v1';
+/** What a session root commits to: leaves are chained event hashes, so order and multiplicity count. */
+export const ROOT_SEMANTICS = 'SEQUENCE';
 
 const LEAF_PREFIX = Buffer.from([0x00]);
 const NODE_PREFIX = Buffer.from([0x03]);
@@ -153,16 +157,22 @@ export interface ChainStateData {
   root_computed: string | null;
   root_seq: number | null;
   hash_version: string | null;
+  merkle_version: string | null;
+  encoding_version: string | null;
+  root_semantics: string | null;
 }
 
 export function emptyChainState(): ChainStateData {
   return {
     entries: 0, hashed: 0, breaks: 0, first_break: null, first_break_reason: null,
     last_hash: null, root_expected: null, root_computed: null, root_seq: null, hash_version: null,
+    merkle_version: null, encoding_version: null, root_semantics: null,
   };
 }
 
-function isClosedRecord(entry: unknown): entry is { sessionRoot?: unknown; hashVersion?: unknown } {
+function isClosedRecord(entry: unknown): entry is {
+  sessionRoot?: unknown; hashVersion?: unknown; merkleVersion?: unknown; encodingVersion?: unknown; rootSemantics?: unknown;
+} {
   return !!entry && typeof entry === 'object'
     && (entry as any).type === 'session' && (entry as any).status === 'closed';
 }
@@ -211,7 +221,19 @@ export class ChainState {
     if (isObject && isClosedRecord(entry) && typeof entry.sessionRoot === 'string') {
       d.root_expected = entry.sessionRoot;
       d.root_seq = seq;
-      d.hash_version = typeof entry.hashVersion === 'string' ? entry.hashVersion : null;
+      const str = (v: unknown) => (typeof v === 'string' ? v : null);
+      d.hash_version = str(entry.hashVersion);
+      // The rules the root was minted under (P-LANE-05/06). A record that
+      // names them is checked against them; one that does not is a writer
+      // from before they were named, verified under this reader's defaults.
+      d.merkle_version = str(entry.merkleVersion);
+      d.encoding_version = str(entry.encodingVersion);
+      d.root_semantics = str(entry.rootSemantics);
+      if ((d.merkle_version && d.merkle_version !== MERKLE_VERSION)
+          || (d.encoding_version && d.encoding_version !== ENCODING_VERSION)
+          || (d.root_semantics && d.root_semantics !== ROOT_SEMANTICS)) {
+        this.break_(seq, 'unknown_rules');
+      }
       d.root_computed = sessionRoot(this.leaves);
       if (d.root_computed !== d.root_expected) this.break_(seq, 'root_mismatch');
     }

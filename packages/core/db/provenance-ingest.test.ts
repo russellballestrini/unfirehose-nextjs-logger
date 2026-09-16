@@ -91,6 +91,8 @@ describe('chain verification through the file ingest loop', () => {
     expect(row.state).toBe('verified');
     expect(row.entries).toBe(v.lines.length);
     expect(row.root_computed).toBe(v.expect.root_expected);
+    expect([row.merkle_version, row.encoding_version, row.root_semantics])
+      .toEqual(['merkle-v1', 'jsonl-bytes-v1', 'SEQUENCE']);
     const leaves = db.prepare('SELECT COUNT(*) AS c FROM session_chain_leaves WHERE session_uuid = ?')
       .get('inc') as { c: number };
     expect(leaves.c).toBe(v.lines.length);
