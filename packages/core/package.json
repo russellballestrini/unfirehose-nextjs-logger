@@ -63,6 +63,7 @@
     "./project-rollup": "./project-rollup.ts",
     "./harness-models": "./harness-models.ts",
     "./stream-blocks": "./stream-blocks.ts",
+    "./shell-pretty": "./shell-pretty.ts",
     "./harness-procs": "./harness-procs.ts",
     "./agnt-paths": "./agnt-paths.ts",
     "./session-paths": "./session-paths.ts",

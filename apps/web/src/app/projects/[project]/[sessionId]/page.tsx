@@ -11,6 +11,7 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 import { ChainBadge, type ChainVerdict } from '@unturf/unfirehose-ui/ChainBadge';
+import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 
 const HARNESS_COLORS: Record<string, string> = {
   'claude-code': '#a78bfa',
@@ -71,6 +72,10 @@ export default function SessionViewerPage({
   const { project, sessionId } = use(params);
   const [showThinking, setShowThinking] = useState(true);
   const [showTools, setShowTools] = useState(true);
+  // Bash one-liners laid out one statement per line. Off by default and
+  // remembered, under the same key the live feed reads, so choosing it once
+  // holds across both views.
+  const [prettyShell, setPrettyShell] = useStickyState<boolean>('unfirehose.prettyShell', false);
   const [reasoningOnly, setReasoningOnly] = useState(false);
   const [autoScroll, setAutoScroll] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -254,6 +259,18 @@ export default function SessionViewerPage({
             />
             Tools
           </label>
+          <label
+            className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer"
+            title="Lay bash one-liners out one statement per line"
+          >
+            <input
+              type="checkbox"
+              checked={prettyShell}
+              onChange={(e) => setPrettyShell(e.target.checked)}
+              className="accent-[var(--color-tool)]"
+            />
+            Pretty shell
+          </label>
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
@@ -283,6 +300,7 @@ export default function SessionViewerPage({
             entry={entry}
             showThinking={showThinking}
             showTools={showTools}
+            prettyShell={prettyShell}
           />
         ))}
         {loading && (

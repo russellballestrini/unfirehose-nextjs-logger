@@ -143,6 +143,45 @@ describe('LiveEntry', () => {
   it('renders without a harness, which older rows lack', () => {
     expect(() => show({ harness: undefined })).not.toThrow();
   });
+
+  describe('pretty shell', () => {
+    // Fox: "prettify the bash one-liners into scripts, break it up by ; into
+    // newlines so humans can read it — a toggle, not the default."
+    const oneLiner = 'cd ~/git/x && make test 2>&1 | tail -3; echo done';
+    const bash = (command: string) => ({
+      entry: entry({
+        message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command } }] },
+      }),
+    });
+
+    it('off (the default) keeps the one-liner inline', () => {
+      const { container } = show(bash(oneLiner));
+      expect(container.querySelector('pre')).toBeNull();
+      expect(container.textContent).toContain(oneLiner);
+    });
+
+    it('on lays the command out one statement per line', () => {
+      const { container } = show(bash(oneLiner), { prettyShell: true });
+      const pre = container.querySelector('pre');
+      expect(pre?.textContent).toBe('cd ~/git/x\n  && make test 2>&1\n  | tail -3\necho done');
+    });
+
+    it('on leaves a command with nothing to split inline', () => {
+      const { container } = show(bash('ls -la'), { prettyShell: true });
+      expect(container.querySelector('pre')).toBeNull();
+      expect(container.textContent).toContain('ls -la');
+    });
+
+    it('on leaves a non-shell tool alone even when its detail has operators', () => {
+      // A grep pattern with `|` in it is a pattern, not a pipeline.
+      const { container } = show({
+        entry: entry({
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Grep', input: { pattern: 'a|b && c' } }] },
+        }),
+      }, { prettyShell: true });
+      expect(container.querySelector('pre')).toBeNull();
+    });
+  });
 });
 
 describe('formatOutput', () => {

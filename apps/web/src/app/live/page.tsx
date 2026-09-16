@@ -16,7 +16,9 @@ import {
   extractReasoningInfo,
   entryRole as effectiveType,
 } from '@unturf/unfirehose/stream-blocks';
+import { prettifyShell, shellHasStructure } from '@unturf/unfirehose/shell-pretty';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
+import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
 import { useChainStates } from '@unturf/unfirehose-ui/useChainStates';
 import { RewritesTab, RewritesTabBadge, fetchRewriteCount } from './RewritesTab';
@@ -161,6 +163,30 @@ export function formatOutput(text: string): { formatted: string; isJson: boolean
 }
 
 
+// Tools whose detail is a shell command line. Kept small on purpose: a
+// `grep` pattern or a `fetch` url has `|` and `&&` in it too, and splitting
+// those would lie about what ran.
+const SHELL_TOOLS = new Set(['bash', 'shell', 'terminal', 'execute']);
+
+/**
+ * A tool's detail line, laid out as a script when it is one.
+ *
+ * With "pretty shell" on, a bash one-liner with something to split renders
+ * as a block, one statement per line. Everything else — the toggle off, a
+ * non-shell tool, a command with no operators — stays the inline span it
+ * always was.
+ */
+function ToolDetailText({ name, detail, pretty }: { name: string; detail: string; pretty: boolean }) {
+  if (pretty && SHELL_TOOLS.has((name ?? '').toLowerCase()) && shellHasStructure(detail)) {
+    return (
+      <pre className="text-[var(--color-muted)] font-mono whitespace-pre text-sm leading-relaxed overflow-x-auto max-h-64 overflow-y-auto mt-0.5 mb-1">
+        {prettifyShell(detail)}
+      </pre>
+    );
+  }
+  return <span className="text-[var(--color-muted)] ml-1">{detail}</span>;
+}
+
 /**
  * One entry in the live feed.
  *
@@ -174,6 +200,7 @@ export function LiveEntry(props: any) {
 item, i, reasoningOnly, showThinking, expanded, setExpanded,
     getColorForSession, sessionNames, now, entries, hoveredEntry,
     mostRecentOutputIdx, onEntryMouseEnter, onEntryMouseLeave, chain,
+    prettyShell = false,
   } = props;
         const e = item.entry;
         // Always extract reasoning info so reasoningOnly can filter against
@@ -305,7 +332,7 @@ item, i, reasoningOnly, showThinking, expanded, setExpanded,
                       <span key={ti}>
                         [{t.name}]
                         {t.detail && (
-                          <span className="text-[var(--color-muted)] ml-1">{t.detail}</span>
+                          <ToolDetailText name={t.name} detail={t.detail} pretty={prettyShell} />
                         )}
                         {' '}
                       </span>
@@ -395,6 +422,10 @@ export default function LivePage() {
   const [showThinking, setShowThinking] = useState(true);
   const [reasoningOnly, setReasoningOnly] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  // Bash one-liners laid out one statement per line. Off by default and
+  // remembered, under the same key the session view reads, so choosing it
+  // once holds across both views.
+  const [prettyShell, setPrettyShell] = useStickyState<boolean>('unfirehose.prettyShell', false);
   const [hoveredEntry, setHoveredEntry] = useState<number | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -616,6 +647,18 @@ export default function LivePage() {
             />
             Auto-scroll
           </label>
+          <label
+            className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer"
+            title="Lay bash one-liners out one statement per line"
+          >
+            <input
+              type="checkbox"
+              checked={prettyShell}
+              onChange={(e) => setPrettyShell(e.target.checked)}
+              className="accent-[var(--color-tool)]"
+            />
+            Pretty shell
+          </label>
           <button
             onClick={() => { setEntries([]); setHoveredEntry(null); }}
             className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
@@ -706,6 +749,7 @@ export default function LivePage() {
             key={item.key ?? i}
             item={item} i={i}
             reasoningOnly={reasoningOnly} showThinking={showThinking}
+            prettyShell={prettyShell}
             getColorForSession={getColorForSession}
             chain={chains[item.sessionId]}
             entries={entries} hoveredEntry={hoveredEntry}

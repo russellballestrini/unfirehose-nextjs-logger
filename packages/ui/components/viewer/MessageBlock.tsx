@@ -5,6 +5,7 @@ import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatTimestamp, formatDuration } from '@unturf/unfirehose/format';
+import { prettifyShell, shellHasStructure } from '@unturf/unfirehose/shell-pretty';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -107,17 +108,27 @@ function ToolCallView({
   name,
   input,
   show,
+  prettyShell = false,
 }: {
   name: string;
   input: Record<string, unknown>;
   show: boolean;
+  prettyShell?: boolean;
 }) {
   if (!show) return null;
 
   // If the input carries a multi-line code-like field, surface it as a fenced
   // code block (markdown renders newlines + monospace). Stash the remaining
   // input keys for context.
-  const code = pickCodeField(input as Record<string, any>);
+  //
+  // With "pretty shell" on, a one-line `command` with something to split
+  // (`cd x && make test; echo done`) becomes that code field too, laid out
+  // one statement per line. Off, nothing here changes.
+  const command = input?.command;
+  const code =
+    prettyShell && typeof command === 'string' && shellHasStructure(command)
+      ? { key: 'command', value: prettifyShell(command), lang: 'bash' }
+      : pickCodeField(input as Record<string, any>);
   const rest = code
     ? Object.fromEntries(Object.entries(input).filter(([k]) => k !== code.key))
     : input;
@@ -208,10 +219,12 @@ function AssistantMessage({
   entry,
   showThinking,
   showTools,
+  prettyShell,
 }: {
   entry: any;
   showThinking: boolean;
   showTools: boolean;
+  prettyShell?: boolean;
 }) {
   const content = entry.content;
   const model = entry.model;
@@ -262,6 +275,7 @@ function AssistantMessage({
                 name={block.toolName}
                 input={(block.input as Record<string, unknown>) ?? {}}
                 show={showTools}
+                prettyShell={prettyShell}
               />
             );
           }
@@ -313,10 +327,13 @@ export function MessageBlock({
   entry,
   showThinking,
   showTools,
+  prettyShell = false,
 }: {
   entry: any;
   showThinking: boolean;
   showTools: boolean;
+  /** Lay a bash one-liner out one statement per line (default off). */
+  prettyShell?: boolean;
 }) {
   // Canonical unfirehose/1.0: dispatch by role.
   const role = entry?.role ?? entry?.type;
@@ -326,7 +343,12 @@ export function MessageBlock({
       return <UserMessage entry={entry} />;
     case 'assistant':
       return (
-        <AssistantMessage entry={entry} showThinking={showThinking} showTools={showTools} />
+        <AssistantMessage
+          entry={entry}
+          showThinking={showThinking}
+          showTools={showTools}
+          prettyShell={prettyShell}
+        />
       );
     case 'tool':
       return <ToolMessage entry={entry} showTools={showTools} />;

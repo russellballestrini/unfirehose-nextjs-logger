@@ -131,6 +131,43 @@ describe('MessageBlock', () => {
     });
   });
 
+  describe('pretty shell', () => {
+    // A bash one-liner laid out one statement per line — on request only.
+    const oneLiner = 'cd ~/git/x && make test 2>&1 | tail -3; echo done';
+    const entry = {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'tool-call', toolCallId: 't1', toolName: 'Bash', input: { command: oneLiner, timeout: 5 } }],
+    };
+
+    it('without the prop, a one-line command stays in the JSON dump as it always did', () => {
+      const { container } = render(<MessageBlock entry={entry} showThinking={true} showTools={true} />);
+      expect(container.querySelector('code')).toBeNull();
+      expect(container.querySelector('pre')?.textContent).toBe(JSON.stringify(entry.content[0].input, null, 2));
+    });
+
+    it('with prettyShell, the command is a bash fence with one statement per line and the rest below', () => {
+      const { container } = render(
+        <MessageBlock entry={entry} showThinking={true} showTools={true} prettyShell />
+      );
+      const code = container.querySelector('code');
+      expect(code?.className).toContain('language-bash');
+      expect(code?.textContent).toBe('cd ~/git/x\n  && make test 2>&1\n  | tail -3\necho done\n');
+      expect(screen.getByText('command:')).toBeTruthy();
+      expect(container.textContent).toContain('"timeout": 5');
+      expect(container.textContent).not.toContain('"command"');
+    });
+
+    it('with prettyShell, a command with nothing to split renders as before', () => {
+      const plain = { ...entry, content: [{ ...entry.content[0], input: { command: 'ls -la' } }] };
+      const { container } = render(
+        <MessageBlock entry={plain} showThinking={true} showTools={true} prettyShell />
+      );
+      expect(container.querySelector('code')).toBeNull();
+      expect(container.textContent).toContain('"command": "ls -la"');
+    });
+  });
+
   describe('ToolMessage', () => {
     it('renders a tool-result block when showTools is true', () => {
       const entry = {
