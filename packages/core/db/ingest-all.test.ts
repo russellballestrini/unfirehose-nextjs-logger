@@ -444,6 +444,22 @@ describe('ingestAll over a native harness', () => {
     expect(row?.origin_url).toBe('ssh://git@git.unturf.com:2222/demo.git');
   });
 
+  it('reads remotes from the repository config, worktree or checkout, without a process', async () => {
+    const { readGitRemotes, gitConfigPath } = await import('./ingest');
+    expect(gitConfigPath(repo)).toBe(path.join(repo, '.git', 'config'));
+    expect(readGitRemotes(repo)).toEqual({
+      remotes: ['git@github.com:demo/demo.git', 'ssh://git@git.unturf.com:2222/demo.git'],
+      originUrl: 'ssh://git@git.unturf.com:2222/demo.git',
+    });
+    // A worktree's .git is a file naming a gitdir under the main repository;
+    // the remotes live in the common directory that gitdir points back to.
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'unfirehose-wt-'));
+    git('worktree', 'add', '-q', '--detach', wt);
+    expect(fs.statSync(path.join(wt, '.git')).isFile()).toBe(true);
+    expect(readGitRemotes(wt).originUrl).toBe('ssh://git@git.unturf.com:2222/demo.git');
+    expect(readGitRemotes(path.join(os.tmpdir()))).toEqual({ remotes: [], originUrl: null });
+  });
+
   it('records every remote, not just origin', () => {
     // A mirror clone can have a different origin from the one we know it
     // by; the set of remotes is what ties those together.

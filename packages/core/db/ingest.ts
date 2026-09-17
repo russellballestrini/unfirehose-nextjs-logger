@@ -88,14 +88,89 @@ type GitIdentity = {
   remotes: string[];      // all remote URLs, sorted
 };
 
-// Probing is two `git` spawns per working tree (~50 ms together), and the
-// cache used to be emptied at the top of every ingest pass — so every pass
-// re-spawned git for every project: 95 trees, 5 s of wall time per pass
-// measured 2026-09-17, on a pass that runs each minute and after every write
-// burst. Repos move on the order of hours, not seconds: an entry now lives
+// The cache used to be emptied at the top of every ingest pass, so every
+// pass re-spawned git for every project: 95 trees, 5 s per pass measured
+// 2026-09-17. Repos move on the order of hours, not seconds: an entry lives
 // this long, and a pass only drops what has aged out.
+//
+// Then the spawns themselves. A fork from this process costs what its
+// resident set costs to map — ~100 ms at 1 GB (measured 2026-09-17, against
+// 4 ms from a small one) with the event loop held for all of it — and every
+// tree's entry aged out at the same moment, so two spawns a tree came due
+// as one 19 s block every ten minutes. Now:
+//   * the root commit is read by git once a day per tree — it cannot change
+//     without a history rewrite;
+//   * the remotes are read from the repository's config file, in-process,
+//     each time the entry is refreshed. What `git config` would add from a
+//     global or system file is not a remote of this repository.
 const GIT_IDENTITY_TTL_MS = 10 * 60_000;
+const GIT_ROOT_HASH_TTL_MS = 24 * 60 * 60_000;
 const _gitIdentityCache = new Map<string, { at: number; value: GitIdentity | null }>();
+const _gitRootHashCache = new Map<string, { at: number; value: string | null }>();
+
+/**
+ * The repository config file for a working tree: `.git/config` for a
+ * checkout; for a worktree, whose `.git` is a file naming its gitdir, the
+ * config of the common directory that gitdir points back to.
+ */
+export function gitConfigPath(cwd: string): string | null {
+  const dotGit = path.join(cwd, '.git');
+  let st: Stats | null;
+  try { st = statSync(dotGit); } catch { return null; }
+  if (st.isDirectory()) return path.join(dotGit, 'config');
+  let gitdir: string;
+  try {
+    const m = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+    if (!m) return null;
+    gitdir = path.resolve(cwd, m[1].trim());
+  } catch { return null; }
+  try {
+    const common = readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim();
+    return path.join(path.resolve(gitdir, common), 'config');
+  } catch {
+    return path.join(gitdir, 'config');
+  }
+}
+
+/** Every remote URL in a repository's config, sorted, and origin's. No process spawned. */
+export function readGitRemotes(cwd: string): { remotes: string[]; originUrl: string | null } {
+  const remotes: string[] = [];
+  let originUrl: string | null = null;
+  const file = gitConfigPath(cwd);
+  if (!file) return { remotes, originUrl };
+  let text: string;
+  try { text = readFileSync(file, 'utf8'); } catch { return { remotes, originUrl }; }
+  let remote: string | null = null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('[')) {
+      const m = line.match(/^\[remote\s+"((?:[^"\\]|\\.)*)"\]$/);
+      remote = m ? m[1].replace(/\\(.)/g, '$1') : null;
+      continue;
+    }
+    if (remote === null) continue;
+    const kv = line.match(/^url\s*=\s*(.+?)\s*$/);
+    if (!kv) continue;
+    remotes.push(kv[1]);
+    if (remote === 'origin') originUrl = kv[1];
+  }
+  remotes.sort();
+  return { remotes, originUrl };
+}
+
+function gitRootHash(cwd: string): string | null {
+  const hit = _gitRootHashCache.get(cwd);
+  if (hit && Date.now() - hit.at < GIT_ROOT_HASH_TTL_MS) return hit.value;
+  let value: string | null = null;
+  try {
+    const out = execFileSync('git', ['-C', cwd, 'rev-list', '--max-parents=0', 'HEAD'],
+      { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const hashes = out.trim().split('\n').filter(Boolean).sort();
+    if (hashes.length > 0) value = hashes.join(',');  // multi-root repos get a stable composite
+  } catch { /* not a repository, or no commit yet */ }
+  _gitRootHashCache.set(cwd, { at: Date.now(), value });
+  return value;
+}
 
 function gitIdentity(cwd: string | undefined): GitIdentity | null {
   if (!cwd) return null;
@@ -107,34 +182,10 @@ function gitIdentity(cwd: string | undefined): GitIdentity | null {
   // Skip if path doesn't exist or isn't a git working tree
   if (!existsSync(cwd) || !existsSync(path.join(cwd, '.git'))) return miss();
 
-  let rootHash: string;
-  try {
-    const out = execFileSync('git', ['-C', cwd, 'rev-list', '--max-parents=0', 'HEAD'],
-      { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
-    const hashes = out.trim().split('\n').filter(Boolean).sort();
-    if (hashes.length === 0) return miss();
-    rootHash = hashes.join(',');  // multi-root repos get a stable composite
-  } catch {
-    return miss();
-  }
+  const rootHash = gitRootHash(cwd);
+  if (rootHash === null) return miss();
 
-  let remotes: string[] = [];
-  let originUrl: string | null = null;
-  try {
-    const out = execFileSync('git', ['-C', cwd, 'config', '--get-regexp', 'remote\\..*\\.url'],
-      { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
-    for (const line of out.trim().split('\n')) {
-      const m = line.match(/^remote\.([^.]+)\.url\s+(.+)$/);
-      if (!m) continue;
-      const [, name, url] = m;
-      remotes.push(url);
-      if (name === 'origin') originUrl = url;
-    }
-    remotes.sort();
-  } catch {
-    // No remotes — local-only repo. rootHash alone identifies it.
-  }
-
+  const { remotes, originUrl } = readGitRemotes(cwd);
   const identity: GitIdentity = { rootHash, originUrl, remotes };
   _gitIdentityCache.set(cwd, { at: Date.now(), value: identity });
   return identity;
