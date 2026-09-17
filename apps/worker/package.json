@@ -8,7 +8,7 @@
     "start": "tsx src/main.ts",
     "build": "echo 'worker: no build step (tsx runtime)'",
     "lint": "tsc --noEmit",
-    "test": "echo 'no tests yet'"
+    "test": "vitest run"
   },
   "dependencies": {
     "@unturf/unfirehose": "*"

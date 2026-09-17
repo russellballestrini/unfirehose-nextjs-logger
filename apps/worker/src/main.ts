@@ -2,12 +2,8 @@ import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
 import { ingestAll, getDbStats } from '@unturf/unfirehose/db/ingest';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
-import { discoverNodes } from '@unturf/unfirehose/mesh';
-import { getLocalStats } from '@unturf/unfirehose/mesh-local';
-import { probeRemote } from '@unturf/unfirehose/mesh-remote';
-import { insertMeshSnapshots } from '@unturf/unfirehose/db/mesh-snapshots';
-import { sampleVllmCache } from '@unturf/unfirehose/vllm-sample';
 import { rollupDrain } from './mesh-rollup';
+import { startSampler } from './sampler-supervisor';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
@@ -16,7 +12,6 @@ import { refreshProjectList } from '@unturf/unfirehose/projects-list';
 import { refreshDashboard, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
 
 const POLL_INTERVAL_MS = 60_000;
-const MESH_POLL_INTERVAL_MS = 15_000;
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
 // (capped at 16) catches up quickly without locking the DB for long.
@@ -47,10 +42,6 @@ const PRICE_SYNC_INTERVAL_MS = (() => {
 // time between the syncs that check triggers.
 const UNPRICED_CHECK_INTERVAL_MS = 5 * 60_000;
 const UNPRICED_SYNC_MIN_INTERVAL_MS = 60 * 60_000;
-// vLLM prefix-cache counters move over minutes, and each sample is an SSH
-// round trip to a box that is busy serving inference. Five minutes gives
-// useful windows without pestering the GPUs.
-const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
@@ -116,52 +107,6 @@ async function runIngestOnce(reason: string): Promise<void> {
     lastIngestAt = Date.now();
     ingestInFlight = false;
   }
-}
-
-// Deterministic per-host phase offset within [0, MESH_POLL_INTERVAL_MS) so that
-// hundreds of nodes don't stampede the network and SSH targets at the same tick.
-// Same host → same offset every restart → snapshots land at predictable instants.
-function phaseOffsetMs(host: string, intervalMs: number): number {
-  let h = 0;
-  for (let i = 0; i < host.length; i++) h = ((h << 5) - h + host.charCodeAt(i)) | 0;
-  return Math.abs(h) % intervalMs;
-}
-
-async function probeAndPersistNode(host: string): Promise<void> {
-  // Straight to the node and straight to the database. This used to fetch
-  // /api/mesh?host=… from the web server and then POST the answer back to
-  // /api/mesh/history — two HTTP round trips through the process whose job
-  // is to answer pages, every fifteen seconds, per node, whether or not
-  // anyone had a page open. On a busy box that was most of the dev server's
-  // load, and a sample was lost whenever the web server was down.
-  try {
-    const node = host === 'localhost' ? await getLocalStats() : await probeRemote(host);
-    if (!node.reachable) return;
-    insertMeshSnapshots(getDb(), [node]);
-  } catch (err) {
-    console.error(`[worker] mesh sample for ${host} failed:`, err);
-  }
-}
-
-function startStaggeredMeshSampler(): Array<NodeJS.Timeout> {
-  // Snapshot the node list at startup; if hosts change at runtime, the worker
-  // will pick them up on restart (acceptable for a periodically-restarted dev
-  // worker and a Salt-managed prod worker).
-  const hosts = discoverNodes();
-  if (hosts.length === 0) return [];
-  const timers: Array<NodeJS.Timeout> = [];
-  const span = MESH_POLL_INTERVAL_MS;
-  for (const host of hosts) {
-    const offset = phaseOffsetMs(host, span);
-    const t = setTimeout(() => {
-      probeAndPersistNode(host);
-      const t2 = setInterval(() => { probeAndPersistNode(host); }, span);
-      timers.push(t2);
-    }, offset);
-    timers.push(t);
-  }
-  console.log(`[worker] mesh sampler: ${hosts.length} nodes staggered across ${span / 1000}s window`);
-  return timers;
 }
 
 async function main() {
@@ -289,10 +234,10 @@ async function main() {
   }, STATUS_ROLLUP_INTERVAL_MS);
 
   // Headless mesh sampler — keeps GPU watts / utilization rolling without a
-  // browser tab being open. Per-node phase offsets prevent a stampede when the
-  // fleet grows. First batch of timers starts after Next has time to come up.
-  let meshTimers: Array<NodeJS.Timeout> = [];
-  setTimeout(() => { meshTimers = startStaggeredMeshSampler(); }, 5_000);
+  // browser tab being open — and the vLLM cache sampler, as one small child
+  // process: their work is spawning ssh and nvidia-smi, and a fork from this
+  // process costs ~100 ms of held event loop per spawn (see sampler.ts).
+  const sampler = startSampler(new URL('./sampler.ts', import.meta.url).pathname);
 
   // Cold-tier rollup tick. Each minute, drain up to 16 eligible 15-min
   // buckets from mesh_snapshots → mesh_snapshots_15m using the gaussian-
@@ -379,19 +324,6 @@ async function main() {
       .catch((err) => console.error('[worker] unpriced price sync failed:', err));
   }, UNPRICED_CHECK_INTERVAL_MS);
 
-  // Sample vLLM prefix-cache counters. Goes through the route rather than
-  // duplicating the SSH + port-discovery logic here — one probe, one place.
-  const vllmCacheInterval = setInterval(() => {
-    // Directly, not through the web server: this was the last thing the
-    // worker fetched from Next, and it stalled with it.
-    sampleVllmCache(getDb(), discoverNodes())
-      .then((nodes) => {
-        const n = nodes.reduce((a, x) => a + x.sampled, 0);
-        if (n > 0) console.log(`[worker] vllm cache: sampled ${n} model(s)`);
-      })
-      .catch((err) => console.error('[worker] vllm cache sample failed:', err));
-  }, VLLM_CACHE_SAMPLE_MS);
-
   // VACUUM only when there is something to reclaim. This ran unconditionally
   // every day and was our reason our WAL reached 3.6G: VACUUM rewrites every
   // page of our database, and in WAL mode those pages all land in our WAL, so
@@ -443,21 +375,17 @@ async function main() {
       clearTimeout(dashboardKickoff);
       clearInterval(dashboardInterval);
       clearInterval(dashboardLongInterval);
-      clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);
       clearInterval(unpricedInterval);
-      for (const t of meshTimers) {
-        clearTimeout(t);
-        clearInterval(t);
-      }
+      sampler.stop();
       stopWatcher();
       process.exit(0);
     });
   }
 
-  console.log(`[worker] polling every ${POLL_INTERVAL_MS / 1000}s, mesh every ${MESH_POLL_INTERVAL_MS / 1000}s (per-node staggered), rollup every ${ROLLUP_TICK_MS / 1000}s, ctrl+c to stop`);
+  console.log(`[worker] polling every ${POLL_INTERVAL_MS / 1000}s, mesh sampled by a child process, rollup every ${ROLLUP_TICK_MS / 1000}s, ctrl+c to stop`);
 }
 
 main().catch((err) => {
