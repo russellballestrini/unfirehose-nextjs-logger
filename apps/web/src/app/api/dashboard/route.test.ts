@@ -149,6 +149,20 @@ describe('GET /api/dashboard — cache our own models actually served', () => {
       body.modelBreakdown.find((m: { model: string }) => m.model === 'late/arrival'),
     ).toBeUndefined();
   });
+  it('reports the ingest lag as of now, not as of the build', async () => {
+    // The worker leaves a payload alone while nothing lands, so the lag it
+    // stamped at build time says "quiet worker" whether the worker is alive
+    // or dead. The heartbeat is read again on every serve.
+    await GET(req('24h'));
+    const stale = new Date(Date.now() - 45 * 60_000).toISOString();
+    db.prepare("INSERT INTO settings (key, value) VALUES ('last_ingest_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(stale);
+    const response = await GET(req('24h'));
+    expect(response.headers.get('Server-Timing')).toBe('stored;dur=0');
+    const body = await response.json();
+    expect(body.ingestLagMinutes).toBeGreaterThanOrEqual(44);
+    expect(body.ingestLagMinutes).toBeLessThanOrEqual(46);
+  });
+
   it('serves the last computed dashboard while the worker is behind', async () => {
     await GET(req('24h'));
     db.prepare("UPDATE settings SET value = '2000-01-01T00:00:00.000Z' WHERE key LIKE 'dashboard_%_at'").run();

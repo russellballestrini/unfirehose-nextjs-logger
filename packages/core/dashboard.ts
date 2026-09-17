@@ -9,7 +9,7 @@
  */
 
 import { getDb } from './db/schema';
-import { storePayload, readPayload } from './precomputed';
+import { storePayload, readPayload, payloadCurrent, messagesWatermark } from './precomputed';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
 import { usageCacheHitRate, cacheHitRate } from './vllm-metrics';
@@ -267,6 +267,11 @@ export function buildDashboard(range: string): any {
     // derived from our own conversations instead: an agent loop appends, so
     // the prefix shared with the previous call is that call's whole prompt.
     // A ceiling, not a measurement — the UI must say so.
+    //
+    // INDEXED BY: left to itself the planner walks the whole session index
+    // (1.9M rows) to hand the window function pre-ordered rows, then throws
+    // away all but the window. Measured 2026-09-17: 0.27 s for a 24h range
+    // that holds 11k rows; 0.01 s reading the window and sorting it.
     const reuseRows = db.prepare(`
       SELECT model,
              SUM(input_tokens) AS prompt_tokens,
@@ -276,7 +281,7 @@ export function buildDashboard(range: string): any {
                  LAG(input_tokens) OVER (
                    PARTITION BY session_id ORDER BY timestamp
                  ) AS prev
-            FROM messages
+            FROM messages INDEXED BY idx_messages_window_usage
            WHERE model IS NOT NULL
              AND timestamp >= ?
              AND input_tokens > 0
@@ -492,10 +497,18 @@ export function buildDashboard(range: string): any {
 
 const key = (range: string) => `dashboard_${range}`;
 
-/** Build and store one range. The worker calls this. */
-export function refreshDashboard(range: string): any {
+/**
+ * Build and store one range. The worker calls this.
+ *
+ * With `unlessCurrentMs`, a stored payload built from the same messages and
+ * younger than that is left alone and null comes back: nothing new to read
+ * means nothing new to write.
+ */
+export function refreshDashboard(range: string, opts: { unlessCurrentMs?: number } = {}): any | null {
+  const watermark = messagesWatermark();
+  if (opts.unlessCurrentMs !== undefined && payloadCurrent(key(range), opts.unlessCurrentMs, watermark)) return null;
   const payload = buildDashboard(range);
-  storePayload(key(range), payload);
+  storePayload(key(range), payload, watermark);
   return payload;
 }
 

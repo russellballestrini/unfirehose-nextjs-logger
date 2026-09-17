@@ -13,7 +13,7 @@ import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 import { refreshProjectList } from '@unturf/unfirehose/projects-list';
-import { refreshDashboard, WARM_RANGES, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
+import { refreshDashboard, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -64,6 +64,16 @@ const DASHBOARD_REFRESH_MS = 60_000;             // 24h + 7d: what a dashboard o
 const DASHBOARD_LONG_REFRESH_MS = 5 * 60_000;    // 28d: a month does not move in a minute
 const PROJECT_LIST_REFRESH_MS = 3 * 60_000;      // ~4 s of aggregates
 const SCROBBLE_REFRESH_MS = 15 * 60_000;         // ~15 s, two full scans of messages
+// Each tick above rebuilds only when a message has landed since the stored
+// payload was built (see payloadCurrent). These bound how old a payload may
+// grow while nothing lands: a range slides with the clock and mesh energy
+// samples arrive without a message, so a quiet hour still rebuilds this
+// often. Measured 2026-09-17: the three dashboards and the project list were
+// ~5 s of every minute on a worker with nothing to ingest.
+const DASHBOARD_MAX_QUIET_MS = 5 * 60_000;
+const DASHBOARD_LONG_MAX_QUIET_MS = 15 * 60_000;
+const PROJECT_LIST_MAX_QUIET_MS = 10 * 60_000;
+const SCROBBLE_MAX_QUIET_MS = 60 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
@@ -199,20 +209,25 @@ async function main() {
 
   // Dashboard payloads for the ranges a dashboard opens on. Any other range
   // builds on its first request and is stored for the next.
-  const refreshDashboards = (ranges: readonly string[]) => {
+  // A skipped range logs nothing: the ingest line a moment earlier already
+  // said +0m, and a rebuild is the event worth a line.
+  const refreshDashboards = (ranges: readonly string[], unlessCurrentMs: number) => {
     for (const range of ranges) {
       try {
         const t0 = Date.now();
-        refreshDashboard(range);
+        if (refreshDashboard(range, { unlessCurrentMs }) === null) continue;
         console.log(`[worker] dashboard ${range} in ${Date.now() - t0}ms`);
       } catch (err) {
         console.error(`[worker] dashboard ${range} failed:`, err);
       }
     }
   };
-  const dashboardKickoff = setTimeout(() => refreshDashboards(WARM_RANGES), 12_000);
-  const dashboardInterval = setInterval(() => refreshDashboards(WARM_SHORT_RANGES), DASHBOARD_REFRESH_MS);
-  const dashboardLongInterval = setInterval(() => refreshDashboards(WARM_LONG_RANGES), DASHBOARD_LONG_REFRESH_MS);
+  const dashboardKickoff = setTimeout(() => {
+    refreshDashboards(WARM_SHORT_RANGES, DASHBOARD_MAX_QUIET_MS);
+    refreshDashboards(WARM_LONG_RANGES, DASHBOARD_LONG_MAX_QUIET_MS);
+  }, 12_000);
+  const dashboardInterval = setInterval(() => refreshDashboards(WARM_SHORT_RANGES, DASHBOARD_MAX_QUIET_MS), DASHBOARD_REFRESH_MS);
+  const dashboardLongInterval = setInterval(() => refreshDashboards(WARM_LONG_RANGES, DASHBOARD_LONG_MAX_QUIET_MS), DASHBOARD_LONG_REFRESH_MS);
 
   // Project list. Two aggregates over messages plus a filesystem pass —
   // about 5s, which starves the single-threaded web process if it runs
@@ -220,7 +235,8 @@ async function main() {
   const refreshProjects = async () => {
     try {
       const t0 = Date.now();
-      const rows = await refreshProjectList();
+      const rows = await refreshProjectList({ unlessCurrentMs: PROJECT_LIST_MAX_QUIET_MS });
+      if (rows === null) return;
       console.log(`[worker] project list: ${rows.length} projects in ${Date.now() - t0}ms`);
     } catch (err) {
       console.error('[worker] project list refresh failed:', err);
@@ -234,7 +250,7 @@ async function main() {
   const refreshScrobble = () => {
     try {
       const t0 = Date.now();
-      refreshScrobblePayload(getDb());
+      if (refreshScrobblePayload(getDb(), { unlessCurrentMs: SCROBBLE_MAX_QUIET_MS }) === null) return;
       console.log(`[worker] scrobble payload refreshed in ${Date.now() - t0}ms`);
     } catch (err) {
       console.error('[worker] scrobble refresh failed:', err);

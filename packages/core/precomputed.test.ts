@@ -4,7 +4,7 @@ import { createTestDb } from './test/db-helper';
 const db = createTestDb();
 vi.mock('./db/schema', () => ({ getDb: () => db }));
 
-const { storePayload, readPayload } = await import('./precomputed');
+const { storePayload, readPayload, payloadCurrent, messagesWatermark } = await import('./precomputed');
 
 /**
  * The dashboard, the project list and the scrobble payload all reach a route
@@ -61,6 +61,40 @@ describe('precomputed payloads', () => {
     storePayload('test_b', { which: 'b' });
     expect(readPayload<{ which: string }>('test_a', 60_000)?.payload.which).toBe('a');
     expect(readPayload<{ which: string }>('test_b', 60_000)?.payload.which).toBe('b');
+  });
+
+  it('is current while no message has landed since it was built', () => {
+    storePayload('test_a', { n: 1 });
+    expect(payloadCurrent('test_a', 60_000)).toBe(true);
+  });
+
+  it('is current only within the age the caller allows', () => {
+    // A window slides with the clock and mesh samples land without a
+    // message, so an unchanged watermark is not a licence to never rebuild.
+    storePayload('test_a', { n: 1 });
+    expect(payloadCurrent('test_a', -1)).toBe(false);
+  });
+
+  it('is not current once a message lands', () => {
+    storePayload('test_a', { n: 1 });
+    const pid = db.prepare("INSERT INTO projects (name, display_name) VALUES ('p', 'p')").run().lastInsertRowid;
+    const sid = db.prepare("INSERT INTO sessions (session_uuid, project_id) VALUES ('s-wm', ?)").run(pid).lastInsertRowid;
+    db.prepare("INSERT INTO messages (session_id, type, timestamp) VALUES (?, 'assistant', ?)").run(sid, new Date().toISOString());
+    expect(payloadCurrent('test_a', 60_000)).toBe(false);
+    // Rebuilt against the new watermark, it is current again.
+    storePayload('test_a', { n: 2 });
+    expect(payloadCurrent('test_a', 60_000)).toBe(true);
+  });
+
+  it('is not current for a payload stored before watermarks existed', () => {
+    storePayload('test_a', { n: 1 });
+    db.prepare("DELETE FROM settings WHERE key = 'test_a_watermark'").run();
+    expect(payloadCurrent('test_a', 60_000)).toBe(false);
+  });
+
+  it('reads an empty table as a watermark, not an error', () => {
+    db.prepare('DELETE FROM messages').run();
+    expect(messagesWatermark()).toBe('0');
   });
 
   it('replaces a payload rather than accumulating rows', () => {

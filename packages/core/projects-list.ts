@@ -21,7 +21,7 @@ import {
   isEphemeralPath, isWorkspacePath, ancestorByPath, countPathChildren,
 } from './project-rollup';
 import type { ProjectInfo, SessionsIndex } from './types';
-import { storePayload, readPayload } from './precomputed';
+import { storePayload, readPayload, payloadCurrent, messagesWatermark } from './precomputed';
 import { classifyProjectRows, cleanPath } from './project-classify';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -348,10 +348,16 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
 }
 
 
-/** Build and store. The worker calls this. */
-export async function refreshProjectList(): Promise<ProjectInfo[]> {
+/**
+ * Build and store. The worker calls this. With `unlessCurrentMs`, a stored
+ * list built from the same messages and younger than that stands, and null
+ * comes back — see payloadCurrent.
+ */
+export async function refreshProjectList(opts: { unlessCurrentMs?: number } = {}): Promise<ProjectInfo[] | null> {
+  const watermark = messagesWatermark();
+  if (opts.unlessCurrentMs !== undefined && payloadCurrent(PROJECT_LIST_KEY, opts.unlessCurrentMs, watermark)) return null;
   const rows = await buildProjectList();
-  storePayload(PROJECT_LIST_KEY, rows);
+  storePayload(PROJECT_LIST_KEY, rows, watermark);
   return rows;
 }
 

@@ -12,7 +12,7 @@ import { getDb } from './db/schema';
 import { getSetting } from './db/ingest';
 import { costForUsage } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
-import { storePayload, readPayload } from './precomputed';
+import { storePayload, readPayload, payloadCurrent, messagesWatermark } from './precomputed';
 import { TOOL_CALL_SQL } from './block-types';
 import { weekKey } from './scrobble-range';
 import type { DailyGrain, ModelDaily, HarnessDaily, ToolDaily } from './scrobble-range';
@@ -413,9 +413,14 @@ export function buildScrobblePayload(db: Database.Database = getDb()): any {
  * Store the payload so a page load never computes it. The worker calls this;
  * the route reads what it left.
  */
-export function refreshScrobblePayload(db: Database.Database = getDb()): any {
+export function refreshScrobblePayload(
+  db: Database.Database = getDb(),
+  opts: { unlessCurrentMs?: number } = {},
+): any | null {
+  const watermark = messagesWatermark();
+  if (opts.unlessCurrentMs !== undefined && payloadCurrent(SCROBBLE_CACHE_KEY, opts.unlessCurrentMs, watermark)) return null;
   const payload = buildScrobblePayload(db);
-  storePayload(SCROBBLE_CACHE_KEY, payload);
+  storePayload(SCROBBLE_CACHE_KEY, payload, watermark);
   return payload;
 }
 
