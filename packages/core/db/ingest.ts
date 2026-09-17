@@ -1457,6 +1457,7 @@ async function lastByteIsNewline(file: string, size: number): Promise<boolean> {
 export async function ingestJsonlSource(
   db: ReturnType<typeof getDb>,
   harness: JsonlSource,
+  only?: ReadonlySet<string>,
 ): Promise<Omit<IngestResult, 'alertsTriggered'>> {
   const result = {
     projectsAdded: 0,
@@ -1474,6 +1475,7 @@ export async function ingestJsonlSource(
 
   for (const slug of projectDirs) {
     const projDir = harness.projectDir(slug);
+    if (only && !only.has(projDir)) continue;
     const dirStat = statSyncSafe(projDir);
     if (!dirStat?.isDirectory()) continue;
 
@@ -1742,22 +1744,40 @@ export function ingestLagMinutes(): number | null {
   return Math.max(0, Math.round((Date.now() - at) / 60_000));
 }
 
-export async function ingestAll(): Promise<IngestResult> {
-  // One offsets snapshot per pass — see knownOffset.
-  _offsetsSnapshot = snapshotOffsets(getDb());
+/**
+ * Options for a pass. `dirs` names project directories (absolute paths, as
+ * claudePaths.projectDir / harness.projectDir spell them) and makes the
+ * pass targeted: only those directories are read, and the housekeeping a
+ * full pass carries — the offsets snapshot, native-harness rediscovery,
+ * name and delegation backfills, auto-merge, the witness — is left to the
+ * next full pass. The file watcher runs these; it knows which directory
+ * changed, and a full pass costs a stat of every journal on the box (~47k,
+ * ~4 s measured 2026-09-17) after every two-second lull in a busy session.
+ */
+export interface IngestOptions {
+  dirs?: ReadonlySet<string>;
+}
+
+export async function ingestAll(opts: IngestOptions = {}): Promise<IngestResult> {
+  // One offsets snapshot per pass — see knownOffset. A targeted pass reads
+  // a handful of offsets; the snapshot is 80k rows and costs more than it saves.
+  _offsetsSnapshot = opts.dirs ? null : snapshotOffsets(getDb());
   try {
-    return await ingestAllPass();
+    return await ingestAllPass(opts);
   } finally {
     _offsetsSnapshot = null;
   }
 }
 
-async function ingestAllPass(): Promise<IngestResult> {
-  // Re-discover native harness directories (picks up newly created ones)
-  refreshNativeHarnesses();
+async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
+  const only = opts.dirs;
+  if (!only) {
+    // Re-discover native harness directories (picks up newly created ones)
+    refreshNativeHarnesses();
 
-  // Drop git identities past the TTL — repos move, remotes change, paths come and go.
-  clearGitIdentityCache();
+    // Drop git identities past the TTL — repos move, remotes change, paths come and go.
+    clearGitIdentityCache();
+  }
 
   const db = getDb();
   const result: IngestResult = {
@@ -1779,6 +1799,7 @@ async function ingestAllPass(): Promise<IngestResult> {
 
   for (const dir of projectDirs) {
     const projDir = claudePaths.projectDir(dir);
+    if (only && !only.has(projDir)) continue;
     const dirStat = statSyncSafe(projDir);
     if (!dirStat?.isDirectory()) continue;
 
@@ -2037,7 +2058,7 @@ async function ingestAllPass(): Promise<IngestResult> {
       projectDir: (slug) => fetchPaths.projectDir(slug),
       // Fetch writes Claude Code's format, not ours.
       toMessage: (entry) => normalizeClaudeCodeEntry(entry),
-    });
+    }, only);
     result.projectsAdded += fetchResult.projectsAdded;
     result.sessionsAdded += fetchResult.sessionsAdded;
     result.messagesAdded += fetchResult.messagesAdded;
@@ -2058,13 +2079,24 @@ async function ingestAllPass(): Promise<IngestResult> {
       projectDir: (slug) => path.join(harness.root, slug),
       // unfirehose/1.0: a message says so.
       toMessage: (entry) => (entry.type === 'message' ? entry : null),
-    });
+    }, only);
     result.projectsAdded += hResult.projectsAdded;
     result.sessionsAdded += hResult.sessionsAdded;
     result.messagesAdded += hResult.messagesAdded;
     result.blocksAdded += hResult.blocksAdded;
     result.filesScanned += hResult.filesScanned;
     result.providenceAdded += hResult.providenceAdded;
+  }
+
+  // A targeted pass ends here: the rows it read are in, an alert that
+  // crossed a threshold fires now, and the heartbeat says a read happened.
+  // Everything below is a sweep over the whole database, and belongs to
+  // the pass that also swept the whole filesystem.
+  if (only) {
+    result.alertsTriggered = checkThresholds(db);
+    if (uneofProjects.size > 0) cullUneofDeployments(db, uneofProjects);
+    setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
+    return result;
   }
 
   // Backfill display_name for sessions without one OR with preamble names

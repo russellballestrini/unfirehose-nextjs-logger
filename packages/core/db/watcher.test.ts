@@ -34,10 +34,10 @@ vi.mock('fs/promises', () => ({
   },
 }));
 
-const ingest = vi.fn(async () => {});
+const ingest = vi.fn(async (_opts?: { dirs?: ReadonlySet<string> }) => {});
 let harnesses: Array<{ name: string; root: string }>;
 vi.mock('./ingest', () => ({
-  ingestAll: () => ingest(),
+  ingestAll: (opts?: { dirs?: ReadonlySet<string> }) => ingest(opts),
   get nativeHarnesses() { return harnesses; },
 }));
 vi.mock('../claude-paths', () => ({ claudePaths: { projects: '/home/fox/.claude/projects' } }));
@@ -188,5 +188,63 @@ describe('stopWatcher', () => {
     watches = [];
     await startWatcher();
     expect(watches.length).toBeGreaterThan(0);
+  });
+});
+
+describe('a change names its project, and the pass reads only that', () => {
+  const dirsOf = (call: number) => [...(ingest.mock.calls[call][0]?.dirs ?? [])].sort();
+
+  it('passes the changed project directories to the ingest', async () => {
+    await startWatcher();
+    fire('-home-fox-git-a/s1.jsonl', '/home/fox/.claude/projects');
+    fire('-home-fox-git-a/s1.jsonl', '/home/fox/.claude/projects');
+    fire('proj-b/s2.jsonl', '/home/fox/.testharness/unfirehose');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ingest).toHaveBeenCalledTimes(1);
+    expect(dirsOf(0)).toEqual([
+      '/home/fox/.claude/projects/-home-fox-git-a',
+      '/home/fox/.testharness/unfirehose/proj-b',
+    ]);
+  });
+
+  it('resolves a subagent journal to its project, not its subagents folder', async () => {
+    await startWatcher();
+    fire('-home-fox-git-a/s1/subagents/agent-x.jsonl', '/home/fox/.claude/projects');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(dirsOf(0)).toEqual(['/home/fox/.claude/projects/-home-fox-git-a']);
+  });
+
+  it('runs a full pass when a burst touches more projects than is worth naming', async () => {
+    await startWatcher();
+    for (let i = 0; i < 65; i++) fire(`proj-${i}/s.jsonl`, '/home/fox/.claude/projects');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ingest).toHaveBeenCalledTimes(1);
+    expect(ingest.mock.calls[0][0]?.dirs).toBeUndefined();
+  });
+
+  it('starts each burst from an empty set', async () => {
+    await startWatcher();
+    fire('proj-a/s.jsonl', '/home/fox/.claude/projects');
+    await vi.advanceTimersByTimeAsync(2000);
+    fire('proj-b/s.jsonl', '/home/fox/.claude/projects');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(dirsOf(1)).toEqual(['/home/fox/.claude/projects/proj-b']);
+  });
+
+  it('keeps a burst that lands while a pass is running, and reads it after', async () => {
+    let finish!: () => void;
+    ingest.mockImplementationOnce(() => new Promise<void>((r) => { finish = r; }));
+    await startWatcher();
+    fire('proj-a/s.jsonl', '/home/fox/.claude/projects');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ingest).toHaveBeenCalledTimes(1);
+    // Still running. A second project changes; nothing starts on top.
+    fire('proj-b/s.jsonl', '/home/fox/.claude/projects');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ingest).toHaveBeenCalledTimes(1);
+    finish();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ingest).toHaveBeenCalledTimes(2);
+    expect(dirsOf(1)).toEqual(['/home/fox/.claude/projects/proj-b']);
   });
 });

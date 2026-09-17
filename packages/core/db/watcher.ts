@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from 'fs';
 import { stat } from 'fs/promises';
 import { claudePaths } from '../claude-paths';
 import { fetchPaths } from '../fetch-paths';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { nativeHarnesses } from './ingest';
 import { ingestAll } from './ingest';
 import { getDb } from './schema';
@@ -16,11 +16,35 @@ let ingesting = false;
 
 const DEBOUNCE_MS = 2000;
 
+// The project directories touched since the last pass. A change event
+// names its file, so the pass it triggers reads that file's project and
+// nothing else — a full pass stats every journal on the box (~47k, ~4 s
+// measured 2026-09-17) and ran after every two-second lull in a session
+// that never stops writing. Past MAX_TARGETED_DIRS in one burst (a restore,
+// a sync landing) the full pass is cheaper than the bookkeeping.
+const MAX_TARGETED_DIRS = 64;
+const changedDirs = new Set<string>();
+
+/** The project directory a watched path belongs to: root + first segment. */
+function projectDirOf(root: string, filename: string): string {
+  return join(root, String(filename).split(sep)[0]);
+}
+
+function noteChange(root: string, filename: string) {
+  changedDirs.add(projectDirOf(root, filename));
+  debouncedIngest();
+}
+
 async function onFileChange() {
-  if (ingesting) return;
+  // A pass already running: keep what has accumulated and look again after
+  // it. Dropping the burst here left its files to the periodic pass, up to
+  // a minute later.
+  if (ingesting) { debouncedIngest(); return; }
   ingesting = true;
+  const dirs = new Set(changedDirs);
+  changedDirs.clear();
   try {
-    await ingestAll();
+    await ingestAll(dirs.size > 0 && dirs.size <= MAX_TARGETED_DIRS ? { dirs } : {});
   } catch (err) {
     console.error('[watcher] ingest failed:', err);
   } finally {
@@ -90,7 +114,7 @@ export async function startWatcher() {
     if (!enabled || enabled.includes('claude-code')) watcher = watch(claudePaths.projects, { recursive: true }, (_event, filename) => {
       if (filename && (filename.endsWith('.jsonl') || filename.endsWith('sessions-index.json'))) {
         if (filename.endsWith('.jsonl')) onJournalEvent(join(claudePaths.projects, String(filename)));
-        debouncedIngest();
+        noteChange(claudePaths.projects, String(filename));
       }
     });
     console.log('[watcher] watching', claudePaths.projects);
@@ -103,7 +127,7 @@ export async function startWatcher() {
     try {
       fetchWatcher = watch(fetchPaths.root, { recursive: true }, (_event, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
-          debouncedIngest();
+          noteChange(fetchPaths.root, String(filename));
         }
       });
       console.log('[watcher] watching', fetchPaths.root);
@@ -122,7 +146,7 @@ export async function startWatcher() {
       const w = watch(harness.root, { recursive: true }, (_event, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
           onJournalEvent(join(harness.root, String(filename)));
-          debouncedIngest();
+          noteChange(harness.root, String(filename));
         }
       });
       harnessWatchers.set(harness.name, w);
@@ -152,4 +176,5 @@ export function stopWatcher() {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
+  changedDirs.clear();
 }

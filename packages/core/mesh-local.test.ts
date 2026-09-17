@@ -20,9 +20,9 @@ const { getLocalStats } = await import('./mesh-local');
  * happens to be doing.
  */
 const onLinux = process.platform === 'linux' ? describe : describe.skip;
+const stats = process.platform === 'linux' ? await getLocalStats() : ({} as Awaited<ReturnType<typeof getLocalStats>>);
 
 onLinux('getLocalStats', () => {
-  const stats = getLocalStats();
 
   it('reports the machine as reachable', () => {
     // It is us. If this is false something threw and was swallowed.

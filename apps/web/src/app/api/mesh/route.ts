@@ -25,11 +25,11 @@ async function probeMesh(timing?: Timing) {
   const nodeHosts = discoverNodes();
   timing?.mark('discover');
 
-  // Probe all nodes in parallel — local is sync, remote is async
+  // Probe all nodes in parallel.
   const rawResults = await Promise.all(
     nodeHosts.map(host =>
       host === 'localhost'
-        ? Promise.resolve(getLocalStats())
+        ? getLocalStats()
         : probeRemote(host)
     )
   );
@@ -81,7 +81,7 @@ async function probeSingleHost(host: string) {
   // matches what /api/mesh/history POST expects (flat MeshNode fields).
   // Bypasses the cache because callers want point-in-time samples.
   const node = host === 'localhost'
-    ? getLocalStats()
+    ? await getLocalStats()
     : await probeRemote(host);
   let localHostname: string | undefined;
   try { localHostname = execSync('hostname', { encoding: 'utf-8' }).trim(); } catch {}

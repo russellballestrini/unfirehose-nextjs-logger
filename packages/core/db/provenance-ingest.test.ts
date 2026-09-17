@@ -426,3 +426,27 @@ describe('SessionChainTracker', () => {
     expect(getSessionChain(db, 't')).toBeNull();
   });
 });
+
+describe('a targeted pass reads only the directories it is given', () => {
+  it('leaves a sibling project untouched, then reads it on a full pass', async () => {
+    const v = vectors.find((x: any) => x.expect.state !== 'unchained')!;
+    const uuid = v.label.replace(/\W/g, '_');
+    writeSession(uuid, v.lines);
+    // A second project with the same session lines under another slug.
+    const otherDir = path.join(root, '-tmp-other-proj');
+    mkdirSync(otherDir, { recursive: true });
+    writeFileSync(path.join(otherDir, `${uuid}.jsonl`), v.lines.join('\n') + '\n');
+
+    const only = new Set([path.join(root, SLUG)]);
+    const targeted = await ingestJsonlSource(db, source(), only);
+    expect(targeted.filesScanned).toBe(1);
+    expect(offsetOf(uuid)).toBeGreaterThan(0);
+    const otherOffset = () => (db.prepare('SELECT byte_offset AS b FROM ingest_offsets WHERE file_path = ?')
+      .get(path.join(otherDir, `${uuid}.jsonl`)) as { b: number } | undefined)?.b;
+    expect(otherOffset()).toBeUndefined();
+
+    const full = await ingestJsonlSource(db, source());
+    expect(full.filesScanned).toBe(1);
+    expect(otherOffset()).toBeGreaterThan(0);
+  });
+});

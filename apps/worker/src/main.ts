@@ -135,7 +135,7 @@ async function probeAndPersistNode(host: string): Promise<void> {
   // anyone had a page open. On a busy box that was most of the dev server's
   // load, and a sample was lost whenever the web server was down.
   try {
-    const node = host === 'localhost' ? getLocalStats() : await probeRemote(host);
+    const node = host === 'localhost' ? await getLocalStats() : await probeRemote(host);
     if (!node.reachable) return;
     insertMeshSnapshots(getDb(), [node]);
   } catch (err) {
