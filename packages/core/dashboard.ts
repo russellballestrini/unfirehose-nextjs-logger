@@ -504,5 +504,9 @@ export function readDashboard(range: string, maxAgeMs = 3 * 60_000) {
   return readPayload<any>(key(range), maxAgeMs);
 }
 
-/** The ranges a dashboard opens on, kept warm by the worker. */
-export const WARM_RANGES = ['24h', '7d', '28d'];
+/** The ranges a dashboard opens on, kept warm by the worker: the short ones
+ * every minute, the long one every few — a month's totals do not move in a
+ * minute, and building it costs four times the other two together. */
+export const WARM_SHORT_RANGES = ['24h', '7d'] as const;
+export const WARM_LONG_RANGES = ['28d'] as const;
+export const WARM_RANGES = [...WARM_SHORT_RANGES, ...WARM_LONG_RANGES];

@@ -39,36 +39,45 @@ function debouncedIngest() {
 // The rewrite watch runs per change event, ahead of the ingest debounce:
 // a writer that appends a line and rewrites it within two seconds settles
 // before the pass ever looks, so the pass can only see the final state.
-// Leading edge on the first event of a burst, one trailing check 150 ms
-// after the last, per file; a check reads one live journal and compares
-// it with its shadow (a few ms). Never load-bearing: a failure is logged
-// once and ingest is untouched.
+// One trailing check 150 ms after the last event of a burst, per file.
+// Never load-bearing: a failure is logged once and ingest is untouched.
+//
+// A check reads the whole journal, hashes every line and loads the whole
+// shadow, so it costs what the file weighs: a few ms on a young session,
+// ~800 ms on an 18 MB one (measured 2026-09-17), and a live session only
+// grows. Claude Code fires several events per turn, so on a long session
+// that was seconds of every minute spent re-hashing an unchanged prefix.
+// The check therefore paces itself: after a check that took T, the next
+// one for that file waits at least QUICK_PACE × T. A cheap file is checked
+// on every burst as before; an expensive one is checked at a rate that
+// keeps it under 1/QUICK_PACE of the worker's time by construction. The
+// leading-edge check is gone for the same reason — the trailing one sees
+// the same settled state 150 ms later.
 const QUICK_TRAIL_MS = 150;
-const quickLast = new Map<string, number>();
+const QUICK_PACE = 10;
+const quickNotBefore = new Map<string, number>();
 const quickPending = new Map<string, ReturnType<typeof setTimeout>>();
 let quickFailed = false;
 
 function quickRewriteCheck(filePath: string) {
+  const t0 = Date.now();
   try {
     watchRewriteFile(getDb(), filePath);
   } catch (err) {
     if (!quickFailed) { quickFailed = true; console.error('[watcher] rewrite check failed:', err); }
   }
+  const took = Date.now() - t0;
+  quickNotBefore.set(filePath, Date.now() + Math.max(QUICK_TRAIL_MS, QUICK_PACE * took));
 }
 
 export function onJournalEvent(filePath: string) {
-  const now = Date.now();
-  if (now - (quickLast.get(filePath) ?? 0) >= QUICK_TRAIL_MS) {
-    quickLast.set(filePath, now);
-    quickRewriteCheck(filePath);
-  }
   const pending = quickPending.get(filePath);
   if (pending) clearTimeout(pending);
+  const wait = Math.max(QUICK_TRAIL_MS, (quickNotBefore.get(filePath) ?? 0) - Date.now());
   quickPending.set(filePath, setTimeout(() => {
     quickPending.delete(filePath);
-    quickLast.set(filePath, Date.now());
     quickRewriteCheck(filePath);
-  }, QUICK_TRAIL_MS));
+  }, wait));
 }
 
 export async function startWatcher() {

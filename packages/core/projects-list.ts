@@ -356,6 +356,6 @@ export async function refreshProjectList(): Promise<ProjectInfo[]> {
 }
 
 /** The stored list when it is fresh enough, else null. */
-export function readProjectList(maxAgeMs = 5 * 60_000) {
+export function readProjectList(maxAgeMs = 15 * 60_000) {
   return readPayload<ProjectInfo[]>(PROJECT_LIST_KEY, maxAgeMs);
 }

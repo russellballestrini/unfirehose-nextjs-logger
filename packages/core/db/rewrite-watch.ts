@@ -181,6 +181,13 @@ export interface WatchResult { files: number; rewrites: number; truncations: num
 interface ShadowRow { seq: number; hash: string; text: string; len: number; truncated: number; digest: string | null }
 interface Candidate { session_uuid: string; file_path: string; mtime: number }
 
+// mtime of each journal as of its last compare. A compare reads and hashes
+// the whole file, so on a long session it costs hundreds of ms; a file whose
+// mtime has not moved since we last looked cannot have been rewritten
+// (a rewrite is a write), so it is skipped outright. Both the per-event
+// check and the end-of-pass sweep consult this.
+const _lastCompared = new Map<string, number>();
+
 const uuidOf = (filePath: string) => path.basename(filePath).replace(/\.jsonl$/, '');
 
 /** Complete, non-blank lines of a journal; a trailing partial line (no final newline) is dropped. */
@@ -255,6 +262,7 @@ export function watchRewrites(db: Database.Database, opts: { limit?: number } = 
   ensureRewriteTables(db);
   const stmts = prepare(db);
   for (const c of candidates(db, limit)) {
+    if (_lastCompared.get(c.session_uuid) === c.mtime) continue;
     const r = compareOne(db, stmts, c);
     if (!r) continue;
     out.files += 1;
@@ -284,6 +292,7 @@ export function watchRewriteFile(db: Database.Database, filePath: string): { rew
   const row = db.prepare('SELECT hashed FROM session_chain WHERE session_uuid = ?')
     .get(session_uuid) as { hashed: number } | undefined;
   if (row && row.hashed > 0) return null;
+  if (_lastCompared.get(session_uuid) === mtime) return { rewrites: 0, truncations: 0 };
   return compareOne(db, prepare(db), { session_uuid, file_path: filePath, mtime });
 }
 
@@ -350,6 +359,7 @@ function compareOne(db: Database.Database, st: Stmts, c: Candidate): { rewrites:
       if (shadow.length > fileLines) st.dropPast.run(c.session_uuid, fileLines);
     })();
   } catch { return null; /* one unreadable file never stops the pass */ }
+  _lastCompared.set(c.session_uuid, c.mtime);
   if (out.rewrites || out.truncations) {
     console.log(`[rewrite-watch] ${c.session_uuid.slice(0, 8)}: ${out.rewrites} rewritten, ${out.truncations} truncated`);
   }

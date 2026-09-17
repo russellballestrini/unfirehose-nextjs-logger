@@ -13,7 +13,7 @@ import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 import { refreshProjectList } from '@unturf/unfirehose/projects-list';
-import { refreshDashboard, WARM_RANGES } from '@unturf/unfirehose/dashboard';
+import { refreshDashboard, WARM_RANGES, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
 
 const POLL_INTERVAL_MS = 60_000;
 const MESH_POLL_INTERVAL_MS = 15_000;
@@ -54,9 +54,16 @@ const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
-const DASHBOARD_REFRESH_MS = 60_000;      // ~1.2s per range; the page polls every 30s
-const PROJECT_LIST_REFRESH_MS = 60_000;   // ~5s of aggregates; never on a page load
-const SCROBBLE_REFRESH_MS = 5 * 60_000;   // two full scans of messages; not on a page load
+// Stored-payload cadences. Every route serves whatever is stored, however
+// old (readX(Infinity)) — staleness is the only cost of a longer interval,
+// never a rebuild on a request. Measured 2026-09-17 on a 6.6 GB database:
+// dashboard 24h 0.7 s, 7d 1.2 s, 28d 4.6 s; project list 4.0 s; scrobble
+// 14.7 s. All at 60 s / 60 s / 5 min that was 13 s of every minute on one
+// thread. The short ranges stay live; the long tail moves to minutes.
+const DASHBOARD_REFRESH_MS = 60_000;             // 24h + 7d: what a dashboard opens on
+const DASHBOARD_LONG_REFRESH_MS = 5 * 60_000;    // 28d: a month does not move in a minute
+const PROJECT_LIST_REFRESH_MS = 3 * 60_000;      // ~4 s of aggregates
+const SCROBBLE_REFRESH_MS = 15 * 60_000;         // ~15 s, two full scans of messages
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
@@ -85,10 +92,14 @@ let ingestInFlight = false;
 async function runIngestOnce(reason: string): Promise<void> {
   if (ingestInFlight) return;
   ingestInFlight = true;
+  const t0 = Date.now();
   try {
-    await ingestAll();
+    const r = await ingestAll();
     const s = getDbStats();
-    console.log(`[worker] ingest (${reason}): ${s.projects}p ${s.sessions}s ${s.messages}m`);
+    // The duration is the number that matters: a quiet pass was 26 s on
+    // 2026-09-17 and nobody could see it, because this line said only what
+    // the database held afterwards.
+    console.log(`[worker] ingest (${reason}): ${s.projects}p ${s.sessions}s ${s.messages}m · +${r.messagesAdded}m from ${r.filesScanned} file(s) in ${Date.now() - t0}ms`);
   } catch (err) {
     console.error(`[worker] ingest (${reason}) failed:`, err);
   } finally {
@@ -188,8 +199,8 @@ async function main() {
 
   // Dashboard payloads for the ranges a dashboard opens on. Any other range
   // builds on its first request and is stored for the next.
-  const refreshDashboards = () => {
-    for (const range of WARM_RANGES) {
+  const refreshDashboards = (ranges: readonly string[]) => {
+    for (const range of ranges) {
       try {
         const t0 = Date.now();
         refreshDashboard(range);
@@ -199,8 +210,9 @@ async function main() {
       }
     }
   };
-  const dashboardKickoff = setTimeout(refreshDashboards, 12_000);
-  const dashboardInterval = setInterval(refreshDashboards, DASHBOARD_REFRESH_MS);
+  const dashboardKickoff = setTimeout(() => refreshDashboards(WARM_RANGES), 12_000);
+  const dashboardInterval = setInterval(() => refreshDashboards(WARM_SHORT_RANGES), DASHBOARD_REFRESH_MS);
+  const dashboardLongInterval = setInterval(() => refreshDashboards(WARM_LONG_RANGES), DASHBOARD_LONG_REFRESH_MS);
 
   // Project list. Two aggregates over messages plus a filesystem pass —
   // about 5s, which starves the single-threaded web process if it runs
@@ -414,6 +426,7 @@ async function main() {
       clearInterval(projectsInterval);
       clearTimeout(dashboardKickoff);
       clearInterval(dashboardInterval);
+      clearInterval(dashboardLongInterval);
       clearInterval(vllmCacheInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);

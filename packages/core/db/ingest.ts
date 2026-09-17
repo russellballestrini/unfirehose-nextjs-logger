@@ -1,5 +1,6 @@
 import { readdir, readFile, stat, mkdir, appendFile, writeFile, open } from 'fs/promises';
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream, existsSync, readFileSync } from 'fs';
+import type { Stats } from 'fs';
 import { createInterface } from 'readline';
 import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -87,13 +88,21 @@ type GitIdentity = {
   remotes: string[];      // all remote URLs, sorted
 };
 
-const _gitIdentityCache = new Map<string, GitIdentity | null>();
+// Probing is two `git` spawns per working tree (~50 ms together), and the
+// cache used to be emptied at the top of every ingest pass — so every pass
+// re-spawned git for every project: 95 trees, 5 s of wall time per pass
+// measured 2026-09-17, on a pass that runs each minute and after every write
+// burst. Repos move on the order of hours, not seconds: an entry now lives
+// this long, and a pass only drops what has aged out.
+const GIT_IDENTITY_TTL_MS = 10 * 60_000;
+const _gitIdentityCache = new Map<string, { at: number; value: GitIdentity | null }>();
 
 function gitIdentity(cwd: string | undefined): GitIdentity | null {
   if (!cwd) return null;
-  if (_gitIdentityCache.has(cwd)) return _gitIdentityCache.get(cwd)!;
+  const hit = _gitIdentityCache.get(cwd);
+  if (hit && Date.now() - hit.at < GIT_IDENTITY_TTL_MS) return hit.value;
 
-  const miss = (): null => { _gitIdentityCache.set(cwd, null); return null; };
+  const miss = (): null => { _gitIdentityCache.set(cwd, { at: Date.now(), value: null }); return null; };
 
   // Skip if path doesn't exist or isn't a git working tree
   if (!existsSync(cwd) || !existsSync(path.join(cwd, '.git'))) return miss();
@@ -127,12 +136,90 @@ function gitIdentity(cwd: string | undefined): GitIdentity | null {
   }
 
   const identity: GitIdentity = { rootHash, originUrl, remotes };
-  _gitIdentityCache.set(cwd, identity);
+  _gitIdentityCache.set(cwd, { at: Date.now(), value: identity });
   return identity;
 }
 
+/** Drop identities older than the TTL. Fresh ones are reused across passes. */
 function clearGitIdentityCache(): void {
-  _gitIdentityCache.clear();
+  const now = Date.now();
+  for (const [cwd, hit] of _gitIdentityCache) {
+    if (now - hit.at >= GIT_IDENTITY_TTL_MS) _gitIdentityCache.delete(cwd);
+  }
+}
+
+// Fleet roots are other homes on this box, found by walking them; that walk
+// was 0.5 s of every pass (measured 2026-09-17) to rediscover the same
+// homes. A worker home appears on the order of minutes, so this is
+// remembered for a while.
+const FLEET_TTL_MS = 5 * 60_000;
+let _fleet: { at: number; value: ReturnType<typeof discoverFleetHarnesses> } | null = null;
+function fleetHarnesses() {
+  if (_fleet && Date.now() - _fleet.at < FLEET_TTL_MS) return _fleet.value;
+  _fleet = { at: Date.now(), value: discoverFleetHarnesses() };
+  return _fleet.value;
+}
+
+// A directory's listing, remembered against its mtime. A directory's mtime
+// moves when an entry is created, renamed or removed — exactly when its
+// listing changes — and not when a file inside it grows. So a project
+// directory that lists the same journals as last pass costs one stat, not a
+// readdir plus a path.join per entry: ~24k readdirs a pass, 0.9 s, measured
+// 2026-09-17.
+const _listingCache = new Map<string, { mtimeMs: number; files: string[] }>();
+function jsonlListing(dir: string, dirMtimeMs: number): string[] {
+  const hit = _listingCache.get(dir);
+  if (hit && hit.mtimeMs === dirMtimeMs) return hit.files;
+  const files = readdirSyncSafe(dir).filter((f) => f.endsWith('.jsonl'));
+  _listingCache.set(dir, { mtimeMs: dirMtimeMs, files });
+  return files;
+}
+
+// ── Per-pass hot paths ───────────────────────────────────────────────────
+// A quiet pass (nothing new anywhere) still visits every project directory
+// and every journal to learn that: ~10k directories, ~24k files, one offset
+// lookup each. Measured 2026-09-17 that pass took 26 s, of which 16 s was
+// fs/promises round trips through the thread pool (a stat is microseconds;
+// the await around it is not) and 4 s was re-preparing the same statements
+// inside the loops. The pass runs every minute and after every write burst,
+// which came to 83% of one core, steadily, with nothing to ingest.
+//
+// So the no-new-bytes checks are synchronous — a batch pass on a worker with
+// no requests to serve, where blocking for 20 µs beats yielding for 400 — and
+// the statements it repeats are prepared once per database.
+function statSyncSafe(p: string): Stats | null {
+  try { return statSync(p); } catch { return null; }
+}
+function readdirSyncSafe(p: string, opts?: { recursive?: boolean }): string[] {
+  try { return readdirSync(p, opts) as string[]; } catch { return []; }
+}
+type Db = ReturnType<typeof getDb>;
+const _stmtCache = new WeakMap<Db, Map<string, ReturnType<Db['prepare']>>>();
+function stmt(db: Db, sql: string) {
+  let m = _stmtCache.get(db);
+  if (!m) { m = new Map(); _stmtCache.set(db, m); }
+  let st = m.get(sql);
+  if (!st) { st = db.prepare(sql); m.set(sql, st); }
+  return st;
+}
+// Where ingest last stopped in every file, read once per pass. A quiet pass
+// asks this ~47k times (one per journal, every source); as 47k point
+// lookups that was 1.1 s of the pass, as one scan of 80k rows into a Map it
+// is ~80 ms. Set for the duration of ingestAll; a standalone caller of
+// ingestJsonlSource has no snapshot and falls back to the lookup.
+let _offsetsSnapshot: Map<string, number> | null = null;
+function snapshotOffsets(db: Db): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of db.prepare('SELECT file_path, byte_offset FROM ingest_offsets').iterate() as Iterable<{ file_path: string; byte_offset: number }>) {
+    m.set(r.file_path, r.byte_offset);
+  }
+  return m;
+}
+function knownOffset(db: Db, filePath: string): number | undefined {
+  if (_offsetsSnapshot) return _offsetsSnapshot.get(filePath);
+  const row = stmt(db, 'SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
+    .get(filePath) as { byte_offset: number } | undefined;
+  return row?.byte_offset;
 }
 
 function harnessPrefixOf(name: string): string {
@@ -150,8 +237,7 @@ function getOrCreateProject(
   const identity = gitIdentity(projectPath);
 
   // 1. Direct name match (most common path)
-  const direct = db
-    .prepare('SELECT id, path, root_commit_hash, origin_url FROM projects WHERE name = ?')
+  const direct = stmt(db, 'SELECT id, path, root_commit_hash, origin_url FROM projects WHERE name = ?')
     .get(name) as { id: number; path: string; root_commit_hash: string | null; origin_url: string | null } | undefined;
   if (direct) {
     // Opportunistic backfill: populate identity fields when missing or update last_cwd_seen.
@@ -445,19 +531,17 @@ async function ingestSubagentsForSession(
   result: { filesScanned: number; sessionsAdded: number; messagesAdded: number; blocksAdded: number },
 ): Promise<void> {
   const subagentDir = claudePaths.subagentsDir(projectDirName, meta.sessionId);
-  const subagentFiles = await readdir(subagentDir, { recursive: true }).catch(() => []);
+  const subagentFiles = readdirSyncSafe(subagentDir, { recursive: true });
   for (const subFile of subagentFiles) {
     const base = path.basename(subFile);
     if (!base.startsWith('agent-') || !base.endsWith('.jsonl')) continue;
     const agentId = path.join(path.dirname(subFile), base.slice('agent-'.length, -'.jsonl'.length));
     const subFilePath = path.join(subagentDir, subFile);
-    const subStat = await stat(subFilePath).catch(() => null);
+    const subStat = statSyncSafe(subFilePath);
     if (!subStat) continue;
 
-    const subOffsetRow = db
-      .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
-      .get(subFilePath) as { byte_offset: number } | undefined;
-    const subStartByte = subOffsetRow?.byte_offset ?? 0;
+    const subOffset = knownOffset(db, subFilePath);
+    const subStartByte = subOffset ?? 0;
     if (subStat.size <= subStartByte) continue;
 
     result.filesScanned++;
@@ -471,7 +555,7 @@ async function ingestSubagentsForSession(
       delegatedFrom: meta.sessionId,
       harness: 'claude-code',
     });
-    if (!subOffsetRow) result.sessionsAdded++;
+    if (subOffset === undefined) result.sessionsAdded++;
 
     const subStream = createReadStream(subFilePath, {
       start: subStartByte,
@@ -559,14 +643,15 @@ function toolResultMime(relPath: string): string {
 }
 
 /** Relative paths of every file under a spill dir, descending into subdirs. */
-async function walkToolResultFiles(root: string, prefix = '', depth = 0): Promise<string[]> {
+function walkToolResultFiles(root: string, prefix = '', depth = 0): string[] {
   if (depth >= TOOL_RESULT_MAX_DEPTH) return [];
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  let entries: import('fs').Dirent[];
+  try { entries = readdirSync(root, { withFileTypes: true }); } catch { return []; }
   const found: string[] = [];
   for (const entry of entries) {
     const rel = prefix ? path.join(prefix, entry.name) : entry.name;
     if (entry.isDirectory()) {
-      found.push(...(await walkToolResultFiles(path.join(root, entry.name), rel, depth + 1)));
+      found.push(...walkToolResultFiles(path.join(root, entry.name), rel, depth + 1));
     } else if (entry.isFile()) {
       found.push(rel);
     }
@@ -594,7 +679,7 @@ export async function archiveToolResultsForSession(
   result: { filesScanned: number },
 ): Promise<void> {
   const dir = claudePaths.toolResultsDir(projectDirName, meta.sessionId);
-  const files = await walkToolResultFiles(dir);
+  const files = walkToolResultFiles(dir);
   if (files.length === 0) return;
 
   const attachmentsDir = path.join(UNFIREHOSE_DIR, 'attachments');
@@ -1389,18 +1474,13 @@ export async function ingestJsonlSource(
 
   for (const slug of projectDirs) {
     const projDir = harness.projectDir(slug);
-    const dirStat = await stat(projDir).catch(() => null);
+    const dirStat = statSyncSafe(projDir);
     if (!dirStat?.isDirectory()) continue;
 
     const projectName = `${harness.name}:${slug}`;
     const displayName = `[${harness.name}] ${decodeProjectName(slug)}`;
 
-    let files: string[];
-    try {
-      files = (await readdir(projDir)).filter((f) => f.endsWith('.jsonl'));
-    } catch {
-      continue;
-    }
+    const files = jsonlListing(projDir, dirStat.mtimeMs);
     if (files.length === 0) continue;
 
     // resolveProjectPath falls back to a filesystem DFS that probes every way
@@ -1413,31 +1493,37 @@ export async function ingestJsonlSource(
     //
     // A project we already know needs no probing. The DFS stays as the last
     // resort for a project we have never seen.
-    const knownProj = db
-      .prepare('SELECT COALESCE(path, last_cwd_seen) AS p FROM projects WHERE name = ?')
+    // Files first, project second. A project whose journals hold no new
+    // bytes needs nothing from the database — not its row, not its git
+    // identity, not a session count — and on a quiet pass that is every
+    // project: ~24k of them, three queries each, 4 s of the pass measured
+    // 2026-09-17. Stat the files, and only a project with something to
+    // ingest goes any further.
+    const pending: Array<{ sessionUuid: string; filePath: string; size: number; offset: number | undefined }> = [];
+    for (const file of files) {
+      const sessionUuid = file.replace('.jsonl', '');
+      const filePath = path.join(harness.root, slug, `${sessionUuid}.jsonl`);
+      const fstat = statSyncSafe(filePath);
+      if (!fstat) continue;
+      const offset = knownOffset(db, filePath);
+      if (fstat.size <= (offset ?? 0)) continue;
+      pending.push({ sessionUuid, filePath, size: fstat.size, offset });
+    }
+    if (pending.length === 0) continue;
+
+    const knownProj = stmt(db, 'SELECT COALESCE(path, last_cwd_seen) AS p FROM projects WHERE name = ?')
       .get(projectName) as { p: string | null } | undefined;
     const slugCwd = knownProj?.p
       ?? await nativeSessionCwd(path.join(projDir, files[0]))
       ?? (await resolveProjectPath(slug).catch(() => null));
     const projectId = getOrCreateProject(db, projectName, displayName, slugCwd ?? undefined);
 
-    const prevCount = db
-      .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
-      .get(projectId) as { c: number };
-    if (prevCount.c === 0 && files.length > 0) result.projectsAdded++;
+    const hadSessions = stmt(db, 'SELECT 1 AS x FROM sessions WHERE project_id = ? LIMIT 1').get(projectId);
+    if (!hadSessions) result.projectsAdded++;
 
-    for (const file of files) {
-      const sessionUuid = file.replace('.jsonl', '');
-      const filePath = path.join(harness.root, slug, `${sessionUuid}.jsonl`);
-      const fstat = await stat(filePath).catch(() => null);
-      if (!fstat) continue;
-
-      const offset = db
-        .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
-        .get(filePath) as { byte_offset: number } | undefined;
-      const startByte = offset?.byte_offset ?? 0;
-
-      if (fstat.size <= startByte) continue;
+    for (const { sessionUuid, filePath, size, offset } of pending) {
+      const fstat = { size };
+      const startByte = offset ?? 0;
 
       result.filesScanned++;
 
@@ -1446,7 +1532,7 @@ export async function ingestJsonlSource(
         harness: harness.name,
       });
 
-      if (!offset) result.sessionsAdded++;
+      if (offset === undefined) result.sessionsAdded++;
 
       // A writer can be mid-line when we read: the file's last byte is
       // then not a newline and readline still hands us the partial
@@ -1657,10 +1743,20 @@ export function ingestLagMinutes(): number | null {
 }
 
 export async function ingestAll(): Promise<IngestResult> {
+  // One offsets snapshot per pass — see knownOffset.
+  _offsetsSnapshot = snapshotOffsets(getDb());
+  try {
+    return await ingestAllPass();
+  } finally {
+    _offsetsSnapshot = null;
+  }
+}
+
+async function ingestAllPass(): Promise<IngestResult> {
   // Re-discover native harness directories (picks up newly created ones)
   refreshNativeHarnesses();
 
-  // Re-probe git identity each pass — repos move, remotes change, paths come and go.
+  // Drop git identities past the TTL — repos move, remotes change, paths come and go.
   clearGitIdentityCache();
 
   const db = getDb();
@@ -1683,7 +1779,7 @@ export async function ingestAll(): Promise<IngestResult> {
 
   for (const dir of projectDirs) {
     const projDir = claudePaths.projectDir(dir);
-    const dirStat = await stat(projDir).catch(() => null);
+    const dirStat = statSyncSafe(projDir);
     if (!dirStat?.isDirectory()) continue;
 
     let projectPath = '';
@@ -1697,7 +1793,7 @@ export async function ingestAll(): Promise<IngestResult> {
 
     // Read sessions index if available
     try {
-      const indexRaw = await readFile(claudePaths.sessionsIndex(dir), 'utf-8');
+      const indexRaw = readFileSync(claudePaths.sessionsIndex(dir), 'utf-8');
       const index: SessionsIndex = JSON.parse(indexRaw);
       projectPath = index.originalPath ?? '';
       sessionMeta = index.entries.map((e) => ({
@@ -1714,7 +1810,7 @@ export async function ingestAll(): Promise<IngestResult> {
     // Also scan for JSONL files not in the sessions index
     try {
       const indexedIds = new Set(sessionMeta.map((m) => m.sessionId));
-      const files = await readdir(projDir);
+      const files = readdirSync(projDir);
       for (const f of files) {
         if (!f.endsWith('.jsonl')) continue;
         const sid = f.replace('.jsonl', '');
@@ -1743,21 +1839,17 @@ export async function ingestAll(): Promise<IngestResult> {
     );
 
     // Check if project was new
-    const prevCount = db
-      .prepare('SELECT COUNT(*) as c FROM sessions WHERE project_id = ?')
-      .get(projectId) as { c: number };
-    if (prevCount.c === 0 && sessionMeta.length > 0) result.projectsAdded++;
+    const hadSessions = stmt(db, 'SELECT 1 AS x FROM sessions WHERE project_id = ? LIMIT 1').get(projectId);
+    if (!hadSessions && sessionMeta.length > 0) result.projectsAdded++;
 
     for (const meta of sessionMeta) {
       const filePath = claudePaths.sessionFile(dir, meta.sessionId);
-      const fstat = await stat(filePath).catch(() => null);
+      const fstat = statSyncSafe(filePath);
       if (!fstat) continue;
 
       // Check ingestion offset
-      const offset = db
-        .prepare('SELECT byte_offset FROM ingest_offsets WHERE file_path = ?')
-        .get(filePath) as { byte_offset: number } | undefined;
-      const startByte = offset?.byte_offset ?? 0;
+      const offset = knownOffset(db, filePath);
+      const startByte = offset ?? 0;
 
       const parentHasNewBytes = fstat.size > startByte;
 
@@ -1780,7 +1872,7 @@ export async function ingestAll(): Promise<IngestResult> {
         harness: 'claude-code',
       });
 
-      if (!offset) result.sessionsAdded++;
+      if (offset === undefined) result.sessionsAdded++;
 
       // A Claude Code transcript is not chained (its writer is not ours),
       // but the witness records every line it reads all the same, so an
@@ -1957,7 +2049,7 @@ export async function ingestAll(): Promise<IngestResult> {
   // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.),
   // then the same harnesses under every fleet worker's private HOME
   // (fleet-roots.ts) — found each pass, never fs-watched.
-  const fleet = (!enabled || enabled.includes('fleet')) ? discoverFleetHarnesses() : [];
+  const fleet = (!enabled || enabled.includes('fleet')) ? fleetHarnesses() : [];
   for (const harness of [...nativeHarnesses, ...fleet]) {
     if (enabled && !enabled.includes(harness.name)) continue;
     const hResult = await ingestJsonlSource(db, {

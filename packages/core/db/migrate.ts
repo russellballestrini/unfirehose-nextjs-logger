@@ -834,6 +834,10 @@ export function migrate(db: Database.Database) {
       prefix_caching INTEGER                -- vLLM's own on/off report
     );
     CREATE INDEX IF NOT EXISTS idx_vllm_cache_ts    ON vllm_cache_samples(timestamp);
+    -- The rewrite watch and the witness pick journals by most-recently
+    -- ingested; without this every pass sorted all 80k offset rows (0.33 s,
+    -- measured 2026-09-17).
+    CREATE INDEX IF NOT EXISTS idx_ingest_offsets_last_ingested ON ingest_offsets(last_ingested);
     CREATE INDEX IF NOT EXISTS idx_vllm_cache_host  ON vllm_cache_samples(hostname, model, timestamp);
   `);
 
