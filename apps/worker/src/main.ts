@@ -1,5 +1,6 @@
 import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
-import { ingestAll, getDbStats } from '@unturf/unfirehose/db/ingest';
+import { ingestAll, getDbStats, ingestActivityAt, type IngestResult } from '@unturf/unfirehose/db/ingest';
+import { POLL_INTERVAL_MS, nextPollDelayMs } from './poll-cadence';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
 import { rollupDrain } from './mesh-rollup';
@@ -11,7 +12,6 @@ import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 import { refreshProjectList } from '@unturf/unfirehose/projects-list';
 import { refreshDashboard, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
 
-const POLL_INTERVAL_MS = 60_000;
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
 // (capped at 16) catches up quickly without locking the DB for long.
@@ -61,10 +61,13 @@ const SCROBBLE_REFRESH_MS = 15 * 60_000;         // ~15 s, two full scans of mes
 // samples arrive without a message, so a quiet hour still rebuilds this
 // often. Measured 2026-09-17: the three dashboards and the project list were
 // ~5 s of every minute on a worker with nothing to ingest.
-const DASHBOARD_MAX_QUIET_MS = 5 * 60_000;
-const DASHBOARD_LONG_MAX_QUIET_MS = 15 * 60_000;
-const PROJECT_LIST_MAX_QUIET_MS = 10 * 60_000;
-const SCROBBLE_MAX_QUIET_MS = 60 * 60_000;
+// While nothing lands, the only things that move are the window's trailing
+// edge and the mesh energy integral; the page shows X-Computed-At. The
+// first message to land moves the watermark and rebuilds within a minute.
+const DASHBOARD_MAX_QUIET_MS = 15 * 60_000;
+const DASHBOARD_LONG_MAX_QUIET_MS = 30 * 60_000;
+const PROJECT_LIST_MAX_QUIET_MS = 15 * 60_000;
+const SCROBBLE_MAX_QUIET_MS = 2 * 60 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
@@ -90,8 +93,8 @@ process.on('unhandledRejection', (reason) => {
 let lastIngestAt = Date.now();
 let ingestInFlight = false;
 
-async function runIngestOnce(reason: string): Promise<void> {
-  if (ingestInFlight) return;
+async function runIngestOnce(reason: string): Promise<IngestResult | null> {
+  if (ingestInFlight) return null;
   ingestInFlight = true;
   const t0 = Date.now();
   try {
@@ -101,8 +104,10 @@ async function runIngestOnce(reason: string): Promise<void> {
     // 2026-09-17 and nobody could see it, because this line said only what
     // the database held afterwards.
     console.log(`[worker] ingest (${reason}): ${s.projects}p ${s.sessions}s ${s.messages}m · +${r.messagesAdded}m from ${r.filesScanned} file(s) in ${Date.now() - t0}ms`);
+    return r;
   } catch (err) {
     console.error(`[worker] ingest (${reason}) failed:`, err);
+    return null;
   } finally {
     lastIngestAt = Date.now();
     ingestInFlight = false;
@@ -121,7 +126,22 @@ async function main() {
   console.log('[worker] file watchers active');
 
   // Periodic full ingest as safety net (single-flight via runIngestOnce).
-  const interval = setInterval(() => { void runIngestOnce('periodic'); }, POLL_INTERVAL_MS);
+  // Self-scheduling: the wait stretches while nothing lands (poll-cadence.ts).
+  let pollDelay = POLL_INTERVAL_MS;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  const schedulePoll = () => {
+    pollTimer = setTimeout(async () => {
+      const scheduledAt = Date.now() - pollDelay;
+      await runIngestOnce('periodic');
+      // Active if any pass — this one or a watcher's — read new bytes since
+      // this poll was scheduled.
+      const next = nextPollDelayMs(pollDelay, ingestActivityAt() >= scheduledAt);
+      if (next !== pollDelay) console.log(`[worker] ${next > pollDelay ? 'quiet' : 'active'}: next full pass in ${next / 1000}s`);
+      pollDelay = next;
+      schedulePoll();
+    }, pollDelay);
+  };
+  schedulePoll();
 
   // Rate-limit extraction rides the ingest cadence: blocks land, then get
   // classified. Incremental, so each pass only reads what arrived since the
@@ -361,7 +381,7 @@ async function main() {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       console.log(`[worker] ${signal} received, shutting down`);
-      clearInterval(interval);
+      if (pollTimer) clearTimeout(pollTimer);
       clearInterval(watchdog);
       clearInterval(rollupInterval);
       clearInterval(rateLimitInterval);
@@ -385,7 +405,7 @@ async function main() {
     });
   }
 
-  console.log(`[worker] polling every ${POLL_INTERVAL_MS / 1000}s, mesh sampled by a child process, rollup every ${ROLLUP_TICK_MS / 1000}s, ctrl+c to stop`);
+  console.log(`[worker] full pass every ${POLL_INTERVAL_MS / 1000}s while active, stretching to 5 min when quiet; mesh sampled by a child process; rollup every ${ROLLUP_TICK_MS / 1000}s; ctrl+c to stop`);
 }
 
 main().catch((err) => {

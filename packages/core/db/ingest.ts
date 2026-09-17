@@ -1807,6 +1807,31 @@ export function ingestLagMinutes(): number | null {
  */
 export interface IngestOptions {
   dirs?: ReadonlySet<string>;
+  /** Force the whole-database housekeeping on or off; default: housekeepingDue. */
+  housekeeping?: boolean;
+}
+
+// The tail of a full pass is housekeeping over the whole database: name
+// and timestamp backfills, delegation linking, auto-merge, the witness
+// audit. On a quiet box every query of it finds nothing, and it ran every
+// minute — ~0.5 s a pass measured 2026-09-17, a third of a pass that had
+// nothing to ingest. It now runs when a pass brought something in, and
+// otherwise this often, so a rewrite or a rename is still noticed within
+// minutes of an idle hour.
+const HOUSEKEEPING_INTERVAL_MS = 10 * 60_000;
+let _lastHousekeepingAt = 0;
+let _ingestActivityAt = 0;
+
+/** When a pass last read a journal with new bytes. The worker paces its full passes by it. */
+export function ingestActivityAt(): number { return _ingestActivityAt; }
+
+export function housekeepingDue(
+  result: Pick<IngestResult, 'projectsAdded' | 'sessionsAdded' | 'messagesAdded' | 'filesScanned'>,
+  now: number = Date.now(),
+  lastAt: number = _lastHousekeepingAt,
+): boolean {
+  return result.filesScanned > 0 || result.projectsAdded > 0 || result.sessionsAdded > 0 || result.messagesAdded > 0
+    || now - lastAt >= HOUSEKEEPING_INTERVAL_MS;
 }
 
 export async function ingestAll(opts: IngestOptions = {}): Promise<IngestResult> {
@@ -2143,6 +2168,7 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
   // crossed a threshold fires now, and the heartbeat says a read happened.
   // Everything below is a sweep over the whole database, and belongs to
   // the pass that also swept the whole filesystem.
+  if (result.filesScanned > 0) _ingestActivityAt = Date.now();
   if (only) {
     result.alertsTriggered = checkThresholds(db);
     if (uneofProjects.size > 0) cullUneofDeployments(db, uneofProjects);
@@ -2150,125 +2176,132 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     return result;
   }
 
-  // Backfill display_name for sessions without one OR with preamble names
-  const needsName = db.prepare(
-    `SELECT id, first_prompt, session_uuid FROM sessions
-     WHERE display_name IS NULL
-        OR display_name = '(blackops session)'
-        OR display_name LIKE 'Agent Blackops%'
-        OR display_name LIKE '[Request interrupted%'`
-  ).all() as Array<{ id: number; first_prompt: string | null; session_uuid: string }>;
-  if (needsName.length > 0) {
-    const updateName = db.prepare('UPDATE sessions SET display_name = ? WHERE id = ?');
-    // Try to find a real user prompt if first_prompt is a preamble
-    const findRealPrompt = db.prepare(`
-      SELECT cb.text_content FROM messages m
-      JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
-      WHERE m.session_id = ? AND m.type = 'user'
-        AND cb.text_content NOT LIKE '%blackops%'
-        AND cb.text_content NOT LIKE '%Request interrupted%'
-        AND cb.text_content NOT LIKE '%shadow clone%'
-        AND LENGTH(cb.text_content) > 15
-      ORDER BY m.timestamp
-      LIMIT 1
-    `);
-    const backfill = db.transaction(() => {
-      for (const row of needsName) {
-        let name = generateSessionName(row.first_prompt, row.session_uuid);
-        // If name fell back to UUID, try finding a real prompt from content_blocks
-        if (name === row.session_uuid.slice(0, 8)) {
-          const real = findRealPrompt.get(row.id) as { text_content: string } | undefined;
-          if (real?.text_content) {
-            name = generateSessionName(real.text_content, row.session_uuid);
+  const housekeeping = opts.housekeeping ?? housekeepingDue(result);
+  if (housekeeping) {
+    _lastHousekeepingAt = Date.now();
+  }
+  if (housekeeping) {
+    // Backfill display_name for sessions without one OR with preamble names
+    const needsName = db.prepare(
+      `SELECT id, first_prompt, session_uuid FROM sessions
+       WHERE display_name IS NULL
+          OR display_name = '(blackops session)'
+          OR display_name LIKE 'Agent Blackops%'
+          OR display_name LIKE '[Request interrupted%'`
+    ).all() as Array<{ id: number; first_prompt: string | null; session_uuid: string }>;
+    if (needsName.length > 0) {
+      const updateName = db.prepare('UPDATE sessions SET display_name = ? WHERE id = ?');
+      // Try to find a real user prompt if first_prompt is a preamble
+      const findRealPrompt = db.prepare(`
+        SELECT cb.text_content FROM messages m
+        JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
+        WHERE m.session_id = ? AND m.type = 'user'
+          AND cb.text_content NOT LIKE '%blackops%'
+          AND cb.text_content NOT LIKE '%Request interrupted%'
+          AND cb.text_content NOT LIKE '%shadow clone%'
+          AND LENGTH(cb.text_content) > 15
+        ORDER BY m.timestamp
+        LIMIT 1
+      `);
+      const backfill = db.transaction(() => {
+        for (const row of needsName) {
+          let name = generateSessionName(row.first_prompt, row.session_uuid);
+          // If name fell back to UUID, try finding a real prompt from content_blocks
+          if (name === row.session_uuid.slice(0, 8)) {
+            const real = findRealPrompt.get(row.id) as { text_content: string } | undefined;
+            if (real?.text_content) {
+              name = generateSessionName(real.text_content, row.session_uuid);
+            }
+          }
+          updateName.run(name, row.id);
+        }
+      });
+      backfill();
+    }
+
+
+    // Backfill UUIDv7 for existing todos that don't have one
+    const nullUuids = db.prepare('SELECT id, created_at FROM todos WHERE uuid IS NULL').all() as Array<{ id: number; created_at: string }>;
+    if (nullUuids.length > 0) {
+      const updateUuid = db.prepare('UPDATE todos SET uuid = ? WHERE id = ?');
+      const uuidBackfill = db.transaction(() => {
+        for (const row of nullUuids) {
+          const ts = row.created_at ? new Date(row.created_at).getTime() : Date.now();
+          updateUuid.run(uuidv7(ts), row.id);
+        }
+      });
+      uuidBackfill();
+      console.log(`[backfill] Assigned UUIDv7 to ${nullUuids.length} todos`);
+    }
+
+    // Backfill last_message_at from actual message timestamps
+    const nullLastMsg = db.prepare(`
+      SELECT s.id FROM sessions s WHERE s.last_message_at IS NULL
+      AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.timestamp IS NOT NULL)
+    `).all() as Array<{ id: number }>;
+    if (nullLastMsg.length > 0) {
+      const updateLastMsg = db.prepare(`
+        UPDATE sessions SET last_message_at = (
+          SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = ?
+        ) WHERE id = ?
+      `);
+      const backfillLastMsg = db.transaction(() => {
+        for (const row of nullLastMsg) {
+          updateLastMsg.run(row.id, row.id);
+        }
+      });
+      backfillLastMsg();
+      console.log(`[backfill] Set last_message_at for ${nullLastMsg.length} sessions`);
+    }
+
+    // Heuristic delegation detection: find sessions spawned by Agent tool calls
+    // in other sessions (same project, child started within 30s of Agent tool_use)
+    const unlinkedSessions = db.prepare(`
+      SELECT s.id, s.session_uuid, s.project_id, s.created_at, s.first_prompt
+      FROM sessions s
+      WHERE s.delegated_from IS NULL
+        AND s.harness = 'claude-code'
+        AND s.created_at IS NOT NULL
+    `).all() as Array<{ id: number; session_uuid: string; project_id: number; created_at: string; first_prompt: string | null }>;
+
+    if (unlinkedSessions.length > 0) {
+      const findParentAgent = db.prepare(`
+        SELECT s.session_uuid
+        FROM content_blocks cb
+        JOIN messages m ON cb.message_id = m.id
+        JOIN sessions s ON m.session_id = s.id
+        WHERE cb.block_type ${TOOL_CALL_SQL}
+          AND cb.tool_name = 'Agent'
+          AND s.project_id = ?
+          AND s.session_uuid != ?
+          AND m.timestamp BETWEEN datetime(?, '-30 seconds') AND datetime(?, '+30 seconds')
+        LIMIT 1
+      `);
+
+      const linkDelegation = db.transaction(() => {
+        for (const sess of unlinkedSessions) {
+          if (!sess.created_at) continue;
+          const parent = findParentAgent.get(
+            sess.project_id, sess.session_uuid, sess.created_at, sess.created_at
+          ) as { session_uuid: string } | undefined;
+          if (parent) {
+            db.prepare(
+              'UPDATE sessions SET delegated_from = ? WHERE id = ? AND delegated_from IS NULL'
+            ).run(parent.session_uuid, sess.id);
           }
         }
-        updateName.run(name, row.id);
-      }
-    });
-    backfill();
+      });
+      linkDelegation();
+    }
+
+    // Backfill harness for sessions without one
+    db.prepare(`
+      UPDATE sessions SET harness = 'claude-code'
+      WHERE harness IS NULL
+        AND session_uuid IN (SELECT REPLACE(file_path, '.jsonl', '') FROM ingest_offsets WHERE file_path LIKE '%/.claude/projects/%')
+    `).run();
+
   }
-
-
-  // Backfill UUIDv7 for existing todos that don't have one
-  const nullUuids = db.prepare('SELECT id, created_at FROM todos WHERE uuid IS NULL').all() as Array<{ id: number; created_at: string }>;
-  if (nullUuids.length > 0) {
-    const updateUuid = db.prepare('UPDATE todos SET uuid = ? WHERE id = ?');
-    const uuidBackfill = db.transaction(() => {
-      for (const row of nullUuids) {
-        const ts = row.created_at ? new Date(row.created_at).getTime() : Date.now();
-        updateUuid.run(uuidv7(ts), row.id);
-      }
-    });
-    uuidBackfill();
-    console.log(`[backfill] Assigned UUIDv7 to ${nullUuids.length} todos`);
-  }
-
-  // Backfill last_message_at from actual message timestamps
-  const nullLastMsg = db.prepare(`
-    SELECT s.id FROM sessions s WHERE s.last_message_at IS NULL
-    AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.timestamp IS NOT NULL)
-  `).all() as Array<{ id: number }>;
-  if (nullLastMsg.length > 0) {
-    const updateLastMsg = db.prepare(`
-      UPDATE sessions SET last_message_at = (
-        SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = ?
-      ) WHERE id = ?
-    `);
-    const backfillLastMsg = db.transaction(() => {
-      for (const row of nullLastMsg) {
-        updateLastMsg.run(row.id, row.id);
-      }
-    });
-    backfillLastMsg();
-    console.log(`[backfill] Set last_message_at for ${nullLastMsg.length} sessions`);
-  }
-
-  // Heuristic delegation detection: find sessions spawned by Agent tool calls
-  // in other sessions (same project, child started within 30s of Agent tool_use)
-  const unlinkedSessions = db.prepare(`
-    SELECT s.id, s.session_uuid, s.project_id, s.created_at, s.first_prompt
-    FROM sessions s
-    WHERE s.delegated_from IS NULL
-      AND s.harness = 'claude-code'
-      AND s.created_at IS NOT NULL
-  `).all() as Array<{ id: number; session_uuid: string; project_id: number; created_at: string; first_prompt: string | null }>;
-
-  if (unlinkedSessions.length > 0) {
-    const findParentAgent = db.prepare(`
-      SELECT s.session_uuid
-      FROM content_blocks cb
-      JOIN messages m ON cb.message_id = m.id
-      JOIN sessions s ON m.session_id = s.id
-      WHERE cb.block_type ${TOOL_CALL_SQL}
-        AND cb.tool_name = 'Agent'
-        AND s.project_id = ?
-        AND s.session_uuid != ?
-        AND m.timestamp BETWEEN datetime(?, '-30 seconds') AND datetime(?, '+30 seconds')
-      LIMIT 1
-    `);
-
-    const linkDelegation = db.transaction(() => {
-      for (const sess of unlinkedSessions) {
-        if (!sess.created_at) continue;
-        const parent = findParentAgent.get(
-          sess.project_id, sess.session_uuid, sess.created_at, sess.created_at
-        ) as { session_uuid: string } | undefined;
-        if (parent) {
-          db.prepare(
-            'UPDATE sessions SET delegated_from = ? WHERE id = ? AND delegated_from IS NULL'
-          ).run(parent.session_uuid, sess.id);
-        }
-      }
-    });
-    linkDelegation();
-  }
-
-  // Backfill harness for sessions without one
-  db.prepare(`
-    UPDATE sessions SET harness = 'claude-code'
-    WHERE harness IS NULL
-      AND session_uuid IN (SELECT REPLACE(file_path, '.jsonl', '') FROM ingest_offsets WHERE file_path LIKE '%/.claude/projects/%')
-  `).run();
 
   // Check alert thresholds
   result.alertsTriggered = checkThresholds(db);
@@ -2281,8 +2314,10 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
   // Auto-merge project rows that share git identity within one harness slot.
   // The winner is the most-recently-active row; loser's stats are summed in,
   // sessions/todos re-pointed, loser row dropped. See docs/architecture/project-identity.md.
-  const merged = autoMergeIdenticalProjects(db);
-  if (merged > 0) console.log(`[ingest] auto-merged ${merged} duplicate project row(s)`);
+  if (housekeeping) {
+    const merged = autoMergeIdenticalProjects(db);
+    if (merged > 0) console.log(`[ingest] auto-merged ${merged} duplicate project row(s)`);
+  }
 
   // When we last read the harnesses, so a dashboard can say how old what it
   // is showing might be.
@@ -2302,11 +2337,13 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
   // shadow of the unchained files the witness will not touch yet, and
   // records before/after when a writer changes a line it already saw
   // (rewrite-watch.ts). A diagnostic, never evidence.
-  try {
-    backfillWitness(db, 50, resolveSessionFile);
-    auditAnchors(db, 25, resolveSessionFile);
-    watchRewrites(db, { limit: 25 });
-  } catch { /* the witness is evidence, never a dependency of ingest */ }
+  if (housekeeping) {
+    try {
+      backfillWitness(db, 50, resolveSessionFile);
+      auditAnchors(db, 25, resolveSessionFile);
+      watchRewrites(db, { limit: 25 });
+    } catch { /* the witness is evidence, never a dependency of ingest */ }
+  }
 
   setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
 

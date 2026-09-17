@@ -15,6 +15,7 @@
  */
 import { execFile } from 'child_process';
 import type Database from 'better-sqlite3';
+import { sshBaseOpts } from './ssh-mux';
 import { parseVllmCacheMetrics } from './vllm-metrics';
 
 const CANDIDATE_PORTS = [18888, 8000, 8080, 8089, 8001, 9090, 9091, 5001];
@@ -36,7 +37,7 @@ function run(host: string, cmd: string, timeout = 12_000): Promise<string> {
   const file = local ? 'sh' : 'ssh';
   const args: string[] = local
     ? ['-c', cmd]
-    : ['-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', host, cmd];
+    : [...sshBaseOpts(), host, cmd];
   return new Promise((resolve, reject) => {
     execFile(file, args, { timeout, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout) => (err && !stdout ? reject(err) : resolve(String(stdout))));

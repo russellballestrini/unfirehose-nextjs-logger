@@ -614,3 +614,20 @@ describe('ingestAll over a native harness', () => {
   });
 
 });
+
+describe('housekeepingDue', () => {
+  const quiet = { projectsAdded: 0, sessionsAdded: 0, messagesAdded: 0, filesScanned: 0 };
+  it('runs after a pass that brought something in', async () => {
+    const { housekeepingDue } = await import('./ingest');
+    const now = 1_000_000_000;
+    expect(housekeepingDue({ ...quiet, filesScanned: 1 }, now, now)).toBe(true);
+    expect(housekeepingDue({ ...quiet, messagesAdded: 1 }, now, now)).toBe(true);
+  });
+  it('waits ten minutes between runs when passes are quiet', async () => {
+    const { housekeepingDue } = await import('./ingest');
+    const now = 1_000_000_000;
+    expect(housekeepingDue(quiet, now, now - 9 * 60_000)).toBe(false);
+    expect(housekeepingDue(quiet, now, now - 10 * 60_000)).toBe(true);
+    expect(housekeepingDue(quiet, now, 0)).toBe(true);
+  });
+});

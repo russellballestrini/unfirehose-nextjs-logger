@@ -10,6 +10,7 @@
  */
 import { execFile } from 'child_process';
 import { parseRemoteProbe, type MeshNode } from './mesh-probe';
+import { sshBaseOpts } from './ssh-mux';
 import { speakers, nextSpeakers, type Speaker } from './userland/speakers';
 
 /**
@@ -27,14 +28,13 @@ import { speakers, nextSpeakers, type Speaker } from './userland/speakers';
  * is ssh failing to reach the box; anything else is the box answering),
  * and the speaker that answered is remembered per host for the next poll.
  */
-const SSH_OPTS = ['-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes'];
 const PROBE_TIMEOUT_MS = 15000;
 
 interface SshResult { err: Error | null; code: number | null; stdout: string; stderr: string }
 
 function sshRun(host: string, speaker: Speaker): Promise<SshResult> {
   return new Promise((resolve) => {
-    const args = [...SSH_OPTS, ...(speaker.tty ? ['-tt'] : []), host, ...speaker.command];
+    const args = [...sshBaseOpts(), ...(speaker.tty ? ['-tt'] : []), host, ...speaker.command];
     const child = execFile('ssh', args,
       { encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
       (err, stdout, stderr) => resolve({

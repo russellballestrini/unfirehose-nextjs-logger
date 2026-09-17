@@ -133,3 +133,19 @@ describe('probeRemote', () => {
     expect(await probeRemote('cammy')).toMatchObject({ reachable: false, error: 'bad section' });
   });
 });
+
+describe('connection reuse', () => {
+  it('multiplexes through a control socket in a private directory', async () => {
+    const { statSync } = await import('fs');
+    const { SSH_CONTROL_DIR } = await import('./ssh-mux');
+    answer(null);
+    await probeRemote('cammy');
+    const [, args] = execFile.mock.calls[0] as [string, string[]];
+    const joined = args.join(' ');
+    expect(joined).toContain('ControlMaster=auto');
+    expect(joined).toContain(`ControlPath=${SSH_CONTROL_DIR}/%C`);
+    expect(joined).toContain('ServerAliveInterval=15');
+    // The directory holding the sockets is nobody else's to read.
+    expect(statSync(SSH_CONTROL_DIR).mode & 0o777).toBe(0o700);
+  });
+});
