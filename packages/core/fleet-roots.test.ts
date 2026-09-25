@@ -39,6 +39,25 @@ describe('fleet worker homes', () => {
     expect(workerHomesUnder(path.join(root, 'nope'))).toEqual([]);
   });
 
+  it('finds other hosts\u2019 seat homes replicated over the mesh, laid out like a local worker home', () => {
+    const root = missions();
+    const run = path.join(root, 'software_factory', 'results', '2026-09-15_def', 'fleet');
+    const home = path.join(run, 'telemetry', 'replicated', 'member_b', 'home');
+    mkdirSync(path.join(home, '.uncloseai', 'unfirehose', 'home-user-proj'), { recursive: true });
+    mkdirSync(path.join(home, '.uncloseai', 'telemetry'), { recursive: true });
+    mkdirSync(path.join(run, 'telemetry', 'replicated', 'member_c'), { recursive: true });   // no home yet: nothing
+    writeFileSync(path.join(run, 'telemetry', 'replicated', 'stray.jsonl'), '{}\n');         // a file, not a member
+    const homes = workerHomesUnder(root);
+    expect(homes).toHaveLength(5);
+    expect(homes).toContain(home);
+    expect(harnessRootsInHome(home)).toEqual([
+      { name: 'uncloseai', root: path.join(home, '.uncloseai', 'unfirehose'), home },
+    ]);
+    // Found by the same discovery, zero configuration beyond the mission root.
+    const found = discoverFleetHarnesses({ UNFIREHOSE_FLEET_ROOTS: root } as NodeJS.ProcessEnv, path.join(root, 'none.json'));
+    expect(found.map((h) => h.home)).toContain(home);
+  });
+
   it('lists the harness roots in a home: dot-dirs with an unfirehose child, minus the excluded names', () => {
     const root = missions();
     const [home] = workerHomesUnder(root);

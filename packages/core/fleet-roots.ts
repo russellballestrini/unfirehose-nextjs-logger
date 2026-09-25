@@ -42,13 +42,26 @@ function listDirs(p: string): string[] {
   try { return readdirSync(p).map((e) => path.join(p, e)).filter(isDir); } catch { return []; }
 }
 
-/** Every `<root>/<mission>/results/<run>/fleet/workers/<worker>/home` that exists. */
+/**
+ * Every seat home under a mission root that exists:
+ *
+ *   `<root>/<mission>/results/<run>/fleet/workers/<worker>/home` — this host's seats
+ *   `<root>/<mission>/results/<run>/fleet/telemetry/replicated/<member>/home` — other
+ *     hosts' seats, their harness logs replicated over the mesh byte-exact and
+ *     reassembled with the same inside layout, so they ingest like local homes.
+ *
+ * A run without either directory contributes nothing.
+ */
 export function workerHomesUnder(root: string): string[] {
   const homes: string[] = [];
   for (const mission of listDirs(root)) {
     for (const run of listDirs(path.join(mission, 'results'))) {
-      for (const worker of listDirs(path.join(run, 'fleet', 'workers'))) {
-        const home = path.join(worker, 'home');
+      const seats = [
+        ...listDirs(path.join(run, 'fleet', 'workers')),
+        ...listDirs(path.join(run, 'fleet', 'telemetry', 'replicated')),
+      ];
+      for (const seat of seats) {
+        const home = path.join(seat, 'home');
         if (isDir(home)) homes.push(home);
       }
     }
