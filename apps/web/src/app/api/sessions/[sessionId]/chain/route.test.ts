@@ -43,7 +43,7 @@ describe('GET /api/sessions/:sessionId/chain', () => {
   it('is unchained with no recorded row and no live check', async () => {
     const res = await call('nobody');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ sessionId: 'nobody', recorded: null, state: 'unchained', events: [] });
+    expect(await res.json()).toEqual({ sessionId: 'nobody', recorded: null, state: 'unchained', events: [], lanes: null, closeReason: null });
   });
 
   it('returns the verdict ingest recorded', async () => {
@@ -90,5 +90,37 @@ describe('GET /api/sessions/:sessionId/chain', () => {
     expect(data.recorded).toBeNull();
     expect(data.state).toBe('corrupted');
     expect([data.live.first_break, data.live.first_break_reason]).toEqual([v.expect.first_break, v.expect.first_break_reason]);
+  });
+
+  it('returns the lane anchors and the close reason the closed record carried', async () => {
+    const { chainLine, sessionRoot, versionFields } = await import('@unturf/unfirehose/provenance');
+    const head = chainLine({ type: 'session', id: 'ln', status: 'active' }, null);
+    const closed = chainLine({
+      type: 'session', id: 'ln', status: 'closed', sessionRoot: sessionRoot([head.hash]), ...versionFields(),
+      laneHeads: { 'telemetry/inference.jsonl': 'a'.repeat(64), 'memory/m.jsonl': 'b'.repeat(64) }, closeReason: 'signal 15',
+    }, head.hash);
+    const lines = [head.line, closed.line];
+    const t = new SessionChainTracker(db, 'ln', { reset: true });
+    for (const l of lines) t.feed(l);
+    t.flush();
+    // Ingest checks lanes only where it knows the journal's path; stand in for that check.
+    db.prepare(`UPDATE session_chain SET lanes_anchored = 1, lanes_unanchored = '["telemetry/inference.jsonl"]',
+      lanes_uncheckable = '[]', lanes_checked_at = datetime('now') WHERE session_uuid = 'ln'`).run();
+    const data = await (await call('ln')).json();
+    expect(data.state).toBe('verified');
+    expect(data.closeReason).toBe('signal 15');
+    expect(data.lanes).toMatchObject({ total: 2, anchored: 1, unanchored: ['telemetry/inference.jsonl'], uncheckable: [] });
+    expect(data.lanes.checkedAt).toBeTruthy();
+  });
+
+  it('a journal whose closed record named no lanes has lanes and closeReason null', async () => {
+    const v = vector('verified/n=3');
+    const t = new SessionChainTracker(db, 'old', { reset: true });
+    for (const l of v.lines) t.feed(l);
+    t.flush();
+    const data = await (await call('old')).json();
+    expect(data.state).toBe('verified');
+    expect(data.lanes).toBeNull();
+    expect(data.closeReason).toBeNull();
   });
 });

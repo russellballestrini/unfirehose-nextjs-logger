@@ -131,6 +131,20 @@ const HEX64 = /^[0-9a-f]{64}$/;
  * so string offsets and byte offsets agree there, and valid UTF-8
  * round-trips through Node's decoder unchanged.
  */
+/**
+ * The claimed hash in a line's fixed 75-byte `,"hash":"…"}` tail, or null
+ * when the line carries none. No preimage is built, so scanning a lane
+ * file of a few MB for one head costs a string slice per line.
+ */
+export function trailingHash(line: string): string | null {
+  const trimmed = line.replace(/[\r\n]+$/, '');
+  if (trimmed.length < TAIL_LEN + 1 || !trimmed.endsWith('"}')) return null;
+  const tail = trimmed.slice(-TAIL_LEN);
+  if (!tail.startsWith(HASH_KEY)) return null;
+  const hash = tail.slice(HASH_KEY.length, -2);
+  return HEX64.test(hash) ? hash : null;
+}
+
 export function splitChainedLine(line: string): { preimage: Buffer; hash: string } | null {
   const trimmed = line.replace(/[\r\n]+$/, '');
   if (trimmed.length < TAIL_LEN + 1 || !trimmed.endsWith('"}')) return null;

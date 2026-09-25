@@ -5,7 +5,7 @@ import * as osMod from 'os';
 import path from 'path';
 import {
   CHAIN_VERSION, MERKLE_VERSION, ZERO_HASH, ChainState, ChainedJournal, buildTree, chainLine, hashCombine, hashLeaf,
-  lineHash, merkleRoot, proofFor, sessionRoot, splitChainedLine, verifyLines, verifyProof, versionFields,
+  lineHash, merkleRoot, proofFor, sessionRoot, splitChainedLine, trailingHash, verifyLines, verifyProof, versionFields,
 } from './provenance';
 
 /**
@@ -233,5 +233,17 @@ describe('the writer side', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('trailingHash', () => {
+  it('reads the claimed hash off a chained line without building its preimage', () => {
+    const { line, hash } = chainLine({ type: 'telemetry', n: 1 }, null);
+    expect(trailingHash(line)).toBe(hash);
+    expect(trailingHash(line + '\r\n')).toBe(hash);
+    expect(trailingHash(line)).toBe(splitChainedLine(line)!.hash);
+    expect(trailingHash('{"type":"telemetry"}')).toBeNull();
+    expect(trailingHash(line.slice(0, -3) + 'Z"}')).toBeNull();     // not hex
+    expect(trailingHash('')).toBeNull();
   });
 });

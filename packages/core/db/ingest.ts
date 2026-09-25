@@ -14,7 +14,7 @@ import { fetchPaths } from '../fetch-paths';
 import { normalizeClaudeCodeEntry } from '../claude-code-adapter';
 import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
-import { SessionChainTracker, auditAnchors, backfillWitness } from './provenance-ingest';
+import { SessionChainTracker, auditAnchors, auditLanes, backfillWitness } from './provenance-ingest';
 import { watchRewrites } from './rewrite-watch';
 import { discoverFleetHarnesses } from '../fleet-roots';
 import { resolveSessionFile } from '../session-paths';
@@ -2341,6 +2341,7 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     try {
       backfillWitness(db, 50, resolveSessionFile);
       auditAnchors(db, 25, resolveSessionFile);
+      auditLanes(db, 25);
       watchRewrites(db, { limit: 25 });
     } catch { /* the witness is evidence, never a dependency of ingest */ }
   }

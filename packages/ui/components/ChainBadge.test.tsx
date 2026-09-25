@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { ChainBadge, chainTitle } from './ChainBadge';
+import { ChainBadge, chainTitle, laneSummary } from './ChainBadge';
 
 describe('ChainBadge', () => {
   it('renders each verdict with its own state marker', () => {
@@ -51,5 +51,28 @@ describe('ChainBadge', () => {
     expect(chainTitle({ state: 'open', entries: 3 })).toBe('Chain intact so far · 3 lines · no closed record yet');
     expect(chainTitle({ state: 'unchained' })).toContain('nothing to verify');
     expect(chainTitle({ state: 'corrupted' })).toBe('Chain corrupted');
+  });
+
+  it('shows lane anchors and the close reason beside the verdict', () => {
+    const lanes = { total: 9, anchored: 9, unanchored: [], uncheckable: [] };
+    const ok = render(<ChainBadge state="verified" lanes={lanes} closeReason="signal 15" />).container;
+    expect(ok.querySelector('[data-lane-anchors]')!.textContent).toBe('lanes 9/9 anchored');
+    expect(ok.querySelector('[data-close-reason]')!.textContent).toBe('closed by signal 15');
+    expect(ok.querySelector('[data-chain-state]')!.textContent).toContain('verified');
+    const bad = render(<ChainBadge state="verified" lanes={{ ...lanes, anchored: 8, unanchored: ['telemetry/inference.jsonl'] }} />).container;
+    expect(bad.querySelector('[data-lane-anchors]')!.textContent).toBe('lanes 8/9 — telemetry/inference.jsonl rewritten');
+    expect(bad.querySelector('[data-close-reason]')).toBeNull();
+  });
+
+  it('lane summary keeps cannot-tell apart from rewritten, and says nothing without lanes', () => {
+    expect(laneSummary(null)).toBeNull();
+    expect(laneSummary({ total: 2, anchored: 1, unanchored: [], uncheckable: ['memory/m.jsonl'] }))
+      .toBe('lanes 1/2 — memory/m.jsonl unreadable');
+    expect(laneSummary({ total: 3, anchored: 1, unanchored: ['a'], uncheckable: ['b'] }))
+      .toBe('lanes 1/3 — a rewritten; b unreadable');
+    expect(laneSummary({ total: 2, anchored: null, unanchored: null, uncheckable: null }))
+      .toBe('lanes 2 named, not checked yet');
+    const plain = render(<ChainBadge state="verified" />).container;
+    expect(plain.querySelector('[data-lane-anchors]')).toBeNull();
   });
 });

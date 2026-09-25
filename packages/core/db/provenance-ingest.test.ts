@@ -11,7 +11,8 @@ vi.mock('./schema', () => ({
 }));
 
 const { ingestJsonlSource, ingestJsonlLines } = await import('./ingest');
-const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, getAnchorEvents, getRecentAnchorEvents, auditAnchors, backfillWitness } = await import('./provenance-ingest');
+const { getSessionChain, getChainSummary, SessionChainTracker, auditAnchor, getAnchorEvents, getRecentAnchorEvents, auditAnchors, backfillWitness, auditLanes, checkLaneHeads, clearLaneCache } = await import('./provenance-ingest');
+const { ChainedJournal } = await import('../provenance');
 
 /**
  * The chain verdict a session lands with, driven through the REAL
@@ -448,5 +449,108 @@ describe('a targeted pass reads only the directories it is given', () => {
     const full = await ingestJsonlSource(db, source());
     expect(full.filesScanned).toBe(1);
     expect(otherOffset()).toBeGreaterThan(0);
+  });
+});
+
+describe('lane anchors: the closed record’s laneHeads against the lane files', () => {
+  // A journal lives at <data>/unfirehose/<slug>/<session>.jsonl; lanes resolve against <data>.
+  let data: string;
+  beforeEach(() => {
+    data = mkdtempSync(path.join(tmpdir(), 'unfirehose-lanes-'));
+    root = path.join(data, 'unfirehose');
+    mkdirSync(root, { recursive: true });
+    clearLaneCache();
+  });
+  afterEach(() => { rmSync(data, { recursive: true, force: true }); });
+
+  /** A chained lane file the session's writer appended to; returns the head (its last line's hash). */
+  function writeLane(rel: string, texts: string[]): string {
+    const file = path.join(data, rel);
+    mkdirSync(path.dirname(file), { recursive: true });
+    rmSync(file, { force: true });
+    const j = new ChainedJournal(file);
+    let head = '';
+    for (const t of texts) head = j.append({ type: 'telemetry', text: t });
+    return head;
+  }
+
+  function writeClosedJournal(uuid: string, closed: Record<string, unknown>) {
+    const dir = path.join(root, SLUG);
+    mkdirSync(dir, { recursive: true });
+    const j = new ChainedJournal(path.join(dir, `${uuid}.jsonl`));
+    j.append({ $schema: 'unfirehose/1.0', type: 'session', id: uuid, status: 'active' });
+    j.append({ $schema: 'unfirehose/1.0', type: 'message', role: 'user', id: 'm0', sessionId: uuid, content: [{ type: 'text', text: 'hi' }] });
+    j.close({ $schema: 'unfirehose/1.0', id: uuid, ...closed });
+  }
+
+  it('every lane still holding its head is anchored; none unanchored', async () => {
+    const heads = {
+      'telemetry/inference.jsonl': writeLane('telemetry/inference.jsonl', ['a', 'b', 'c']),
+      'memory/repo-61b406/memory.jsonl': writeLane('memory/repo-61b406/memory.jsonl', ['m']),
+    };
+    // Other writers keep appending after the session closed: still anchored.
+    appendFileSync(path.join(data, 'telemetry/inference.jsonl'), '{"later":1}\n');
+    writeClosedJournal('l1', { laneHeads: heads });
+    await ingestJsonlSource(db, source());
+    const row = getSessionChain(db, 'l1')!;
+    expect(row.state).toBe('verified');
+    expect(JSON.parse(row.lane_heads!)).toEqual(heads);
+    expect(row.lanes_anchored).toBe(2);
+    expect(JSON.parse(row.lanes_unanchored!)).toEqual([]);
+    expect(JSON.parse(row.lanes_uncheckable!)).toEqual([]);
+    expect(row.lanes_checked_at).toBeTruthy();
+    expect(row.close_reason).toBeNull();
+  });
+
+  it('a lane rewritten as a fresh valid chain after first ingest flips to unanchored on the re-check', async () => {
+    const heads = {
+      'telemetry/inference.jsonl': writeLane('telemetry/inference.jsonl', ['a', 'b']),
+      'memory/m.jsonl': writeLane('memory/m.jsonl', ['m']),
+    };
+    writeClosedJournal('l2', { laneHeads: heads });
+    await ingestJsonlSource(db, source());
+    expect(getSessionChain(db, 'l2')!.lanes_anchored).toBe(2);
+    // Internally consistent, different content: a fresh reader of the lane alone sees nothing wrong.
+    writeLane('telemetry/inference.jsonl', ['x', 'y', 'z']);
+    expect(auditLanes(db, 25)).toEqual({ anchored: 0, unanchored: 1, cannotTell: 0 });
+    const row = getSessionChain(db, 'l2')!;
+    expect(row.lanes_anchored).toBe(1);
+    expect(JSON.parse(row.lanes_unanchored!)).toEqual(['telemetry/inference.jsonl']);
+  });
+
+  it('a missing lane is unanchored; an unreadable one is cannot-tell, not unanchored', async () => {
+    const heads = {
+      'telemetry/inference.jsonl': writeLane('telemetry/inference.jsonl', ['a']),
+      'telemetry/gone.jsonl': 'a'.repeat(64),
+      'telemetry/dir.jsonl': 'b'.repeat(64),
+      '../escape.jsonl': 'c'.repeat(64),
+    };
+    mkdirSync(path.join(data, 'telemetry/dir.jsonl'));      // exists, is not a readable lane file
+    writeClosedJournal('l3', { laneHeads: heads });
+    await ingestJsonlSource(db, source());
+    const c = checkLaneHeads(db, 'l3')!;
+    expect(c.anchored).toBe(1);
+    expect(c.unanchored).toEqual(['telemetry/gone.jsonl']);
+    expect(c.uncheckable.sort()).toEqual(['../escape.jsonl', 'telemetry/dir.jsonl']);
+  });
+
+  it('closeReason is stored beside the lanes', async () => {
+    writeClosedJournal('l4', { laneHeads: { 'telemetry/t.jsonl': writeLane('telemetry/t.jsonl', ['a']) }, closeReason: 'signal 15' });
+    await ingestJsonlSource(db, source());
+    const row = getSessionChain(db, 'l4')!;
+    expect(row.state).toBe('verified');
+    expect(row.close_reason).toBe('signal 15');
+    expect(row.lanes_anchored).toBe(1);
+  });
+
+  it('a journal without laneHeads or closeReason leaves the fields null and the verdict alone', async () => {
+    writeClosedJournal('l5', {});
+    await ingestJsonlSource(db, source());
+    const row = getSessionChain(db, 'l5')!;
+    expect(row.state).toBe('verified');
+    for (const k of ['lane_heads', 'lanes_anchored', 'lanes_unanchored', 'lanes_uncheckable', 'lanes_checked_at', 'close_reason'] as const) {
+      expect(row[k], k).toBeNull();
+    }
+    expect(auditLanes(db, 25)).toEqual({ anchored: 0, unanchored: 0, cannotTell: 0 });
   });
 });

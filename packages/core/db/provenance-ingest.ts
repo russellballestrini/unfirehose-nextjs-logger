@@ -18,7 +18,8 @@
  */
 import type Database from 'better-sqlite3';
 import { readFileSync, statSync } from 'fs';
-import { ChainState, emptyChainState, witnessHash, type ChainStateData, type ChainVerdict, splitChainedLine, lineHash } from '../provenance';
+import path from 'path';
+import { ChainState, emptyChainState, witnessHash, type ChainStateData, type ChainVerdict, splitChainedLine, lineHash, trailingHash } from '../provenance';
 
 export interface SessionChainRow extends ChainStateData {
   session_uuid: string;
@@ -28,6 +29,17 @@ export interface SessionChainRow extends ChainStateData {
   anchor_state: AnchorState | null;
   anchor_checked_at: string | null;
   anchor_detail: string | null;
+  /** The closed record's `laneHeads` as written ({relative lane path: head}), JSON; null when it named none. */
+  lane_heads: string | null;
+  /** Lanes whose file still holds a line hashed to the head. Null until checked. */
+  lanes_anchored: number | null;
+  /** JSON array of lane paths whose head is gone from the file, or whose file is gone. */
+  lanes_unanchored: string | null;
+  /** JSON array of lane paths that could not be read this check: cannot tell, never counted as unanchored. */
+  lanes_uncheckable: string | null;
+  lanes_checked_at: string | null;
+  /** The closed record's `closeReason` — present only on an abnormal close ("signal 15"). */
+  close_reason: string | null;
 }
 
 /**
@@ -64,6 +76,12 @@ export function ensureProvenanceTables(db: Database.Database) {
       anchor_state TEXT,                         -- intact | rewritten | missing — the file vs what this witness recorded
       anchor_checked_at TEXT,
       anchor_detail TEXT,
+      lane_heads TEXT,                           -- the closed record's laneHeads, JSON {relative lane path: head}
+      lanes_anchored INTEGER,                    -- lanes whose file still holds its head
+      lanes_unanchored TEXT,                     -- JSON array: head gone from the lane, or the lane file gone
+      lanes_uncheckable TEXT,                    -- JSON array: lane unreadable this check (cannot tell)
+      lanes_checked_at TEXT,
+      close_reason TEXT,                         -- the closed record's closeReason (abnormal close only)
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS session_chain_leaves (
@@ -96,9 +114,11 @@ export function ensureProvenanceTables(db: Database.Database) {
   `);
   // A database created before the rule columns were named.
   for (const col of ['merkle_version', 'encoding_version', 'root_semantics',
-    'file_path', 'anchor_state', 'anchor_checked_at', 'anchor_detail']) {
+    'file_path', 'anchor_state', 'anchor_checked_at', 'anchor_detail',
+    'lane_heads', 'lanes_unanchored', 'lanes_uncheckable', 'lanes_checked_at', 'close_reason']) {
     try { db.exec(`ALTER TABLE session_chain ADD COLUMN ${col} TEXT`); } catch { /* exists */ }
   }
+  try { db.exec('ALTER TABLE session_chain ADD COLUMN lanes_anchored INTEGER'); } catch { /* exists */ }
   try { db.exec("ALTER TABLE session_chain_leaves ADD COLUMN kind TEXT NOT NULL DEFAULT 'chain'"); } catch { /* exists */ }
   // Rows the mid-file join wrote between 12:16 and the fix on 2026-09-16:
   // unchained, numbered from the wrong line, audited "leaf 0 differs".
@@ -195,6 +215,8 @@ export class SessionChainTracker {
   /** True when this pass started mid-file with no prior record: nothing is recorded. */
   readonly deferred: boolean;
   private readonly headKnown: boolean;
+  /** What the closed record said beyond its root, held until flush. */
+  private closed: { laneHeads: Record<string, unknown> | null; closeReason: string | null } | null = null;
 
   constructor(
     private readonly db: Database.Database,
@@ -235,6 +257,12 @@ export class SessionChainTracker {
   feed(line: string): string | null {
     if (this.deferred) return null;
     const hash = this.state.feed(line);
+    // The closed record just fed (the verifier stamps root_seq on it): keep
+    // what it says about the lanes and how it ended. Both sit inside the
+    // record's own hash preimage, not under sessionRoot.
+    if (hash !== null && this.state.data.root_seq === this.state.data.entries - 1) {
+      this.closed = closedExtras(line);
+    }
     // Every line is witnessed; only a chained one is also a chain leaf.
     this.pendingLeaves.push([this.leafCount++, hash ?? witnessHash(line), hash !== null ? 'chain' : 'line']);
     return hash;
@@ -262,7 +290,134 @@ export class SessionChainTracker {
     for (const b of this.state.breakLog.splice(0)) {
       recordAnchorEvent(this.db, this.sessionUuid, { seq: b.seq, kind: b.reason });
     }
+    if (this.closed) {
+      const { laneHeads, closeReason } = this.closed;
+      this.closed = null;
+      this.db.prepare(
+        `UPDATE session_chain SET lane_heads = ?, close_reason = ?,
+            lanes_anchored = NULL, lanes_unanchored = NULL, lanes_uncheckable = NULL, lanes_checked_at = NULL
+          WHERE session_uuid = ?`,
+      ).run(laneHeads ? JSON.stringify(laneHeads) : null, closeReason, this.sessionUuid);
+      if (laneHeads) {
+        try { checkLaneHeads(this.db, this.sessionUuid); } catch { /* evidence, never a dependency of ingest */ }
+      }
+    }
   }
+}
+
+function closedExtras(line: string): { laneHeads: Record<string, unknown> | null; closeReason: string | null } {
+  let entry: any = null;
+  try { entry = JSON.parse(line); } catch { return { laneHeads: null, closeReason: null }; }
+  const lh = entry?.laneHeads;
+  return {
+    laneHeads: lh && typeof lh === 'object' && !Array.isArray(lh) ? lh : null,
+    closeReason: typeof entry?.closeReason === 'string' ? entry.closeReason : null,
+  };
+}
+
+// ── lane anchors ─────────────────────────────────────────────────
+//
+// A closed record's `laneHeads` names, per lane file its writer appended
+// to (telemetry, memory, …), the hash of the LAST line it wrote there.
+// That head commits to everything the writer put in the lane before it,
+// so while some line in the lane still hashes to it the lane holds what
+// the session wrote; once none does, the lane was rewritten after close.
+
+/** Largest lane file read whole; beyond it the lane is left cannot-tell. */
+export const LANE_READ_CAP = 64 * 1024 * 1024;
+/** Lane files whose hash sets are kept between checks, keyed by path + mtime + size. */
+const LANE_CACHE_MAX = 64;
+const laneCache = new Map<string, { mtimeMs: number; size: number; hashes: Set<string> }>();
+
+/**
+ * The set of trailing hashes a lane file holds now. `missing` when the
+ * file is gone (the lane was removed: unanchored); `unreadable` when it
+ * exists but cannot be read (cannot tell). A file unchanged since the
+ * last read is not read again, so many sessions naming one telemetry
+ * lane cost one read per change of that lane, not one per session.
+ */
+function laneHashes(file: string): Set<string> | 'missing' | 'unreadable' {
+  let st;
+  try { st = statSync(file); } catch (e: any) {
+    return e?.code === 'ENOENT' || e?.code === 'ENOTDIR' ? 'missing' : 'unreadable';
+  }
+  if (!st.isFile() || st.size > LANE_READ_CAP) return 'unreadable';
+  const hit = laneCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.hashes;
+  let text: string;
+  try { text = readFileSync(file, 'utf8'); } catch (e: any) {
+    return e?.code === 'ENOENT' ? 'missing' : 'unreadable';
+  }
+  const hashes = new Set<string>();
+  for (const line of text.split('\n')) {
+    const h = trailingHash(line);
+    if (h) hashes.add(h);
+  }
+  laneCache.delete(file);
+  laneCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, hashes });
+  while (laneCache.size > LANE_CACHE_MAX) laneCache.delete(laneCache.keys().next().value!);
+  return hashes;
+}
+
+/** Forget cached lane reads (tests; a caller that knows a lane changed within one mtime tick). */
+export function clearLaneCache() { laneCache.clear(); }
+
+export interface LaneCheck { anchored: number; unanchored: string[]; uncheckable: string[] }
+
+/**
+ * Check one session's lane heads against the lane files on disk and
+ * record the result. Lane paths are relative to the harness data dir,
+ * two levels above the journal's directory
+ * (<data>/unfirehose/<slug>/<session>.jsonl). A path that is not
+ * relative or escapes that dir, or a head that is not 64 hex, cannot be
+ * checked and is reported as such, never as anchored or unanchored.
+ * Returns null when there is nothing to check.
+ */
+export function checkLaneHeads(db: Database.Database, sessionUuid: string): LaneCheck | null {
+  const row = db.prepare('SELECT lane_heads, file_path FROM session_chain WHERE session_uuid = ?')
+    .get(sessionUuid) as { lane_heads: string | null; file_path: string | null } | undefined;
+  if (!row?.lane_heads || !row.file_path) return null;
+  let heads: Record<string, unknown>;
+  try { heads = JSON.parse(row.lane_heads); } catch { return null; }
+  const dataDir = path.dirname(path.dirname(path.dirname(row.file_path)));
+  const out: LaneCheck = { anchored: 0, unanchored: [], uncheckable: [] };
+  for (const [rel, head] of Object.entries(heads)) {
+    const abs = path.resolve(dataDir, rel);
+    const inside = !path.isAbsolute(rel) && abs.startsWith(dataDir + path.sep);
+    if (!inside || typeof head !== 'string' || !/^[0-9a-f]{64}$/.test(head)) { out.uncheckable.push(rel); continue; }
+    const got = laneHashes(abs);
+    if (got === 'unreadable') out.uncheckable.push(rel);
+    else if (got === 'missing' || !got.has(head)) out.unanchored.push(rel);
+    else out.anchored += 1;
+  }
+  db.prepare(
+    `UPDATE session_chain SET lanes_anchored = ?, lanes_unanchored = ?, lanes_uncheckable = ?,
+        lanes_checked_at = datetime('now') WHERE session_uuid = ?`,
+  ).run(out.anchored, JSON.stringify(out.unanchored), JSON.stringify(out.uncheckable), sessionUuid);
+  return out;
+}
+
+/**
+ * One bounded pass of lane re-checks, least recently checked first, on
+ * the witness's cadence: a lane rewritten after the session was first
+ * ingested flips to unanchored here.
+ */
+export function auditLanes(db: Database.Database, limit = 25): { anchored: number; unanchored: number; cannotTell: number } {
+  const out = { anchored: 0, unanchored: 0, cannotTell: 0 };
+  const rows = db.prepare(
+    `SELECT session_uuid FROM session_chain
+      WHERE lane_heads IS NOT NULL AND file_path IS NOT NULL
+      ORDER BY lanes_checked_at IS NOT NULL, lanes_checked_at ASC
+      LIMIT ?`,
+  ).all(limit) as { session_uuid: string }[];
+  for (const r of rows) {
+    const c = checkLaneHeads(db, r.session_uuid);
+    if (!c) continue;
+    if (c.unanchored.length) out.unanchored += 1;
+    else if (c.uncheckable.length) out.cannotTell += 1;
+    else out.anchored += 1;
+  }
+  return out;
 }
 
 const CHAIN_COLUMNS = [

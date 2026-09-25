@@ -10,7 +10,7 @@ import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
-import { ChainBadge, type ChainVerdict } from '@unturf/unfirehose-ui/ChainBadge';
+import { ChainBadge, type ChainVerdict, type LaneAnchors } from '@unturf/unfirehose-ui/ChainBadge';
 import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 
 const HARNESS_COLORS: Record<string, string> = {
@@ -116,6 +116,8 @@ export default function SessionViewerPage({
     recorded?: { anchor_state: 'intact' | 'rewritten' | 'missing' | null } | null;
     live?: { breaks: number; first_break: number | null; first_break_reason: string | null;
              root_computed: string | null; entries: number } | null;
+    lanes?: LaneAnchors | null;
+    closeReason?: string | null;
   }>(`/api/sessions/${sessionId}/chain?project=${project}&live=1`, fetcher, { refreshInterval: 15000 });
 
   useEffect(() => {
@@ -223,6 +225,8 @@ export default function SessionViewerPage({
               entries={chainData.live?.entries}
               source={chainData.live ? 'live' : 'recorded'}
               anchor={chainData.recorded?.anchor_state ?? null}
+              lanes={chainData.lanes ?? null}
+              closeReason={chainData.closeReason ?? null}
             />
           )}
           <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">

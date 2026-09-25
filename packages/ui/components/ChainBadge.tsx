@@ -30,7 +30,35 @@ export interface ChainBadgeProps {
    * verifies; it does not still match the witness.
    */
   anchor?: 'intact' | 'rewritten' | 'missing' | null;
+  /**
+   * The closed record's lane heads checked against the lane files: a
+   * head no longer in its lane means the lane was rewritten after the
+   * session closed. `uncheckable` lanes could not be read (cannot tell).
+   */
+  lanes?: LaneAnchors | null;
+  /** Why the session closed, when it closed abnormally ("signal 15"). */
+  closeReason?: string | null;
   className?: string;
+}
+
+export interface LaneAnchors {
+  total: number;
+  anchored: number | null;
+  unanchored: string[] | null;
+  uncheckable: string[] | null;
+}
+
+/** "lanes 9/9 anchored", "lanes 8/9 — telemetry/inference.jsonl rewritten", or null when there is nothing to say. */
+export function laneSummary(l: LaneAnchors | null | undefined): string | null {
+  if (!l || !l.total) return null;
+  if (l.anchored === null || l.anchored === undefined) return `lanes ${l.total} named, not checked yet`;
+  const gone = l.unanchored ?? [];
+  const unknown = l.uncheckable ?? [];
+  let s = `lanes ${l.anchored}/${l.total}`;
+  if (gone.length) s += ` — ${gone.join(', ')} rewritten`;
+  else if (!unknown.length) s += ' anchored';
+  if (unknown.length) s += `${gone.length ? ';' : ' —'} ${unknown.join(', ')} unreadable`;
+  return s;
 }
 
 const LOOK: Record<ChainVerdict, { glyph: string; label: string; color: string }> = {
@@ -67,6 +95,29 @@ export function chainTitle(p: ChainBadgeProps): string {
 }
 
 export function ChainBadge(props: ChainBadgeProps) {
+  const lanes = laneSummary(props.lanes);
+  if (!lanes && !props.closeReason) return <VerdictBadge {...props} />;
+  const laneColor = props.lanes?.unanchored?.length ? '#ef4444'
+    : props.lanes?.uncheckable?.length || props.lanes?.anchored == null ? '#f59e0b' : '#22c55e';
+  return (
+    <>
+      <VerdictBadge {...props} />
+      {lanes && (
+        <span className="text-xs" style={{ color: laneColor }} data-lane-anchors
+          title="Each lane file still holds the last line this session wrote to it">
+          {lanes}
+        </span>
+      )}
+      {props.closeReason && (
+        <span className="text-xs text-[var(--color-muted)]" data-close-reason>
+          closed by {props.closeReason}
+        </span>
+      )}
+    </>
+  );
+}
+
+function VerdictBadge(props: ChainBadgeProps) {
   const { state, className = '' } = props;
   const tampered = props.anchor === 'rewritten' || props.anchor === 'missing';
   const look = tampered

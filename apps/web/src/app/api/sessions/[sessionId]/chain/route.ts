@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { getSessionChain, getAnchorEvents } from '@unturf/unfirehose/db/provenance-ingest';
+import { getSessionChain, getAnchorEvents, type SessionChainRow } from '@unturf/unfirehose/db/provenance-ingest';
 import { verifyLines } from '@unturf/unfirehose/provenance';
 import { harnessFor } from '@unturf/unfirehose/session-paths';
 
@@ -25,7 +25,31 @@ export const revalidate = 0;
  * differ (`rewritten`, or `hash_mismatch` when the line's bytes changed
  * under its own hash), each range of lines the file lost, each chain
  * break the verifier hit — oldest line first, up to 200.
+ *
+ * `lanes` is the closed record's `laneHeads` checked against the lane
+ * files on disk: `total` heads named, `anchored` still found, the paths
+ * whose head is gone (`unanchored`, a lane rewritten after close or
+ * removed), and the ones that could not be read (`uncheckable`, cannot
+ * tell). Null for a journal whose closed record named no lanes.
+ * `closeReason` is set only when the session closed abnormally.
  */
+function parseJson<T>(s: string | null | undefined, fallback: T): T {
+  if (!s) return fallback;
+  try { return JSON.parse(s) as T; } catch { return fallback; }
+}
+
+function lanesOf(row: SessionChainRow | null) {
+  if (!row?.lane_heads) return null;
+  const heads = parseJson<Record<string, string>>(row.lane_heads, {});
+  return {
+    total: Object.keys(heads).length,
+    anchored: row.lanes_anchored,
+    unanchored: parseJson<string[] | null>(row.lanes_unanchored, null),
+    uncheckable: parseJson<string[] | null>(row.lanes_uncheckable, null),
+    checkedAt: row.lanes_checked_at,
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> },
@@ -41,6 +65,8 @@ export async function GET(
     recorded: recorded ?? null,
     state: recorded?.state ?? 'unchained',
     events: getAnchorEvents(getDb(), sessionId, 200),
+    lanes: lanesOf(recorded),
+    closeReason: recorded?.close_reason ?? null,
   };
 
   if (live) {
