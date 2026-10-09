@@ -247,6 +247,12 @@ export const MODEL_ALIASES: Record<string, string> = {
   // what would these tokens have cost had we not run them ourselves.
   'Lorbus/Qwen3.6-27B-int4-AutoRound': 'qwen/qwen3.6-27b',
 
+  // Our Qwen 3.8 27B builds, same reasoning. The exl3 artifact is an ExLlama
+  // v3 quant served off the 4090; the INT4 one is RedHat's compressed-tensors
+  // build. Both price at the hosted 27B rate on OpenRouter (fox, 2026-10-09).
+  'turboderp/Qwen3.8-27B-exl3': 'qwen/qwen3.8-27b',
+  'RedHatAI/Qwen3.8-27B-INT4':  'qwen/qwen3.8-27b',
+
   // Variant strings the oracles do not carry under their own name.
   'grok-4.20-0309-non-reasoning': 'x-ai/grok-4.20',
 };
@@ -265,7 +271,7 @@ export const SYNTHETIC_MODELS = new Set([
 
 // Vendor prefixes we strip when a self-hosted repo name wraps an upstream model,
 // e.g. `Lorbus/Qwen3.6-27B-int4-AutoRound` -> `qwen3.6-27b`.
-const QUANT_SUFFIX = /-(int[48]|fp8|fp16|bf16|gptq|awq|gguf|q[2-8]_[a-z0-9_]+|autoround|dynamic|ud)\b/gi;
+const QUANT_SUFFIX = /-(int[48]|fp8|fp16|bf16|gptq|awq|gguf|exl[23]|q[2-8]_[a-z0-9_]+|autoround|dynamic|ud)\b/gi;
 
 // A local weights file rather than a served model: `...-Q4_K_XL.gguf`,
 // `hf.co/bartowski/Foo-GGUF:Q4`. Stripped before we try to match upstream.
@@ -281,6 +287,7 @@ const HF_HOST_PREFIX = /^hf\.co\//i;
  *   claude-opus-5[1m]                     -> anthropic/claude-opus-5
  *   claude-opus-4-8                       -> anthropic/claude-opus-4.8
  *   Lorbus/Qwen3.6-27B-int4-AutoRound     -> qwen/qwen3.6-27b
+ *   turboderp/Qwen3.8-27B-exl3            -> qwen/qwen3.8-27b
  *   solidrust/Hermes-3-Llama-3.1-8B-AWQ   -> nousresearch/hermes-3-llama-3.1-8b
  */
 export function aliasCandidates(model: string): string[] {
@@ -660,7 +667,7 @@ export const CLOUD_SERVED_MODELS = new Set([
  * are local artifacts; `qwen/qwen3.6-27b` is a hosted product.
  */
 export const SELF_HOSTED_MODEL_PATTERNS: RegExp[] = [
-  /-(int[48]|fp8|gptq|awq|gguf|autoround)\b/i,
+  /-(int[48]|fp8|gptq|awq|gguf|autoround|exl[23])\b/i,
   /\bq[45]_[a-z0-9_]+\b/i,
 ];
 

@@ -19,6 +19,7 @@ const OPENROUTER: CatalogEntry[] = [
   { id: 'anthropic/claude-opus-4.8', source: 'openrouter', input: 5,  output: 25, cacheRead: 0.5, cacheWrite: 6.25, fetchedAt: 0 },
   { id: 'anthropic/claude-fable-5', source: 'openrouter', input: 10, output: 50, cacheRead: 1.0, cacheWrite: 12.5, fetchedAt: 0 },
   { id: 'qwen/qwen3.6-27b',         source: 'openrouter', input: 0.32, output: 3.2, cacheRead: 0, cacheWrite: 0, fetchedAt: 0 },
+  { id: 'qwen/qwen3.8-27b',         source: 'openrouter', input: 0.42, output: 3.0, cacheRead: 0.085, cacheWrite: 0, fetchedAt: 0 },
   // ox-alpha de-cloaked as glm-5.3-flash on 2026-08-26 and the stealth id was
   // dropped from the catalog — deliberately absent here, so the pin is doing
   // real work rather than papering over a $0 listing that still exists.
@@ -55,6 +56,31 @@ describe('alias resolution', () => {
   it('puts an explicit pin ahead of the model own id', () => {
     const c = aliasCandidates('stealth/ox-alpha');
     expect(c[0]).toBe('z-ai/glm-5.3-flash');
+  });
+
+  // Our Qwen 3.8 27B builds. exl3 was invisible until 2026-10-09: not a
+  // known quant suffix, so the name never peeled back to the hosted 27B and
+  // 267M tokens over September priced as unknown.
+  it('pins the exl3 build of Qwen 3.8 27B to the hosted 27B', () => {
+    const c = aliasCandidates('turboderp/Qwen3.8-27B-exl3');
+    expect(c[0]).toBe('qwen/qwen3.8-27b');
+  });
+
+  it('peels an exl3 marker off an unpinned name too', () => {
+    expect(aliasCandidates('someone/Qwen3.8-27B-exl3')).toContain('qwen/qwen3.8-27b');
+    expect(aliasCandidates('someone/Qwen3.8-27B-exl2')).toContain('qwen/qwen3.8-27b');
+  });
+
+  it('pins the INT4 build of Qwen 3.8 27B to the hosted 27B', () => {
+    expect(aliasCandidates('RedHatAI/Qwen3.8-27B-INT4')[0]).toBe('qwen/qwen3.8-27b');
+  });
+
+  it('prices the exl3 build at the OpenRouter 27B list price', () => {
+    const p = resolvePrice('turboderp/Qwen3.8-27B-exl3');
+    expect(p?.source).toBe('openrouter');
+    expect(p?.matchedId).toBe('qwen/qwen3.8-27b');
+    expect(p?.input).toBe(0.42);
+    expect(p?.output).toBe(3.0);
   });
 });
 
@@ -146,6 +172,11 @@ describe('self-host detection', () => {
   it('treats a quantized repo artifact as self-hosted', () => {
     expect(isSelfHosted('Lorbus/Qwen3.6-27B-int4-AutoRound', null, 'local')).toBe(true);
     expect(isSelfHosted('solidrust/Hermes-3-Llama-3.1-8B-AWQ', null, 'hermes')).toBe(true);
+  });
+
+  it('treats an exl3 artifact as self-hosted', () => {
+    expect(isSelfHosted('turboderp/Qwen3.8-27B-exl3', null, 'local')).toBe(true);
+    expect(isSelfHosted('turboderp/Qwen3.8-27B-exl3', null, 'qwen')).toBe(true);
   });
 
   it('treats a bare upstream catalog id as cloud', () => {
