@@ -122,6 +122,7 @@ export const CLAUDE_MODELS: HarnessModel[] = [
   { id: 'claude-fable-5',   providers: ['anthropic'], active: false, local: false },
   { id: 'claude-opus-5',    providers: ['anthropic'], active: false, local: false },
   { id: 'claude-sonnet-5',  providers: ['anthropic'], active: false, local: false },
+  { id: 'claude-haiku-5-5', providers: ['anthropic'], active: false, local: false },
   { id: 'claude-haiku-4-5', providers: ['anthropic'], active: false, local: false },
 ];
 

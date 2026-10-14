@@ -579,7 +579,7 @@ function GeoRegionOverrides({ settings, saveSetting }: {
 }
 
 const PROVIDER_PRESETS = [
-  { id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com/v1/messages', type: 'anthropic' as const, placeholder: 'sk-ant-...', defaultModel: 'claude-haiku-4-5-20251001', models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'] },
+  { id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com/v1/messages', type: 'anthropic' as const, placeholder: 'sk-ant-...', defaultModel: 'claude-haiku-5-5', models: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-5-5'] },
   { id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1/chat/completions', type: 'openai-compatible' as const, placeholder: 'sk-...', defaultModel: 'gpt-4o-mini', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1-mini', 'o3-mini'] },
   { id: 'google', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', type: 'openai-compatible' as const, placeholder: 'AIza...', defaultModel: 'gemini-2.5-flash', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
   { id: 'groq', name: 'Groq', endpoint: 'https://api.groq.com/openai/v1/chat/completions', type: 'openai-compatible' as const, placeholder: 'gsk_...', defaultModel: 'llama-3.3-70b-versatile', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'] },

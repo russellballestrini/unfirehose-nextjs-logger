@@ -36,7 +36,7 @@ const post = (headers: Record<string, string> = {}) =>
     { params: Promise.resolve({ project: 'demo' }) },
   );
 
-const anthropic = { type: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', apiKey: 'placeholder', model: 'claude-haiku-4-5-20251001', source: 'settings' };
+const anthropic = { type: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', apiKey: 'placeholder', model: 'claude-haiku-5-5', source: 'settings' };
 const openai = { type: 'openai-compatible', endpoint: 'https://api.openai.com/v1/chat/completions', apiKey: 'placeholder', model: 'gpt-4o-mini', source: 'settings' };
 
 const ok = (body: unknown) => ({ ok: true, json: async () => body, text: async () => JSON.stringify(body) });

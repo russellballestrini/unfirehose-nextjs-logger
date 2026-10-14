@@ -97,7 +97,7 @@ export async function resolveProvider(settings: Record<string, string>, vaultKey
       type: 'anthropic',
       endpoint: 'https://api.anthropic.com/v1/messages',
       apiKey: claude.accessToken,
-      model: settings.llm_commit_model || 'claude-haiku-4-5-20251001',
+      model: settings.llm_commit_model || 'claude-haiku-5-5',
       source: 'claude-max',
     };
   }

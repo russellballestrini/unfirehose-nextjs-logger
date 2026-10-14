@@ -41,7 +41,7 @@ export async function GET() {
         name: `Claude Max (${oauth.subscriptionType ?? 'oauth'})`,
         source: 'filesystem',
         type: 'anthropic',
-        model: settings.llm_commit_model || 'claude-haiku-4-5-20251001',
+        model: settings.llm_commit_model || 'claude-haiku-5-5',
         ready: !expired,
         detail: expired
           ? `Token expired ${new Date(oauth.expiresAt).toISOString()}`
