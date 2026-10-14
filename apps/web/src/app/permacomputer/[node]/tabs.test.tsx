@@ -382,6 +382,51 @@ describe('panels that need the hardware to exist', () => {
     expect(container.textContent).not.toContain('NaN');
   });
 
+  describe('virtual machines', () => {
+    const vms = [
+      { hypervisor: 'qemu', accel: 'kvm', name: '11_buildunturfcom', state: 'running', pid: 4211, vcpus: 4, memMB: 8192,
+        uuid: '7d2f0c1e-3b4a-4f8e-9c2d-1a2b3c4d5e6f', disks: ['/var/lib/libvirt/images/11_buildunturfcom.qcow2'],
+        cpuPct: 12.3, memPct: 6.4, rssKB: 864000, uptimeSeconds: 86400, sources: ['proc', 'virsh'], containerId: 'qemu\\x2d38\\x2d11_buildunturfcom' },
+      { hypervisor: 'qemu', accel: null, name: '10_lab11', state: 'shut off', pid: null, vcpus: null, memMB: null,
+        uuid: null, disks: [], cpuPct: null, memPct: null, rssKB: null, uptimeSeconds: null, sources: ['virsh'], containerId: null },
+    ];
+    const probeWith = (over: Record<string, unknown>) => bag({ probe: { ...bag().probe, ...over } });
+
+    it('lists guests on the Containers tab, running first, with the state the tool gave', () => {
+      // They live with the containers: a guest is a machine's tenant, and
+      // machined already put its scope in this table.
+      const { container } = render(<ContainersTab {...probeWith({ vms })} />);
+      const text = container.textContent ?? '';
+      expect(text).toContain('Virtual Machines (2)');
+      expect(text.indexOf('11_buildunturfcom')).toBeLessThan(text.indexOf('10_lab11'));
+      expect(text).toContain('shut off');
+      expect(text).toContain('8 GB');
+      expect(text).toContain('11_buildunturfcom.qcow2');
+      expect(text).toContain('kvm');
+    });
+
+    it('shows the guests even on a host with no containers', () => {
+      const { container } = render(<ContainersTab {...probeWith({ vms, containers: [] })} />);
+      expect(container.textContent).toContain('11_buildunturfcom');
+      expect(container.textContent).toContain('No containers on this node.');
+    });
+
+    it('draws nothing for them on a host without any', () => {
+      const { container } = render(<ContainersTab {...probeWith({ vms: [] })} />);
+      expect(container.textContent).not.toContain('Virtual Machines');
+    });
+
+    it('points a libvirt guest at its machined cgroup row when the scan listed one', () => {
+      const containers = [
+        ...(bag().probe.containers as any[]),
+        { id: 'qemu\\x2d38\\x2d11_buildunturfcom', name: 'qemu-38-11_buildunturfcom', runtime: 'nspawn', state: 'running', status: 'running',
+          image: '', ports: '', pid: 4211, viaCgroup: true, resources: { cpuPct: 11.9, memUsed: 900_000_000, tasks: 9 } },
+      ];
+      const { container } = render(<ContainersTab {...probeWith({ vms, containers })} />);
+      expect(container.querySelector('a[title*="machined scope qemu-38-11_buildunturfcom"]')).not.toBeNull();
+    });
+  });
+
   it('lists containers when the node runs any', () => {
     // They sit under Overview with the rest of what the probe found, not
     // with the processes — a container is a machine's tenant, not its

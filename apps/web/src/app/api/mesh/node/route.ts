@@ -355,6 +355,34 @@ for e in \$CG_LIST; do
   fi
 done
 
+# --- virtual machines: our host's view of its guests ---
+# QEMU/KVM, Xen and VirtualBox guests are host processes, not cgroup
+# containers -- though machined wraps a libvirt guest in a machine-qemu
+# scope, which the cgroup scan above already lists with cpu/mem/tasks.
+# What the cgroup cannot say, the hypervisor's own argv or tool can: guest
+# name, configured memory and vcpus, disk images, uuid. Nothing here needs
+# a guest agent and every command is read-only. One section carries every
+# source, each line tagged: proc| for a qemu/VBoxHeadless process (pid,
+# cpu%, mem%, rss, etimes, argv), virsh| xl| vbox| vboxrun| for each tool's
+# own table, parsed on our side. virsh is asked for the system URI first
+# (the host's guests), then its default; a host whose libvirt daemon is
+# down answers nothing, which is the right answer, and \$T bounds a daemon
+# that is up but wedged.
+echo '===SECTION:VMS==='
+VMOUT=\$({
+  ps -eo pid,pcpu,pmem,rss,etimes,args 2>/dev/null | awk 'NR>1 && (index(\$6,"qemu-system-")>0 || \$6 ~ /qemu-kvm\$/ || \$6 ~ /VBoxHeadless\$/) { print "proc|" \$0 }'
+  if command -v virsh >/dev/null 2>&1; then
+    V=\$(\$T virsh -r -c qemu:///system list --all 2>/dev/null) || V=\$(\$T virsh -r list --all 2>/dev/null)
+    [ -n "\$V" ] && printf '%s\\n' "\$V" | sed 's/^/virsh|/'
+  fi
+  command -v xl >/dev/null 2>&1 && \$T xl list 2>/dev/null | sed 's/^/xl|/'
+  if command -v VBoxManage >/dev/null 2>&1; then
+    \$T VBoxManage list runningvms 2>/dev/null | sed 's/^/vboxrun|/'
+    \$T VBoxManage list vms 2>/dev/null | sed 's/^/vbox|/'
+  fi
+} | grep -v '===SECTION:' | head -300)
+[ -n "\$VMOUT" ] && printf '%s\\n' "\$VMOUT" || echo 'none'
+
 # --- every process with its parent ---
 # ps -ejH draws a tree but carries no ppid, so nothing can be cut out of
 # it. With pid and ppid a container's tree is rebuilt from the host pids

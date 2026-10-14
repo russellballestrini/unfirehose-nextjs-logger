@@ -5,6 +5,7 @@ import {
   parseCgroupStats, parsePsPpid, containerProcessTree, attachContainerResources,
   parseHarnessSessions, resolveHarnessSession, attachHarnessSessions,
   parseDockerCgroup, mergeCgroupContainers,
+  parseVms, parseQemuArgv, parseQemuMemMB, parseQemuSmp, parseVirshList, parseXlList, parseVboxList, linkVmContainers,
 } from './node-probe';
 
 /**
@@ -733,5 +734,175 @@ describe('mergeCgroupContainers', () => {
   it('leaves the docker list untouched when the scan found nothing', () => {
     const docker = [{ id: 'abc', name: 'x' }];
     expect(mergeCgroupContainers(docker, [])).toBe(docker);
+  });
+});
+
+/**
+ * Virtual machines, as the host sees them. No guest on our mesh was running
+ * when these were written (guile's libvirt qemu daemon was down, 2026-10-14),
+ * so the fixtures are the documented shapes -- libvirt 9's qemu argv, virsh
+ * 9's padded table, xl's and VBoxManage's -- carrying guile's real domain
+ * names from /var/lib/libvirt/qemu/domain-38-11_buildunturfcom and friends.
+ */
+const LIBVIRT_ARGV = '/usr/bin/qemu-system-x86_64 -name guest=11_buildunturfcom,debug-threads=on -S '
+  + '-object {"qom-type":"secret","id":"masterKey0","format":"raw","file":"/var/lib/libvirt/qemu/domain-38-11_buildunturfcom/master-key.aes"} '
+  + '-machine pc-q35-7.2,usb=off,vmport=off,dump-guest-core=off,memory-backend=pc.ram,acpi=on -accel kvm -cpu host,migratable=on '
+  + '-m size=8388608k -object {"qom-type":"memory-backend-ram","id":"pc.ram","size":8589934592} -overcommit mem-lock=off '
+  + '-smp 4,sockets=4,cores=1,threads=1 -uuid 7d2f0c1e-3b4a-4f8e-9c2d-1a2b3c4d5e6f -no-user-config -nodefaults '
+  + '-blockdev {"driver":"file","filename":"/var/lib/libvirt/images/11_buildunturfcom.qcow2","node-name":"libvirt-1-storage","auto-read-only":true,"discard":"unmap"} '
+  + '-blockdev {"node-name":"libvirt-1-format","read-only":false,"driver":"qcow2","file":"libvirt-1-storage"} '
+  + '-device {"driver":"virtio-blk-pci","bus":"pci.3","addr":"0x0","drive":"libvirt-1-format","id":"virtio-disk0","bootindex":1} -msg timestamp=on';
+
+const HAND_ARGV = 'qemu-system-x86_64 -enable-kvm -name 6_akuma2204 -m 2048 -smp 2 -drive file=/srv/vm/akuma.qcow2,if=virtio -cdrom /srv/iso/ubuntu-22.04.iso';
+
+const VIRSH = [
+  ' Id   Name                State',
+  '------------------------------------',
+  ' 38   11_buildunturfcom   running',
+  ' 37   6_akuma2204         running',
+  ' -    10_lab11            shut off',
+];
+
+const VMS_RAW = [
+  `proc|   4211  12.3  6.4 864000 86400 ${LIBVIRT_ARGV}`,
+  `proc|   4300   0.5  1.1 210000 3600 ${HAND_ARGV}`,
+  ...VIRSH.map((l) => `virsh|${l}`),
+].join('\n');
+
+describe('parseQemuArgv', () => {
+  it('reads a libvirt command line: guest name, kvm, memory in k, smp list, uuid, JSON blockdev', () => {
+    const a = parseQemuArgv(LIBVIRT_ARGV);
+    expect(a).toEqual({
+      name: '11_buildunturfcom', accel: 'kvm', vcpus: 4, memMB: 8192,
+      uuid: '7d2f0c1e-3b4a-4f8e-9c2d-1a2b3c4d5e6f',
+      disks: ['/var/lib/libvirt/images/11_buildunturfcom.qcow2'],
+    });
+  });
+  it('reads a hand-run command line: bare name, -enable-kvm, MiB, -drive file= and -cdrom', () => {
+    const a = parseQemuArgv(HAND_ARGV);
+    expect(a).toMatchObject({ name: '6_akuma2204', accel: 'kvm', vcpus: 2, memMB: 2048, uuid: null });
+    expect(a.disks).toEqual(['/srv/vm/akuma.qcow2', '/srv/iso/ubuntu-22.04.iso']);
+  });
+  it('knows software emulation from accel=tcg on -machine', () => {
+    expect(parseQemuArgv('qemu-system-aarch64 -M virt,accel=tcg -m 1G -smp cpus=2').accel).toBe('tcg');
+  });
+});
+
+describe('qemu size words', () => {
+  it('reads -m in every spelling qemu takes, as MiB', () => {
+    expect(parseQemuMemMB('4096')).toBe(4096);
+    expect(parseQemuMemMB('size=4194304k')).toBe(4096);
+    expect(parseQemuMemMB('2G')).toBe(2048);
+    expect(parseQemuMemMB('512M')).toBe(512);
+    expect(parseQemuMemMB('4096,slots=4,maxmem=16G')).toBe(4096);
+    expect(parseQemuMemMB(undefined)).toBeNull();
+  });
+  it('reads -smp as a count, a list, or cpus=', () => {
+    expect(parseQemuSmp('4')).toBe(4);
+    expect(parseQemuSmp('4,sockets=4,cores=1,threads=1')).toBe(4);
+    expect(parseQemuSmp('cpus=8,maxcpus=16')).toBe(8);
+    expect(parseQemuSmp('sockets=2,cores=4,maxcpus=8')).toBe(8);
+  });
+});
+
+describe('hypervisor tables', () => {
+  it('reads a padded virsh table, "-" id as not running, two-word states intact', () => {
+    expect(parseVirshList(VIRSH)).toEqual([
+      { id: 38, name: '11_buildunturfcom', state: 'running' },
+      { id: 37, name: '6_akuma2204', state: 'running' },
+      { id: null, name: '10_lab11', state: 'shut off' },
+    ]);
+  });
+  it('reads an older single-spaced virsh table too', () => {
+    expect(parseVirshList(['Id Name State', '---', '3 web running', '- db shut off'])).toEqual([
+      { id: 3, name: 'web', state: 'running' }, { id: null, name: 'db', state: 'shut off' },
+    ]);
+  });
+  it('reads xl list, skipping Domain-0 and decoding the state flags', () => {
+    const rows = parseXlList([
+      'Name                                        ID   Mem VCPUs\tState\tTime(s)',
+      'Domain-0                                     0  4096     4     r-----     123.4',
+      'lab-xen                                      3  2048     2     -b----      12.0',
+      'old-xen                                      5   512     1     ---s--       0.3',
+    ]);
+    expect(rows).toEqual([
+      { name: 'lab-xen', id: 3, memMB: 2048, vcpus: 2, state: 'running' },
+      { name: 'old-xen', id: 5, memMB: 512, vcpus: 1, state: 'shut off' },
+    ]);
+  });
+  it('reads VBoxManage list vms', () => {
+    expect(parseVboxList(['"win11-test" {5c8d1a2b-3e4f-4a5b-8c9d-0e1f2a3b4c5d}', 'garbage'])).toEqual([
+      { name: 'win11-test', uuid: '5c8d1a2b-3e4f-4a5b-8c9d-0e1f2a3b4c5d' },
+    ]);
+  });
+});
+
+describe('parseVms', () => {
+  it('merges a running guest across its process and the virsh table, and lists the defined-but-off one', () => {
+    const vms = parseVms(VMS_RAW);
+    expect(vms.map((v) => v.name)).toEqual(['11_buildunturfcom', '6_akuma2204', '10_lab11']);
+    expect(vms[0]).toMatchObject({
+      hypervisor: 'qemu', accel: 'kvm', state: 'running', pid: 4211, vcpus: 4, memMB: 8192,
+      cpuPct: 12.3, memPct: 6.4, rssKB: 864000, uptimeSeconds: 86400, sources: ['proc', 'virsh'], containerId: null,
+    });
+    expect(vms[2]).toMatchObject({ hypervisor: 'qemu', state: 'shut off', pid: null, sources: ['virsh'] });
+  });
+  it('keeps a qemu whose argv names no guest, under its pid', () => {
+    const [vm] = parseVms('proc| 900 1.0 0.5 1000 10 qemu-system-x86_64 -m 1024 -smp 1');
+    expect(vm).toMatchObject({ name: 'qemu 900', state: 'running', memMB: 1024, vcpus: 1 });
+  });
+  it('reads VirtualBox from the headless process and the two lists', () => {
+    const vms = parseVms([
+      'proc| 7000 3.2 2.0 500000 300 /usr/lib/virtualbox/VBoxHeadless --comment win11-test --startvm 5c8d1a2b-3e4f-4a5b-8c9d-0e1f2a3b4c5d',
+      'vboxrun|"win11-test" {5c8d1a2b-3e4f-4a5b-8c9d-0e1f2a3b4c5d}',
+      'vbox|"win11-test" {5c8d1a2b-3e4f-4a5b-8c9d-0e1f2a3b4c5d}',
+      'vbox|"freebsd-14" {aaaa1111-2222-3333-4444-555555555555}',
+    ].join('\n'));
+    expect(vms).toHaveLength(2);
+    expect(vms[0]).toMatchObject({ hypervisor: 'virtualbox', name: 'win11-test', state: 'running', pid: 7000, uuid: '5c8d1a2b-3e4f-4a5b-8c9d-0e1f2a3b4c5d', sources: ['proc', 'vbox'] });
+    expect(vms[1]).toMatchObject({ hypervisor: 'virtualbox', name: 'freebsd-14', state: 'powered off', pid: null });
+  });
+  it('reads xen guests from xl', () => {
+    const vms = parseVms('xl|Name ID Mem VCPUs State Time(s)\nxl|Domain-0 0 4096 4 r----- 1.0\nxl|lab-xen 3 2048 2 -b---- 12.0');
+    expect(vms).toEqual([expect.objectContaining({ hypervisor: 'xen', name: 'lab-xen', state: 'running', memMB: 2048, vcpus: 2, sources: ['xl'] })]);
+  });
+  it('reads nothing from a host without guests', () => {
+    expect(parseVms('none')).toEqual([]);
+    expect(parseVms('')).toEqual([]);
+  });
+});
+
+describe('linkVmContainers', () => {
+  it('points a libvirt guest at the machined scope the cgroup scan listed, by the raw id stats are keyed under', () => {
+    const containers = mergeCgroupContainers([], parseDockerCgroup([
+      'nspawn|qemu\\x2d38\\x2d11_buildunturfcom|4211|qemu-system-x86',
+      'nspawn|buildbot|4100|systemd',
+    ].join('\n')));
+    const vms = linkVmContainers(parseVms(VMS_RAW), containers);
+    expect(vms[0].containerId).toBe('qemu\\x2d38\\x2d11_buildunturfcom');
+    expect(vms[1].containerId).toBeNull();
+  });
+  it('is a no-op with nothing to link', () => {
+    const vms = parseVms(VMS_RAW);
+    expect(linkVmContainers(vms, [])).toBe(vms);
+  });
+});
+
+describe('parseProbeOutput carries the guests', () => {
+  const section = (name: string, body: string) => `===SECTION:${name}===\n${body}\n`;
+  it('lists vms beside containers, linked to their machined scopes', () => {
+    const node = parseProbeOutput([
+      section('HOSTNAME', 'guile'),
+      section('DOCKER_CGROUP', 'nspawn|qemu\\x2d38\\x2d11_buildunturfcom|4211|qemu-system-x86'),
+      section('VMS', VMS_RAW),
+      section('END', ''),
+    ].join(''), 'guile.foxhop.net');
+    expect(node.vms).toHaveLength(3);
+    expect(node.vms[0]).toMatchObject({ name: '11_buildunturfcom', containerId: 'qemu\\x2d38\\x2d11_buildunturfcom' });
+    expect(node.containers.map((c: any) => c.name)).toContain('qemu-38-11_buildunturfcom');
+  });
+  it('gives an older probe, or a host without guests, an empty list', () => {
+    expect(parseProbeOutput(section('HOSTNAME', 'cammy') + section('END', ''), 'cammy').vms).toEqual([]);
+    expect(parseProbeOutput(section('HOSTNAME', 'cammy') + section('VMS', 'none') + section('END', ''), 'cammy').vms).toEqual([]);
   });
 });
