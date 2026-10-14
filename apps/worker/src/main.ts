@@ -11,6 +11,7 @@ import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/stat
 import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 import { refreshProjectList } from '@unturf/unfirehose/projects-list';
 import { refreshDashboard, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
+import { refreshTokensPayload, storedTokensRanges, WARM_TOKENS_SHORT_RANGES, WARM_TOKENS_LONG_RANGES } from '@unturf/unfirehose/tokens';
 
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
@@ -55,6 +56,8 @@ const DASHBOARD_REFRESH_MS = 60_000;             // 24h + 7d: what a dashboard o
 const DASHBOARD_LONG_REFRESH_MS = 5 * 60_000;    // 28d: a month does not move in a minute
 const PROJECT_LIST_REFRESH_MS = 3 * 60_000;      // ~4 s of aggregates
 const SCROBBLE_REFRESH_MS = 15 * 60_000;         // ~15 s, two full scans of messages
+const TOKENS_REFRESH_MS = 60_000;                // 24h + 7d: ~0.4 s each, what the Tokens page opens on
+const TOKENS_LONG_REFRESH_MS = 10 * 60_000;      // 28d, lifetime (~11 s) and any range a request stored
 // Each tick above rebuilds only when a message has landed since the stored
 // payload was built (see payloadCurrent). These bound how old a payload may
 // grow while nothing lands: a range slides with the clock and mesh energy
@@ -68,6 +71,8 @@ const DASHBOARD_MAX_QUIET_MS = 15 * 60_000;
 const DASHBOARD_LONG_MAX_QUIET_MS = 30 * 60_000;
 const PROJECT_LIST_MAX_QUIET_MS = 15 * 60_000;
 const SCROBBLE_MAX_QUIET_MS = 2 * 60 * 60_000;
+const TOKENS_MAX_QUIET_MS = 15 * 60_000;
+const TOKENS_LONG_MAX_QUIET_MS = 60 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
@@ -223,6 +228,32 @@ async function main() {
   };
   const scrobbleKickoff = setTimeout(refreshScrobble, 20_000);
   const scrobbleInterval = setInterval(refreshScrobble, SCROBBLE_REFRESH_MS);
+
+  // Tokens payloads. Lifetime is 11 s of scans and the page's week was 6 s
+  // on the request thread; built here and stored, like the dashboard. The
+  // long tick also carries any range a first request built and stored, so
+  // that build is not the one served forever.
+  const refreshTokens = (ranges: readonly string[], unlessCurrentMs: number) => {
+    for (const range of ranges) {
+      try {
+        const t0 = Date.now();
+        if (refreshTokensPayload(range, { unlessCurrentMs }) === null) continue;
+        console.log(`[worker] tokens ${range} in ${Date.now() - t0}ms`);
+      } catch (err) {
+        console.error(`[worker] tokens ${range} failed:`, err);
+      }
+    }
+  };
+  const longTokensRanges = () => {
+    const short = new Set<string>(WARM_TOKENS_SHORT_RANGES);
+    return [...new Set<string>([...WARM_TOKENS_LONG_RANGES, ...storedTokensRanges()])].filter((r) => !short.has(r));
+  };
+  const tokensKickoff = setTimeout(() => {
+    refreshTokens(WARM_TOKENS_SHORT_RANGES, TOKENS_MAX_QUIET_MS);
+    refreshTokens(longTokensRanges(), TOKENS_LONG_MAX_QUIET_MS);
+  }, 16_000);
+  const tokensInterval = setInterval(() => refreshTokens(WARM_TOKENS_SHORT_RANGES, TOKENS_MAX_QUIET_MS), TOKENS_REFRESH_MS);
+  const tokensLongInterval = setInterval(() => refreshTokens(longTokensRanges(), TOKENS_LONG_MAX_QUIET_MS), TOKENS_LONG_REFRESH_MS);
 
   // Vendor status pages. What the provider admits to, next to what we hit.
   // First poll shortly after boot so the refusals tab is not blank for a
@@ -390,6 +421,9 @@ async function main() {
       clearInterval(statusRollup);
       clearTimeout(scrobbleKickoff);
       clearInterval(scrobbleInterval);
+      clearTimeout(tokensKickoff);
+      clearInterval(tokensInterval);
+      clearInterval(tokensLongInterval);
       clearTimeout(projectsKickoff);
       clearInterval(projectsInterval);
       clearTimeout(dashboardKickoff);

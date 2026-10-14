@@ -75,6 +75,7 @@
     "./scrobble-range": "./scrobble-range.ts",
     "./projects-list": "./projects-list.ts",
     "./dashboard": "./dashboard.ts",
+    "./tokens": "./tokens.ts",
     "./test/db-helper": "./test/db-helper.ts",
     "./precomputed": "./precomputed.ts",
     "./db/session-close": "./db/session-close.ts",
