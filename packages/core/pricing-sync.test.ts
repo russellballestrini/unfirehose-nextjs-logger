@@ -4,7 +4,7 @@
 //
 // No network. Feeds are injected; the clock is injected; the DB is in memory.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from './db/migrate.js';
 import {
@@ -15,6 +15,9 @@ import {
   recentSyncRuns,
   recentPriceChanges,
   priceHistory,
+  FETCH_TIMEOUT_MS,
+  FETCH_ATTEMPTS,
+  FETCH_BACKOFF_MS,
   type UpstreamRow,
 } from './pricing-sync.js';
 import {
@@ -133,6 +136,71 @@ describe('the register records every attempt', () => {
     const r = await syncPricing(db, { sources: ['openrouter'], fetchUpstream: feeds({ openrouter: [] }), now: clock });
     expect(r[0]).toMatchObject({ ok: false, error: 'empty catalog', delisted: 0 });
     expect(priceHistory('a/b', db)[0].delisted_at).toBeNull();
+  });
+});
+
+describe('a stalled oracle is asked again', () => {
+  // These exercise the network path — the default fetchUpstream — so fetch is
+  // stubbed on globalThis rather than injected, and the clock is faked so the
+  // timeout and the backoff waits cost nothing. A real abort from our timer
+  // carries the real reason, so the error text under test is undici's own.
+  const book = { data: [
+    { id: 'anthropic/claude-fable-5.1', pricing: { prompt: '0.00001', completion: '0.00005' } },
+    { id: 'anthropic/claude-opus-5',    pricing: { prompt: '0.000005', completion: '0.000025' } },
+  ] };
+  /** Only the Response surface fetchJson touches. */
+  const reply = (status: number, body: unknown = book) =>
+    Promise.resolve({ ok: status < 400, status, json: async () => body } as Response);
+  /** A fetch that never answers; it rejects only when our timer aborts it. */
+  const stall: typeof fetch = (_url, init) => new Promise<Response>((_, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+  });
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('aborts once, waits, and books the second answer as an ok run', async () => {
+    const f = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(stall).mockImplementation(() => reply(200));
+    const p = syncPricing(db, { sources: ['openrouter'], now: clock, trigger: 'worker' });
+    await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS);    // first attempt times out
+    expect(f).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(FETCH_BACKOFF_MS[0]); // backoff elapses; second attempt answers
+    const [r] = await p;
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(r).toMatchObject({ ok: true, models: 2, added: 2 });
+    expect(r.error).toBeUndefined();
+    expect(recentSyncRuns(db)[0]).toMatchObject({ source: 'openrouter', trigger: 'worker', ok: 1, models: 2, error: null });
+    expect(resolvePrice('claude-fable-5-1', ['openrouter'])).toMatchObject({ input: 10, output: 50 });
+  });
+
+  it('aborts every time and writes how many times it asked', async () => {
+    const f = vi.spyOn(globalThis, 'fetch').mockImplementation(stall);
+    const p = syncPricing(db, { sources: ['openrouter'], now: clock });
+    await vi.runAllTimersAsync();
+    const [r] = await p;
+    expect(f).toHaveBeenCalledTimes(FETCH_ATTEMPTS);
+    const error = `This operation was aborted (${FETCH_ATTEMPTS} attempts)`;
+    expect(r).toMatchObject({ ok: false, models: 0, error });
+    expect(recentSyncRuns(db)[0]).toMatchObject({ source: 'openrouter', ok: 0, models: 0, error });
+  });
+
+  it('asks again after a 5xx', async () => {
+    const f = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(() => reply(503)).mockImplementation(() => reply(200));
+    const p = syncPricing(db, { sources: ['openrouter'], now: clock });
+    await vi.runAllTimersAsync();
+    const [r] = await p;
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(r).toMatchObject({ ok: true, models: 2 });
+  });
+
+  it('takes a 4xx as the answer and asks once', async () => {
+    const f = vi.spyOn(globalThis, 'fetch').mockImplementation(() => reply(404));
+    const p = syncPricing(db, { sources: ['openrouter'], now: clock });
+    await vi.runAllTimersAsync();
+    const [r] = await p;
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ ok: false, error: 'HTTP 404' });
+    expect(recentSyncRuns(db)[0].error).toBe('HTTP 404');
   });
 });
 

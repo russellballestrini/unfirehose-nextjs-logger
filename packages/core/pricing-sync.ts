@@ -22,9 +22,10 @@
 // serving an OpenAI-compatible catalog, and that is the one we read.
 //
 // The ledger is append-only. A sync never updates a price; it closes the row
-// that stopped being true and opens a new one. Every attempt — including a
+// that stopped being true and opens a new one. Every run — including a
 // failed fetch — is written to pricing_sync_runs, so "did the book get
-// checked today" has an answer, and so does "what changed".
+// checked today" has an answer, and so does "what changed". A fetch gets a
+// few tries before its run is booked failed; the error names how many.
 
 import type Database from 'better-sqlite3';
 import { getDb } from './db/schema';
@@ -47,9 +48,24 @@ export const ORACLE_URLS: Record<CatalogSource, string> = {
 };
 
 const USER_AGENT = 'unfirehose/1.0 (+https://unfirehose.com) price-catalog-sync';
-// models.dev is ~4.5MB and LiteLLM ~2MB; a slow link needs longer than the
-// 20s the two small feeds used to get.
-const FETCH_TIMEOUT_MS = 45_000;
+
+/** A positive integer from the environment, else the default. */
+function envInt(name: string, fallback: number): number {
+  const n = parseInt(process.env[name] ?? '', 10);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+// Budget for one attempt. models.dev is ~4.5MB and LiteLLM ~2MB; 60s keeps
+// the floor near 75KB/s, which a loaded residential uplink or a container
+// behind an egress proxy still clears. Longer buys little: the 2026-10-13
+// openrouter abort hit the previous 45s on a feed that answers in 0.3s —
+// a stalled connection, which no timeout cures and a second attempt does.
+export const FETCH_TIMEOUT_MS = envInt('UNFIREHOSE_PRICING_FETCH_TIMEOUT_MS', 60_000);
+// Attempts per oracle per sync. A timeout, a dead socket or a 5xx earns
+// another try after a short wait; a 4xx is an answer and is not retried.
+export const FETCH_ATTEMPTS = envInt('UNFIREHOSE_PRICING_FETCH_ATTEMPTS', 3);
+/** Wait after the n-th failure before trying again; the last entry repeats. */
+export const FETCH_BACKOFF_MS: readonly number[] = [1_000, 3_000];
 
 /** Why a sync ran. Written to the register so a gap can be read back. */
 export type SyncTrigger = 'worker' | 'make' | 'api' | 'unpriced' | 'bootstrap';
@@ -229,7 +245,31 @@ export function parseCatalog(source: CatalogSource, body: unknown): UpstreamRow[
   return PARSERS[source](body);
 }
 
-async function fetchJson(url: string): Promise<unknown> {
+/** A non-2xx reply. Carries the status so the retry policy can tell a 503 from a 404. */
+class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`HTTP ${status}`);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+
+/**
+ * Worth another try: our timer aborted it, the socket died (undici reports
+ * every connection-level failure as a TypeError with the syscall error in
+ * `cause`), or the oracle itself fell over. A 4xx is the oracle saying no;
+ * asking again is noise, not resilience.
+ */
+function isRetryable(err: unknown): boolean {
+  if (err instanceof HttpError) return err.status >= 500;
+  if (!(err instanceof Error)) return false;
+  return err.name === 'AbortError' || err.name === 'TimeoutError' || err.name === 'TypeError';
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function fetchJsonOnce(url: string): Promise<unknown> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -237,10 +277,33 @@ async function fetchJson(url: string): Promise<unknown> {
       signal: ctl.signal,
       headers: { accept: 'application/json', 'user-agent': USER_AGENT },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new HttpError(res.status);
     return await res.json();
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Fetch with bounded retry: up to FETCH_ATTEMPTS tries, FETCH_BACKOFF_MS
+ * apart, for the failures a second ask can fix. When more than one try was
+ * made and all failed, the error that reaches the register names the count —
+ * "This operation was aborted (3 attempts)" — so a reader can tell a stall
+ * we waited out from one we gave up on. One try, one plain message.
+ */
+async function fetchJson(url: string): Promise<unknown> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetchJsonOnce(url);
+    } catch (err) {
+      if (attempt < FETCH_ATTEMPTS && isRetryable(err)) {
+        await sleep(FETCH_BACKOFF_MS[Math.min(attempt, FETCH_BACKOFF_MS.length) - 1]);
+        continue;
+      }
+      if (attempt === 1) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`${msg} (${attempt} attempts)`, { cause: err });
+    }
   }
 }
 
