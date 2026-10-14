@@ -198,7 +198,15 @@ Server-sent events stream of live session activity.
 ## Mesh / Permacomputer
 
 ### GET /api/mesh
-All mesh node stats (SSH-connected machines).
+All mesh node stats (SSH-connected machines), served from our worker's newest
+`mesh_snapshots` row per node (sampled every 15 s). A node with no sample
+inside 60 s is reported unreachable with when it was last heard from. Static
+facts (CPU model, disks, uptime, OS, containers) come from a full probe run
+behind the response at most every 5 min. Falls back to an inline SSH probe
+only when no node has a fresh snapshot.
+- `?live=1` — force the inline SSH probe of every node now (seconds, not milliseconds)
+- `?host=cammy` — probe one node inline, no summary
+- Headers: `X-Mesh-Source: snapshots|cache|live`, `X-Computed-At` (the oldest sample the answer rests on)
 → `{ nodes: [...], localHostname, summary }`
 
 ### GET /api/mesh/history

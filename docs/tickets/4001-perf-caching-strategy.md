@@ -36,7 +36,9 @@ export async function GET() {
 
 ### Route-by-Route Plan
 
-#### 1. `/api/mesh` — TTL 15s, stale-while-revalidate
+#### 1. `/api/mesh` — TTL 15s, stale-while-revalidate — DONE 2026-10-14
+
+Shipped differently from the plan below: our worker's sampler already writes a `mesh_snapshots` row per node every 15 s, so the route now serves the newest row per node (60 s freshness bound; a node with no row inside it is reported unreachable with its last sample time), lays static facts from a background full probe under them (at most every 5 min), and probes inline only when no row is fresh or `?live=1` asks. Measured on a dev server against a seeded database: 25–51 ms per request (route work 1–3 ms) against 2.8 s for the inline probe on the same box, 4.7 s on the live server before. Headers `X-Mesh-Source` and `X-Computed-At` show which path answered and how old the oldest sample is.
 
 - **Cache TTL:** 15s (client polls every 30s, so cache hit rate ~50%)
 - **Pattern:** Stale-while-revalidate — serve cached data immediately, trigger background refresh if stale

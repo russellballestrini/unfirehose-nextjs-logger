@@ -1,13 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 
 /**
  * The mesh summary: every node at once, and the totals across them.
  *
  * Probing a node is an ssh round trip, so this route is mostly about not
- * doing that — every node is probed in parallel rather than in turn, and a
- * result is served from cache while a refresh runs behind it. A page that
- * waited for the slowest node would take as long as the sleepiest machine
- * on the mesh.
+ * doing that. The worker's sampler already asks every node every fifteen
+ * seconds and writes what it hears to mesh_snapshots; the route serves the
+ * newest row per node and ssh-es on the request thread only when no row is
+ * fresh — the worker is down, or `?live=1` asked for it. A page that waited
+ * for the slowest node would take as long as the sleepiest machine on the
+ * mesh, and did: 4.7 s, measured 2026-10-14.
  *
  * The totals are the other half, and they count only what answered: adding
  * a node we could not reach means adding zeros, which reads as a machine
@@ -20,14 +25,30 @@ vi.mock('@unturf/unfirehose/mesh', () => ({ discoverNodes: () => nodes }));
 const local = () => ({
   hostname: 'neoblanka', reachable: true, cpuCores: 32, memTotalGB: 64, memUsedGB: 18,
   powerWatts: 140, gpuPowerWatts: 0, claudeProcesses: 2, harnessCounts: { claude: 2 },
+  // Facts a snapshot row does not carry.
+  cpuModel: 'EPYC 7443', cpuYear: 2021, uptimeSeconds: 86_400, gpuModel: 'RTX 3090', gpuMemTotalMB: 24_576,
 });
 vi.mock('@/lib/local-stats', () => ({ getLocalStats: () => local() }));
+
+// A real in-memory database with the real schema, so a worker row is seeded
+// the way the sampler writes it.
+const db = createTestDb();
+// ssh-mux reads UNFIREHOSE_DIR from the same module for its control sockets;
+// a probe from a test must not reach into ~/.unfirehose.
+vi.mock('@unturf/unfirehose/db/schema', () => ({
+  getDb: () => db,
+  UNFIREHOSE_DIR: join(tmpdir(), 'unfirehose-mesh-route-test'),
+}));
 
 /** What each remote host answers with, or an error. */
 let remotes: Record<string, Record<string, unknown> | Error>;
 let probeOrder: string[];
 let inFlight: number;
 let maxInFlight: number;
+/** ssh round trips that have returned. */
+let completed: number;
+/** ssh's own exit 255: the box never answered, so no other speaker is tried. */
+const down = () => Object.assign(new Error('Unreachable'), { code: 255 });
 
 vi.mock('child_process', () => ({
   execSync: () => 'neoblanka\n',
@@ -36,7 +57,7 @@ vi.mock('child_process', () => ({
     probeOrder.push(host);
     inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
     setTimeout(() => {
-      inFlight--;
+      inFlight--; completed++;
       const r = remotes[host];
       if (r instanceof Error) cb(r, '');
       else cb(null, 'ok');
@@ -45,13 +66,34 @@ vi.mock('child_process', () => ({
   },
 }));
 
-const { GET } = await import('./route');
+let GET: Awaited<typeof import('./route')>['GET'];
+({ GET } = await import('./route'));
 const get = (query = '') =>
   GET({ nextUrl: { searchParams: new URLSearchParams(query) } } as never);
 
+/** A row the sampler wrote for `hostname`, `ageSec` ago. */
+function seedSnapshot(hostname: string, ageSec: number, over: Record<string, unknown> = {}) {
+  const ts = new Date(Date.now() - ageSec * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  db.prepare(`
+    INSERT INTO mesh_snapshots (timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
+      mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, power_source, claude_processes,
+      agent_processes, harness_counts)
+    VALUES (@ts, @hostname, @cpu_cores, @load_avg_1, @load_avg_5, @load_avg_15, @mem_total_gb,
+      @mem_used_gb, @power_watts, @gpu_power_watts, @power_source, @claude_processes,
+      @agent_processes, @harness_counts)
+  `).run({
+    ts, hostname, cpu_cores: 8, load_avg_1: 1.5, load_avg_5: 1.2, load_avg_15: 0.9,
+    mem_total_gb: 32, mem_used_gb: 10, power_watts: 45, gpu_power_watts: 0, power_source: 'rapl',
+    claude_processes: 1, agent_processes: 1, harness_counts: '{"claude":1}', ...over,
+  });
+}
+
+const settle = () => new Promise(r => setTimeout(r, 30));
+
 beforeEach(() => {
   nodes = ['localhost'];
-  remotes = {}; probeOrder = []; inFlight = 0; maxInFlight = 0;
+  remotes = {}; probeOrder = []; inFlight = 0; maxInFlight = 0; completed = 0;
+  db.prepare('DELETE FROM mesh_snapshots').run();
 });
 
 describe('GET /api/mesh', () => {
@@ -95,5 +137,99 @@ describe('GET /api/mesh', () => {
     const first = probeOrder.length;
     await get('');
     expect(probeOrder.length).toBe(first);
+  });
+});
+
+describe('GET /api/mesh from the worker\'s snapshots', () => {
+  // A route module that has never probed: no cache, no facts, no learned
+  // hostnames. What a web process looks like right after it starts.
+  beforeAll(async () => {
+    vi.resetModules();
+    ({ GET } = await import('./route'));
+  });
+
+  it('answers from snapshots at once; the probe that reads the facts runs behind the answer', async () => {
+    nodes = ['localhost', 'cammy.foxhop.net'];
+    remotes = { 'cammy.foxhop.net': down() };
+    seedSnapshot('neoblanka', 3);
+    seedSnapshot('cammy.foxhop.net', 12, { cpu_cores: 16, load_avg_1: 2.5 });
+
+    const res = await get('');
+    // No ssh round trip had returned when this answer did. The 4.7 s was
+    // waiting for them in front of the response.
+    expect(completed).toBe(0);
+    expect(res.headers.get('X-Mesh-Source')).toBe('snapshots');
+    const body = await res.json();
+    expect(body.nodes.find((n: any) => n.hostname === 'cammy.foxhop.net')).toMatchObject({
+      reachable: true, cpuCores: 16, loadAvg: [2.5, 1.2, 0.9], memTotalGB: 32,
+    });
+    expect(body.summary).toMatchObject({ totalNodes: 2, reachableNodes: 2, totalCores: 24 });
+
+    // The facts probe did run — after.
+    await settle();
+    expect(probeOrder).toContain('cammy.foxhop.net');
+  });
+
+  it('serves fresh snapshots without an ssh round trip once the facts are known', async () => {
+    nodes = ['localhost', 'cammy.foxhop.net'];
+    seedSnapshot('neoblanka', 3);
+    seedSnapshot('cammy.foxhop.net', 20);
+
+    const res = await get('');
+    const body = await res.json();
+    expect(probeOrder).toEqual([]);
+    expect(res.headers.get('X-Mesh-Source')).toBe('snapshots');
+    // The answer rests on its oldest sample, and says so.
+    const age = Date.now() - Date.parse(res.headers.get('X-Computed-At')!);
+    expect(age).toBeGreaterThanOrEqual(19_000);
+    expect(age).toBeLessThan(23_000);
+    // What moves comes from the row; what does not comes from the last
+    // full probe — and uptime kept counting in between.
+    const me = body.nodes.find((n: any) => n.hostname === 'neoblanka');
+    expect(me).toMatchObject({ cpuModel: 'EPYC 7443', cpuYear: 2021, cpuCores: 8, memTotalGB: 32, memUsedGB: 10 });
+    expect(me.uptimeSeconds).toBeGreaterThanOrEqual(86_400);
+    // A sample that missed nvidia-smi keeps the card and its capacity — a
+    // page decides the node has a GPU by them — but not a reading it lacks.
+    expect(me).toMatchObject({ gpuModel: 'RTX 3090', gpuMemTotalMB: 24_576 });
+    expect(me.gpuUtil).toBeUndefined();
+  });
+
+  it('marks a node whose newest sample is old, rather than ssh-ing to it inline', async () => {
+    nodes = ['localhost', 'cammy.foxhop.net', 'guile.foxhop.net'];
+    seedSnapshot('neoblanka', 3);
+    seedSnapshot('cammy.foxhop.net', 400);
+
+    const body = await (await get('')).json();
+    expect(probeOrder).toEqual([]);
+    // The way a failed probe reports it, with when it was last heard from.
+    const cammy = body.nodes.find((n: any) => n.hostname === 'cammy.foxhop.net');
+    expect(cammy.reachable).toBe(false);
+    expect(cammy.error).toMatch(/^Last sample .* ago$/);
+    const guile = body.nodes.find((n: any) => n.hostname === 'guile.foxhop.net');
+    expect(guile).toMatchObject({ reachable: false, error: 'No sample yet' });
+    // Counted as present, not as answering: zeros would read as idle.
+    expect(body.summary).toMatchObject({ totalNodes: 3, reachableNodes: 1, totalCores: 8 });
+  });
+
+  it('falls back to the inline probe when no snapshot is fresh', async () => {
+    // The worker is down: every row is old. The old path answers.
+    seedSnapshot('neoblanka', 400);
+    const res = await get('');
+    expect(['cache', 'live']).toContain(res.headers.get('X-Mesh-Source'));
+    expect((await res.json()).nodes[0].cpuCores).toBe(32);
+  });
+
+  it('live=1 probes every node now, snapshots or not', async () => {
+    nodes = ['localhost', 'cammy.foxhop.net'];
+    remotes = { 'cammy.foxhop.net': down() };
+    seedSnapshot('neoblanka', 3);
+    seedSnapshot('cammy.foxhop.net', 3);
+
+    const res = await get('live=1');
+    expect(res.headers.get('X-Mesh-Source')).toBe('live');
+    expect(probeOrder).toContain('cammy.foxhop.net');
+    const body = await res.json();
+    expect(body.nodes.find((n: any) => n.hostname === 'neoblanka').cpuCores).toBe(32);
+    expect(body.nodes.find((n: any) => n.hostname === 'cammy.foxhop.net').reachable).toBe(false);
   });
 });
