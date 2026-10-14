@@ -406,40 +406,6 @@ export function buildTokensPayload(db: Database.Database = getDb(), opts: Tokens
 const KEY_PREFIX = 'tokens_';
 const key = (range: string) => `${KEY_PREFIX}${range}`;
 
-/**
- * How far a requested window may sit from a warmed range and still be
- * answered by it. The page computes `from` once on mount and keeps it for
- * the life of the tab, so a 7-day view left open through an afternoon asks
- * for seven days and three hours. It means seven days. Adjacent ranges are
- * at least 2x apart, so a quarter either way never lands on the wrong one.
- */
-export const SNAP_TOLERANCE = 1.25;
-
-/**
- * The range a request's window stands for, or null when no stored payload
- * can honestly answer it: an explicit `to`, a window that sits between
- * ranges, an unparseable `from`.
- */
-export function snapRange(
-  from: string | null | undefined,
-  to: string | null | undefined,
-  now: number = Date.now(),
-): string | null {
-  if (to) return null;
-  if (!from) return 'all';
-  const ms = now - Date.parse(from);
-  if (!Number.isFinite(ms) || ms <= 0) return null;
-  const minutes = ms / 60_000;
-  let best: string | null = null;
-  let bestErr = Infinity;
-  for (const [range, mins] of Object.entries(TOKENS_RANGES)) {
-    if (!mins) continue;
-    const err = Math.abs(Math.log(minutes / mins));
-    if (err < bestErr) { bestErr = err; best = range; }
-  }
-  return bestErr <= Math.log(SNAP_TOLERANCE) ? best : null;
-}
-
 /** ISO lower bound for a range; undefined for lifetime. */
 export function rangeFrom(range: string, now: number = Date.now()): string | undefined {
   const minutes = TOKENS_RANGES[range];

@@ -6,7 +6,6 @@ vi.mock('./db/schema', () => ({ getDb: () => db }));
 
 const {
   buildTokensPayload,
-  snapRange,
   rangeFrom,
   refreshTokensPayload,
   readTokensPayload,
@@ -157,50 +156,17 @@ describe('buildTokensPayload', () => {
   });
 });
 
-/**
- * The page sends `from` as an absolute instant computed once on mount, so
- * what reaches the route for "7 days" is seven days plus however long the
- * tab has been open. The stored payload is for the range, not the instant.
- */
-describe('snapRange', () => {
+describe('rangeFrom', () => {
   const now = Date.parse('2026-10-14T12:00:00.000Z');
-  const ago = (ms: number) => new Date(now - ms).toISOString();
 
-  it('no window at all is lifetime', () => {
-    expect(snapRange(null, null, now)).toBe('all');
-    expect(snapRange(undefined, undefined, now)).toBe('all');
+  it('lifetime has no lower bound', () => {
+    expect(rangeFrom('all', now)).toBeUndefined();
   });
 
-  it('an exact range snaps to itself', () => {
+  it('a named range is its minutes back from now', () => {
     for (const [range, minutes] of Object.entries(TOKENS_RANGES)) {
       if (!minutes) continue;
-      expect(snapRange(ago(minutes * 60_000), null, now)).toBe(range);
-    }
-  });
-
-  it('a window that drifted while the tab sat open still means its range', () => {
-    expect(snapRange(ago(7 * DAY + 3 * 3600_000), null, now)).toBe('7d');
-    expect(snapRange(ago(24 * 3600_000 + 2 * 3600_000), null, now)).toBe('24h');
-    expect(snapRange(ago(28 * DAY + 5 * DAY), null, now)).toBe('28d');
-  });
-
-  it('a window between ranges is nobody\'s and builds live', () => {
-    expect(snapRange(ago(10 * DAY), null, now)).toBeNull();
-    expect(snapRange(ago(45 * DAY), null, now)).toBeNull();
-    expect(snapRange(ago(18 * 3600_000), null, now)).toBeNull();
-  });
-
-  it('an explicit `to`, a future `from` or garbage cannot be answered from the store', () => {
-    expect(snapRange(ago(7 * DAY), ago(DAY), now)).toBeNull();
-    expect(snapRange(new Date(now + DAY).toISOString(), null, now)).toBeNull();
-    expect(snapRange('not-a-date', null, now)).toBeNull();
-  });
-
-  it('rangeFrom is the inverse: its instant snaps back to the range', () => {
-    for (const range of Object.keys(TOKENS_RANGES)) {
-      const from = rangeFrom(range, now);
-      if (range === 'all') { expect(from).toBeUndefined(); continue; }
-      expect(snapRange(from, null, now)).toBe(range);
+      expect(rangeFrom(range, now)).toBe(new Date(now - minutes * 60_000).toISOString());
     }
   });
 });
