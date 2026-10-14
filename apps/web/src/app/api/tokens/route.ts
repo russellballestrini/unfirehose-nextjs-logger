@@ -4,10 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { StatsCache } from '@unturf/unfirehose/types';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import {
+  TOKENS_RANGES,
   buildTokensPayload,
+  rangeFrom,
   readTokensPayload,
   refreshTokensPayload,
-  snapRange,
 } from '@unturf/unfirehose/tokens';
 import { Timing } from '@/lib/timing';
 
@@ -19,14 +20,16 @@ import { Timing } from '@/lib/timing';
  * Building it was 13 s for lifetime and 6 s for the week the page opens on,
  * all of it on this single-threaded server, charged to every other request
  * while a Tokens page loaded. The worker now builds the ranges the page
- * offers (packages/core/tokens.ts); this serves whichever one the request's
- * window stands for, stale rather than rebuilt, and says how old it is in
- * X-Computed-At.
+ * offers (packages/core/tokens.ts); the page asks for one by name
+ * (`?range=7d`, the dashboard's contract) and this serves it stale rather
+ * than rebuilt, saying how old it is in X-Computed-At. No parameters at all
+ * means lifetime. A range nobody warmed is built on its first request and
+ * stored for the next.
  *
- * Three requests cannot be answered from the store and build live, on the
- * fast query shapes: a project filter, an explicit `to`, or a `from` that
- * sits between the ranges. A range nobody warmed is built on its first
- * request and stored for the next.
+ * Two kinds of request cannot be answered from the store and build live, on
+ * the fast query shapes: a project filter (one of thousands, never stored),
+ * and explicit instants — `from` and `to` — which outside callers send and
+ * which stand for whatever window they say, not for a stored range.
  */
 
 // In-process memo of the stats-cache JSON keyed by mtime. The file is only
@@ -38,16 +41,25 @@ export async function GET(request: NextRequest) {
   const t = new Timing();
   try {
     const url = request.nextUrl;
+    const rangeParam = url.searchParams.get('range');
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
     const project = url.searchParams.get('project');
+
+    if (rangeParam !== null && !(rangeParam in TOKENS_RANGES)) {
+      return NextResponse.json(
+        { error: `Unknown range "${rangeParam}"`, ranges: Object.keys(TOKENS_RANGES) },
+        { status: 400, headers: { 'Server-Timing': t.header() } },
+      );
+    }
+    // No parameters at all is lifetime, as it always was.
+    const range = rangeParam ?? (from || to ? null : 'all');
 
     const db = getDb();
     let payload: any;
     let computedAt: string | null = null;
 
-    const range = project ? null : snapRange(from, to);
-    if (range) {
+    if (range && !project && !from && !to) {
       // Keep the last successful result available while the worker is busy.
       // X-Computed-At exposes its age; expiry must not move rebuilds here.
       const stored = readTokensPayload(range, Infinity);
@@ -60,7 +72,8 @@ export async function GET(request: NextRequest) {
         t.mark('built');
       }
     } else {
-      payload = buildTokensPayload(db, { from, to, project });
+      // A named range with a project filter is that range's window, scoped.
+      payload = buildTokensPayload(db, { from: from ?? (range ? rangeFrom(range) : undefined), to, project });
       t.mark('live');
     }
 

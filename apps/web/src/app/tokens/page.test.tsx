@@ -136,6 +136,14 @@ const tab = async (name: string) => {
 };
 
 describe('tokens page', () => {
+  // The route serves whatever the worker stored under a range NAME. An
+  // instant would have to be snapped back onto one; a name is exact.
+  it('asks /api/tokens for the range by name, not as an instant', () => {
+    render(<TokensPage />);
+    const key = keys.find((k) => k.startsWith('/api/tokens'));
+    expect(key).toBe('/api/tokens?range=7d');
+  });
+
   it('shows the total it was given', async () => {
     const { container } = await show();
     await waitFor(() => expect(container.textContent).toContain('$2.39'));

@@ -167,9 +167,11 @@ Aggregate dashboard metrics.
 → `{ range, summary, modelBreakdown, dailyActivity, hourCounts, dayOfWeekCounts, dowHourHeatmap }`
 
 ### GET /api/tokens
-Token usage analytics.
-- `?range=7d`
-→ `{ range, summary, modelBreakdown, dailyActivity, toolCalls, blockTypes }`
+Token usage analytics. Served from a payload our worker keeps warm; `X-Computed-At` says how old it is.
+- `?range=7d` — 1h, 3h, 6h, 12h, 24h, 7d, 14d, 28d, 90d, 180d, 365d, all (default `all`); an unknown name is a 400 listing the valid ones
+- `?project=<encoded-name>` — scope to one project; builds live for the range's window
+- `?from=<ISO>&to=<ISO>` — an explicit window; always builds live, never served from the store
+→ `{ modelBreakdown, harnessData, harnessModelBreakdown, harnessSessions, toolCalls, toolsByHarness, toolsByModel, blockTypes, dailyActivity, dailyByHarness, dailyModelTokens, totalInput, totalOutput, totalCacheRead, totalCacheWrite, totalTokens, totalInputCost, totalOutputCost, totalCacheReadCost, totalCacheWriteCost, totalCost }`
 
 ### GET /api/usage
 Usage timeline or by-project breakdown.

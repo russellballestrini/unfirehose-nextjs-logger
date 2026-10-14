@@ -95,18 +95,68 @@ describe('GET /api/tokens', () => {
     expect((await second.json()).modelBreakdown).toHaveLength(1);
   });
 
-  // What the Tokens page actually sends: `from` as an instant, standing for
-  // the range it was computed from. The worker stored that range.
-  it('serves the stored range a `from` stands for, drift and all', async () => {
+  // What the Tokens page actually sends: the range by name, the dashboard's
+  // contract. The worker stored that range.
+  it('serves the stored payload a `range` names', async () => {
     storePayload('tokens_7d', { modelBreakdown: [{ model: 'from-the-worker' }], toolCalls: [] });
 
-    const res = await GET(await req(`?from=${encodeURIComponent(iso(7 * DAY + 2 * 3600_000))}`));
+    const res = await GET(await req('?range=7d'));
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(res.headers.get('Server-Timing')).toMatch(/^stored;/);
     expect(res.headers.get('X-Computed-At')).toBeTruthy();
     expect(data.modelBreakdown).toEqual([{ model: 'from-the-worker' }]);
     expect(data.dailyActivity).toHaveLength(1);
+  });
+
+  // The page used to send `from` as an instant frozen on mount and the route
+  // snapped it onto the nearest stored range. An instant now means exactly
+  // the window it says, so it is never answered by a stored payload.
+  it('an explicit `from` builds live even when it sits on a stored range', async () => {
+    seedToolSession('proj-a', 'claude-code', 'model-a', 'Bash');
+    storePayload('tokens_7d', { modelBreakdown: [{ model: 'wrong-answer' }] });
+
+    const res = await GET(await req(`?from=${encodeURIComponent(iso(7 * DAY))}`));
+    expect(res.headers.get('Server-Timing')).toMatch(/^live;/);
+    expect(res.headers.get('X-Computed-At')).toBeNull();
+    expect((await res.json()).modelBreakdown.map((m: { model: string }) => m.model)).toEqual(['model-a']);
+  });
+
+  it('a range nobody warmed is built on first request and stored under its name', async () => {
+    seedToolSession('proj-a', 'claude-code', 'model-a', 'Bash');
+
+    const first = await GET(await req('?range=90d'));
+    expect(first.headers.get('Server-Timing')).toMatch(/^built;/);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key = 'tokens_90d_at'").get()).toEqual({ n: 1 });
+
+    const second = await GET(await req('?range=90d'));
+    expect(second.headers.get('Server-Timing')).toMatch(/^stored;/);
+  });
+
+  it('an unknown range is a 400 that lists the valid names', async () => {
+    const res = await GET(await req('?range=fortnight'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/fortnight/);
+    expect(body.ranges).toContain('7d');
+    expect(body.ranges).toContain('all');
+  });
+
+  // The page sends range and project together. The project filter is never
+  // stored, so it builds live, but for the window the range names.
+  it('a range with a project filter builds live over that range window', async () => {
+    const projectId = seedProject(db, 'proj-a');
+    const sessionId = seedSession(db, projectId, 's-proj-a');
+    const recent = seedMessage(db, sessionId, { model: 'in-window', inputTokens: 10, outputTokens: 1 });
+    seedContentBlock(db, recent, { blockType: 'text' });
+    const old = seedMessage(db, sessionId, { model: 'out-of-window', inputTokens: 10, outputTokens: 1 });
+    db.prepare('UPDATE messages SET timestamp = ? WHERE id = ?').run(iso(40 * DAY), old);
+    storePayload('tokens_7d', { modelBreakdown: [{ model: 'wrong-answer' }] });
+
+    const res = await GET(await req('?range=7d&project=proj-a'));
+    expect(res.headers.get('Server-Timing')).toMatch(/^live;/);
+    expect(res.headers.get('X-Computed-At')).toBeNull();
+    expect((await res.json()).modelBreakdown.map((m: { model: string }) => m.model)).toEqual(['in-window']);
   });
 
   it('serves a stored payload however old it is — expiry never rebuilds here', async () => {

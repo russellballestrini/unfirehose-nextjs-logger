@@ -11,7 +11,7 @@ import { humanDelta } from '@unturf/unfirehose/ago';
 import { usageCacheHitRate } from '@unturf/unfirehose/vllm-metrics';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { TokenSplitCards, TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
-import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
+import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { Donut } from '@/components/Donut';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
@@ -105,16 +105,17 @@ export default function TokensPage() {
     const v = new URLSearchParams(window.location.search).get('project');
     return v ? decodeURIComponent(v) : null;
   });
-  // Memoize `from` so the SWR key stays stable across re-renders.
-  // getTimeRangeFrom calls Date.now() — without memoization, each render
-  // produces a new timestamp, giving SWR a new key, causing infinite re-fetches.
-  const from = useMemo(() => getTimeRangeFrom(range), [range]);
+  // The range goes over by name, the way the dashboard sends it. It used to
+  // go as `from`, an instant computed once on mount, which the route then
+  // had to snap back onto the range the worker stored — and a 7-day view
+  // left open all afternoon asked for seven days and three hours. A name
+  // means exactly one stored payload, and the SWR key is stable for free.
   const qs = useMemo(() => {
     const sp = new URLSearchParams();
-    if (from) sp.set('from', from);
+    sp.set('range', range);
     if (projectFilter) sp.set('project', projectFilter);
-    return sp.toString() ? `?${sp}` : '';
-  }, [from, projectFilter]);
+    return `?${sp}`;
+  }, [range, projectFilter]);
 
   const [activeTab, setActiveTab] = useHashTab<TokensTab>(tokensTabs, 'overview');
 
