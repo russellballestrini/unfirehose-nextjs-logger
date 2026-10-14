@@ -44,8 +44,10 @@ import {
   getDefaultEcon,
   getEffectiveIspCost,
   nodeEconKey,
+  nodeElecMonthly,
   parseExcludedHosts,
 } from '@/lib/mesh-score';
+import { getKwhRate } from '@unturf/unfirehose/pricing';
 import { fmtLocalDateTime } from '@/lib/local-time';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 import { GaugeRow, GaugeBlock, GaugeCard, GaugePill } from '@unturf/unfirehose-ui/Gauge';
@@ -670,6 +672,10 @@ export function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEco
 const HOST_COLORS = ['#f97316', '#a78bfa', '#60a5fa', '#22c55e', '#f43f5e', '#facc15', '#38bdf8', '#ec4899', '#84cc16', '#fb923c'];
 
 export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }) {
+  // The blended rate is derived from nodes that reported watts. Until one
+  // does it is 0, which would draw the $/hr line flat at zero rather than
+  // "unknown" — fall back to our one system-wide $/kWh instead.
+  const kwhRate = blendedKwhRate > 0 ? blendedKwhRate : getKwhRate();
   // Remembered across refreshes — this was useState(24), so picking 6h and
   // reloading snapped back to 24h.
   const [hours, setHours] = useStickyState<number>('fleet_metrics_hours', 24);
@@ -700,7 +706,7 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
         gpuVramUsedGB: t.gpuMemUsedGB ?? 0,
         gpuVramTotalGB: t.gpuMemTotalGB ?? 0,
         gpuVramPct: t.gpuMemTotalGB > 0 ? Math.round((t.gpuMemUsedGB / t.gpuMemTotalGB) * 100 * 10) / 10 : 0,
-        elecCostPerHour: Math.round(((t.totalWatts ?? 0) / 1000) * blendedKwhRate * 100) / 100,
+        elecCostPerHour: Math.round(((t.totalWatts ?? 0) / 1000) * kwhRate * 100) / 100,
       };
       for (const [host, n] of Object.entries<any>(t.nodes ?? {})) {
         hostSet.add(host);
@@ -723,7 +729,7 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
       hosts: [...hostSet].sort(),
       hostsWithGpu: [...gpuHostSet].sort(),
     };
-  }, [data, blendedKwhRate]);
+  }, [data, kwhRate]);
 
   const hasData = chartData.length > 0;
   const last = hasData ? chartData[chartData.length - 1] : null;
@@ -736,8 +742,16 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
   // series-builder consts that reference it (lexical TDZ).
   const hostColor = (host: string, list: string[]) => HOST_COLORS[list.indexOf(host) % HOST_COLORS.length];
   const SYNC = 'permacomputer-fleet';
+  // CPU and GPU draw are collected separately (RAPL/TDP vs nvidia-smi) and
+  // the ticket's question is how much of the fleet's power is GPU. Dashed so
+  // they read as components of the fleet total, not as two more hosts.
+  const fleetHasGpuWatts = chartData.some((r) => r.gpuWatts > 0);
   const wattsSeries: UPlotSeries[] = [
     { key: 'watts', label: 'Fleet', stroke: '#d40000', width: 2.5 },
+    ...(fleetHasGpuWatts ? [
+      { key: 'cpuWatts', label: 'CPU', stroke: '#fb923c', width: 1.5, dash: [6, 4] } as UPlotSeries,
+      { key: 'gpuWatts', label: 'GPU', stroke: '#a78bfa', width: 1.5, dash: [6, 4] } as UPlotSeries,
+    ] : []),
     ...hosts.map(h => ({ key: `watts:${h}`, label: h, stroke: hostColor(h, hosts), width: 1 } as UPlotSeries)),
   ];
   const cpuSeries: UPlotSeries[] = [
@@ -790,7 +804,9 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
         {/* Power — fleet total + per-host */}
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
-            Power <span className="font-normal ml-1">{hasData ? `${Math.round(last!.watts)}W now` : '— no data'}</span>
+            Power <span className="font-normal ml-1">{hasData
+              ? `${Math.round(last!.watts)}W now${last!.gpuWatts > 0 ? ` · ${Math.round(last!.gpuWatts)}W gpu` : ''}`
+              : '— no data'}</span>
           </h5>
           <UPlotTimeChart data={chartData} height={180} syncKey={SYNC} domain={null} yUnit="W" series={wattsSeries} />
         </div>
@@ -889,15 +905,18 @@ export function MeshEconomicsPanel(inputs: MeshScoreInputs) {
   const { econNodes, score } = useMeshScore(inputs);
   const configuredCount = econNodes.filter(n => n.econ.location).length;
 
-  // Aggregate by provider — ISP subscription cost only (stable/configured).
-  // Electricity is per-node and lives in the fleet metrics chart, not here.
+  // Aggregate by provider — all-in, the same ISP-plus-electricity sum the
+  // headline uses, so the bars add up to Monthly Cost. This was ISP-only while
+  // the percentages divided by the all-in total, so a fleet of home boxes
+  // showed Home ISP at 60% with nothing accounting for the other 40%.
   const byProvider = useMemo(() => {
-    const map = new Map<string, { count: number; cost: number }>();
+    const map = new Map<string, { count: number; cost: number; isp: number; elec: number }>();
     for (const n of econNodes) {
       const p = n.econ.provider;
-      const cur = map.get(p) ?? { count: 0, cost: 0 };
-      const nodeCost = getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, score.egressGroups);
-      map.set(p, { count: cur.count + 1, cost: cur.cost + nodeCost });
+      const cur = map.get(p) ?? { count: 0, cost: 0, isp: 0, elec: 0 };
+      const isp = getEffectiveIspCost(n.hostname, n.econ.ispCostMonthly, score.egressGroups);
+      const elec = nodeElecMonthly(n.econ, n.meshNode);
+      map.set(p, { count: cur.count + 1, cost: cur.cost + isp + elec, isp: cur.isp + isp, elec: cur.elec + elec });
     }
     return [...map.entries()].sort((a, b) => b[1].cost - a[1].cost);
   }, [econNodes, score.egressGroups]);
@@ -995,11 +1014,12 @@ export function MeshEconomicsPanel(inputs: MeshScoreInputs) {
         <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3">
           <div className="text-xs text-[var(--color-muted)] mb-2">By Provider</div>
           <div className="space-y-1.5">
-            {byProvider.map(([prov, { count, cost }]) => {
+            {byProvider.map(([prov, { count, cost, isp, elec }]) => {
               const label = PROVIDERS.find(p => p.value === prov)?.label ?? prov;
               const pct = score.totalMonthlyCost > 0 ? Math.round((cost / score.totalMonthlyCost) * 100) : 0;
               return (
-                <div key={prov} className="flex items-center gap-2">
+                <div key={prov} className="flex items-center gap-2"
+                     title={`$${Math.round(elec)} elec + $${Math.round(isp)} isp`}>
                   <span className="text-xs w-28 truncate">{label}</span>
                   <div className="flex-1 h-1.5 bg-[var(--color-surface)] rounded-full overflow-hidden">
                     <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${pct}%` }} />

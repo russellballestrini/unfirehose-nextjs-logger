@@ -147,6 +147,40 @@ describe('mesh panels', () => {
     expect(() => render(<FleetMetricsChart blendedKwhRate={0.31} />)).not.toThrow();
   });
 
+  it('shows how much of the fleet draw is GPU', () => {
+    // 1202W total of which 700W GPU in the fixture timeline.
+    const { container } = render(<FleetMetricsChart blendedKwhRate={0.31} />);
+    expect(container.textContent).toContain('1202W now · 700W gpu');
+  });
+
+  it('prices electricity per hour at the blended rate', () => {
+    // 1.202 kW × $0.31 = $0.37/hr
+    const { container } = render(<FleetMetricsChart blendedKwhRate={0.31} />);
+    expect(container.textContent).toContain('$0.37/hr now');
+  });
+
+  it('still prices electricity when no node has reported watts yet', () => {
+    // A blended rate of 0 means "nobody answered", not "power is free".
+    const { container } = render(<FleetMetricsChart blendedKwhRate={0} />);
+    expect(container.textContent).toContain('/hr now');
+    expect(container.textContent).not.toContain('$0/hr now');
+  });
+
+  it('breaks the all-in monthly cost down by provider', () => {
+    // 153W × 720h × $0.31/kWh = $34 electricity, plus $110 ISP = $144. The
+    // provider row must carry the same $144 as the headline, with the split.
+    const nodes = [{ key: 'cammy', hostname: 'cammy', econ, meshNode: node }];
+    const { container } = render(
+      <MeshEconomicsPanel allNodes={nodes} meshNodes={[node]}
+                          getNodeEcon={() => econ} geoipNodes={[]} />,
+    );
+    expect(container.textContent).toContain('$34 elec + $110 isp');
+    const row = container.querySelector('[title="$34 elec + $110 isp"]')!;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain('Home ISP');
+    expect(row.textContent).toContain('$144/mo');
+  });
+
   it('prices the mesh without charting it', () => {
     // Charts moved below the node grid; the economics card is headline
     // numbers only so it stays above the fold.
