@@ -8,8 +8,9 @@
  * on the server too.
  */
 
+import type Database from 'better-sqlite3';
 import { getDb } from './db/schema';
-import { storePayload, readPayload, payloadCurrent, messagesWatermark } from './precomputed';
+import { storePayload, readPayload, payloadCurrent, messagesWatermark, storedRanges } from './precomputed';
 import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
 import { usageCacheHitRate, cacheHitRate } from './vllm-metrics';
@@ -29,7 +30,9 @@ export const DASHBOARD_RANGES: Record<string, number> = {
   '14d': 20160,
   '28d': 40320,
   // The long ranges the shared selector offers. Not warmed by the worker —
-  // see WARM_RANGES — so the first request for one computes it.
+  // see WARM_RANGES — so the first request for one computes it and stores
+  // it; the worker then keeps it fresh with the other stored ranges (see
+  // storedDashboardRanges).
   '90d': 129600,
   '180d': 259200,
   '365d': 525600,
@@ -495,7 +498,8 @@ export function buildDashboard(range: string): any {
 }
 
 
-const key = (range: string) => `dashboard_${range}`;
+const KEY_PREFIX = 'dashboard_';
+const key = (range: string) => `${KEY_PREFIX}${range}`;
 
 /**
  * Build and store one range. The worker calls this.
@@ -515,6 +519,15 @@ export function refreshDashboard(range: string, opts: { unlessCurrentMs?: number
 /** The stored payload for a range when it is fresh enough, else null. */
 export function readDashboard(range: string, maxAgeMs = 3 * 60_000) {
   return readPayload<any>(key(range), maxAgeMs);
+}
+
+/**
+ * Every range that has ever been stored, warm or not. The route builds an
+ * unwarmed range on its first request and stores it; the worker folds this
+ * list into its slow tick so that build is refreshed, not served forever.
+ */
+export function storedDashboardRanges(db: Database.Database = getDb()): string[] {
+  return storedRanges(KEY_PREFIX, DASHBOARD_RANGES, db);
 }
 
 /** The ranges a dashboard opens on, kept warm by the worker: the short ones

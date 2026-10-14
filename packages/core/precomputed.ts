@@ -14,6 +14,7 @@
 
 import { getSetting, setSetting } from './db/ingest';
 import { getDb } from './db/schema';
+import type Database from 'better-sqlite3';
 
 export interface Stored<T> {
   payload: T;
@@ -55,6 +56,30 @@ export function storePayload(key: string, payload: unknown, watermark: string = 
 export function payloadCurrent(key: string, maxAgeMs: number, watermark: string = messagesWatermark()): boolean {
   if (getSetting(`${key}_watermark`) !== watermark) return false;
   return readPayload(key, maxAgeMs) !== null;
+}
+
+/**
+ * Every range stored under a prefix, by its `_at` stamp: `dashboard_90d_at`
+ * is the range `90d`. Filtered to the ranges the caller knows, so a stray
+ * key under the same prefix is not mistaken for a window to rebuild.
+ *
+ * A range nobody warms is built on its first request and stored. Without
+ * this listing the worker never learns it exists and that first build is
+ * what the route serves from then on — the dashboard's 90d and 365d were a
+ * month old before anyone noticed.
+ */
+export function storedRanges(
+  prefix: string,
+  known: Record<string, unknown>,
+  db: Database.Database = getDb(),
+): string[] {
+  const like = `${prefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%\\_at`;
+  const rows = db
+    .prepare(`SELECT key FROM settings WHERE key LIKE ? ESCAPE '\\'`)
+    .all(like) as Array<{ key: string }>;
+  return rows
+    .map((r) => r.key.slice(prefix.length, -'_at'.length))
+    .filter((r) => r in known);
 }
 
 /**

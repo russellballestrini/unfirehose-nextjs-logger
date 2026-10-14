@@ -4,7 +4,7 @@ import { createTestDb, seedProject, seedSession, seedMessage } from './test/db-h
 const db = createTestDb();
 vi.mock('./db/schema', () => ({ getDb: () => db }));
 
-const { refreshDashboard, buildDashboard } = await import('./dashboard');
+const { refreshDashboard, buildDashboard, storedDashboardRanges, WARM_RANGES } = await import('./dashboard');
 const { readPayload } = await import('./precomputed');
 
 /**
@@ -68,6 +68,51 @@ describe('refreshDashboard', () => {
   it('keeps ranges apart', () => {
     refreshDashboard('24h');
     expect(refreshDashboard('7d', { unlessCurrentMs: 60_000 })).not.toBeNull();
+  });
+});
+
+/**
+ * 90d, 365d and lifetime are not warmed. The route builds one on its first
+ * request and stores it; the worker must then find it, or that build is
+ * what the route serves forever — which is how the live 90d payload came
+ * to be a month old.
+ */
+describe('storedDashboardRanges', () => {
+  let sessionId: number;
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM sessions').run();
+    db.prepare('DELETE FROM projects').run();
+    db.prepare("DELETE FROM settings WHERE key LIKE 'dashboard_%'").run();
+    sessionId = seedSession(db, seedProject(db), `s-${Math.random()}`);
+    seedMessage(db, sessionId, { inputTokens: 100, outputTokens: 10 });
+  });
+
+  it('lists a range the route stored on first request', () => {
+    refreshDashboard('90d'); // the route path: no bound
+    expect(storedDashboardRanges()).toEqual(['90d']);
+  });
+
+  it('lists warm and unwarmed ranges alike; the worker subtracts its own', () => {
+    for (const r of WARM_RANGES) refreshDashboard(r);
+    refreshDashboard('365d');
+    expect(storedDashboardRanges().sort()).toEqual([...WARM_RANGES, '365d'].sort());
+  });
+
+  it('refreshes a legacy payload that carries no watermark', () => {
+    refreshDashboard('90d');
+    db.prepare("DELETE FROM settings WHERE key = 'dashboard_90d_watermark'").run();
+    const at = readPayload('dashboard_90d', Infinity)!.at;
+    expect(storedDashboardRanges()).toEqual(['90d']);
+    // No watermark means never current: the slow tick rebuilds it.
+    expect(refreshDashboard('90d', { unlessCurrentMs: 60 * 60_000 })).not.toBeNull();
+    expect(readPayload('dashboard_90d', Infinity)!.at >= at).toBe(true);
+    expect(refreshDashboard('90d', { unlessCurrentMs: 60 * 60_000 })).toBeNull();
+  });
+
+  it('does not mistake another dashboard setting for a range', () => {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('dashboard_theme_at', 'x')").run();
+    expect(storedDashboardRanges()).toEqual([]);
   });
 });
 

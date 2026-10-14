@@ -10,7 +10,7 @@ import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
 import { refreshProjectList } from '@unturf/unfirehose/projects-list';
-import { refreshDashboard, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
+import { refreshDashboard, storedDashboardRanges, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
 import { refreshTokensPayload, storedTokensRanges, WARM_TOKENS_SHORT_RANGES, WARM_TOKENS_LONG_RANGES } from '@unturf/unfirehose/tokens';
 
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
@@ -54,10 +54,16 @@ const UNPRICED_SYNC_MIN_INTERVAL_MS = 60 * 60_000;
 // thread. The short ranges stay live; the long tail moves to minutes.
 const DASHBOARD_REFRESH_MS = 60_000;             // 24h + 7d: what a dashboard opens on
 const DASHBOARD_LONG_REFRESH_MS = 5 * 60_000;    // 28d: a month does not move in a minute
+// A stored range nobody warms (90d, 365d, all, the odd 1h) builds in 16 to
+// 20 s each, on this thread, ahead of ingest. Five of them every ten minutes
+// was a minute of blocked ingest per ten; thirty minutes bounds it near 3%.
+// A quarter-year view does not move in half an hour.
+const DASHBOARD_STORED_REFRESH_MS = 30 * 60_000; // 90d, 365d, all: whatever a first request stored
 const PROJECT_LIST_REFRESH_MS = 3 * 60_000;      // ~4 s of aggregates
 const SCROBBLE_REFRESH_MS = 15 * 60_000;         // ~15 s, two full scans of messages
 const TOKENS_REFRESH_MS = 60_000;                // 24h + 7d: ~0.4 s each, what the Tokens page opens on
-const TOKENS_LONG_REFRESH_MS = 10 * 60_000;      // 28d, lifetime (~11 s) and any range a request stored
+const TOKENS_LONG_REFRESH_MS = 10 * 60_000;      // 28d, lifetime (~11 s)
+const TOKENS_STORED_REFRESH_MS = 30 * 60_000;    // 90d, 180d, 365d: ~13 s each, whatever a first request stored
 // Each tick above rebuilds only when a message has landed since the stored
 // payload was built (see payloadCurrent). These bound how old a payload may
 // grow while nothing lands: a range slides with the clock and mesh energy
@@ -69,10 +75,12 @@ const TOKENS_LONG_REFRESH_MS = 10 * 60_000;      // 28d, lifetime (~11 s) and an
 // first message to land moves the watermark and rebuilds within a minute.
 const DASHBOARD_MAX_QUIET_MS = 15 * 60_000;
 const DASHBOARD_LONG_MAX_QUIET_MS = 30 * 60_000;
+const DASHBOARD_STORED_MAX_QUIET_MS = 60 * 60_000;
 const PROJECT_LIST_MAX_QUIET_MS = 15 * 60_000;
 const SCROBBLE_MAX_QUIET_MS = 2 * 60 * 60_000;
 const TOKENS_MAX_QUIET_MS = 15 * 60_000;
 const TOKENS_LONG_MAX_QUIET_MS = 60 * 60_000;
+const TOKENS_STORED_MAX_QUIET_MS = 60 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
@@ -177,27 +185,49 @@ async function main() {
     void runIngestOnce('watchdog');
   }, WATCHDOG_TICK_MS);
 
-  // Dashboard payloads for the ranges a dashboard opens on. Any other range
-  // builds on its first request and is stored for the next.
-  // A skipped range logs nothing: the ingest line a moment earlier already
-  // said +0m, and a rebuild is the event worth a line.
-  const refreshDashboards = (ranges: readonly string[], unlessCurrentMs: number) => {
+  // Payloads a route serves and this process builds: the dashboard and the
+  // tokens page, each with a warm set rebuilt on a cadence. One loop for
+  // both. A skipped range logs nothing: the ingest line a moment earlier
+  // already said +0m, and a rebuild is the event worth a line.
+  const refreshRanges = (
+    label: string,
+    refresh: (range: string, opts: { unlessCurrentMs: number }) => unknown | null,
+    ranges: readonly string[],
+    unlessCurrentMs: number,
+  ) => {
     for (const range of ranges) {
       try {
         const t0 = Date.now();
-        if (refreshDashboard(range, { unlessCurrentMs }) === null) continue;
-        console.log(`[worker] dashboard ${range} in ${Date.now() - t0}ms`);
+        if (refresh(range, { unlessCurrentMs }) === null) continue;
+        console.log(`[worker] ${label} ${range} in ${Date.now() - t0}ms`);
       } catch (err) {
-        console.error(`[worker] dashboard ${range} failed:`, err);
+        console.error(`[worker] ${label} ${range} failed:`, err);
       }
     }
   };
+  // The ranges a first request built and stored, less any the warm ticks
+  // already own. Without this the route served that first build forever:
+  // the dashboard's 90d, 365d and lifetime sat a month old (2026-10-14).
+  const storedBeyond = (stored: () => string[], ...warm: readonly (readonly string[])[]) => {
+    const own = new Set<string>(warm.flat());
+    return [...new Set(stored())].filter((r) => !own.has(r));
+  };
+
+  // Dashboard payloads for the ranges a dashboard opens on, plus whatever a
+  // request stored, on a slower tick: 90d and lifetime are many seconds.
+  const refreshDashboards = (ranges: readonly string[], unlessCurrentMs: number) =>
+    refreshRanges('dashboard', refreshDashboard, ranges, unlessCurrentMs);
+  const storedDashboards = () => storedBeyond(storedDashboardRanges, WARM_SHORT_RANGES, WARM_LONG_RANGES);
   const dashboardKickoff = setTimeout(() => {
     refreshDashboards(WARM_SHORT_RANGES, DASHBOARD_MAX_QUIET_MS);
     refreshDashboards(WARM_LONG_RANGES, DASHBOARD_LONG_MAX_QUIET_MS);
   }, 12_000);
   const dashboardInterval = setInterval(() => refreshDashboards(WARM_SHORT_RANGES, DASHBOARD_MAX_QUIET_MS), DASHBOARD_REFRESH_MS);
   const dashboardLongInterval = setInterval(() => refreshDashboards(WARM_LONG_RANGES, DASHBOARD_LONG_MAX_QUIET_MS), DASHBOARD_LONG_REFRESH_MS);
+  // Later than the other kickoffs: these are the slow builds, and the warm
+  // sets, the project list and the tokens page all want the first minute.
+  const dashboardStoredKickoff = setTimeout(() => refreshDashboards(storedDashboards(), DASHBOARD_STORED_MAX_QUIET_MS), 45_000);
+  const dashboardStoredInterval = setInterval(() => refreshDashboards(storedDashboards(), DASHBOARD_STORED_MAX_QUIET_MS), DASHBOARD_STORED_REFRESH_MS);
 
   // Project list. Two aggregates over messages plus a filesystem pass —
   // about 5s, which starves the single-threaded web process if it runs
@@ -231,29 +261,19 @@ async function main() {
 
   // Tokens payloads. Lifetime is 11 s of scans and the page's week was 6 s
   // on the request thread; built here and stored, like the dashboard. The
-  // long tick also carries any range a first request built and stored, so
-  // that build is not the one served forever.
-  const refreshTokens = (ranges: readonly string[], unlessCurrentMs: number) => {
-    for (const range of ranges) {
-      try {
-        const t0 = Date.now();
-        if (refreshTokensPayload(range, { unlessCurrentMs }) === null) continue;
-        console.log(`[worker] tokens ${range} in ${Date.now() - t0}ms`);
-      } catch (err) {
-        console.error(`[worker] tokens ${range} failed:`, err);
-      }
-    }
-  };
-  const longTokensRanges = () => {
-    const short = new Set<string>(WARM_TOKENS_SHORT_RANGES);
-    return [...new Set<string>([...WARM_TOKENS_LONG_RANGES, ...storedTokensRanges()])].filter((r) => !short.has(r));
-  };
+  // stored tick carries any range a first request built and stored, so that
+  // build is not the one served forever, on the dashboard's slower cadence.
+  const refreshTokens = (ranges: readonly string[], unlessCurrentMs: number) =>
+    refreshRanges('tokens', refreshTokensPayload, ranges, unlessCurrentMs);
+  const storedTokens = () => storedBeyond(storedTokensRanges, WARM_TOKENS_SHORT_RANGES, WARM_TOKENS_LONG_RANGES);
   const tokensKickoff = setTimeout(() => {
     refreshTokens(WARM_TOKENS_SHORT_RANGES, TOKENS_MAX_QUIET_MS);
-    refreshTokens(longTokensRanges(), TOKENS_LONG_MAX_QUIET_MS);
+    refreshTokens(WARM_TOKENS_LONG_RANGES, TOKENS_LONG_MAX_QUIET_MS);
   }, 16_000);
   const tokensInterval = setInterval(() => refreshTokens(WARM_TOKENS_SHORT_RANGES, TOKENS_MAX_QUIET_MS), TOKENS_REFRESH_MS);
-  const tokensLongInterval = setInterval(() => refreshTokens(longTokensRanges(), TOKENS_LONG_MAX_QUIET_MS), TOKENS_LONG_REFRESH_MS);
+  const tokensLongInterval = setInterval(() => refreshTokens(WARM_TOKENS_LONG_RANGES, TOKENS_LONG_MAX_QUIET_MS), TOKENS_LONG_REFRESH_MS);
+  const tokensStoredKickoff = setTimeout(() => refreshTokens(storedTokens(), TOKENS_STORED_MAX_QUIET_MS), 50_000);
+  const tokensStoredInterval = setInterval(() => refreshTokens(storedTokens(), TOKENS_STORED_MAX_QUIET_MS), TOKENS_STORED_REFRESH_MS);
 
   // Vendor status pages. What the provider admits to, next to what we hit.
   // First poll shortly after boot so the refusals tab is not blank for a
@@ -424,11 +444,15 @@ async function main() {
       clearTimeout(tokensKickoff);
       clearInterval(tokensInterval);
       clearInterval(tokensLongInterval);
+      clearTimeout(tokensStoredKickoff);
+      clearInterval(tokensStoredInterval);
       clearTimeout(projectsKickoff);
       clearInterval(projectsInterval);
       clearTimeout(dashboardKickoff);
       clearInterval(dashboardInterval);
       clearInterval(dashboardLongInterval);
+      clearTimeout(dashboardStoredKickoff);
+      clearInterval(dashboardStoredInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);

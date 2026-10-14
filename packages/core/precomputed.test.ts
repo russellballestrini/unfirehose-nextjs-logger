@@ -4,7 +4,7 @@ import { createTestDb } from './test/db-helper';
 const db = createTestDb();
 vi.mock('./db/schema', () => ({ getDb: () => db }));
 
-const { storePayload, readPayload, payloadCurrent, messagesWatermark } = await import('./precomputed');
+const { storePayload, readPayload, payloadCurrent, messagesWatermark, storedRanges } = await import('./precomputed');
 
 /**
  * The dashboard, the project list and the scrobble payload all reach a route
@@ -103,5 +103,48 @@ describe('precomputed payloads', () => {
     expect(readPayload<{ n: number }>('test_a', 60_000)?.payload.n).toBe(2);
     const count = db.prepare("SELECT COUNT(*) AS c FROM settings WHERE key = 'test_a'").get() as { c: number };
     expect(count.c).toBe(1);
+  });
+});
+
+/**
+ * A range nobody warms is stored by the route on its first request. The
+ * worker can only keep it fresh if it can list what is there.
+ */
+describe('storedRanges', () => {
+  const known = { '24h': 1440, '7d': 10080, '90d': 129600 };
+  beforeEach(() => {
+    db.prepare("DELETE FROM settings WHERE key LIKE 'test_%' OR key LIKE 'other_%'").run();
+  });
+
+  it('lists every range stored under the prefix', () => {
+    storePayload('test_7d', { n: 1 });
+    storePayload('test_90d', { n: 2 });
+    expect(storedRanges('test_', known).sort()).toEqual(['7d', '90d']);
+  });
+
+  it('ignores a range it was not told about, and keys that are not a stamp', () => {
+    storePayload('test_7d', { n: 1 });
+    storePayload('test_bogus', { n: 3 });
+    // `_watermark` and the payload itself must not read as ranges.
+    expect(storedRanges('test_', known)).toEqual(['7d']);
+  });
+
+  it('keeps prefixes apart', () => {
+    storePayload('test_7d', { n: 1 });
+    storePayload('other_90d', { n: 2 });
+    expect(storedRanges('test_', known)).toEqual(['7d']);
+    expect(storedRanges('other_', known)).toEqual(['90d']);
+  });
+
+  it('lists a legacy row that has a stamp but no watermark', () => {
+    // Rows stored before watermarks existed are exactly the ones that sat
+    // stale for a month; they must be found so they get rebuilt.
+    storePayload('test_90d', { n: 1 });
+    db.prepare("DELETE FROM settings WHERE key = 'test_90d_watermark'").run();
+    expect(storedRanges('test_', known)).toEqual(['90d']);
+  });
+
+  it('lists nothing when nothing is stored', () => {
+    expect(storedRanges('test_', known)).toEqual([]);
   });
 });
