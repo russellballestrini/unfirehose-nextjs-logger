@@ -70,23 +70,6 @@ export default function NodeDetailPage() {
     },
   );
 
-  // Persist mesh snapshots so this page's own charts populate without needing
-  // /usage or /permacomputer open in another tab. We don't call mutate() after
-  // POSTing — history SWR already polls on the LIVE_MS cadence, and the extra
-  // refetch was causing visible re-render churn / scroll-up.
-  const lastSnapshotRef = useRef<string>('');
-  useEffect(() => {
-    const nodes = mesh?.nodes;
-    if (!nodes?.length) return;
-    const key = nodes.map((n: any) => `${n.hostname}:${n.loadAvg?.[0]}`).join(',');
-    if (key === lastSnapshotRef.current) return;
-    lastSnapshotRef.current = key;
-    fetch('/api/mesh/history', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes }),
-    }).catch(() => {});
-  }, [mesh]);
   const { data: probe, isLoading: probeLoading } = useSWR(
     `/api/mesh/node?host=${encodeURIComponent(host)}`,
     fetcher,

@@ -67,26 +67,6 @@ export default function PermacomputerPage() {
     focusThrottleInterval: 6000,
   });
 
-  // Persist mesh snapshots whenever fresh probe data lands. Without this, the
-  // history table only fills while /usage is open, so /permacomputer charts
-  // would never populate from this page alone. We don't call mutate() afterward
-  // — SWR's own refreshInterval already polls /api/mesh/history every 30s, and
-  // calling mutate() here would trigger an extra refetch on top of that, which
-  // showed up as constant DOM churn / scroll-jump.
-  const lastSnapshotRef = useRef<string>('');
-  useEffect(() => {
-    const nodes = mesh?.nodes;
-    if (!nodes?.length) return;
-    const key = nodes.map((n: any) => `${n.hostname}:${n.loadAvg?.[0]}`).join(',');
-    if (key === lastSnapshotRef.current) return;
-    lastSnapshotRef.current = key;
-    fetch('/api/mesh/history', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes }),
-    }).catch(() => {});
-  }, [mesh]);
-
   const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[]; hash?: string }>('/api/ssh-config', fetcher);
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
   const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 60000 });
@@ -661,7 +641,6 @@ export function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEco
   );
 }
 
-
 // ============================================================
 // Mesh Economics Panel
 // ============================================================
@@ -1094,7 +1073,6 @@ export function MeshEconomicsPanel(inputs: MeshScoreInputs) {
   );
 }
 
-
 // ============================================================
 // Shared UI Components
 // ============================================================
@@ -1102,7 +1080,6 @@ export function MeshEconomicsPanel(inputs: MeshScoreInputs) {
 // ============================================================
 // Helpers
 // ============================================================
-
 
 // ============================================================
 // Unsandbox Panel
