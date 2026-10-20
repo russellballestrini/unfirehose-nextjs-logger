@@ -56,30 +56,70 @@ async function probeAndPersistNode(host: string): Promise<void> {
   }
 }
 
-function startStaggeredMeshSampler(hosts: string[]): Array<NodeJS.Timeout> {
-  const timers: Array<NodeJS.Timeout> = [];
-  const span = MESH_POLL_INTERVAL_MS;
-  for (const host of hosts) {
-    const offset = phaseOffsetMs(host, span);
-    const t = setTimeout(() => {
+// A host added to ~/.ssh/config while the worker ran used to wait for the
+// next restart. ryu sat on the mesh for days that way: the node page's live
+// probe showed its GPU draw, nothing showed CPU watts, because no snapshot
+// row ever landed and every snapshot-served view reported "No sample yet".
+// Discovery is one synchronous read of a small file, so it runs every
+// minute and the timer set follows it.
+export const NODE_DISCOVERY_MS = 60_000;
+
+type HostTimers = { kickoff: NodeJS.Timeout; interval?: NodeJS.Timeout };
+
+function startHost(host: string, span: number): HostTimers {
+  const timers: HostTimers = {
+    kickoff: setTimeout(() => {
       void probeAndPersistNode(host);
-      timers.push(setInterval(() => { void probeAndPersistNode(host); }, span));
-    }, offset);
-    timers.push(t);
-  }
-  console.log(`[sampler] mesh: ${hosts.length} nodes staggered across ${span / 1000}s window`);
+      timers.interval = setInterval(() => { void probeAndPersistNode(host); }, span);
+    }, phaseOffsetMs(host, span)),
+  };
   return timers;
 }
 
+function stopHost(t: HostTimers): void {
+  clearTimeout(t.kickoff);
+  if (t.interval) clearInterval(t.interval);
+}
+
+/**
+ * Bring the running timer set in line with a discovered host list: start
+ * what is new, stop what is gone, and leave the rest untouched so a host
+ * that stayed keeps its phase. The start/stop hooks are injected so a test
+ * can watch the bookkeeping without real timers.
+ */
+export function reconcileMeshHosts<T>(
+  active: Map<string, T>,
+  discovered: readonly string[],
+  start: (host: string) => T,
+  stop: (timers: T) => void,
+): { added: string[]; removed: string[] } {
+  const want = new Set(discovered);
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const [host, timers] of [...active]) {
+    if (!want.has(host)) { stop(timers); active.delete(host); removed.push(host); }
+  }
+  for (const host of discovered) {
+    if (!active.has(host)) { active.set(host, start(host)); added.push(host); }
+  }
+  return { added, removed };
+}
+
 function main() {
-  // Snapshot the node list at startup; if hosts change at runtime, the worker
-  // will pick them up on restart (acceptable for a periodically-restarted dev
-  // worker and a Salt-managed prod worker).
-  const hosts = discoverNodes();
-  const timers = hosts.length > 0 ? startStaggeredMeshSampler(hosts) : [];
+  const span = MESH_POLL_INTERVAL_MS;
+  const active = new Map<string, HostTimers>();
+  const hosts = () => [...active.keys()];
+  const discover = (why: string) => {
+    const { added, removed } = reconcileMeshHosts(active, discoverNodes(), (h) => startHost(h, span), stopHost);
+    if (!added.length && !removed.length) return;
+    const delta = [...added.map((h) => `+${h}`), ...removed.map((h) => `-${h}`)].join(' ');
+    console.log(`[sampler] mesh: ${active.size} nodes staggered across ${span / 1000}s window (${why}: ${delta})`);
+  };
+  discover('startup');
+  const rediscover = setInterval(() => discover('ssh config changed'), NODE_DISCOVERY_MS);
 
   const vllm = setInterval(() => {
-    sampleVllmCache(getDb(), hosts)
+    sampleVllmCache(getDb(), hosts())
       .then((nodes) => {
         const n = nodes.reduce((a, x) => a + x.sampled, 0);
         if (n > 0) console.log(`[sampler] vllm cache: sampled ${n} model(s)`);
@@ -88,7 +128,9 @@ function main() {
   }, VLLM_CACHE_SAMPLE_MS);
 
   const stop = (why: string) => {
-    for (const t of timers) { clearTimeout(t); clearInterval(t); }
+    for (const t of active.values()) stopHost(t);
+    active.clear();
+    clearInterval(rediscover);
     clearInterval(vllm);
     console.log(`[sampler] ${why}, stopping`);
     process.exit(0);
