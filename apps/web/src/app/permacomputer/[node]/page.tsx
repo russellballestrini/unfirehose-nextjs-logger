@@ -498,9 +498,13 @@ export default function NodeDetailPage() {
     const bounds = seriesBounds(toNodeSeries(timeline, host, { memTotalGB: 0, memCapGB: 0, kwhRate: 0 }));
     if (bounds) liveDataMinMaxRef.current = bounds;
   }, [timeline, host]);
+  // History rows are keyed by the alias the sampler probed under, not by
+  // the SSH HostName the URL carries — same reason the fetch above asks for
+  // meshHost. Reading them under `host` left a box like ryu (alias
+  // ai-3060.foxhop.net) with no chart rows at all.
   const chartData = useMemo(
-    () => toNodeSeries(deferredTimeline, host, { memTotalGB, memCapGB, kwhRate }),
-    [deferredTimeline, host, memTotalGB, memCapGB, kwhRate],
+    () => toNodeSeries(deferredTimeline, meshHost, { memTotalGB, memCapGB, kwhRate }),
+    [deferredTimeline, meshHost, memTotalGB, memCapGB, kwhRate],
   );
 
   // One bag rather than twenty-four props on each tab: these are the

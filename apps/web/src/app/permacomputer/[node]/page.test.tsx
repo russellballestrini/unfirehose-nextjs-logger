@@ -18,6 +18,9 @@ let probe: Record<string, unknown> | undefined;
 let settings: Record<string, string> | undefined;
 let sshConfig: Record<string, unknown> | undefined;
 let tmuxData: Record<string, unknown> | undefined;
+// What the URL carries. The fleet page links by SSH HostName, which is not
+// always the alias the mesh samples under — see the ryu case below.
+let mockNodeParam = 'cammy';
 
 vi.mock('swr', () => ({
   default: (key: string | null) => {
@@ -36,7 +39,7 @@ vi.mock('swr', () => ({
   useSWRConfig: () => ({ mutate: vi.fn() }),
 }));
 vi.mock('next/navigation', () => ({
-  useParams: () => ({ node: 'cammy' }),
+  useParams: () => ({ node: mockNodeParam }),
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/permacomputer/cammy',
   useSearchParams: () => new URLSearchParams(),
@@ -66,6 +69,7 @@ beforeAll(() => {
 beforeEach(() => {
   window.location.hash = '';
   localStorage.clear();
+  mockNodeParam = 'cammy';
   mesh = { nodes: [node], localHostname: 'neoblanka' };
   history = { timeline: [
     { tsMs: 1_757_000_000_000, timestamp: '2026-09-04 12:00:00', cammy: { watts: 142, load: 9.3 } },
@@ -143,6 +147,23 @@ describe('the node page', () => {
     const { container } = await show();
     expect(container.textContent).toContain('cammy');
     expect(container.textContent).not.toContain('NaN');
+  });
+
+  it('charts a box whose ssh HostName differs from the alias the mesh samples under', async () => {
+    // ryu: `Host ai-3060.foxhop.net` / `HostName ryu.foxhop.net`. The fleet
+    // page links by HostName; the sampler keys every history row by alias.
+    // The series must be read under the alias or the charts never draw,
+    // which is how ryu showed GPU draw from its live probe and no chart.
+    mockNodeParam = 'ryu.foxhop.net';
+    mesh = { nodes: [{ ...node, hostname: 'ai-3060.foxhop.net', cpuCores: 4, powerWatts: 79, gpuPowerWatts: 39 }], localHostname: 'neoblanka' };
+    sshConfig = { hosts: [{ name: 'ai-3060.foxhop.net', hostname: 'ryu.foxhop.net', port: '22', user: 'fox' }] };
+    const sample = { watts: 118, cpuWatts: 79, gpuWatts: 39, load: 0.1, cores: 4, memUsed: 4.5, memTotal: 94.3 };
+    history = { timeline: [
+      { timestamp: '2026-10-20 11:12:00', nodes: { 'ai-3060.foxhop.net': sample } },
+      { timestamp: '2026-10-20 11:12:15', nodes: { 'ai-3060.foxhop.net': { ...sample, load: 0.2 } } },
+    ], hostnames: ['ai-3060.foxhop.net'] };
+    const { container } = await show();
+    expect(container.textContent).toContain('CPU Load');
   });
 
   it('draws before any history has arrived', async () => {
