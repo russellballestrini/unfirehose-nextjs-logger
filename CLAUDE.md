@@ -89,13 +89,14 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ### Publishing
 
-npm token stored at `~/.npmrc` (600 perms, outside repo). Publish from each package dir:
+npm token stored at `~/.npmrc` (600 perms, outside repo). All four packages release together at one version, bumped in git:
 ```bash
-cd packages/core && npm publish --access public
-cd packages/schema && npm publish --access public
-cd packages/router && npm publish --access public   # has prepublishOnly: tsc
-cd packages/ui && npm publish --access public
+make publish-dry-run          # pack at the next patch, change nothing
+make publish                  # bump, commit "release: vX.Y.Z", tag, publish, wait for npm
+make publish BUMP=minor       # or major, or an exact X.Y.Z
+git push origin HEAD --follow-tags
 ```
+`scripts/publish.sh` counts up from whichever is higher, git's version or npm's. A pushed `v*` tag also runs the CI publish job, which tolerates a version already on npm.
 
 Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Schema, Settings, Permacomputer.
 

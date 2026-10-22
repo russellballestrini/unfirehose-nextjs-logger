@@ -2,7 +2,7 @@
         test-core test-ui test-web test-scripts \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
-        build docker docker-run typecheck
+        build docker docker-run typecheck publish publish-dry-run
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -247,3 +247,16 @@ docker-run:
 	  -v /var/run/docker.sock:/var/run/docker.sock \
 	  -v unfirehose-data:/home/node/.unfirehose \
 	  $(IMAGE)
+
+# --- npm release -----------------------------------------------------
+# Bump all four packages to one version, commit, tag, publish, and wait
+# for the registry to answer for each. The bump lands in git, so git and
+# npm agree. Token from ~/.npmrc. Pushing stays yours to do.
+#   make publish-dry-run              pack at the next patch, change nothing
+#   make publish                      next patch
+#   make publish BUMP=minor           or major, or an exact X.Y.Z
+publish:
+	@scripts/publish.sh $(BUMP)
+
+publish-dry-run:
+	@scripts/publish.sh --dry-run $(BUMP)
