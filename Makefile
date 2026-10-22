@@ -250,7 +250,7 @@ service-install:
 service-start:
 	@pgrep -f 'tsx watch.*worker/src/main|turbo dev' >/dev/null && { \
 	  echo "make dev is running; stop it first. two workers would double-ingest."; exit 1; } || true
-	@test -d apps/web/.next || { echo "no build in apps/web/.next; run: make build"; exit 1; }
+	@test -f apps/web/.next/BUILD_ID || { echo "no production build (apps/web/.next/BUILD_ID missing; a dev .next does not count); run: make build"; exit 1; }
 	systemctl --user enable --now $(SERVICES)
 	@$(MAKE) --no-print-directory service-status
 

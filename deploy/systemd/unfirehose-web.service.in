@@ -21,7 +21,7 @@ Environment=NODE_OPTIONS=--max-old-space-size=4096
 Environment=PORT=3000
 # Fail loudly with the remedy rather than letting next start crash-loop on
 # a missing build.
-ExecStartPre=/bin/sh -c 'test -d .next || { echo "unfirehose-web: no build in apps/web/.next; run: make build" >&2; exit 1; }'
+ExecStartPre=/bin/sh -c 'test -f .next/BUILD_ID || { echo "unfirehose-web: no production build (apps/web/.next/BUILD_ID missing; a dev .next does not count); run: make build" >&2; exit 1; }'
 ExecStart=@NPM@ run start
 Restart=always
 RestartSec=2
