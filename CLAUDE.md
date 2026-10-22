@@ -100,6 +100,19 @@ git push origin HEAD --follow-tags
 
 Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Schema, Settings, Permacomputer.
 
+### Running as a service (respawn on crash)
+
+`make dev` runs our worker under tsx watch, which restarts on a file change but not when its child dies. For a box that should stay up, run both as systemd **user** units, no root:
+
+```bash
+make service-install          # renders deploy/systemd/*.service.in into ~/.config/systemd/user
+make build && make service-start   # enable --now unfirehose-worker + unfirehose-web
+make service-status           # or service-logs, service-restart, service-stop, service-uninstall
+sudo loginctl enable-linger fox    # once, by hand: units outlive logout
+```
+
+Services and `make dev` are mutually exclusive: two workers double-ingest, two webs fight for :3000. Both sides refuse to start while the other runs. After a code change on a service box: `make build && make service-restart`. Units run `npm run start` (no watch) under `Restart=always` with stepped backoff.
+
 ### Website
 
 unfirehose.com is served from `~/git/unsandbox.com` (our portal repo). Blog posts and landing pages live there, not in this repo.

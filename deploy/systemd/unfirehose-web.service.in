@@ -1,0 +1,36 @@
+# unfirehose web (Next.js) as a systemd USER unit. Rendered by
+# `make service-install`; see unfirehose-worker.service.in for the why.
+#
+# Serves the built app (`make build` first). The dashboard reads payloads the
+# worker stores, so it stays useful, if stale, while the worker restarts;
+# the two units are therefore independent rather than chained.
+
+[Unit]
+Description=unfirehose web: dashboard on :3000
+Documentation=file://@REPO@/CLAUDE.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@/apps/web
+Environment=PATH=@NODE_BIN@:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=4096
+Environment=PORT=3000
+# Fail loudly with the remedy rather than letting next start crash-loop on
+# a missing build.
+ExecStartPre=/bin/sh -c 'test -f .next/BUILD_ID || { echo "unfirehose-web: no production build (apps/web/.next/BUILD_ID missing; a dev .next does not count); run: make build" >&2; exit 1; }'
+ExecStart=@NPM@ run start
+Restart=always
+RestartSec=2
+RestartSteps=6
+RestartMaxDelaySec=60
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=unfirehose-web
+
+[Install]
+WantedBy=default.target

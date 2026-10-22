@@ -1,0 +1,44 @@
+# unfirehose worker as a systemd USER unit. Rendered by `make service-install`
+# into ~/.config/systemd/user/ with @REPO@, @NODE_BIN@ and @NPM@ filled in;
+# no root involved. One root step, once, so the unit outlives logout:
+#   sudo loginctl enable-linger <user>
+#
+# Why a unit at all: `make dev` runs the worker under tsx watch, which
+# restarts on a file change but, when its child dies, sits waiting for the
+# next change. A worker killed by OOM, a stray pkill or a bad deploy stayed
+# dead until someone noticed — days, twice. systemd notices in two seconds.
+
+[Unit]
+Description=unfirehose worker: ingest, mesh sampler, precomputed payloads
+Documentation=file://@REPO@/CLAUDE.md
+After=network-online.target
+Wants=network-online.target
+# Backoff is RestartSec/RestartSteps below. No start-rate limit: a worker
+# that fails five times in a row should keep trying, slower, not give up.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@/apps/worker
+# systemd does not read a shell profile; node is under nvm.
+Environment=PATH=@NODE_BIN@:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=4096
+Environment=PYTHONUNBUFFERED=1
+# `start` (tsx src/main.ts), never `dev` (tsx watch): under watch a crash
+# never reaches systemd. Code changes on a service box: make service-restart.
+ExecStart=@NPM@ run start
+Restart=always
+RestartSec=2
+RestartSteps=6
+RestartMaxDelaySec=60
+# The worker forks a sampler child; mixed sends SIGTERM to the main process
+# first so it can stop its timers, then SIGKILL to anything left in the cgroup.
+KillMode=mixed
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=unfirehose-worker
+
+[Install]
+WantedBy=default.target
