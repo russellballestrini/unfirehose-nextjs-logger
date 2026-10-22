@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../test/db-helper';
-import { insertMeshSnapshots } from './mesh-snapshots';
+import { insertMeshSnapshots, readMeshFacts } from './mesh-snapshots';
 import type { MeshNode } from '../mesh-probe';
 
 /**
@@ -17,7 +17,7 @@ const node = (over: Partial<MeshNode> & Record<string, unknown> = {}): MeshNode 
   ...over,
 } as MeshNode);
 const rows = () => db.prepare('SELECT * FROM mesh_snapshots ORDER BY id').all() as Array<Record<string, unknown>>;
-beforeEach(() => db.prepare('DELETE FROM mesh_snapshots').run());
+beforeEach(() => { db.prepare('DELETE FROM mesh_snapshots').run(); db.prepare('DELETE FROM mesh_node_facts').run(); });
 
 describe('insertMeshSnapshots', () => {
   it('writes one row per reachable node and says how many', () => {
@@ -61,5 +61,31 @@ describe('insertMeshSnapshots', () => {
     const bad = node({ hostname: null as unknown as string });
     expect(() => insertMeshSnapshots(db, [node(), bad, node({ hostname: 'blanka' })])).toThrow();
     expect(rows()).toHaveLength(0);
+  });
+});
+
+describe('mesh node facts', () => {
+  it('keeps what a probe knew that a row cannot carry, one row per node, replaced by each sample', () => {
+    insertMeshSnapshots(db, [node({ cpuModel: 'Xeon E5-2690', cpuTdpWatts: 135, spinningDisks: 2, ssdCount: 1, uptimeSeconds: 100 })]);
+    insertMeshSnapshots(db, [node({ cpuModel: 'Xeon E5-2690', cpuTdpWatts: 135, spinningDisks: 3, ssdCount: 1, uptimeSeconds: 115 })]);
+    const facts = readMeshFacts(db);
+    expect([...facts.keys()]).toEqual(['cammy']);
+    const f = facts.get('cammy')!;
+    expect(f.facts).toEqual({ cpuModel: 'Xeon E5-2690', cpuTdpWatts: 135, spinningDisks: 3, ssdCount: 1 });
+    expect(f.uptimeSeconds).toBe(115);
+    expect(Math.abs(f.observedAt - Date.now())).toBeLessThan(5_000);
+  });
+
+  it('leaves earlier facts alone when a probe learned none, and writes none for a node that did not answer', () => {
+    insertMeshSnapshots(db, [node({ cpuModel: 'Ryzen 9' })]);
+    insertMeshSnapshots(db, [node(), node({ hostname: 'gone', reachable: false, cpuModel: 'x' })]);
+    const facts = readMeshFacts(db);
+    expect(facts.get('cammy')!.facts.cpuModel).toBe('Ryzen 9');
+    expect(facts.has('gone')).toBe(false);
+  });
+
+  it('skips a row it cannot parse', () => {
+    db.prepare("INSERT INTO mesh_node_facts (hostname, facts) VALUES ('torn', '{')").run();
+    expect(readMeshFacts(db).has('torn')).toBe(false);
   });
 });

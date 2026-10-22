@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { probeRemote } from '@unturf/unfirehose/mesh-remote';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { MESH_FACT_FIELDS, readMeshFacts, type StoredMeshFacts } from '@unturf/unfirehose/db/mesh-snapshots';
 import { human } from '@unturf/unfirehose/ago';
 import { findSameBox } from '@unturf/unfirehose/hostname-match';
 import { Timing } from '@/lib/timing';
@@ -40,21 +41,8 @@ import { getLocalStats } from '@/lib/local-stats';
  * intervals rides through the former and reports the latter.
  */
 const SNAPSHOT_FRESH_MS = 60_000;
-/**
- * How often, at most, the full probe runs behind a snapshot-served response
- * to refresh the static facts. One ssh fan-out every five minutes while a
- * page is open, where it was one every fifteen seconds.
- */
-const FACTS_REFRESH_MS = 5 * 60_000;
 /** How long a live probe's answer is served as-is when no snapshot is fresh. */
 const MESH_CACHE_TTL = 15_000;
-
-/** Fields a snapshot row does not carry and a full probe does. */
-const STATIC_FIELDS: readonly (keyof MeshNode)[] = [
-  'cpuModel', 'cpuTdpWatts', 'cpuYear', 'arch', 'os', 'osRelease', 'userland', 'kind',
-  'vms', 'containers', 'containersRunning', 'model', 'spinningDisks', 'ssdCount',
-  'memCapGB', 'swapUsedGB', 'swapTotalGB', 'gpuModel',
-];
 
 interface MeshPayload {
   nodes: MeshNode[];
@@ -191,15 +179,16 @@ function lastSampleAt(names: string[]): number | null {
   return row?.ts ? parseSqliteTime(row.ts) : null;
 }
 
-function nodeFromSnapshot(row: SnapshotRow, facts: MeshNode | undefined, factsAgeMs: number): MeshNode {
+function nodeFromSnapshot(row: SnapshotRow, stored: StoredMeshFacts | undefined, now: number): MeshNode {
   const node: MeshNode = { hostname: row.hostname, reachable: true };
-  if (facts) {
-    for (const k of STATIC_FIELDS) {
-      if (facts[k] !== undefined) (node as any)[k] = facts[k];
+  const facts = stored?.facts;
+  if (stored) {
+    for (const k of MESH_FACT_FIELDS) {
+      if (stored.facts[k] !== undefined) (node as any)[k] = stored.facts[k];
     }
-    if (facts.uptimeSeconds !== undefined) {
-      // Uptime kept counting since the probe that read it.
-      node.uptimeSeconds = Math.round(facts.uptimeSeconds + factsAgeMs / 1000);
+    if (stored.uptimeSeconds !== null) {
+      // Uptime kept counting since the sample that read it.
+      node.uptimeSeconds = Math.round(stored.uptimeSeconds + Math.max(0, now - stored.observedAt) / 1000);
       node.uptime = formatUptime(node.uptimeSeconds);
     }
   }
@@ -242,9 +231,12 @@ function fromSnapshots(now: number, t: Timing): { payload: MeshPayload; computed
   if (fresh.size === 0) return null;
 
   const local = localHostname();
-  const facts = new Map<string, MeshNode>();
-  for (const n of meshCache?.data.nodes ?? []) if (n.reachable) facts.set(n.hostname, n);
-  const factsAge = meshCache ? now - meshCache.ts : 0;
+  // Facts the sampler stored with its rows: the same in a web process that
+  // booted a second ago as in one that has run for a week.
+  const facts = readMeshFacts(getDb());
+  // Which alias reached which box: the sampler records it, a live probe
+  // learns it, and the table is what survives a restart.
+  for (const [hostname, f] of facts) if (f.sshAlias && !probedHostname.has(f.sshAlias)) probedHostname.set(f.sshAlias, hostname);
 
   // Walk ssh config order, the order the live path answers in. The rows
   // themselves arrive in timestamp order, so taking them as they came put
@@ -256,7 +248,7 @@ function fromSnapshots(now: number, t: Timing): { payload: MeshPayload; computed
   const unclaimed = new Map(fresh);
   const take = (row: SnapshotRow) => {
     unclaimed.delete(row.hostname);
-    nodes.push(nodeFromSnapshot(row, facts.get(row.hostname), factsAge));
+    nodes.push(nodeFromSnapshot(row, facts.get(row.hostname), now));
     oldest = Math.min(oldest, parseSqliteTime(row.timestamp));
   };
   for (const host of hosts) {
@@ -327,7 +319,7 @@ export async function GET(req: NextRequest) {
     return respond(data, 'live', meshCache.ts);
   }
 
-  // The worker's snapshots, with static facts from the last full probe laid
+  // The worker's snapshots, with the static facts its sampler stored laid
   // under them. A database fault here is not a reason to answer nothing.
   let snap: ReturnType<typeof fromSnapshots> = null;
   try {
@@ -336,7 +328,7 @@ export async function GET(req: NextRequest) {
     console.error('[mesh] snapshot read failed, probing live:', err);
   }
   if (snap) {
-    if ((!meshCache || now - meshCache.ts > FACTS_REFRESH_MS) && !refreshing) refreshInBackground();
+    // Facts and aliases come from the sampler's table now; nothing to probe.
     return respond(snap.payload, 'snapshots', snap.computedAt);
   }
 
