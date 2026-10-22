@@ -1,5 +1,6 @@
 /**
- * Keeps the sampler child alive for as long as the worker is. A child that
+ * Keeps a child — the mesh sampler, the payload builder — alive for as long
+ * as the worker is. A child that
  * exits is started again after a delay that doubles from a second to half
  * a minute, so a sampler that cannot start — a missing binary, a database
  * it cannot open — logs at a readable rate rather than a tight loop.
@@ -23,7 +24,13 @@ export interface Supervised {
   stop(): void;
 }
 
-export function startSampler(entry: string, log: (line: string) => void = console.log): Supervised {
+/**
+ * Fork `entry` with `flag`=1 in its environment (the entry runs its main()
+ * only then, so tests can import it) and restart it whenever it exits.
+ */
+export function superviseChild(
+  name: string, entry: string, flag: string, log: (line: string) => void = console.log,
+): Supervised {
   let child: ChildProcess | null = null;
   let attempt = 0;
   let stopped = false;
@@ -33,14 +40,14 @@ export function startSampler(entry: string, log: (line: string) => void = consol
     if (stopped) return;
     const startedAt = Date.now();
     // execArgv carries the tsx loader in development, so a .ts entry runs.
-    child = fork(entry, [], { env: { ...process.env, UNFIREHOSE_SAMPLER_CHILD: '1' } });
-    log(`[worker] sampler started (pid ${child.pid})`);
+    child = fork(entry, [], { env: { ...process.env, [flag]: '1' } });
+    log(`[worker] ${name} started (pid ${child.pid})`);
     child.on('exit', (code, signal) => {
       child = null;
       if (stopped) return;
       if (Date.now() - startedAt >= HEALTHY_AFTER_MS) attempt = 0;
       const delay = respawnDelayMs(attempt++);
-      log(`[worker] sampler exited (${signal ?? `code ${code}`}); restarting in ${delay / 1000}s`);
+      log(`[worker] ${name} exited (${signal ?? `code ${code}`}); restarting in ${delay / 1000}s`);
       timer = setTimeout(spawnOnce, delay);
     });
   };
@@ -53,4 +60,12 @@ export function startSampler(entry: string, log: (line: string) => void = consol
       child?.kill('SIGTERM');
     },
   };
+}
+
+export function startSampler(entry: string, log?: (line: string) => void): Supervised {
+  return superviseChild('sampler', entry, 'UNFIREHOSE_SAMPLER_CHILD', log);
+}
+
+export function startPayloadBuilder(entry: string, log?: (line: string) => void): Supervised {
+  return superviseChild('payload builder', entry, 'UNFIREHOSE_PAYLOADS_CHILD', log);
 }

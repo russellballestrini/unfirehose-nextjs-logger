@@ -4,7 +4,7 @@ Our dashboard, Tokens page, scrobble page and project list each answer from a pa
 
 ## Why
 
-Each build is seconds of SQL against `messages` (measured on a 6.6 GB database: dashboard 24h 0.7 s, 7d 1.2 s, 28d 4.6 s; project list 4.0 s; scrobble 14.7 s; tokens lifetime ~11 s — `apps/worker/src/main.ts:49-66`). Our Next.js server is one thread, so a build on a request is charged to every other request. A separate worker process does that work instead.
+Each build is seconds of SQL against `messages` (measured on a 6.6 GB database: dashboard 24h 0.7 s, 7d 1.2 s, 28d 4.6 s; project list 4.0 s; scrobble 14.7 s; tokens lifetime ~11 s — `apps/worker/src/payloads.ts`). Our Next.js server is one thread, so a build on a request is charged to every other request. Our worker forks a payload builder (`apps/worker/src/payloads.ts`) that does that work instead, on a thread of its own, so the worker's ingest never waits on a build either.
 
 ## Store: rows in `settings`
 
@@ -66,7 +66,7 @@ Routes apply **no** staleness rule: every one reads with `maxAgeMs = Infinity`. 
                picks up ranges a request stored
 ```
 
-**Worker** (`apps/worker/src/main.ts`). Each payload has a kickoff `setTimeout` after boot and a `setInterval`, each calling `refreshX(..., { unlessCurrentMs: <max quiet> })`. Ranges loop through `refreshRanges` (`:192`), which catches and logs per range so one failure does not stop our others.
+**Payload builder** (`apps/worker/src/payloads.ts`, a child the worker forks and restarts via `startPayloadBuilder` in `sampler-supervisor.ts`). Each payload has a kickoff `setTimeout` after boot and a `setInterval`, each calling `refreshX(..., { unlessCurrentMs: <max quiet> })`. Ranges loop through `refreshRanges`, which catches and logs per range so one failure does not stop our others.
 
 | set | ranges | tick | max quiet | kickoff |
 |---|---|---|---|---|
@@ -79,7 +79,7 @@ Routes apply **no** staleness rule: every one reads with `maxAgeMs = Infinity`. 
 | project list | — | 3 min | 15 min | 8 s |
 | scrobble | — (one lifetime payload) | 15 min | 2 h | 20 s |
 
-Constants: `main.ts:55-83`. "Stored" sets come from `storedDashboardRanges` (`dashboard.ts:529`) / `storedTokensRanges` (`tokens.ts:445`) minus our warm sets (`storedBeyond`, `main.ts:211`). Without that listing, a range first built by a request was served forever — 90d, 365d and lifetime sat a month old (2026-10-14).
+Constants: top of `payloads.ts`. "Stored" sets come from `storedDashboardRanges` (`dashboard.ts:529`) / `storedTokensRanges` (`tokens.ts:445`) minus our warm sets (`storedBeyond`, `payloads.ts`). Without that listing, a range first built by a request was served forever — 90d, 365d and lifetime sat a month old (2026-10-14).
 
 **Request path.** Only on a miss: `refreshX(range)` with no `unlessCurrentMs`, built on our web thread, stored, returned.
 
@@ -120,5 +120,5 @@ Dashboard and tokens share one table: `DASHBOARD_RANGES` (`dashboard.ts:23`; `TO
 3. Add `readX(range?, maxAgeMs)` wrapping `readPayload`.
 4. For ranges: key as `<prefix><range>`, validate against a known-ranges table, export `WARM_*` sets and `storedXRanges()` via `storedRanges(prefix, known)`.
 5. Route: `readX(..., Infinity)` → 200 + `X-Computed-At`; on `null` → `refreshX()` → 200; on throw → 500.
-6. Worker (`main.ts`): kickoff `setTimeout` + `setInterval` with a tick and a max-quiet constant; for ranges, use `refreshRanges` and `storedBeyond`; clear both timers in our shutdown handler.
+6. Payload builder (`apps/worker/src/payloads.ts`): kickoff `setTimeout` + `setInterval` with a tick and a max-quiet constant; for ranges, use `refreshRanges` and `storedBeyond`. The child exits with its parent, so no shutdown wiring is needed.
 7. Tests: core test asserting store/skip on unchanged watermark (see `dashboard.test.ts`, `tokens.test.ts`), route test asserting a stored payload is served stale rather than rebuilt (see `apps/web/src/app/api/tokens/route.test.ts`).
