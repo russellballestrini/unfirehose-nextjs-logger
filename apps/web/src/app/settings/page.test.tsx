@@ -259,7 +259,7 @@ describe('the connection tab', () => {
   });
 
   it('draws before settings have arrived', async () => {
-    settings = undefined;
+    settings = undefined as unknown as Record<string, string>;
     const view = await show();
     await tab('Connection');
     expect(view.container.textContent).not.toContain('undefined');

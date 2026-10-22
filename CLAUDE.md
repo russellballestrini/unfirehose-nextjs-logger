@@ -66,7 +66,7 @@ unfirehose derives project identity from the **git root commit hash + origin URL
 - `project_aliases` — many encoded names → one project_id
 - Identity matching is scoped per harness slot (`arborist:` subagent stays separate from base claude)
 
-Resolution lives in `getOrCreateProject` (`packages/core/db/ingest.ts`). Full design: `docs/architecture/project-identity.md`.
+Resolution lives in `getOrCreateProject` (`packages/core/db/ingest-projects.ts`, re-exported from `db/ingest`). Full design: `docs/architecture/project-identity.md`.
 
 **Auto-merge runs at the end of every `ingestAll()`.** Any group of project rows that share `(root_commit_hash, origin_url)` within the same harness slot collapses into its most-recently-active member. Loser's stats (usage_minutes summed on overlapping minutes), sessions, todos, agent_deployments, alerts, and agent_actions all re-point to the winner; loser's encoded name becomes an alias; loser row is dropped.
 
@@ -89,13 +89,14 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ### Publishing
 
-npm token stored at `~/.npmrc` (600 perms, outside repo). Publish from each package dir:
+npm token stored at `~/.npmrc` (600 perms, outside repo). All four packages release together at one version, bumped in git:
 ```bash
-cd packages/core && npm publish --access public
-cd packages/schema && npm publish --access public
-cd packages/router && npm publish --access public   # has prepublishOnly: tsc
-cd packages/ui && npm publish --access public
+make publish-dry-run          # pack at the next patch, change nothing
+make publish                  # bump, commit "release: vX.Y.Z", tag, publish, wait for npm
+make publish BUMP=minor       # or major, or an exact X.Y.Z
+git push origin HEAD --follow-tags
 ```
+`scripts/publish.sh` counts up from whichever is higher, git's version or npm's. A pushed `v*` tag also runs the CI publish job, which tolerates a version already on npm.
 
 Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Schema, Settings, Permacomputer.
 
@@ -341,8 +342,8 @@ See `docs/tickets/README.md` for our full ticket format and workflow.
 # Search all logs (text search + date filtering)
 curl -s "localhost:3000/api/logs?search=error&from=2026-03-01&types=assistant&limit=50"
 
-# Search thinking blocks
-curl -s "localhost:3000/api/thinking?search=architecture&from=2026-03-01&limit=100"
+# Messages carrying reasoning (thinking) blocks
+curl -s "localhost:3000/api/logs?search=architecture&has_thinking=true&from=2026-03-01&limit=100"
 ```
 
 ## Prime Mission — Balance All Workstations

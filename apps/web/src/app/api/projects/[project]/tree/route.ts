@@ -6,9 +6,9 @@ import { Timing } from '@/lib/timing';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 import { gitExec } from '@unturf/unfirehose/git-exec';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { treeCache, treeKey } from '@/lib/project-caches';
 
-const treeCache = new Map<string, { data: any; ts: number }>();
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
  * Spawning git is the expensive part of this route, not git itself.
@@ -59,23 +59,6 @@ async function branchFromHead(repoPath: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-const TREE_CACHE_TTL = 10_000; // 10 seconds
-const TREE_CACHE_MAX = 100; // LRU cap
-
-/**
- * Store one answer, evicting the oldest when full.
- *
- * The three call sites each wrote this out, and each had its own chance to
- * forget the eviction — a cache that only grows is a leak in a long-running
- * server.
- */
-function cacheTree(key: string, data: unknown): void {
-  if (treeCache.size >= TREE_CACHE_MAX) {
-    const oldest = treeCache.keys().next().value;
-    if (oldest) treeCache.delete(oldest);
-  }
-  treeCache.set(key, { data, ts: Date.now() });
 }
 
 // GET: file tree or file content
@@ -226,11 +209,9 @@ export async function GET(
   const subpath = url.searchParams.get('path') || '';
   const ref = url.searchParams.get('ref') || 'HEAD';
 
-  const cacheKey = `${project}:${subpath}:${ref}`;
+  const cacheKey = treeKey(project, subpath, ref);
   const cached = treeCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < TREE_CACHE_TTL) {
-    return NextResponse.json(cached.data);
-  }
+  if (cached !== undefined) return NextResponse.json(cached);
 
   try {
     // Read the working tree from disk unless a specific ref was asked for.
@@ -250,7 +231,7 @@ export async function GET(
       if ('error' in result) return NextResponse.json(result, { status: 400 });
       // Branch when we have it; otherwise it arrives on the next click.
       if (result.type === 'tree') result.branch = await branchFromHead(repoPath);
-      cacheTree(cacheKey, result);
+      treeCache.set(cacheKey, result);
       t.mark('disk');
       return NextResponse.json(result, { headers: { 'Server-Timing': t.header() } });
     }
@@ -296,7 +277,7 @@ export async function GET(
             language: lang,
             lastCommit: commitHash ? { hash: commitHash, message: commitMsg, age: commitAge } : null,
           };
-    cacheTree(cacheKey, fileResult);
+    treeCache.set(cacheKey, fileResult);
           t.mark('git_file');
           return NextResponse.json(fileResult, { headers: { 'Server-Timing': t.header() } });
         }
@@ -359,7 +340,7 @@ export async function GET(
       readme: readme.slice(0, 10000), // cap at 10KB
       repoPath,
     };
-    cacheTree(cacheKey, treeResult);
+    treeCache.set(cacheKey, treeResult);
     t.mark('git_tree');
     return NextResponse.json(treeResult, { headers: { 'Server-Timing': t.header() } });
   } catch (err) {

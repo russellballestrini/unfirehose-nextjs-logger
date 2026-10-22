@@ -50,7 +50,7 @@ async function probeAndPersistNode(host: string): Promise<void> {
   try {
     const node = host === 'localhost' ? await getLocalStats() : await probeRemote(host);
     if (!node.reachable) return;
-    insertMeshSnapshots(getDb(), [node]);
+    insertMeshSnapshots(getDb(), [node], [host]);
   } catch (err) {
     console.error(`[sampler] mesh sample for ${host} failed:`, err);
   }

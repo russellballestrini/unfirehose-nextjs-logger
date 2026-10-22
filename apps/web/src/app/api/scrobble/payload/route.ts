@@ -8,7 +8,8 @@ import { Timing } from '@/lib/timing';
  *
  * Building it is two full scans of a 1.6M-row `messages` table — it was
  * eight, and 11.6s, before 2026-09-03 — so a visitor should not be the one
- * paying for them. The worker refreshes it every five minutes; this route
+ * paying for them. The worker refreshes it every 15 minutes when messages
+ * have landed, and at least every two hours otherwise; this route
  * rebuilds only when nothing has ever been stored, the first load on a
  * database no worker has run against.
  *

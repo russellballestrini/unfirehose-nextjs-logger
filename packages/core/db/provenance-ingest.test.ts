@@ -22,7 +22,8 @@ const { ChainedJournal } = await import('../provenance');
  * ingester keeps what the verifier found instead of dropping it.
  */
 const KAT = path.resolve(__dirname, '../../schema/fixtures/chain-kat.jsonl');
-const vectors: any[] = readFileSync(KAT, 'utf8')
+type Vector = { label: string; kind: string; lines: string[]; [k: string]: any };
+const vectors: Vector[] = readFileSync(KAT, 'utf8')
   .split('\n')
   .filter((l) => l.trim() && !l.startsWith('#'))
   .map((l) => JSON.parse(l))

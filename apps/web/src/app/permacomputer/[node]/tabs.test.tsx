@@ -47,7 +47,7 @@ const bag = (over: Record<string, unknown> = {}) => ({
     // empty list renders the tab's shell and none of its content.
     disks: [{ device: '/dev/sda1', mount: '/', sizeGB: 1800, usedGB: 1600, usePct: 89, fs: 'ext4' }],
     network: [{ iface: 'eno1', addresses: ['192.168.1.18/24', 'fe80::1/64'], up: true }],
-    containers: [{ name: 'open-webui', image: 'ghcr.io/open-webui:0.6', status: 'Up 4 weeks (healthy)', ports: '8080/tcp' }],
+    containers: [{ id: '3f2a9c1d7e5b', name: 'open-webui', image: 'ghcr.io/open-webui:0.6', status: 'Up 4 weeks (healthy)', ports: '8080/tcp' }],
     harnessProcesses: [{ pid: 1234, harness: 'claude', cpu: 2.1, mem: 1.4, command: '/home/fox/.local/bin/claude', user: 'fox' }],
     claudeProcesses: [{ pid: 1234, cpu: 2.1, mem: 1.4, command: 'claude' }],
     harnessCounts: { claude: 1 },

@@ -2,6 +2,7 @@ import { parseRemoteForCheck } from '@/lib/forges';
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { readProjectList } from '@unturf/unfirehose/projects-list';
+import { TtlCache } from '@/lib/ttl-cache';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -9,8 +10,8 @@ const execAsync = promisify(exec);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-let previewCache: { data: any; ts: number } | null = null;
-const PREVIEW_CACHE_TTL = 300_000; // 5 minutes
+// Five minutes: visibility is rechecked daily and the batch cap bounds the work.
+const previewCache = new TtlCache<any>(300_000, 1);
 
 /** Max unchecked projects to re-probe per request to bound response time */
 const MAX_RECHECK_BATCH = 7;
@@ -64,8 +65,9 @@ async function detectPublicRemotes(projectPath: string | null): Promise<{ isPubl
 }
 
 export async function GET() {
-  if (previewCache && Date.now() - previewCache.ts < PREVIEW_CACHE_TTL) {
-    return NextResponse.json(previewCache.data);
+  const cached = previewCache.get('preview');
+  if (cached !== undefined) {
+    return NextResponse.json(cached);
   }
 
   try {
@@ -77,7 +79,10 @@ export async function GET() {
     // of them agent scratch directories, serialised to 4.3MB and rendered
     // one by one into the DOM. The Projects page had solved this months
     // ago; the preview was the last caller still doing it the long way.
-    const folded = readProjectList()?.payload ?? [];
+    // Any stored list beats none: under the default 15-minute bound a
+    // quiet worker's list read as missing, and an empty preview stuck for
+    // the five minutes it was cached.
+    const folded = readProjectList(Infinity)?.payload ?? [];
     const names = folded.map((p) => p.name);
     const visByName = new Map<string, { id: number; path: string | null; visibility: string; auto_detected: string | null; vis_updated_at: string | null }>();
     if (names.length) {
@@ -193,7 +198,7 @@ export async function GET() {
       excluded,
     };
 
-    previewCache = { data: result, ts: Date.now() };
+    previewCache.set('preview', result);
 
     return NextResponse.json(result);
   } catch (err: any) {

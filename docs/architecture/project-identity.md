@@ -86,7 +86,7 @@ One row per encoded directory name ever observed for the project. The same `(roo
 
 ## Resolution algorithm (`getOrCreateProject`)
 
-Located in `packages/core/db/ingest.ts`. Given `(name, displayName, projectPath?)`:
+Located in `packages/core/db/ingest-projects.ts` (re-exported from `ingest.ts`). Given `(name, displayName, projectPath?)`:
 
 1. **Direct name match.** Look up `projects.name = ?`. If found, opportunistically backfill `root_commit_hash` / `origin_url` / `last_cwd_seen` from the current cwd, then return its id. This is the hot path.
 2. **Alias match.** Look up `project_aliases.encoded_name = ?`. If found, bump `last_seen`, return the linked `project_id`.
@@ -117,7 +117,7 @@ A fork with its own distinct `origin` correctly creates a separate project row.
 
 At the end of every `ingestAll()` pass, `autoMergeIdenticalProjects()` finds every group of project rows that share `(root_commit_hash, origin_url)` within the same harness slot and merges each group into its most-recently-active member.
 
-`mergeProjects(loserId, winnerId)` in `packages/core/db/ingest.ts` does the work in a single transaction:
+`mergeProjects(loserId, winnerId)` in `packages/core/db/ingest-projects.ts` does the work in a single transaction:
 
 | step | what happens |
 |---|---|

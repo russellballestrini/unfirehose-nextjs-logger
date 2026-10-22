@@ -75,7 +75,7 @@ async function getGitContext(projectName: string): Promise<GitContext | null> {
  * toward its repo rather than vanishing or standing beside it.
  */
 function foldToProjects(rows: any[]): any[] {
-  const folded = readProjectList()?.payload;
+  const folded = readProjectList(Infinity)?.payload;
   // Before the worker has ever built the list there is nothing to fold onto;
   // the path filter alone is what we had, and is what we return.
   if (!folded?.length) return rows;

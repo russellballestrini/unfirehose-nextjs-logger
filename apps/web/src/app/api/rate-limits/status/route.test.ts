@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 let setting: string | null = null;
 const setSetting = vi.fn((_k: string, v: string) => { setting = v; });
 const current = vi.fn(() => [{ id: 'anthropic', status: 'operational' }]);
-const history = vi.fn(() => [{ at: '2026-09-05T00:00:00Z', status: 'degraded' }]);
+const history = vi.fn((_id: string, _hours: number) => [{ at: '2026-09-05T00:00:00Z', status: 'degraded' }]);
 const poll = vi.fn(async () => [{ id: 'anthropic', ok: true }]);
 
 vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => ({}) }));

@@ -1,6 +1,6 @@
 {
   "name": "@unturf/unfirehose",
-  "version": "1.3.0",
+  "version": "1.3.7",
   "description": "Core data layer for unfirehose: session ingestion for every harness, hash-chain verification and a witness for tamper evidence, SQLite schema, types, PII detection, and formatters",
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -54,6 +54,7 @@
     "./session-name": "./session-name.ts",
     "./uuidv7": "./uuidv7.ts",
     "./mesh": "./mesh.ts",
+    "./hostname-match": "./hostname-match.ts",
     "./rate-limits": "./rate-limits.ts",
     "./status-pages": "./status-pages.ts",
     "./db/rate-limit-scan": "./db/rate-limit-scan.ts",

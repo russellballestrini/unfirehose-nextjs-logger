@@ -11,7 +11,7 @@
 ## File Location
 
 ```
-~/.agnt/projects/{project-slug}/{session-uuid}.jsonl
+~/.agnt/unfirehose/{project-slug}/{session-uuid}.jsonl
 ```
 
 ## Format
@@ -45,7 +45,7 @@ For harnesses adopting unfirehose/1.0 natively:
 - [ ] Include `parentId` for conversation threading
 - [ ] Include `usage` on assistant messages
 - [ ] Use UUIDv7 for session and message IDs
-- [ ] Store at `~/.{harness}/projects/{slug}/{uuid}.jsonl`
+- [ ] Store at `~/.{harness}/unfirehose/{slug}/{uuid}.jsonl` (any `~/.{name}/unfirehose/` is discovered)
 - [ ] System message with `subtype: "session_end"` on close
 
 ## Target Harnesses for Native Adoption

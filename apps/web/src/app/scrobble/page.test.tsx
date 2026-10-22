@@ -269,7 +269,7 @@ describe('the scrobble page', () => {
   describe('with the day grain', () => {
     const today = new Date().toISOString().slice(0, 10);
     const hours = (at: Record<number, number>) => { const h = new Array(24).fill(0); for (const [k, v] of Object.entries(at)) h[Number(k)] = v; return h; };
-    const grain = () => full({
+    const grain = (over: Record<string, unknown> = {}) => full({
       daily: [
         { date: '2026-01-15', messages: 1000, sessions: 100, inputTokens: 100_000, outputTokens: 30_000, cacheRead: 8_000_000, cacheWrite: 250_000, costUSD: 200,
           costSplit: { input: 8, output: 30, cacheRead: 150, cacheWrite: 12 }, hours: hours({ 3: 1000 }) },
@@ -288,6 +288,7 @@ describe('the scrobble page', () => {
         { date: '2026-01-15', name: 'Bash', count: 4200 },
         { date: today, name: 'Read', count: 7 },
       ],
+      ...over,
     });
     // The selector remembers its last choice; an earlier test left it on 7d.
     beforeEach(() => { try { localStorage.removeItem('scrobble_range'); } catch { /* jsdom */ } });

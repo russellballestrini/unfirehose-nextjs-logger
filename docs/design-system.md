@@ -363,7 +363,7 @@ the styleguide drew a fifth from raw divs.
 | `color` | Explicit value colour for a series that carries its own. Wins over `tone` |
 | `compact` | `p-3`, `text-xs` label, truncated `text-sm` value, for grids fitting many to a row |
 
-Live: `localhost:3000/styleguide` → Cards.
+Live: `localhost:3000/styleguide` → StatCard.
 
 ### Buttons
 
@@ -622,7 +622,7 @@ Separate `:root.light` overrides in globals.css (lines 280-310) swap tooltip, le
 |---|---|
 | `apps/web/src/app/globals.css` | All tokens, animations, recharts overrides, markdown styles, scrollbar |
 | `apps/web/src/app/layout.tsx` | Geist Mono font setup, root structure |
-| `apps/web/src/app/styleguide/page.tsx` | Live design reference (22 sections) |
+| `apps/web/src/app/styleguide/page.tsx` | Live design reference: one example per component family; values live here |
 | `apps/web/postcss.config.mjs` | Tailwind v4 (`@tailwindcss/postcss`) |
 | `packages/ui/components/ThemeProvider.tsx` | Theme loading and accent color application |
 | `packages/ui/components/layout/Sidebar.tsx` | Navigation with Unicode icons and section groups |
