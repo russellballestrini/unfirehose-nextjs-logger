@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
+import { TtlCache } from '@/lib/ttl-cache';
 import { readFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 import { getAllSettings } from '@unturf/unfirehose/db/ingest';
 
-let cache: { data: { providers: DetectedProvider[] }; ts: number } | null = null;
-const CACHE_TTL = 60_000; // 60 seconds
+// Availability moves in minutes; only the remote health probes are slow.
+const cache = new TtlCache<{ providers: DetectedProvider[] }>(60_000, 1);
 
 /** Reset module cache — exposed for tests */
-export function resetProviderCache() { cache = null; }
+export function resetProviderCache() { cache.clear(); }
 
 interface DetectedProvider {
   id: string;
@@ -21,8 +22,9 @@ interface DetectedProvider {
 }
 
 export async function GET() {
-  if (cache && Date.now() - cache.ts < CACHE_TTL) {
-    return NextResponse.json(cache.data);
+  const cached = cache.get('providers');
+  if (cached !== undefined) {
+    return NextResponse.json(cached);
   }
 
   const providers: DetectedProvider[] = [];
@@ -99,6 +101,6 @@ export async function GET() {
   }
 
   const result = { providers };
-  cache = { data: result, ts: Date.now() };
+  cache.set('providers', result);
   return NextResponse.json(result);
 }
