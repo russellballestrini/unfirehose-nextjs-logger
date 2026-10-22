@@ -55,6 +55,8 @@
     "./uuidv7": "./uuidv7.ts",
     "./mesh": "./mesh.ts",
     "./hostname-match": "./hostname-match.ts",
+    "./mesh-econ": "./mesh-econ.ts",
+    "./cost-report": "./cost-report.ts",
     "./rate-limits": "./rate-limits.ts",
     "./status-pages": "./status-pages.ts",
     "./db/rate-limit-scan": "./db/rate-limit-scan.ts",

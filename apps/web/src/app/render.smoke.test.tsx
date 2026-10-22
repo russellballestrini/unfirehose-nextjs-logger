@@ -116,6 +116,27 @@ const PAGE_DATA: Record<string, Record<string, unknown>> = {
     toolUsage: [{ tool_name: 'Bash', count: 120 }, { tool_name: 'Edit', count: 44 }],
   },
 
+  './reports/page.tsx': {
+    $schema: 'unfirehose-cost-report/1', month: '2026-09', timeZone: 'UTC',
+    periodStart: '2026-09-01T00:00:00.000Z', periodEnd: '2026-10-01T00:00:00.000Z', closed: true,
+    generatedAt: '2026-10-01T09:00:00.000Z',
+    currency: { code: 'EUR', rate: 0.9, rateDate: '2026-09-30', source: 'ECB via Frankfurter' },
+    lines: [
+      { category: 'model-api', item: 'claude-opus-5', detail: '2.00M tokens over 1 messages', basis: 'priced', usd: 30 },
+      { category: 'subscription', item: 'Claude Max 20x', detail: 'monthly plan price', basis: 'flat', usd: 200 },
+      { category: 'electricity', item: 'cammy', detail: '12.0 kWh at $0.330/kWh', basis: 'measured', usd: 3.96 },
+    ],
+    memo: [{ item: 'Self-hosted models, market value', detail: '1.00M tokens', usd: 4 }],
+    byCategory: [
+      { category: 'model-api', label: 'Model API usage', usd: 30 },
+      { category: 'subscription', label: 'Subscriptions', usd: 200 },
+      { category: 'electricity', label: 'Electricity (self-hosted)', usd: 3.96 },
+    ],
+    byProject: [{ project: 'acme', usd: 30 }],
+    byModel: [{ model: 'claude-opus-5', usd: 30, tokens: 2_000_000, basis: 'priced' }],
+    totalUSD: 233.96,
+    notes: ['Model API lines are booked at the price in force on the day the tokens were spent.'],
+  },
   './tokens/page.tsx': {
     modelBreakdown: [
       { model: 'claude-opus-4-6-20260301', inputTokens: 12_000, outputTokens: 4_000,

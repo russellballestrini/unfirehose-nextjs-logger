@@ -1,42 +1,14 @@
-import { readFile } from 'fs/promises';
-import { homedir } from 'os';
-import { join } from 'path';
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
+import { readClaudePlanIdentity, PLAN_COST } from '@/lib/claude-plan';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Map rateLimitTier → monthly plan cost in USD
-const PLAN_COST: Record<string, number> = {
-  'default_claude_max_5x':  100,
-  'default_claude_max_20x': 200,
-  'default_claude_pro':      20,
-};
-
 export async function GET() {
-  const home = homedir();
-
-  // Read credentials
-  let subscriptionType = 'unknown';
-  let rateLimitTier = 'unknown';
-  let hasExtraUsageEnabled = false;
-
-  try {
-    const creds = JSON.parse(
-      await readFile(join(home, '.claude', '.credentials.json'), 'utf-8')
-    );
-    subscriptionType = creds?.claudeAiOauth?.subscriptionType ?? 'unknown';
-    rateLimitTier    = creds?.claudeAiOauth?.rateLimitTier    ?? 'unknown';
-  } catch { /* file unreadable or missing */ }
-
-  try {
-    const cfg = JSON.parse(
-      await readFile(join(home, '.claude.json'), 'utf-8')
-    );
-    hasExtraUsageEnabled = cfg?.oauthAccount?.hasExtraUsageEnabled ?? false;
-  } catch { /* file unreadable or missing */ }
+  // Plan identity from ~/.claude.json + ~/.claude/.credentials.json (tier fields only).
+  const { subscriptionType, rateLimitTier, hasExtraUsageEnabled } = await readClaudePlanIdentity();
 
   const monthlyPlanCost = PLAN_COST[rateLimitTier] ?? null;
 

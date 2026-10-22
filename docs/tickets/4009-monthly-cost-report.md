@@ -1,9 +1,39 @@
 # 4009: Monthly cost report — CSV and PDF for expense claims
 
-**Status:** open — plan awaiting fox
+**Status:** free tier done 2026-10-22; branded tier awaits decision 4
 **Project:** unfirehose-nextjs-logger
 **Estimated:** ~1 day (free tier); branded tier depends on decision 4
 **Todo IDs:** none (roadmap item 13, proposed by fox 2026-10-22)
+
+## Outcome (2026-10-22)
+
+fox: "continue" on the recommendations, and "the user configures the currency
+they care about in settings, so honour that for their reports."
+
+- `packages/core/cost-report.ts` — `buildMonthlyCostReport`, local-month
+  bounds (`monthBounds`, DST-correct), `costReportCsv`, filing helpers.
+  Claude Code usage under a detected subscription and self-hosted model value
+  are memo lines, never in the total (the plan line and the electricity line
+  are those charges). Nodes behind one connection share one ISP line: a
+  connection is the provider, place and ISP their saved economics name.
+- `apps/web/src/app/api/reports/monthly/route.ts` — `json | csv | pdf`;
+  a closed month is filed on first build (`cost_report_<month>_<tz>_<code>`
+  in settings) and served as filed; `rebuild=1` refiles.
+- Currency: the first of `display_currency`, converted at the published rate
+  for the month's last day (`lib/report-currency.ts`: ECB via Frankfurter,
+  CoinGecko history for crypto), printed with its date and source. No rate →
+  USD with the reason, and that copy is not filed. Honours
+  `mesh_currency_oracle=false`.
+- PDF: `lib/cost-report-pdf.ts` on `pdf-lib`, standard fonts (amounts as
+  `123.45 EUR`), US Letter, dates in the report's zone; a filed month renders
+  to identical bytes.
+- `/reports` page (Analyze nav), llms.txt entry. Plan detection moved to
+  `lib/claude-plan.ts`, shared with `/api/usage/plan`; node economics keys
+  moved to `core/mesh-econ.ts`, shared with `lib/mesh-score.ts`.
+
+Still open: decision 4 (branded / paid version). Totals reconcile with the
+Tokens page except where they should not: Tokens prices subscription-covered
+Claude Code usage, the report lists it as a memo.
 
 ## Context
 
