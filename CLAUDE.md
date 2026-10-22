@@ -66,7 +66,7 @@ unfirehose derives project identity from the **git root commit hash + origin URL
 - `project_aliases` — many encoded names → one project_id
 - Identity matching is scoped per harness slot (`arborist:` subagent stays separate from base claude)
 
-Resolution lives in `getOrCreateProject` (`packages/core/db/ingest.ts`). Full design: `docs/architecture/project-identity.md`.
+Resolution lives in `getOrCreateProject` (`packages/core/db/ingest-projects.ts`, re-exported from `db/ingest`). Full design: `docs/architecture/project-identity.md`.
 
 **Auto-merge runs at the end of every `ingestAll()`.** Any group of project rows that share `(root_commit_hash, origin_url)` within the same harness slot collapses into its most-recently-active member. Loser's stats (usage_minutes summed on overlapping minutes), sessions, todos, agent_deployments, alerts, and agent_actions all re-point to the winner; loser's encoded name becomes an alias; loser row is dropped.
 
