@@ -248,7 +248,9 @@ service-install:
 	  echo "note: linger is off; units stop at logout until: sudo loginctl enable-linger $$USER"
 
 service-start:
-	@pgrep -f 'tsx watch.*worker/src/main|turbo dev' >/dev/null && { \
+	@# [t]urbo: the recipe's own shell carries this text on its command line
+	@# and pgrep -f would match it; a bracketed first letter cannot match itself.
+	@pgrep -f '[t]sx watch.*worker/src/main|[t]urbo dev' >/dev/null && { \
 	  echo "make dev is running; stop it first. two workers would double-ingest."; exit 1; } || true
 	@test -f apps/web/.next/BUILD_ID || { echo "no production build (apps/web/.next/BUILD_ID missing; a dev .next does not count); run: make build"; exit 1; }
 	systemctl --user enable --now $(SERVICES)
