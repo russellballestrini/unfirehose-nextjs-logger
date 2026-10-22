@@ -329,8 +329,8 @@ See `docs/tickets/README.md` for our full ticket format and workflow.
 # Search all logs (text search + date filtering)
 curl -s "localhost:3000/api/logs?search=error&from=2026-03-01&types=assistant&limit=50"
 
-# Search thinking blocks
-curl -s "localhost:3000/api/thinking?search=architecture&from=2026-03-01&limit=100"
+# Messages carrying reasoning (thinking) blocks
+curl -s "localhost:3000/api/logs?search=architecture&has_thinking=true&from=2026-03-01&limit=100"
 ```
 
 ## Prime Mission — Balance All Workstations
