@@ -2,7 +2,7 @@
         test-core test-ui test-web test-scripts \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
-        build docker docker-run
+        build docker docker-run typecheck
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -29,6 +29,16 @@ NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=
 # name and cd's itself.
 test:
 	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts
+
+# tsc over every workspace with a tsconfig, tests included. Vitest strips
+# types without checking them, so a test can drift from the code it calls
+# and still pass; this is what notices.
+typecheck:
+	@echo "==> packages/core"; cd packages/core && npx tsc --noEmit
+	@echo "==> packages/ui"; cd packages/ui && npx tsc --noEmit
+	@echo "==> packages/router"; cd packages/router && npx tsc --noEmit
+	@echo "==> apps/worker"; cd apps/worker && npx tsc --noEmit
+	@echo "==> apps/web"; cd apps/web && npx tsc --noEmit
 
 # Regenerate the userland probe plugins from their Bourne-sh sources.
 userland-plugins:

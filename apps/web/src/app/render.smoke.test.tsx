@@ -260,7 +260,7 @@ const pageProps = () => ({
     project: 'demo', session: '0', node: 'localhost', id: '1', sessionId: 's1',
   }),
   searchParams: Promise.resolve({}),
-}) as never;
+}) as Record<string, unknown>;
 
 describe('every page renders', () => {
   it('finds all of them, so this cannot quietly cover nothing', () => {
@@ -269,7 +269,7 @@ describe('every page renders', () => {
 
   for (const [path, load] of Object.entries(pages)) {
     it(`renders ${path.replace('./', '')}`, async () => {
-      const mod = (await load()) as { default: (props: never) => React.ReactNode };
+      const mod = (await load()) as { default: React.ComponentType<Record<string, unknown>> };
       swrAnswer = { data: payloadFor(path), error: undefined, isLoading: false, isValidating: false, mutate: vi.fn() };
       expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
     });
@@ -286,7 +286,7 @@ describe('every page renders', () => {
 describe('every page renders with no data and with an error', () => {
   for (const [path, load] of Object.entries(pages)) {
     it(`survives an empty and a failed load: ${path.replace('./', '')}`, async () => {
-      const mod = (await load()) as { default: (props: never) => React.ReactNode };
+      const mod = (await load()) as { default: React.ComponentType<Record<string, unknown>> };
 
       swrAnswer = { data: undefined, error: undefined, isLoading: true, isValidating: true, mutate: vi.fn() };
       expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
@@ -309,7 +309,7 @@ describe('every page renders with no data and with an error', () => {
 describe('pressing every control leaves the page standing', () => {
   for (const [path, load] of Object.entries(pages)) {
     it(`clicks through ${path.replace('./', '')}`, async () => {
-      const mod = (await load()) as { default: (props: never) => React.ReactNode };
+      const mod = (await load()) as { default: React.ComponentType<Record<string, unknown>> };
       const { container } = render(<mod.default {...pageProps()} />);
 
       // Several rounds, because a tab press reveals controls that were not

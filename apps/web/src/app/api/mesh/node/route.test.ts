@@ -38,7 +38,7 @@ vi.mock('child_process', async () => {
       const cmd = args[1];
       let out = '', err: Error | null = null;
       try { out = commands(cmd); } catch (e) { err = e as Error; }
-      const child = new EventEmitter() as EventEmitter & { pid: number; stdout: EventEmitter & { setEncoding: () => void } };
+      const child = new EventEmitter() as InstanceType<typeof EventEmitter> & { pid: number; stdout: InstanceType<typeof EventEmitter> & { setEncoding: () => void } };
       child.pid = 4242;
       const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
       child.stdout = stdout;

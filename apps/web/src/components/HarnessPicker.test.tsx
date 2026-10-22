@@ -25,7 +25,7 @@ const show = (over: Record<string, unknown> = {}) => {
       filter="" setFilter={setFilter}
       statuses={{}} onBoot={onBoot}
       header={<span>target: cammy</span>}
-      {...over as never}
+      {...(over as object)}
     />,
   );
   return { ...view, onBoot, setFilter };

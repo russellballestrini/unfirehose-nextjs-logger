@@ -137,7 +137,7 @@ describe('mesh panels', () => {
       { status, service: { name: 'unfirehose', status: 'running' } },
       { status: { ...status, connected: false } },
     ]) {
-      const { unmount } = render(<UnsandboxNodeCard {...props as never} />);
+      const { unmount } = render(<UnsandboxNodeCard {...(props as React.ComponentProps<typeof UnsandboxNodeCard>)} />);
       unmount();
     }
     expect(true).toBe(true);
@@ -184,7 +184,7 @@ describe('mesh panels', () => {
   it('prices the mesh without charting it', () => {
     // Charts moved below the node grid; the economics card is headline
     // numbers only so it stays above the fold.
-    const nodes = [{ hostname: 'cammy', econ, meshNode: node }];
+    const nodes = [{ key: 'cammy', hostname: 'cammy', econ, meshNode: node }];
     const { container } = render(
       <MeshEconomicsPanel allNodes={nodes} meshNodes={[node]}
                           getNodeEcon={() => econ} geoipNodes={[]} />,
@@ -194,7 +194,7 @@ describe('mesh panels', () => {
   });
 
   it('charts the fleet in its own card', () => {
-    const nodes = [{ hostname: 'cammy', econ, meshNode: node }];
+    const nodes = [{ key: 'cammy', hostname: 'cammy', econ, meshNode: node }];
     const { container } = render(
       <FleetMetricsPanel allNodes={nodes} meshNodes={[node]}
                          getNodeEcon={() => econ} geoipNodes={[]} />,

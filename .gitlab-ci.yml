@@ -37,6 +37,7 @@ test:
     - npm ci
   script:
     - npm run lint
+    - make typecheck
     # coverage-check runs every suite under coverage and fails when a
     # workspace drops below the floor in its own vitest config. It replaces
     # a bare `npm test` because a green suite says nothing about how much
