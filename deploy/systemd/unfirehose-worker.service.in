@@ -32,9 +32,14 @@ Restart=always
 RestartSec=2
 RestartSteps=6
 RestartMaxDelaySec=60
-# The worker forks a sampler child; mixed sends SIGTERM to the main process
-# first so it can stop its timers, then SIGKILL to anything left in the cgroup.
-KillMode=mixed
+# control-group (the default, stated so nobody "fixes" it): the worker forks
+# a sampler child and opens ssh mux masters, and every one of them must die
+# with the unit. KillMode=mixed was tried first: after a SIGKILL of the main
+# process systemd logged the sampler and two ssh masters as "remains running
+# after unit stopped" and restarted around them. The sampler did exit on its
+# own, its IPC channel closed, but nothing should depend on a child noticing.
+# Group-wide SIGTERM is clean; the sampler handles it.
+KillMode=control-group
 TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
