@@ -26,7 +26,16 @@ const { discoverNodes } = await import('./mesh');
 const config = (text: string) =>
   fs.writeFileSync(path.join(home, '.ssh', 'config'), text);
 
-beforeEach(() => config(''));
+const file = (rel: string, text: string) => {
+  const f = path.join(home, rel);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, text);
+};
+
+beforeEach(() => {
+  config('');
+  fs.rmSync(path.join(home, '.ssh', 'config.d'), { recursive: true, force: true });
+});
 afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
 
 describe('discoverNodes', () => {
@@ -104,5 +113,53 @@ describe('discoverNodes', () => {
   it('reports just this machine when there is no ssh config', () => {
     fs.rmSync(path.join(home, '.ssh', 'config'));
     expect(discoverNodes()).toEqual(['localhost']);
+  });
+});
+
+describe('discoverNodes follows Include', () => {
+  it('reads the files a glob names, in lexical order, where the Include stands', () => {
+    // The usual layout: one file per machine under ~/.ssh/config.d.
+    file('.ssh/config.d/20-ken', 'Host ken\n  HostName ken.foxhop.net\n');
+    file('.ssh/config.d/10-cammy', 'Host cammy\n  HostName cammy.foxhop.net\n');
+    config('Host ryu\n  HostName ryu.foxhop.net\n\nInclude ~/.ssh/config.d/*\n\nHost guile\n');
+    expect(discoverNodes()).toEqual(['localhost', 'ryu', 'cammy', 'ken', 'guile']);
+  });
+
+  it('takes a path relative to ~/.ssh, several per line, and quoted', () => {
+    file('.ssh/config.d/a', 'Host blanka\n');
+    file('.ssh/config.d/with space', 'Host dhalsim\n');
+    config('Include config.d/a "config.d/with space"\n');
+    expect(discoverNodes()).toEqual(['localhost', 'blanka', 'dhalsim']);
+  });
+
+  it('takes an absolute path, and a lower-case directive', () => {
+    file('elsewhere/ssh.conf', 'Host zangief\n');
+    config(`include ${path.join(home, 'elsewhere', 'ssh.conf')}\n`);
+    expect(discoverNodes()).toEqual(['localhost', 'zangief']);
+  });
+
+  it('follows an Include inside an included file', () => {
+    file('.ssh/config.d/outer', 'Host vega\nInclude config.d/inner/*\n');
+    file('.ssh/config.d/inner/x', 'Host sagat\n');
+    config('Include config.d/outer\n');
+    expect(discoverNodes()).toEqual(['localhost', 'vega', 'sagat']);
+  });
+
+  it('collapses an included alias onto a machine the top file already named', () => {
+    file('.ssh/config.d/vpn', 'Host cammy-vpn\n  HostName cammy.foxhop.net\n');
+    config('Host cammy\n  HostName cammy.foxhop.net\nInclude config.d/*\n');
+    expect(discoverNodes()).toEqual(['localhost', 'cammy']);
+  });
+
+  it('skips a missing file, an empty glob, dotfiles and directories', () => {
+    file('.ssh/config.d/.hidden', 'Host hidden\n');
+    file('.ssh/config.d/sub/deep', 'Host deep\n');
+    config('Include config.d/nope config.d/*.conf config.d/*\nHost honda\n');
+    expect(discoverNodes()).toEqual(['localhost', 'honda']);
+  });
+
+  it('stops a file that includes itself instead of recursing forever', () => {
+    config('Host balrog\nInclude config\n');
+    expect(discoverNodes()).toEqual(['localhost', 'balrog']);
   });
 });
