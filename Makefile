@@ -2,7 +2,8 @@
         test-core test-ui test-web test-scripts \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
-        build docker docker-run
+        build docker docker-run \
+        service-install service-start service-stop service-restart service-status service-logs service-uninstall
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -207,7 +208,70 @@ persist-watches:
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
 dev:
+	@systemctl --user is-active --quiet unfirehose-worker 2>/dev/null && { \
+	  echo "unfirehose-worker.service is active; two workers would double-ingest. make service-stop first."; exit 1; } || true
 	NODE_OPTIONS=--max-old-space-size=4096 npm run dev
+
+# ---------------------------------------------------------------------------
+# Run as systemd USER units — respawn on crash, no root.
+#
+# `make dev` runs the worker under tsx watch, which restarts on a file change
+# but not when its child dies: a killed worker stayed dead until noticed.
+# These units run `npm run start` (no watch) under Restart=always with
+# stepped backoff. Services and `make dev` are mutually exclusive — two
+# workers double-ingest and two webs fight for :3000 — and both sides check.
+#
+#   make service-install          render deploy/systemd/*.service.in -> ~/.config/systemd/user
+#   make build && make service-start   enable --now both units
+#   make service-status | service-logs | service-restart | service-stop
+#   sudo loginctl enable-linger $$USER  (once, by hand: units outlive logout)
+#
+# After a code change on a service box: make build && make service-restart.
+# ---------------------------------------------------------------------------
+SYSTEMD_USER_DIR := $(HOME)/.config/systemd/user
+SERVICES := unfirehose-worker unfirehose-web
+NODE_BIN := $(patsubst %/,%,$(dir $(shell command -v node)))
+NPM := $(shell command -v npm)
+
+service-install:
+	@test -n "$(NPM)" || { echo "npm not on PATH"; exit 1; }
+	@mkdir -p $(SYSTEMD_USER_DIR)
+	@for s in $(SERVICES); do \
+	  sed -e 's#@REPO@#$(CURDIR)#g' -e 's#@NODE_BIN@#$(NODE_BIN)#g' -e 's#@NPM@#$(NPM)#g' \
+	    deploy/systemd/$$s.service.in > $(SYSTEMD_USER_DIR)/$$s.service; \
+	  echo "wrote $(SYSTEMD_USER_DIR)/$$s.service"; \
+	done
+	@systemctl --user daemon-reload
+	@for s in $(SERVICES); do systemd-analyze --user verify $(SYSTEMD_USER_DIR)/$$s.service || exit 1; done
+	@echo "installed, not started. next: make build && make service-start"
+	@loginctl show-user $$USER -p Linger 2>/dev/null | grep -q 'Linger=yes' || \
+	  echo "note: linger is off; units stop at logout until: sudo loginctl enable-linger $$USER"
+
+service-start:
+	@pgrep -f 'tsx watch.*worker/src/main|turbo dev' >/dev/null && { \
+	  echo "make dev is running; stop it first. two workers would double-ingest."; exit 1; } || true
+	@test -d apps/web/.next || { echo "no build in apps/web/.next; run: make build"; exit 1; }
+	systemctl --user enable --now $(SERVICES)
+	@$(MAKE) --no-print-directory service-status
+
+service-stop:
+	systemctl --user disable --now $(SERVICES)
+
+service-restart:
+	systemctl --user restart $(SERVICES)
+	@$(MAKE) --no-print-directory service-status
+
+service-status:
+	@systemctl --user --no-pager status $(SERVICES) 2>&1 | grep -E 'service -|Active:|Main PID' || true
+
+service-logs:
+	journalctl --user -u unfirehose-worker -u unfirehose-web -n 100 -f
+
+service-uninstall:
+	-systemctl --user disable --now $(SERVICES) 2>/dev/null
+	@for s in $(SERVICES); do rm -f $(SYSTEMD_USER_DIR)/$$s.service; done
+	@systemctl --user daemon-reload
+	@echo "removed"
 
 # Sweep tool-results spill files into our blob store before Claude Code's
 # 30-day cleanupPeriodDays deletes them. Ingest does this per-session already;
