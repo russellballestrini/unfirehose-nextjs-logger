@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { spawnSync } from 'child_process';
+import { mkdtempSync, symlinkSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
 import { buildProbeScript, USERLANDS, POWERSHELL_SCRIPT, userlandById } from './index';
 import { CMD_SCRIPT } from './cmd';
 import { translateRouterOS, translateCiscoIOS, translateFortiOS, routerosUptime, wordsUptime } from './network';
@@ -23,6 +26,26 @@ import {
 const script = buildProbeScript();
 const sh = (name: string, args: string[], input: string) => spawnSync(name, args, { input, encoding: 'utf-8', timeout: 20000 });
 const shells = ['dash', 'busybox', 'bash', 'sh'].filter(s => spawnSync('which', [s]).status === 0);
+
+/**
+ * A box with none of the commands a plugin probes for. The script puts the
+ * usual system directories ahead of $PATH, so on this machine every branch
+ * would find our sysctl, ps, df and uptime — slow under load, different on
+ * every host, and not the box the branch tests claim to be. Point its PATH
+ * at a directory holding only the POSIX text tools its own plumbing pipes
+ * through, so each branch meets a machine that answers nothing.
+ */
+const bare = mkdtempSync(path.join(tmpdir(), 'uf-bare-'));
+for (const tool of ['awk', 'basename', 'cat', 'cut', 'expr', 'grep', 'head', 'sed', 'sort', 'tail', 'tr', 'uniq', 'wc']) {
+  const where = spawnSync('which', [tool], { encoding: 'utf-8' }).stdout.trim();
+  if (where) symlinkSync(where, path.join(bare, tool));
+}
+afterAll(() => rmSync(bare, { recursive: true, force: true }));
+const bareScript = script.replace(/^PATH=.*$/m, `PATH=${bare}`);
+const shBin = spawnSync('which', ['sh'], { encoding: 'utf-8' }).stdout.trim();
+const onBareBox = (sysname: string) => spawnSync(shBin, [], {
+  input: bareScript, encoding: 'utf-8', env: { PATH: bare, UF_SYSNAME: sysname },
+});
 
 describe('buildProbeScript', () => {
   it('is Bourne shell every plugin can share: no $( ), no $(( )), no [[, no !, no local', () => {
@@ -52,26 +75,33 @@ describe('buildProbeScript', () => {
     expect(w.complete).toBe(true);
     expect(w.kv.userland).toMatch(/^linux-/);
     expect(parseInt(w.kv.nproc!)).toBeGreaterThan(0);
-  });
+  }, 30000);
 
-  it('runs every plugin branch to END, silently, on a box that has none of its commands', () => {
-    // A plugin that hangs or aborts on a missing tool would mark a whole
-    // node unreachable — the failure this work exists to remove.
-    const sysnames = USERLANDS.flatMap(u => u.sysnames).filter(s => s !== '*')
-      .map(s => s.replace(/\*$/, '-10.0'));
-    for (const name of [...sysnames, 'Interix', 'OS/390', 'NONSTOP_KERNEL', 'ULTRIX', 'A/UX', 'SerenityOS', 'Redox']) {
-      const r = spawnSync('sh', [], { input: script, encoding: 'utf-8', timeout: 20000, env: { ...process.env, UF_SYSNAME: name } });
+  // A plugin that hangs or aborts on a missing tool would mark a whole
+  // node unreachable — the failure this work exists to remove. One test per
+  // uname -s, so each run has its own deadline instead of forty sharing one.
+  const sysnames = USERLANDS.flatMap(u => u.sysnames).filter(s => s !== '*')
+    .map(s => s.replace(/\*$/, '-10.0'));
+  it.each([...sysnames, 'Interix', 'OS/390', 'NONSTOP_KERNEL', 'ULTRIX', 'A/UX', 'SerenityOS', 'Redox'])(
+    'runs the %s branch to END, silently, on a box that has none of its commands', (name) => {
+      const r = onBareBox(name);
       expect(r.status, name).toBe(0);
       expect(r.stderr, name).toBe('');
       const w = readWire(r.stdout);
       expect(w.complete, name).toBe(true);
       expect(w.kv.os, name).toBe(name);
       expect(userlandById(w.kv.userland!), `${name} → ${w.kv.userland}`).toBeDefined();
+    });
+
+  it('isolates the branches from this machine: the bare box has no probing tools', () => {
+    expect(bareScript).toContain(`PATH=${bare}\n`);
+    for (const tool of ['ps', 'sysctl', 'df', 'uptime', 'hostname', 'nvidia-smi']) {
+      expect(spawnSync(shBin, ['-c', `PATH=${bare}; ${tool} 2>/dev/null`]).status, tool).toBe(127);
     }
-  }, 60000);
+  });
 
   it('routes each uname -s to the plugin that speaks its userland', () => {
-    const pick = (name: string) => readWire(spawnSync('sh', [], { input: script, encoding: 'utf-8', env: { ...process.env, UF_SYSNAME: name } }).stdout).kv.userland;
+    const pick = (name: string) => readWire(onBareBox(name).stdout).kv.userland;
     expect(pick('FreeBSD')).toBe('freebsd');
     expect(pick('GNU/kFreeBSD')).toBe('freebsd');
     expect(pick('SunOS')).toBe('sunos');
@@ -80,7 +110,7 @@ describe('buildProbeScript', () => {
     expect(pick('Windows NT')).toBe('windows-sh');
     expect(pick('Minix')).toBe('netbsd');
     expect(pick('NONSTOP_KERNEL')).toBe('generic');
-  }, 30000);
+  });
 
   it('carries the same PowerShell for a Bourne shell on Windows as for none', () => {
     expect(userlandById('windows-sh')!.body).toContain(POWERSHELL_SCRIPT.trim().split('\n')[0]);

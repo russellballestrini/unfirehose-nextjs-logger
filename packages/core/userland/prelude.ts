@@ -25,7 +25,7 @@ sysctl_n() { sysctl -n "$1" 2>/dev/null; }
 hprocs() { awk '${harnessPsAwk().replace(/'/g, `'\\''`)}' 2>/dev/null | sed 's/^/HPROC /'; }
 # psef — the POSIX-minimum table, reshaped to the 11 columns. STIME with a
 # space in it ("Sep 12") shifts the row; it is the last resort, not the first.
-psef() { ps -ef 2>/dev/null | awk 'NR>1 { printf "%s %s 0.0 0.0 0 0 %s S %s %s", $1, $2, $6, $5, $7; for (i=8; i<=NF; i++) printf " %s", $i; printf "\n" }'; }
+psef() { ps -ef 2>/dev/null | awk 'NR>1 { printf "%s %s 0.0 0.0 0 0 %s S %s %s", $1, $2, $6, $5, $7; for (i=8; i<=NF; i++) printf " %s", $i; printf "\\n" }'; }
 # common — what every userland can say for itself. \`kind\` says what the
 # machine is for: compute (the default), a hypervisor, or network gear —
 # Junos, and the Linuxes under Arista EOS and Cisco NX-OS.
