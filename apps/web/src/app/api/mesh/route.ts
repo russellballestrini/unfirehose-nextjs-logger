@@ -7,6 +7,7 @@ import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { probeRemote } from '@unturf/unfirehose/mesh-remote';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { human } from '@unturf/unfirehose/ago';
+import { findSameBox } from '@unturf/unfirehose/hostname-match';
 import { Timing } from '@/lib/timing';
 import { getLocalStats } from '@/lib/local-stats';
 
@@ -190,15 +191,6 @@ function lastSampleAt(names: string[]): number | null {
   return row?.ts ? parseSqliteTime(row.ts) : null;
 }
 
-/**
- * The same box under two names: an alias and the fqdn the box reports, or
- * `hostname` against `hostname -f`. Mesh hostnames and ssh hostnames do not
- * line up, so a page matches them this way too.
- */
-function sameBox(a: string, b: string): boolean {
-  return a === b || a.startsWith(b + '.') || b.startsWith(a + '.');
-}
-
 function nodeFromSnapshot(row: SnapshotRow, facts: MeshNode | undefined, factsAgeMs: number): MeshNode {
   const node: MeshNode = { hostname: row.hostname, reachable: true };
   if (facts) {
@@ -269,7 +261,7 @@ function fromSnapshots(now: number, t: Timing): { payload: MeshPayload; computed
   };
   for (const host of hosts) {
     const name = probedHostname.get(host) ?? (host === 'localhost' ? local : undefined) ?? host;
-    const key = [...unclaimed.keys()].find(s => sameBox(s, name));
+    const key = findSameBox([...unclaimed.keys()], name, s => [s]);
     if (key) { take(unclaimed.get(key)!); continue; }
     const last = lastSampleAt([name, host, name.split('.')[0]]);
     nodes.push({

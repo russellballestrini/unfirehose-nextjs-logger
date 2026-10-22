@@ -53,9 +53,10 @@ import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 import { GaugeRow, GaugeBlock, GaugeCard, GaugePill } from '@unturf/unfirehose-ui/Gauge';
 import { MiniStat } from '@unturf/unfirehose-ui/KV';
 import {
-  nodeVitals, nodeMonthlyCost, estimateContainerWatts, sshHostMatchesMesh,
+  nodeVitals, nodeMonthlyCost, estimateContainerWatts,
   type NodeVitals, type NodeCost,
 } from '@/lib/node-vitals';
+import { sshHostForMesh } from '@unturf/unfirehose/hostname-match';
 
 // ============================================================
 
@@ -156,7 +157,7 @@ export default function PermacomputerPage() {
 
     for (const mn of meshNodes) {
       if (excluded.has(mn.hostname)) continue;
-      const host = hosts.find(h => sshHostMatchesMesh(h, mn.hostname));
+      const host = sshHostForMesh(hosts, mn.hostname);
       const key = mn.hostname;
       seen.add(key);
       if (host) { seen.add(host.name); if (host.hostname) seen.add(host.hostname); }

@@ -54,6 +54,7 @@
     "./session-name": "./session-name.ts",
     "./uuidv7": "./uuidv7.ts",
     "./mesh": "./mesh.ts",
+    "./hostname-match": "./hostname-match.ts",
     "./rate-limits": "./rate-limits.ts",
     "./status-pages": "./status-pages.ts",
     "./db/rate-limit-scan": "./db/rate-limit-scan.ts",
