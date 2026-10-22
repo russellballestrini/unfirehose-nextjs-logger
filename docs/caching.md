@@ -2,6 +2,8 @@
 
 All server-side caches use **in-memory TTL** — module-level variables that persist across requests within the same Next.js process. No Redis, no disk cache, no CDN. Appropriate for a single-instance local dashboard.
 
+Payloads our worker builds and stores in SQLite (dashboard, tokens, scrobble, project list) are not route caches; see [`architecture/precomputed-payloads.md`](architecture/precomputed-payloads.md).
+
 ## Cache Inventory
 
 | Route | Variable | TTL | Pattern | Keys | Invalidation |
