@@ -284,6 +284,18 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_ts ON mesh_snapshots(timestamp);
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_host ON mesh_snapshots(hostname, timestamp);
 
+    -- What a probe knows about a node that a snapshot row does not carry:
+    -- CPU model, TDP, disks, OS, containers. One row per hostname, replaced
+    -- by every sample, so a web process that just booted lays them under
+    -- its snapshots without waiting for a probe of its own.
+    CREATE TABLE IF NOT EXISTS mesh_node_facts (
+      hostname TEXT PRIMARY KEY,
+      facts TEXT NOT NULL,                 -- JSON of MESH_FACT_FIELDS
+      ssh_alias TEXT,                      -- the ssh config Host the sampler probed it under
+      uptime_seconds REAL,                 -- as of observed_at
+      observed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Cold-tier mesh snapshots: 15-min smoothed aggregates of mesh_snapshots
     -- past the 28-day hot retention boundary. Worker rollup folds 60 × 15s
     -- samples per bucket into one row here using gaussian-weighted smoothing

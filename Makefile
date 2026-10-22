@@ -1,8 +1,8 @@
 .PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
-        test-core test-ui test-web test-scripts \
+        test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
-        build docker docker-run \
+        build docker docker-run typecheck publish publish-dry-run \
         service-install service-start service-stop service-restart service-status service-logs service-uninstall
 
 # Everything a change should pass before it is pushed.
@@ -29,7 +29,17 @@ NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=
 # workspace path — make reads a slash as a directory — so each has a short
 # name and cd's itself.
 test:
-	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts
+	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts test-schema
+
+# tsc over every workspace with a tsconfig, tests included. Vitest strips
+# types without checking them, so a test can drift from the code it calls
+# and still pass; this is what notices.
+typecheck:
+	@echo "==> packages/core"; cd packages/core && npx tsc --noEmit
+	@echo "==> packages/ui"; cd packages/ui && npx tsc --noEmit
+	@echo "==> packages/router"; cd packages/router && npx tsc --noEmit
+	@echo "==> apps/worker"; cd apps/worker && npx tsc --noEmit
+	@echo "==> apps/web"; cd apps/web && npx tsc --noEmit
 
 # Regenerate the userland probe plugins from their Bourne-sh sources.
 userland-plugins:
@@ -43,6 +53,9 @@ test-web:
 	@echo "==> apps/web"; cd apps/web && npx vitest run
 test-scripts:
 	@echo "==> scripts"; cd scripts && npx vitest run
+# unfirehose/1.0 conformance: schemas compile strict, fixtures & doc examples validate.
+test-schema:
+	@echo "==> packages/schema"; cd packages/schema && npx vitest run
 
 cov-core:
 	@echo "==> packages/core"; cd packages/core && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
@@ -303,3 +316,16 @@ docker-run:
 	  -v /var/run/docker.sock:/var/run/docker.sock \
 	  -v unfirehose-data:/home/node/.unfirehose \
 	  $(IMAGE)
+
+# --- npm release -----------------------------------------------------
+# Bump all four packages to one version, commit, tag, publish, and wait
+# for the registry to answer for each. The bump lands in git, so git and
+# npm agree. Token from ~/.npmrc. Pushing stays yours to do.
+#   make publish-dry-run              pack at the next patch, change nothing
+#   make publish                      next patch
+#   make publish BUMP=minor           or major, or an exact X.Y.Z
+publish:
+	@scripts/publish.sh $(BUMP)
+
+publish-dry-run:
+	@scripts/publish.sh --dry-run $(BUMP)

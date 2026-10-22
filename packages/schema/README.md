@@ -4,6 +4,8 @@ The `unfirehose/1.0` schema specification for machine learning agent session log
 
 A standard format for logging sessions across coding agent harnesses: Claude Code, Gemini CLI, Codex, Aider, Cursor, Continue.dev, Ollama, and more. No universal standard exists for this — every harness invented its own format. This package defines the one they should converge on.
 
+**Start with [SPEC.md](SPEC.md)** — conformance levels, versioning policy and how to validate a file. To propose a change, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Install
 
 ```bash
@@ -34,7 +36,13 @@ import projectSchema from '@unturf/unfirehose-schema/json-schema/project'
 import metricSchema from '@unturf/unfirehose-schema/json-schema/metric'
 import toolDefinitionSchema from '@unturf/unfirehose-schema/json-schema/tool-definition'
 import throttleSchema from '@unturf/unfirehose-schema/json-schema/throttle'
+import datapointSchema from '@unturf/unfirehose-schema/json-schema/datapoint'
+import trainingRunEventSchema from '@unturf/unfirehose-schema/json-schema/training-run-event'
 ```
+
+### Conformance fixtures
+
+`fixtures/conformance/valid.jsonl` (every line must validate) and `fixtures/conformance/invalid.jsonl` (every object line must fail) — replay them against your writer or validator. See [SPEC.md §5](SPEC.md#5-validating-a-file).
 
 ### Specification docs
 

@@ -88,12 +88,20 @@ function seedSnapshot(hostname: string, ageSec: number, over: Record<string, unk
   });
 }
 
+/** What the sampler stored about `hostname` with its last row, `ageSec` ago. */
+function seedFacts(hostname: string, facts: Record<string, unknown>, opts: { uptime?: number; alias?: string; ageSec?: number } = {}) {
+  const ts = new Date(Date.now() - (opts.ageSec ?? 0) * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  db.prepare(`INSERT INTO mesh_node_facts (hostname, facts, uptime_seconds, ssh_alias, observed_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(hostname, JSON.stringify(facts), opts.uptime ?? null, opts.alias ?? null, ts);
+}
+
 const settle = () => new Promise(r => setTimeout(r, 30));
 
 beforeEach(() => {
   nodes = ['localhost'];
   remotes = {}; probeOrder = []; inFlight = 0; maxInFlight = 0; completed = 0;
   db.prepare('DELETE FROM mesh_snapshots').run();
+  db.prepare('DELETE FROM mesh_node_facts').run();
 });
 
 describe('GET /api/mesh', () => {
@@ -148,15 +156,13 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     ({ GET } = await import('./route'));
   });
 
-  it('answers from snapshots at once; the probe that reads the facts runs behind the answer', async () => {
+  it('answers from snapshots at once, and probes nothing behind the answer', async () => {
     nodes = ['localhost', 'cammy.foxhop.net'];
     remotes = { 'cammy.foxhop.net': down() };
     seedSnapshot('neoblanka', 3);
     seedSnapshot('cammy.foxhop.net', 12, { cpu_cores: 16, load_avg_1: 2.5 });
 
     const res = await get('');
-    // No ssh round trip had returned when this answer did. The 4.7 s was
-    // waiting for them in front of the response.
     expect(completed).toBe(0);
     expect(res.headers.get('X-Mesh-Source')).toBe('snapshots');
     const body = await res.json();
@@ -165,15 +171,19 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     });
     expect(body.summary).toMatchObject({ totalNodes: 2, reachableNodes: 2, totalCores: 24 });
 
-    // The facts probe did run — after.
+    // The facts used to come from a full probe this route ran behind its
+    // answer, every five minutes. The sampler stores them now.
     await settle();
-    expect(probeOrder).toContain('cammy.foxhop.net');
+    expect(probeOrder).toEqual([]);
   });
 
-  it('serves fresh snapshots without an ssh round trip once the facts are known', async () => {
+  it('lays the facts the sampler stored under its rows, from the first request a fresh process serves', async () => {
+    // This module has never probed: what a web process looks like right
+    // after it starts. CPU model, disks and TDP used to be missing for a poll.
     nodes = ['localhost', 'cammy.foxhop.net'];
     seedSnapshot('neoblanka', 3);
     seedSnapshot('cammy.foxhop.net', 20);
+    seedFacts('neoblanka', { cpuModel: 'EPYC 7443', cpuYear: 2021, cpuTdpWatts: 200, spinningDisks: 2, ssdCount: 1, gpuModel: 'RTX 3090', gpuMemTotalMB: 24_576 }, { uptime: 86_400, ageSec: 60 });
 
     const res = await get('');
     const body = await res.json();
@@ -183,15 +193,27 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     const age = Date.now() - Date.parse(res.headers.get('X-Computed-At')!);
     expect(age).toBeGreaterThanOrEqual(19_000);
     expect(age).toBeLessThan(23_000);
-    // What moves comes from the row; what does not comes from the last
-    // full probe — and uptime kept counting in between.
+    // What moves comes from the row; what does not comes from the stored
+    // facts — and uptime kept counting since they were read.
     const me = body.nodes.find((n: any) => n.hostname === 'neoblanka');
-    expect(me).toMatchObject({ cpuModel: 'EPYC 7443', cpuYear: 2021, cpuCores: 8, memTotalGB: 32, memUsedGB: 10 });
-    expect(me.uptimeSeconds).toBeGreaterThanOrEqual(86_400);
+    expect(me).toMatchObject({ cpuModel: 'EPYC 7443', cpuYear: 2021, cpuTdpWatts: 200, spinningDisks: 2, ssdCount: 1, cpuCores: 8, memTotalGB: 32, memUsedGB: 10 });
+    expect(me.uptimeSeconds).toBeGreaterThanOrEqual(86_460);
     // A sample that missed nvidia-smi keeps the card and its capacity — a
     // page decides the node has a GPU by them — but not a reading it lacks.
     expect(me).toMatchObject({ gpuModel: 'RTX 3090', gpuMemTotalMB: 24_576 });
     expect(me.gpuUtil).toBeUndefined();
+  });
+
+  it('finds a box whose alias differs from the name it answers with, by the alias the sampler stored', async () => {
+    // ryu: Host ai-3060.foxhop.net answers as ryu. Before any live probe in
+    // this process, only the stored alias ties the two together.
+    nodes = ['localhost', 'ai-3060.foxhop.net'];
+    seedSnapshot('neoblanka', 3);
+    seedSnapshot('ryu', 5);
+    seedFacts('ryu', { cpuModel: 'i5-8400' }, { alias: 'ai-3060.foxhop.net' });
+    const body = await (await get('')).json();
+    expect(body.nodes.map((n: any) => [n.hostname, n.reachable])).toEqual([['neoblanka', true], ['ryu', true]]);
+    expect(body.nodes[1].cpuModel).toBe('i5-8400');
   });
 
   it('lists nodes in ssh config order, whichever of them sampled first', async () => {

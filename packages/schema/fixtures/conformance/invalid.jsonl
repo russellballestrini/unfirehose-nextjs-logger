@@ -1,0 +1,52 @@
+# unfirehose/1.0 conformance — every object line MUST fail validation. Each is preceded by a comment naming the rule it breaks.
+# A validator that accepts any of these is more permissive than our JSON Schemas.
+# message: content is a bare string, not a block array
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":"Fixed the margin."}
+# message: role outside user|assistant|system|tool
+{"$schema":"unfirehose/1.0","type":"message","role":"bot","content":[]}
+# message: missing required role
+{"$schema":"unfirehose/1.0","type":"message","content":[{"type":"text","text":"hi"}]}
+# content block: provider-native name (thinking) instead of canonical (reasoning)
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":[{"type":"thinking","text":"hmm"}]}
+# content block: provider-native name (tool_use) instead of canonical (tool-call)
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":[{"type":"tool_use","id":"tc_01","name":"Read","input":{}}]}
+# content block: unknown field on a block (blocks are closed)
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":[{"type":"text","text":"hi","cache_control":{}}]}
+# content block: tool-call input must be an object
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":[{"type":"tool-call","toolCallId":"tc_01","toolName":"Bash","input":"ls"}]}
+# usage: snake_case provider field (usage is closed)
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":[],"usage":{"input_tokens":3}}
+# usage: negative token count
+{"$schema":"unfirehose/1.0","type":"message","role":"assistant","content":[],"usage":{"inputTokens":-1}}
+# message: hash is not 64 lowercase hex
+{"$schema":"unfirehose/1.0","type":"message","role":"user","content":[],"hash":"ABC"}
+# session: missing required id
+{"$schema":"unfirehose/1.0","type":"session","harness":"agnt"}
+# session: status outside active|closed
+{"$schema":"unfirehose/1.0","type":"session","id":"s1","status":"paused"}
+# session: createdAt is not an RFC 3339 date-time
+{"$schema":"unfirehose/1.0","type":"session","id":"s1","createdAt":"yesterday"}
+# todo: status outside pending|in_progress|completed|obsolete
+{"$schema":"unfirehose/1.0","type":"todo","content":"x","status":"done"}
+# todo: blockedBy entries must be todo: references
+{"$schema":"unfirehose/1.0","type":"todo","content":"x","status":"pending","blockedBy":["1234"]}
+# project: missing required id
+{"$schema":"unfirehose/1.0","type":"project","displayName":"myproject"}
+# metric: missing required usage
+{"$schema":"unfirehose/1.0","type":"metric","window":"2026-10-22T10:42"}
+# datapoint: metricType outside the six aggregations
+{"$schema":"unfirehose/1.0","type":"datapoint","metric":"a.b","metricType":"summary","value":1,"timestamp":"2026-10-22T10:42:00Z"}
+# datapoint: tag values must be strings
+{"$schema":"unfirehose/1.0","type":"datapoint","metric":"a.b","metricType":"gauge","value":1,"timestamp":"2026-10-22T10:42:00Z","tags":{"n":1}}
+# tool_definition: missing required inputSchema
+{"$schema":"unfirehose/1.0","type":"tool_definition","name":"Read"}
+# throttle: kind outside the eight refusals (a bad request is not a throttle)
+{"$schema":"unfirehose/1.0","type":"throttle","kind":"bad_request","timestamp":"2026-10-22T10:44:00Z"}
+# throttle: missing required timestamp
+{"$schema":"unfirehose/1.0","type":"throttle","kind":"rate_limit"}
+# run.eval: missing required score
+{"$schema":"unfirehose/1.0","type":"run.eval","run_id":"run-001","step":100,"eval":"hellaswag","ts":"2026-10-22T11:06:00Z"}
+# run.loss: negative step
+{"$schema":"unfirehose/1.0","type":"run.loss","run_id":"run-001","step":-1,"loss":2.3,"ts":"2026-10-22T11:05:00Z"}
+# a type no version of the spec defines
+{"$schema":"unfirehose/1.0","type":"score","value":0.9}

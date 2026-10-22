@@ -18,9 +18,11 @@
  * that, because a stray 40 would still look plausible.
  */
 
+import { DEFAULT_KWH_RATE } from '@unturf/unfirehose/pricing';
+
 export interface NodeEcon {
   ispCostMonthly: number;       // default $110
-  electricityCostKwh: number;   // $/kWh, default 0.12
+  electricityCostKwh: number;   // $/kWh, default core's DEFAULT_KWH_RATE
   location: string;             // "us-east-1", "home-boston", "eu-west-1"
   provider: string;             // "home", "aws", "gcp", "azure", "hetzner", "ovh", "colo", etc.
   linkMbps: number;             // uplink speed
@@ -31,7 +33,9 @@ export interface NodeEcon {
 
 export const HARDCODED_DEFAULTS: NodeEcon = {
   ispCostMonthly: 110,
-  electricityCostKwh: 0.31,
+  // Core's rate, not a number of our own: 0.31 here against 0.33 there
+  // priced one node two ways depending on which page asked.
+  electricityCostKwh: DEFAULT_KWH_RATE,
   location: '',
   provider: 'home',
   linkMbps: 100,

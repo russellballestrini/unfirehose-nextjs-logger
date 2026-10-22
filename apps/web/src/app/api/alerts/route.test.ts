@@ -16,7 +16,7 @@ vi.mock('@unturf/unfirehose/db/ingest', () => ({
 
 const { GET, POST } = await import('./route');
 
-function req(url: string, init?: RequestInit) {
+function req(url: string, init?: ConstructorParameters<typeof NextRequest>[1]) {
   return new NextRequest(new URL(url, 'http://localhost:3000'), init);
 }
 

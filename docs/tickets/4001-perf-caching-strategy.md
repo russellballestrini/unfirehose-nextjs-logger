@@ -1,8 +1,25 @@
 # 4001: Performance Caching Strategy
 
-**Status:** proposed
+**Status:** done 2026-10-22
 **Estimate:** 60-90 minutes total (all 5 routes)
 **Created:** 2026-03-09
+
+## Outcome (2026-10-22)
+
+All five routes cache. `/api/mesh` serves the sampler's snapshots (below). The other four
+share `apps/web/src/lib/ttl-cache.ts` (`TtlCache`: TTL, least-recently-used eviction where a
+hit counts as a use, `getOrCompute` for one computation per key under concurrency):
+
+- `/api/scrobble/preview` — 5 min, one entry. Reads the stored project list at any age; under
+  the default 15-minute bound a quiet worker's list read as missing and an empty preview was
+  cached for five minutes.
+- `/api/projects/{p}/tree` — 10 s, keyed `project:path:ref`, 100 entries, true LRU (it had been
+  insertion order).
+- `/api/projects/{p}/git` — 5 s per project.
+- Both live in `apps/web/src/lib/project-caches.ts`; every git POST/DELETE calls
+  `invalidateProject`, which clears the status *and* the project's listings. Before, a commit
+  cleared only the status and the file browser showed the pre-commit tree for up to 10 s.
+- `/api/llm/providers` — 60 s, one entry.
 
 ## Context
 

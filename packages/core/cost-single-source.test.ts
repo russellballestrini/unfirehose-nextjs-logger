@@ -168,6 +168,9 @@ describe('no surface keeps its own rate table', () => {
       const src = readFileSync(f, 'utf-8');
       // A page defining its own numeric default is how 0.31 and 0.33 diverged.
       if (/DEFAULT_KWH_RATE\s*=\s*0\.\d+/.test(src)) offenders.push(path.relative(root, f));
+      // Nor a defaults object carrying a literal rate, which is how
+      // mesh-score's HARDCODED_DEFAULTS sat at 0.31 after the pages agreed.
+      if (/electricityCostKwh\s*:\s*0\.\d+/.test(src)) offenders.push(path.relative(root, f));
     }
     expect(offenders).toEqual([]);
   });

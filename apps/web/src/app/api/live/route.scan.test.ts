@@ -64,7 +64,7 @@ type Event = { type: string; [k: string]: unknown };
 /** Read SSE events until `until` is satisfied or the deadline passes, then hang up. */
 async function collect(until: (events: Event[]) => boolean, deadlineMs: number): Promise<Event[]> {
   const ac = new AbortController();
-  const res = await GET({ signal: ac.signal, nextUrl: new URL('http://localhost:3000/api/live'), url: 'http://localhost:3000/api/live' } as never);
+  const res = await (GET as unknown as (req: never) => Promise<Response>)({ signal: ac.signal, nextUrl: new URL('http://localhost:3000/api/live'), url: 'http://localhost:3000/api/live' } as never);
   const reader = res.body!.getReader();
   const dec = new TextDecoder();
   const events: Event[] = [];

@@ -1,6 +1,6 @@
 # unfirehose.org Schema Specification
 
-Version: `unfirehose/1.0`
+Version: `unfirehose/1.0` — conformance, versioning & validation: [SPEC.md](../SPEC.md)
 
 A standard JSON format for machine learning agent session logging. Any harness can either log in this format natively or be adapted just-in-time on ingestion.
 
@@ -113,7 +113,8 @@ To adopt unfirehose/1.0 in a new harness:
 1. Log JSONL with $schema: "unfirehose/1.0" header
 2. Use canonical content block types (text, reasoning, tool-call, tool-result)
 3. Include session envelope as first line (optional but recommended)
-4. Store at ~/.{harness}/projects/{slug}/{session-uuid}.jsonl
+4. Store at ~/.{harness}/unfirehose/{slug}/{session-uuid}.jsonl
+   (any ~/.{name}/unfirehose/ directory is discovered on ingest)
 ```
 
 See [All Logs](./all-logs.md) for the full JSONL stream structure and [harness adapter guide](./all-logs.md#writing-a-harness-adapter).

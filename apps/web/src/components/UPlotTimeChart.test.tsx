@@ -112,7 +112,7 @@ const show = (props: Record<string, unknown> = {}) => {
   const view = render(
     <UPlotTimeChart
       data={rows} series={SERIES} height={200} syncKey="test"
-      domain={null} {...props as never}
+      domain={null} {...(props as object)}
     />,
   );
   return view;

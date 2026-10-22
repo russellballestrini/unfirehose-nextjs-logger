@@ -6,10 +6,9 @@ import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { repoPathForProject } from '@unturf/unfirehose/db/repo-path';
 import { gitExec } from '@unturf/unfirehose/git-exec';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { gitStatusCache, invalidateProject } from '@/lib/project-caches';
 
-const gitCache = new Map<string, { data: any; ts: number }>();
-const GIT_CACHE_TTL = 5_000; // 5 seconds
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET: return git status + diff for a project
 export async function GET(
@@ -19,10 +18,8 @@ export async function GET(
   const { project } = await params;
 
   const cacheKey = project;
-  const cached = gitCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < GIT_CACHE_TTL) {
-    return NextResponse.json(cached.data);
-  }
+  const cached = gitStatusCache.get(cacheKey);
+  if (cached !== undefined) return NextResponse.json(cached);
 
   const repoPath = repoPathForProject(project);
   if (!repoPath) {
@@ -41,7 +38,7 @@ export async function GET(
         repoPath, branch: null, files: [], diffStat: '', diff: '',
         recentCommits: '', isDirty: false, vcs: false as const,
       };
-      gitCache.set(cacheKey, { data: notARepo, ts: Date.now() });
+      gitStatusCache.set(cacheKey, notARepo);
       return NextResponse.json(notARepo);
     }
 
@@ -77,7 +74,7 @@ export async function GET(
       recentCommits: logRaw.trim(),
       isDirty: files.length > 0,
     };
-    gitCache.set(cacheKey, { data: result, ts: Date.now() });
+    gitStatusCache.set(cacheKey, result);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: 'Git operation failed', detail: String(err) }, { status: 500 });
@@ -88,8 +85,9 @@ export async function GET(
  * Resolve the repository a request names, and drop its cached status.
  *
  * All three handlers begin the same way, and the cache line is the part
- * that matters: every one of them changes the repo, so a status served
- * from cache afterwards would describe the tree as it was before.
+ * that matters: every one of them changes the repo, so a status or a
+ * listing served from cache afterwards would describe the tree as it was
+ * before.
  */
 type Resolved =
   | { error: NextResponse; project?: undefined; repoPath?: undefined }
@@ -101,7 +99,7 @@ async function repoFor(params: Promise<{ project: string }>): Promise<Resolved> 
   if (!repoPath) {
     return { error: NextResponse.json({ error: 'Could not resolve repo path' }, { status: 404 }) };
   }
-  gitCache.delete(project);
+  invalidateProject(project);
   return { project, repoPath };
 }
 

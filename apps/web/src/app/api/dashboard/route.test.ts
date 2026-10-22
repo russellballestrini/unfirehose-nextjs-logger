@@ -172,3 +172,13 @@ describe('GET /api/dashboard — cache our own models actually served', () => {
   });
 
 });
+
+describe('GET /api/dashboard — ranges', () => {
+  it('refuses a range it does not know rather than storing a 7d copy under that name', async () => {
+    const res = await GET(req('7days'));
+    expect(res.status).toBe(400);
+    expect((await res.json()).ranges).toContain('7d');
+    const rows = db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'dashboard_7days%'").get() as { n: number };
+    expect(rows.n).toBe(0);
+  });
+});

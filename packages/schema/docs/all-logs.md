@@ -28,7 +28,7 @@ Known harness locations:
 | uncloseai-cli | `~/.uncloseai/sessions/` | `{slug}/{uuid}.jsonl` |
 | Codex | `~/.codex/sessions/` | TBD |
 | Aider | Per-project `.aider.chat.history.md` | Markdown |
-| agnt | `~/.agnt/projects/` | `{slug}/{uuid}.jsonl` (native unfirehose/1.0) |
+| agnt | `~/.agnt/unfirehose/` | `{slug}/{uuid}.jsonl` (native unfirehose/1.0) |
 
 ## JSONL Stream Structure
 

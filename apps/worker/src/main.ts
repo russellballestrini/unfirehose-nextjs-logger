@@ -4,14 +4,10 @@ import { POLL_INTERVAL_MS, nextPollDelayMs } from './poll-cadence';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
 import { rollupDrain } from './mesh-rollup';
-import { startSampler } from './sampler-supervisor';
+import { startSampler, startPayloadBuilder } from './sampler-supervisor';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
-import { refreshScrobblePayload } from '@unturf/unfirehose/scrobble';
-import { refreshProjectList } from '@unturf/unfirehose/projects-list';
-import { refreshDashboard, storedDashboardRanges, WARM_SHORT_RANGES, WARM_LONG_RANGES } from '@unturf/unfirehose/dashboard';
-import { refreshTokensPayload, storedTokensRanges, WARM_TOKENS_SHORT_RANGES, WARM_TOKENS_LONG_RANGES } from '@unturf/unfirehose/tokens';
 
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
@@ -43,46 +39,11 @@ const PRICE_SYNC_INTERVAL_MS = (() => {
 // time between the syncs that check triggers.
 const UNPRICED_CHECK_INTERVAL_MS = 5 * 60_000;
 const UNPRICED_SYNC_MIN_INTERVAL_MS = 60 * 60_000;
+const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
+const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
 // ingest loop silently wedges (stuck flag, dropped timer, an event loop that
 // blocked then recovered) we want it to self-heal, not wait for a human.
-// Stored-payload cadences. Every route serves whatever is stored, however
-// old (readX(Infinity)) — staleness is the only cost of a longer interval,
-// never a rebuild on a request. Measured 2026-09-17 on a 6.6 GB database:
-// dashboard 24h 0.7 s, 7d 1.2 s, 28d 4.6 s; project list 4.0 s; scrobble
-// 14.7 s. All at 60 s / 60 s / 5 min that was 13 s of every minute on one
-// thread. The short ranges stay live; the long tail moves to minutes.
-const DASHBOARD_REFRESH_MS = 60_000;             // 24h + 7d: what a dashboard opens on
-const DASHBOARD_LONG_REFRESH_MS = 5 * 60_000;    // 28d: a month does not move in a minute
-// A stored range nobody warms (90d, 365d, all, the odd 1h) builds in 16 to
-// 20 s each, on this thread, ahead of ingest. Five of them every ten minutes
-// was a minute of blocked ingest per ten; thirty minutes bounds it near 3%.
-// A quarter-year view does not move in half an hour.
-const DASHBOARD_STORED_REFRESH_MS = 30 * 60_000; // 90d, 365d, all: whatever a first request stored
-const PROJECT_LIST_REFRESH_MS = 3 * 60_000;      // ~4 s of aggregates
-const SCROBBLE_REFRESH_MS = 15 * 60_000;         // ~15 s, two full scans of messages
-const TOKENS_REFRESH_MS = 60_000;                // 24h + 7d: ~0.4 s each, what the Tokens page opens on
-const TOKENS_LONG_REFRESH_MS = 10 * 60_000;      // 28d, lifetime (~11 s)
-const TOKENS_STORED_REFRESH_MS = 30 * 60_000;    // 90d, 180d, 365d: ~13 s each, whatever a first request stored
-// Each tick above rebuilds only when a message has landed since the stored
-// payload was built (see payloadCurrent). These bound how old a payload may
-// grow while nothing lands: a range slides with the clock and mesh energy
-// samples arrive without a message, so a quiet hour still rebuilds this
-// often. Measured 2026-09-17: the three dashboards and the project list were
-// ~5 s of every minute on a worker with nothing to ingest.
-// While nothing lands, the only things that move are the window's trailing
-// edge and the mesh energy integral; the page shows X-Computed-At. The
-// first message to land moves the watermark and rebuilds within a minute.
-const DASHBOARD_MAX_QUIET_MS = 15 * 60_000;
-const DASHBOARD_LONG_MAX_QUIET_MS = 30 * 60_000;
-const DASHBOARD_STORED_MAX_QUIET_MS = 60 * 60_000;
-const PROJECT_LIST_MAX_QUIET_MS = 15 * 60_000;
-const SCROBBLE_MAX_QUIET_MS = 2 * 60 * 60_000;
-const TOKENS_MAX_QUIET_MS = 15 * 60_000;
-const TOKENS_LONG_MAX_QUIET_MS = 60 * 60_000;
-const TOKENS_STORED_MAX_QUIET_MS = 60 * 60_000;
-const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
-const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 const WATCHDOG_TICK_MS = 5 * 60_000;       // check liveness every 5 min
 const INGEST_STALL_MS = 10 * 60_000;       // >10 min with no completed ingest = suspect
 const INGEST_HANG_MS = 30 * 60_000;        // in-flight this long = abandoned; force-restart it
@@ -185,95 +146,11 @@ async function main() {
     void runIngestOnce('watchdog');
   }, WATCHDOG_TICK_MS);
 
-  // Payloads a route serves and this process builds: the dashboard and the
-  // tokens page, each with a warm set rebuilt on a cadence. One loop for
-  // both. A skipped range logs nothing: the ingest line a moment earlier
-  // already said +0m, and a rebuild is the event worth a line.
-  const refreshRanges = (
-    label: string,
-    refresh: (range: string, opts: { unlessCurrentMs: number }) => unknown | null,
-    ranges: readonly string[],
-    unlessCurrentMs: number,
-  ) => {
-    for (const range of ranges) {
-      try {
-        const t0 = Date.now();
-        if (refresh(range, { unlessCurrentMs }) === null) continue;
-        console.log(`[worker] ${label} ${range} in ${Date.now() - t0}ms`);
-      } catch (err) {
-        console.error(`[worker] ${label} ${range} failed:`, err);
-      }
-    }
-  };
-  // The ranges a first request built and stored, less any the warm ticks
-  // already own. Without this the route served that first build forever:
-  // the dashboard's 90d, 365d and lifetime sat a month old (2026-10-14).
-  const storedBeyond = (stored: () => string[], ...warm: readonly (readonly string[])[]) => {
-    const own = new Set<string>(warm.flat());
-    return [...new Set(stored())].filter((r) => !own.has(r));
-  };
-
-  // Dashboard payloads for the ranges a dashboard opens on, plus whatever a
-  // request stored, on a slower tick: 90d and lifetime are many seconds.
-  const refreshDashboards = (ranges: readonly string[], unlessCurrentMs: number) =>
-    refreshRanges('dashboard', refreshDashboard, ranges, unlessCurrentMs);
-  const storedDashboards = () => storedBeyond(storedDashboardRanges, WARM_SHORT_RANGES, WARM_LONG_RANGES);
-  const dashboardKickoff = setTimeout(() => {
-    refreshDashboards(WARM_SHORT_RANGES, DASHBOARD_MAX_QUIET_MS);
-    refreshDashboards(WARM_LONG_RANGES, DASHBOARD_LONG_MAX_QUIET_MS);
-  }, 12_000);
-  const dashboardInterval = setInterval(() => refreshDashboards(WARM_SHORT_RANGES, DASHBOARD_MAX_QUIET_MS), DASHBOARD_REFRESH_MS);
-  const dashboardLongInterval = setInterval(() => refreshDashboards(WARM_LONG_RANGES, DASHBOARD_LONG_MAX_QUIET_MS), DASHBOARD_LONG_REFRESH_MS);
-  // Later than the other kickoffs: these are the slow builds, and the warm
-  // sets, the project list and the tokens page all want the first minute.
-  const dashboardStoredKickoff = setTimeout(() => refreshDashboards(storedDashboards(), DASHBOARD_STORED_MAX_QUIET_MS), 45_000);
-  const dashboardStoredInterval = setInterval(() => refreshDashboards(storedDashboards(), DASHBOARD_STORED_MAX_QUIET_MS), DASHBOARD_STORED_REFRESH_MS);
-
-  // Project list. Two aggregates over messages plus a filesystem pass —
-  // about 5s, which starves the single-threaded web process if it runs
-  // there. Built here, read there.
-  const refreshProjects = async () => {
-    try {
-      const t0 = Date.now();
-      const rows = await refreshProjectList({ unlessCurrentMs: PROJECT_LIST_MAX_QUIET_MS });
-      if (rows === null) return;
-      console.log(`[worker] project list: ${rows.length} projects in ${Date.now() - t0}ms`);
-    } catch (err) {
-      console.error('[worker] project list refresh failed:', err);
-    }
-  };
-  const projectsKickoff = setTimeout(() => { void refreshProjects(); }, 8_000);
-  const projectsInterval = setInterval(() => { void refreshProjects(); }, PROJECT_LIST_REFRESH_MS);
-
-  // Scrobble payload. Building it is two full scans of a 1.6M-row table, so
-  // it is computed here and stored, and the page reads what we left.
-  const refreshScrobble = () => {
-    try {
-      const t0 = Date.now();
-      if (refreshScrobblePayload(getDb(), { unlessCurrentMs: SCROBBLE_MAX_QUIET_MS }) === null) return;
-      console.log(`[worker] scrobble payload refreshed in ${Date.now() - t0}ms`);
-    } catch (err) {
-      console.error('[worker] scrobble refresh failed:', err);
-    }
-  };
-  const scrobbleKickoff = setTimeout(refreshScrobble, 20_000);
-  const scrobbleInterval = setInterval(refreshScrobble, SCROBBLE_REFRESH_MS);
-
-  // Tokens payloads. Lifetime is 11 s of scans and the page's week was 6 s
-  // on the request thread; built here and stored, like the dashboard. The
-  // stored tick carries any range a first request built and stored, so that
-  // build is not the one served forever, on the dashboard's slower cadence.
-  const refreshTokens = (ranges: readonly string[], unlessCurrentMs: number) =>
-    refreshRanges('tokens', refreshTokensPayload, ranges, unlessCurrentMs);
-  const storedTokens = () => storedBeyond(storedTokensRanges, WARM_TOKENS_SHORT_RANGES, WARM_TOKENS_LONG_RANGES);
-  const tokensKickoff = setTimeout(() => {
-    refreshTokens(WARM_TOKENS_SHORT_RANGES, TOKENS_MAX_QUIET_MS);
-    refreshTokens(WARM_TOKENS_LONG_RANGES, TOKENS_LONG_MAX_QUIET_MS);
-  }, 16_000);
-  const tokensInterval = setInterval(() => refreshTokens(WARM_TOKENS_SHORT_RANGES, TOKENS_MAX_QUIET_MS), TOKENS_REFRESH_MS);
-  const tokensLongInterval = setInterval(() => refreshTokens(WARM_TOKENS_LONG_RANGES, TOKENS_LONG_MAX_QUIET_MS), TOKENS_LONG_REFRESH_MS);
-  const tokensStoredKickoff = setTimeout(() => refreshTokens(storedTokens(), TOKENS_STORED_MAX_QUIET_MS), 50_000);
-  const tokensStoredInterval = setInterval(() => refreshTokens(storedTokens(), TOKENS_STORED_MAX_QUIET_MS), TOKENS_STORED_REFRESH_MS);
+  // Payloads a route serves — dashboard, tokens, scrobble, the project
+  // list — built in a child of their own. A lifetime or 365d build is 13 to
+  // 20 s of synchronous scans; on this thread that was 13 to 20 s of ingest
+  // and watchdog standing still (see payloads.ts).
+  const payloads = startPayloadBuilder(new URL('./payloads.ts', import.meta.url).pathname);
 
   // Vendor status pages. What the provider admits to, next to what we hit.
   // First poll shortly after boot so the refusals tab is not blank for a
@@ -439,31 +316,18 @@ async function main() {
       clearTimeout(statusKickoff);
       clearInterval(statusInterval);
       clearInterval(statusRollup);
-      clearTimeout(scrobbleKickoff);
-      clearInterval(scrobbleInterval);
-      clearTimeout(tokensKickoff);
-      clearInterval(tokensInterval);
-      clearInterval(tokensLongInterval);
-      clearTimeout(tokensStoredKickoff);
-      clearInterval(tokensStoredInterval);
-      clearTimeout(projectsKickoff);
-      clearInterval(projectsInterval);
-      clearTimeout(dashboardKickoff);
-      clearInterval(dashboardInterval);
-      clearInterval(dashboardLongInterval);
-      clearTimeout(dashboardStoredKickoff);
-      clearInterval(dashboardStoredInterval);
       clearInterval(checkpointInterval);
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);
       clearInterval(unpricedInterval);
       sampler.stop();
+      payloads.stop();
       stopWatcher();
       process.exit(0);
     });
   }
 
-  console.log(`[worker] full pass every ${POLL_INTERVAL_MS / 1000}s while active, stretching to 5 min when quiet; mesh sampled by a child process; rollup every ${ROLLUP_TICK_MS / 1000}s; ctrl+c to stop`);
+  console.log(`[worker] full pass every ${POLL_INTERVAL_MS / 1000}s while active, stretching to 5 min when quiet; mesh sampled and payloads built by child processes; rollup every ${ROLLUP_TICK_MS / 1000}s; ctrl+c to stop`);
 }
 
 main().catch((err) => {

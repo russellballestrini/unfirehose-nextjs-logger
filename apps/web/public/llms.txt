@@ -1,50 +1,43 @@
 # unfirehose — LLM & Agent API Reference
 
 > Base URL: http://localhost:3000 (self-hosted)
-> All endpoints return JSON. Errors: `{ error, detail?, status? }`
+> All endpoints return JSON unless noted (SSE streams, NDJSON, raw blobs). Errors: `{ error, detail?, status? }`
 > No authentication required for local instance.
+> Every `METHOD /api/path` heading below matches a route file under `apps/web/src/app/api`; `src/app/llms-txt.test.ts` fails when one is added or removed without updating this file.
 
 ## Logs & Thinking Traces
 
 ### GET /api/logs
-Search all conversation logs across harnesses (Claude Code, Fetch, uncloseai).
-- `?search=error` — full-text search
+Search all conversation logs across harnesses (Claude Code, Fetch, uncloseai). Newest first.
+- `?search=error` — substring match over every content block (text, reasoning, tool input and tool result)
 - `?project=-home-fox-git-myapp` — filter by project
-- `?types=assistant,user,thinking` — filter message types
-- `?from=2026-03-01&to=2026-03-07` — date range
-- `?session=abc123` — single session
+- `?types=user,assistant,system` — filter message types (default: all three)
+- `?has_thinking=true` — only messages carrying a non-empty reasoning/thinking block; this is how to find thinking traces
+- `?from=2026-03-01&to=2026-03-07` — date range; a bare date for `to` covers that whole day
+- `?session=abc123` — single session uuid
 - `?sidechain=true|false|all` — subagent filter; `true` = only subagent (Task-spawned) messages, `false` = only top-level, `all` (default) = both
-- `?limit=50&offset=0` — pagination
-→ `{ entries: [{ id, sessionId, project, type, timestamp, content, model, isSidechain }], total, limit, offset }`
-
-### GET /api/thinking
-Search thinking/reasoning blocks from all sessions.
-- `?search=architecture` — search thinking content
-- `?project=...&from=...&to=...&limit=100&offset=0`
-→ `{ entries: [{ sessionId, project, timestamp, thinking, model }], total, limit, offset }`
+- `?limit=100&offset=0` — pagination (default 100, max 500)
+→ `{ entries: [{ id, type, subtype, timestamp, model, sessionUuid, sessionDisplay, projectName, projectDisplay, preview, kind, tool, toolArg, isError, hasReasoning, durationMs, inputTokens, outputTokens, isSidechain }], total, limit, offset }`
 
 ### GET /api/sessions/{sessionId}
-Full conversation replay for a session.
-- `?project=-home-fox-git-myapp` — project context
-- `?types=user,assistant` — filter types
-- `?offset=0&limit=200` — paginate messages
-- `?stream=true` — SSE stream instead of JSON
-→ `{ entries: [...], count, offset, limit }`
-
-### GET /api/sessions/{sessionId}/thinking
-All thinking blocks from a specific session.
-- `?project=...`
-→ `[{ sessionId, project, timestamp, thinking, precedingPrompt, model }]`
+Full conversation replay for a session, as canonical unfirehose/1.0 messages read from its JSONL on disk (thinking blocks included).
+- `?project=-home-fox-git-myapp` — required; picks the harness adapter and the file
+- `?types=user,assistant` — filter canonical roles (`user`, `assistant`, `system`, `tool`); default all
+- `?offset=0&limit=500` — paginate messages (default limit 500)
+- `?stream=true` — NDJSON stream (`application/x-ndjson`, one message per line) instead of JSON
+→ `{ entries: [...], count, offset, limit }`; 400 without `project`, 404 when the file is gone
 
 ### GET /api/sessions/{sessionId}/chain
 Provenance verdict for one session as the ingester recorded it — `unchained` / `open` / `verified` / `corrupted` — with the first break's index and reason, and the root the closed record committed to.
-- `?project=...&live=1` — re-read the journal from disk and verify it now; a trailing partial line is reported as `partialTail`, never counted as a break
+- `?project=...&live=1` — re-read the journal from disk and verify it now (`live=1` needs `project`); a trailing partial line is reported as `partialTail`, never counted as a break
 - `events` — every finding for the session by line index, oldest line first (up to 200): each leaf the witness saw differ (`rewritten`; `hash_mismatch` when a chained line's bytes changed under its own hash), each range of lines the file lost (`lost`, `seq`..`seq_to`), each chain break the verifier hit by reason. One row per finding, never one per session.
-→ `{ sessionId, state, recorded: {...} | null, events: [{ id, seq, seq_to, kind, recorded_hash, current_hash, current_text, observed_at }], live?: { state, breaks, ..., partialTail, path } }`
+- `lanes` — the closed record's lane heads checked against lane files on disk: `{ total, anchored, unanchored, uncheckable, checkedAt }`, or null when no lanes were named
+- `closeReason` — set only when a session closed abnormally
+→ `{ sessionId, state, recorded: {...} | null, events: [{ id, seq, seq_to, kind, recorded_hash, current_hash, current_text, observed_at }], lanes, closeReason, live?: { state, breaks, ..., partialTail, path } }`
 
 ### GET /api/sessions/anchor-events
 Every tamper finding across every session, newest first — the feed behind the per-session `events`. A session with two edits is two rows; a re-audit that finds the same two again adds none; a line edited a second time is a new row because its current hash is new.
-- `?hours=24` — window
+- `?hours=24` — window (max 1 year)
 - `?limit=100` — rows, newest first (max 1000)
 - `?kind=rewritten|hash_mismatch|lost|prev_mismatch|root_mismatch|…` — one finding kind
 → `{ hours, events: [{ id, session_uuid, project, harness, seq, seq_to, kind, recorded_hash, current_hash, current_text, observed_at }] }`
@@ -57,9 +50,16 @@ Chain verdict and witness state for many sessions in one call — what a list vi
 ### GET /api/sessions/rewrites
 Harnesses caught in the act. The witness records an unchained journal (Claude Code, Codex, hermes-agent…) only once its file has been quiet ten minutes, because such a writer rewrites lines near the tail of a live transcript. This endpoint is the diagnostic on the other side of that gate: a live shadow of every line, and a row for each line that came back different — before and after text and hash, how far from the tail it sat, and which JSON keys moved (`message.usage` is a refresh, `message.content` an edit). `truncated` rows are lines the file lost.
 - `?hours=24` — window for both summary and rows
-- `?limit=50` — rows, newest first
+- `?limit=50` — rows, newest first (max 1000)
 - `?session=<uuid>` / `?harness=claude-code` — narrow the rows
 → `{ summary: { total, sessions, byHarness, maxTailDistance, contentChanged, metadataOnly, truncations, byChangedKey }, rows: [{ id, session_uuid, project, harness, seq, kind: rewritten|truncated, observed_at, file_lines, tail_distance, before_hash, after_hash, before_text, after_text, before_len, after_len, truncated, changed_keys: [...], content_changed, before_type, after_type }] }`
+
+### GET /api/session/tail
+SSE tail of one session JSONL, rendered as compact readable lines (role, text, tools, reasoning). Polls every 1.5 s locally, 4 s over SSH.
+- `?path=/home/fox/.claude/projects/<project>/<session>.jsonl` — required; must be a `.jsonl` under a `~/.<harness>/projects/` or `~/.<harness>/unfirehose/` directory
+- `?host=cammy` — read it on a mesh node over SSH (default localhost)
+- `?lines=40` — entries to show (5–200)
+→ SSE: `{ type: "tail", content }` whenever a tail changes
 
 ### GET /api/tool-results
 Archived tool-result spill files. Claude Code writes large tool outputs to
@@ -83,88 +83,187 @@ Serve an archived payload by sha256, with its recorded mime type.
 ## Todo System
 
 ### GET /api/todos
-All todos with filters.
-- `?project=...&status=pending&source=claude`
-→ `{ todos: [...], byProject: {...}, counts: {...} }`
+All todos with filters, grouped for a kanban board. Deleted todos are never returned.
+- `?project=...` — one project (encoded name)
+- `?status=pending,in_progress` — comma-separated statuses
+- `?source=claude` — one source (claude, fetch, manual, …)
+- `?completedDays=7` — how many days of completed todos to keep (0–365)
+- `?limit=400` — default 400 unscoped, 2000 with `project` (max 2000)
+→ `{ todos: [...], byProject: [{ project, display, projectPath, todos: [...] }], limit, truncated, counts: { pending, inProgress, completed, total } }`
 
 ### POST /api/todos
-Create a todo.
-← `{ content: "Fix the thing", source: "manual", projectId?: "...", projectName?: "..." }`
-→ `{ ok: true, id: 123 }`
+Create a todo. With no project given, it lands on the session's project, else on our first project.
+← `{ content: "Fix the thing", source?: "manual", projectId?: 12, projectName?: "-home-fox-git-myapp", sessionUuid?: "...", status?: "pending" | "in_progress" }`
+→ `{ ok: true, id: 123, uuid }`
 
 ### PATCH /api/todos
-Update a single todo.
-← `{ id: 123, status?: "completed", estimatedMinutes?: 30 }`
+Update a single todo. Terminal statuses (`completed`, `obsolete`, `deleted`) are recorded to our triage file so they survive a database rebuild; completing a todo culls a deployment whose todos are all done.
+← `{ id: 123, status?: "completed", estimatedMinutes?: 30, content?: "..." }`
 → `{ ok: true }`
 
+### DELETE /api/todos
+Soft-delete todos (status `deleted`, kept for history).
+← `{ id: 123 }` or `{ ids: [1,2,3] }` (max 500)
+→ `{ ok: true, deleted: 3 }`
+
+### GET /api/todos/{id}
+One todo with everything around it: project, originating session, recent project sessions, attachments, deployment history, session token usage, and the todos it is blocked by.
+→ `{ id, uuid, content, status, activeForm, source, externalId, estimatedMinutes, blockedBy, createdAt, updatedAt, completedAt, project: { name, display, path }, session, recentSessions: [...], attachments: [...], deployments: [...], sessionTokens, blockedByTodos: [...] }`
+
 ### GET /api/todos/pending
-Actionable pending todos with smart filters.
+Actionable todos (pending + in_progress) as a flat array, in progress first.
 - `?project=-home-fox-git-myapp` — by project
+- `?source=claude` — by source
 - `?search=auth` — search content
-- `?quick=true` — under 15 minutes only
-- `?needs_ticket=true` — items needing tickets
-- `?limit=20`
-→ `[{ id, uuid, content, status, source, project, estimatedMinutes, createdAt, updatedAt }]`
+- `?quick=true` — 15 minutes or under, or not yet estimated
+- `?needs_ticket=true` — estimated over 15 minutes
+- `?limit=100` — default 100, max 1000
+→ `[{ id, uuid, content, status, source, externalId, estimatedMinutes, activeForm, blockedBy, project, projectDisplay, sessionUuid, sessionDisplay, createdAt, updatedAt, needsTicket, staleDays }]`
 
 ### GET /api/todos/summary
 Landscape overview — counts, stale items, by-project breakdown.
-→ `{ counts: { pending, completed, ... }, totalMinutes, needsTicket, staleCount, byProject: {...}, bySource: {...}, oldestPending: {...} }`
+→ `{ counts: { pending, inProgress, completed, total }, totalMinutes, unestimated, needsTicket, staleCount, byProject: [...], bySource: [...], oldestPending: {...} | null }`
 
 ### GET /api/todos/stale
-Items not touched in N days.
-- `?days=7&limit=20&project=...`
+Open todos not touched in N days.
+- `?days=3` — threshold (default 3)
+- `?limit=50` — default 50, max 500
+- `?project=...`
 → `{ staleThresholdDays, count, todos: [...] }`
 
+### GET /api/todos/triage
+Open todos for one project grouped by originating session, stalest session first — the BLACKOPS triage view: read a session's mission (`firstPrompt`) and age, then trash the batch or keep items.
+- `?project=...` — required
+- `?status=pending,in_progress` — default
+- `?limit=20` — max sessions (max 100)
+→ `{ project, sessionCount, todoCount, sessions: [{ sessionUuid, sessionDisplay, firstPrompt, sessionCreated, sessionUpdated, staleDays, todos: [...] }] }`
+
 ### PATCH /api/todos/bulk
-Bulk update multiple todos.
-← `{ ids: [1,2,3], status: "completed" }`
+Bulk update multiple todos (max 500).
+← `{ ids: [1,2,3], status?: "completed", estimatedMinutes?: 30 }`
 → `{ ok: true, updated: 3 }`
 
 ### GET /api/todos/graph
-Graphviz visualization of todo relationships.
-- `?project=...&status=pending&layout=dot`
+Graphviz visualization of todo dependencies (`blocked_by`).
+- `?project=...&status=pending,in_progress`
+- `?layout=LR` — left-to-right; anything else is top-to-bottom (`TB`)
 → `{ svg, nodeCount, edgeCount, dot }`
+
+### GET /api/todos/attachments
+List a todo's attachments, newest first.
+- `?todoId=123` — required
+→ `{ attachments: [{ id, todoId, filename, mimeType, sizeBytes, hash, createdAt }] }`
+
+### POST /api/todos/attachments
+Attach files to a todo. `multipart/form-data` with `todoId` and one or more `files` (max 10 MB each). Stored content-addressed at `~/.unfirehose/attachments/{sha256}`.
+→ `{ ok: true, attachments: [...] }`
+
+### DELETE /api/todos/attachments
+Remove one attachment; the blob goes too once nothing else references its hash.
+← `{ id: 456 }`
+→ `{ ok: true }`
+
+### GET /api/todos/attachments/{hash}
+Serve an attachment by sha256 with its recorded mime type and filename.
+→ raw bytes, or 404 / 400 for a malformed hash
+
+### POST /api/sessions/{sessionId}/inject
+Write a `TodoWrite` tool call into a session's JSONL, so the todos arrive as native tool calls on the next ingest.
+← `{ todos: [{ content: "Fix auth", status?: "pending" }] }`
+→ `{ ok: true, injected, ids, file }`
 
 
 ## Projects
 
 ### GET /api/projects
-List all projects with metadata.
-→ `[{ name, displayName, path, sessionCount, totalMessages, latestActivity, hasMemory }]`
+List all projects, served from the list our worker keeps; `X-Computed-At` says how old it is.
+→ `[{ name, displayName, path, sessionCount, totalMessages, tokens: { input, output, cacheRead, cacheWrite }, latestActivity, hasMemory, harnesses, foldedCount }]`
 
 ### GET /api/projects/activity
-Activity metrics across projects.
+Activity metrics across projects, with a cost estimate per project.
 - `?days=30` — lookback period
-- `?project=...` — single project with git context
-→ `[{ name, user_messages, assistant_messages, thinking_blocks, ... }]`
+- `?project=...` — single project with recent prompts matched to commits and git context
+→ `[{ name, user_messages, assistant_messages, thinking_blocks, ..., cost_estimate, market_estimate, avoided_estimate }]` or, with `project`, `{ project, recentPrompts, git: { isDirty, unpushedCount, remoteUrl } | null }`
+
+### GET /api/projects/git-status
+Dirty and unpushed counts for every project repo, keyed by project. Answers at once from what our background sweep has gathered so far; `X-Sweep-Complete: true` once a sweep has finished.
+→ `{ [project]: { dirty, unpushed, branch } }`
+
+### GET /api/projects/metadata
+Repo facts for one project (cached 60 s).
+- `?project=...` — required
+→ `{ repoPath, branch, remotes: [...], recentCommits: [...], claudeMd, claudeMdExists }`
+
+### GET /api/projects/merge
+Groups of project rows that share git identity (root commit + origin) within one harness slot — what the next ingest would auto-merge.
+→ `{ groupCount, groups: [[{ prefix, root, origin, id, name, display_name, path, last_cwd_seen }]] }`
+
+### POST /api/projects/merge
+Merge one project row into another, or sweep every identity group.
+← `{ sourceId: 97, targetId: 106 }` — source is dropped; target absorbs sessions, todos, usage, deployments, alerts and agent actions; source's name becomes an alias
+← `{ autoIdentity: true }` — merge every group into its most recently active member (idempotent)
+→ `{ merged: 1, sourceId, targetId }` or `{ merged }`
+
+### GET /api/projects/{project}/full
+Everything about one project in one call.
+→ `{ visibility, project: { name, displayName, path, firstSeen }, stats: { sessionCount, messageCount, totalInput, totalOutput, ... }, models, todos, prompts, ... }`
 
 ### GET /api/projects/{project}/sessions
-All sessions for a project.
-- `?sort=latest&order=desc`
-→ `{ project, originalPath, sessions: [...] }`
+All sessions for a project, from the harness's sessions index (or its JSONL files enriched from our database).
+- `?sort=modified&order=desc` — sort by any index field (`modified`, `created`, `messageCount`, …); default `modified`, `desc`
+→ `{ project, originalPath, sessions: [{ sessionId, firstPrompt, messageCount, created, modified, gitBranch, ..., displayName, chain }] }`
+
+### GET /api/projects/{project}/tree
+Browse a project's files. Reads the working tree from disk; a `ref` other than HEAD reads from git.
+- `?path=src/lib` — directory or file inside the repo (default root)
+- `?ref=HEAD` — branch, tag or commit
+→ directory: `{ type: "tree", path, branch, entries: [...], lastCommit, readme }` · file: `{ type: "file", path, name, content? | binary? | image?, size, language, lastCommit }`
+
+### GET /api/projects/{project}/visibility
+Scrobble visibility for a project.
+→ `{ projectId, visibility: public|unlisted|private, autoDetected, updatedAt }`
+
+### POST /api/projects/{project}/visibility
+← `{ visibility: "public" | "unlisted" | "private" }`
+→ `{ success: true, visibility }`
 
 ### GET /api/projects/{project}/git
-Git status for a project repo.
-→ `{ repoPath, branch, files: [...], diff, isDirty }`
+Git status for a project repo (cached 5 s). A tracked directory with no `.git` answers `vcs: false`, not an error.
+→ `{ repoPath, branch, files: [{ status, file }], diffStat, diff, recentCommits, isDirty }`
 
 ### POST /api/projects/{project}/git
-Commit changes in a project repo.
-← `{ message: "Fix auth bug", addAll: true }`
-→ `{ success: true, commit: "abc123", pushed: true }`
+Commit changes in a project repo, then push unless our `git_auto_push` setting is `false`.
+← `{ message: "Fix auth bug", addAll?: true, skipPush?: false }` — without `addAll`, only tracked files are staged (`git add -u`)
+← `{ action: "push" }` — push only; rebases and retries when the remote is ahead, 409 on conflict
+→ `{ success: true, commit: "abc123 Fix auth bug", pushed: true, pushError? }`
+
+### DELETE /api/projects/{project}/git
+Act on one file in a project repo.
+← `{ file: "path/in/repo", action: "delete" | "gitignore" | "restore" }`
+→ `{ success: true, action, file }`
 
 ### POST /api/projects/{project}/git/suggest
-Generate a commit message using LLM.
-- Header: `x-vault-api-key: sk-...` (optional, decrypted BYOK key)
+Generate a commit message from our diff using an LLM.
+- Header: `x-vault-api-key: sk-...` (optional, decrypted BYOK key for a configured endpoint)
 → `{ message: "Fix login redirect on expired sessions", provider: "claude-max" }`
-Provider fallback: vault BYOK → Claude Max OAuth → Qwen 3 Coder mesh → Hermes 3 mesh
+Provider fallback: configured endpoint (vault BYOK key) → Claude Max OAuth → settings API key (OpenAI) → Qwen 3 Coder mesh → Hermes 3 mesh
+
+### GET /api/projects/{project}/agent
+Last 20 agent actions dispatched for a project.
+→ `{ actions: [...] }`
+
+### POST /api/projects/{project}/agent
+Dispatch an agent action against a project's repo.
+← `{ action: "status" | "finish" | "blockers" | "nudge", message?: "commit message for finish", trigger?: "manual" }`
+→ `{ ok: true, actionId, result }`; `nudge` spawns a harness in our background and answers `{ ok: true, actionId, status: "spawned", harness }`
 
 
 ## Dashboard & Analytics
 
 ### GET /api/dashboard
-Aggregate dashboard metrics.
-- `?range=7d` — 1h, 6h, 24h, 7d, 14d, 28d
-→ `{ range, summary, modelBreakdown, dailyActivity, hourCounts, dayOfWeekCounts, dowHourHeatmap }`
+Aggregate dashboard metrics, served from a payload our worker keeps warm; `X-Computed-At` says how old it is.
+- `?range=7d` — 1h, 3h, 6h, 12h, 24h, 7d, 14d, 28d, 90d, 180d, 365d, all (default `7d`)
+→ `{ range, ingestLagMinutes, summary, modelBreakdown, dailyActivity, hourCounts, dayOfWeekCounts, dowHourHeatmap }`
 
 ### GET /api/tokens
 Token usage analytics. Served from a payload our worker keeps warm; `X-Computed-At` says how old it is.
@@ -174,25 +273,62 @@ Token usage analytics. Served from a payload our worker keeps warm; `X-Computed-
 → `{ modelBreakdown, harnessData, harnessModelBreakdown, harnessSessions, toolCalls, toolsByHarness, toolsByModel, blockTypes, dailyActivity, dailyByHarness, dailyModelTokens, totalInput, totalOutput, totalCacheRead, totalCacheWrite, totalTokens, totalInputCost, totalOutputCost, totalCacheReadCost, totalCacheWriteCost, totalCost }`
 
 ### GET /api/usage
-Usage timeline or by-project breakdown.
-- `?minutes=60` — time window
-- `?view=projects` — group by project
+Usage timeline or by-project breakdown, from per-minute usage rows.
+- `?minutes=60` — time window (buckets per minute up to 24h, per hour up to 14d, per day beyond)
+- `?view=projects` — group by project (default `timeline`)
 → Timeline array or project breakdown
 
+### GET /api/usage/plan
+Claude subscription plan and what this billing period would have cost at API rates. Read from `~/.claude/.credentials.json` and `~/.claude.json`.
+→ `{ subscriptionType, rateLimitTier, hasExtraUsageEnabled, monthlyPlanCost, periodStart, periodEnd, periodCostUSD, periodInputTokens, periodOutputTokens, periodCacheReadTokens, periodCacheWriteTokens, dailyCost }`
+
+### GET /api/usage/extra
+The last extra-usage snapshot pushed to us, stamped with whether it still describes our current billing period. CORS-open (`OPTIONS` answers preflight) so a browser extension on claude.ai can push it.
+→ `{ extraSpent, extraLimit, extraBalance, extraResetDate, extraUpdatedAt, resetAt, expired, expiredReason: null | "reset_passed" | "too_old" }`
+
+### POST /api/usage/extra
+Push an extra-usage snapshot; any field left out keeps its last value.
+← `{ spent?, limit?, balance?, resetDate? }`
+→ `{ ok: true }`
+
 ### GET /api/stats
-Cached statistics.
-- `?from=2026-03-01&to=2026-03-07`
+Claude Code's own `~/.claude/stats-cache.json`, passed through. Takes no parameters.
 → Aggregate stats object
 
 ### GET /api/active-sessions
 Currently active sessions.
-- `?minutes=15` — activity window
+- `?minutes=10` — activity window (default 10)
 - `?sidechain=true|false|all` — subagent filter; `true` = only running subagents (Task-spawned), `false` = only top-level, `all` (default) = both
-→ `{ sessions: [{ id, sessionUuid, displayName, gitBranch, isSidechain, delegatedFrom, harness, updatedAt, createdAt, projectName, projectDisplay, projectPath, messageCount, recentTokens, lastModel }], count }`
+→ `{ sessions: [{ id, sessionUuid, displayName, gitBranch, isSidechain, delegatedFrom, harness, updatedAt, createdAt, projectName, projectDisplay, projectPath, messageCount, recentTokens, recentInput, recentOutput, recentCacheRead, recentCacheWrite, lastModel, reasoningCount, readableReasoningCount }], count }`
 
 ### GET /api/live
 Server-sent events stream of live session activity.
-→ SSE: `{ type, sessions?, entry?, ... }`
+→ SSE: `{ type: "sessions", sessions }` then `{ type: "entry", project, projectName, ... }` per new JSONL line
+
+### GET /api/pricing
+Our price book: every oracle's status, the sync register, prices that moved in the last 30 days, and a resolution + consensus report for every model in our database.
+- `?model=claude-opus-5&at=2026-06-01` — how one model name resolves (candidates, each oracle's answer, agreement), optionally as of a past instant
+- `?history=anthropic/claude-opus-5` — step series for one upstream id → `{ modelId, rows }`
+- `?summary=1` — light form without per-model coverage
+→ `{ oracles, register, recentChanges, changesByDay, pins, promos, selfHost, coverage, unpriced, disagreements, unpricedRecent }`
+
+### POST /api/pricing
+Force a sync from every price oracle (recorded as trigger `api`).
+→ `{ results, catalog }`
+
+### GET /api/metrics
+Real-user web-vitals aggregates per page.
+- `?days=7` — window (1–90)
+→ `{ days, totalSamples, aggregates: [{ pathname, metrics: { [TTFB|FCP|LCP|INP|CLS]: { count, p50, p75, p95 } } }] }`
+
+### POST /api/metrics
+Record one web-vitals sample.
+← `{ pathname, metric: "TTFB" | "FCP" | "LCP" | "INP" | "CLS", value, rating: "good" | "needs-improvement" | "poor", sessionId? }`
+→ `{ ok: true }`
+
+### GET /api/db/meta
+Our SQLite database's size and shape: pragmas, page and file sizes, and per-table and per-index byte counts, largest first.
+→ `{ pageSize, pageCount, freelistCount, cacheSize, journalMode, walCheckpoint, totalBytes, usedBytes, freeBytes, fileSize, totalBytesHuman, usedBytesHuman, freeBytesHuman, fileSizeHuman, tables: [...], indexes: [...] }`
 
 
 ## Mesh / Permacomputer
@@ -210,46 +346,93 @@ only when no node has a fresh snapshot.
 → `{ nodes: [...], localHostname, summary }`
 
 ### GET /api/mesh/history
-Time-series metrics for mesh nodes.
-- `?hours=24&hostname=cammy`
-→ `{ timeline: [{ timestamp, cpuPercent, memUsedGB, memTotalGB, gpuUtil, gpuMemUsedGB, ... }], hostnames, hours, count }`
+Time-series metrics for mesh nodes, peak-preserving downsampled.
+- `?hours=24` — window
+- `?hostname=cammy` — one node (default `all`)
+- `?points=600` — target points after downsampling (50–5000)
+- `?nodes=0` — drop the per-node breakdown from each point
+→ `{ timeline: [{ timestamp, cpuPercent, memUsedGB, memTotalGB, gpuUtil, gpuMemUsedGB, ..., nodes? }], hostnames, hours, count, sampled, of }`
 
 ### POST /api/mesh/history
-Ingest snapshot from mesh nodes.
+Ingest snapshot from mesh nodes (append-only).
 ← `{ nodes: [...] }`
+→ `{ ok: true, recorded }`
 
 ### GET /api/mesh/node
 Deep probe of a single node.
-- `?host=cammy`
-→ CPU, memory, GPU, temps, processes, network, Docker, tmux, screen sessions
+- `?host=cammy` — required
+→ CPU, memory, GPU, temps, processes, network, Docker, tmux, screen sessions; `{ hostname, reachable: false, error, probedAt }` when the probe fails
 
 ### GET /api/mesh/geoip
-GeoIP lookup for mesh nodes.
+GeoIP of each mesh node's egress IP (cached; rate-limited to ip-api.com's 45/min).
+→ `{ nodes: [{ hostname, ip, city, region, regionCode, country, countryCode, isp, org, as, lat, lon, timezone, error? }] }`
 
 ### GET /api/mesh/rates
-Currency exchange rates for cost calculations.
+Currency exchange rates for cost calculations (Frankfurter/ECB fiat + CoinGecko crypto). Off when our `mesh_currency_oracle` setting is `false`.
+→ `{ fiat: {...}, crypto: {...}, source, updatedAt }`
+
+### GET /api/inference/cache
+Prefix-cache hit rate vLLM measured on each node and model over a window — what our token accounting cannot show, since a self-hosted model reports no cache tokens.
+- `?hours=24` — window (max 90 days)
+→ `{ hours, models: [{ hostname, model, windowHitRate, windowQueries, windowHits, lifetimeHitRate, lifetimeQueries, lifetimeHits, kvUsage, kvSizeTokens, prefixCachingEnabled, samples, lastSeen }] }`
+
+### POST /api/inference/cache
+Sample every mesh node's vLLM metrics now.
+→ `{ nodes: [...] }`
 
 ### GET /api/unsandbox
-unsandbox.com cloud platform integration.
-- `?action=status` — tier, diagnostics, rate limits
+unsandbox.com cloud platform integration (HMAC-signed with our stored keys).
+- no `action` — key status → `{ connected, tier, rateLimit, maxSessions, expiresAt, expiresAtHuman, burst }`
+- `?action=sessions` → `{ sessions: [...] }`
+- `?action=services` → `{ services: [...] }`
+
+### POST /api/unsandbox
+Proxy one unsandbox action.
+← `{ action: "test" }` · `{ action: "probe" }` (system probe inside a container)
+← `{ action: "execute", language, code, network?: "zerotrust" | "semitrusted" }`
+← `{ action: "session", image?, network? }` · `{ action: "kill-session", sessionId }` · `{ action: "session-exec", sessionId, command }`
+← `{ action: "create-service", name?, ports, bootstrap, network? }` (`name` gets our key suffix; response adds `resolvedName`)
+← `{ action: "destroy-service" | "service-info" | "service-logs" | "service-wake" | "service-redeploy", serviceId }`
+
+### GET /api/unsandbox/shell
+SSE stream of an unsandbox session's or service's shell output (bridged from its WebSocket). A sleeping service reports `{ type: "service_state", state }` and connects once it wakes.
+- `?session_id=...` — required
+
+### POST /api/unsandbox/shell
+Send input to an unsandbox shell.
+← `{ session_id, keys: "ls -la" }` · `{ session_id, special: "Enter" }` · `{ session_id, action: "resize", cols, rows }`
+→ `{ ok: true }`
+
+### HEAD /api/unsandbox/shell
+Liveness check for our shell bridge.
+
+### GET /api/unsandbox/sync
+Unsandbox services with when each was last synced.
+→ `{ services: [{ id, name, status, created_at, lastSync }] }`
+
+### POST /api/unsandbox/sync
+Pull harness JSONL (`~/.claude/projects`) back from unsandbox services so it can be ingested here. Delta-aware: only files changed since our last sync travel.
+← `{ serviceId: "unsb-service-..." }` or `{ all: true }` (every running service)
+→ `{ results: [...] }`
 
 
 ## Scrobble (Social Feed)
 
 ### GET /api/scrobble/payload
-Full scrobble payload for publishing to the network.
+Full scrobble payload for publishing to the network, precomputed by our worker; `X-Computed-At` says how old it is.
 → `{ $schema, generatedAt, handle, lifetime, streaks, badges, activity, timeSeries, models, tools, projects }`
 
 ### GET /api/scrobble/preview
-Preview of scrobble data before publishing.
+What a scrobble would publish, per project, with visibility.
+→ `{ projects: [{ name, displayName, visibility, autoDetected, sessionCount, messageCount, totalInput, totalOutput }], included: [...], excluded: [...] }`
 
 
 ## Schema & Documentation
 
 ### GET /api/schema
-Browse database schema and source files.
-- `?file=db/schema.ts` — read specific file
-→ `{ files: [...] }` or `{ file, content }`
+Browse our unfirehose/1.0 schema docs (`packages/schema/docs`).
+- `?file=README.md` or `?file=harnesses/claude-code.md` — read one `.md` file
+→ `{ files: [{ path, label, group }] }` or `{ file, content }`
 
 
 ## Settings & Configuration
@@ -259,49 +442,58 @@ All settings as key-value pairs.
 → `{ theme_accent_color, unfirehose_plan, ..., _system_username }`
 
 ### POST /api/settings
-Set a setting.
+Set, delete, or bulk-set settings.
 ← `{ action: "set", key: "theme_accent_color", value: "#d40000" }`
+← `{ action: "delete", key: "theme_accent_color" }`
+← `{ action: "bulk_set", settings: { key: value, ... } }`
+→ `{ ok: true, ... }`
+
+### DELETE /api/settings
+Delete one setting.
+← `{ key: "theme_accent_color" }`
+→ `{ ok: true }`
 
 ### GET /api/llm/providers
 Discover available LLM providers (auto-detected + mesh).
 → `{ providers: [{ id, name, source, type, model, ready, detail }] }`
 
 
-## Blog
-
-### GET /api/blog
-List blog posts.
-- `?limit=10&offset=0`
-→ Array of posts
-
-### POST /api/blog
-Create a blog post.
-← `{ title, description, source, content, url }`
-→ `{ ok: true, id }`
-
-
 ## Alerts
 
 ### GET /api/alerts
-System alerts and notifications.
-- `?filter=unread&limit=50&offset=0&paginate=true`
-→ `{ alerts: [...], total }`
+Usage alerts.
+- `?limit=20&offset=0` — recent alerts (max 200) → array
+- `?paginate=1` — wrap as `{ alerts: [...], total, limit, offset }`
+- `?filter=unacknowledged` — open alerts only
+- `?filter=thresholds` — alert threshold rules
+- `?filter=daily&days=14` — alert counts per day (1–365)
 
 ### POST /api/alerts
-Manage alerts (dismiss, acknowledge).
-← `{ action: "dismiss", id: 123 }`
+Manage alerts and thresholds.
+← `{ action: "acknowledge", id: 123 }` · `{ action: "acknowledge_all" }`
+← `{ action: "clear", scope?: "acknowledged" | "all" }` — delete what has been seen (default) or everything
+← `{ action: "update_threshold", id, value, enabled? }` — open alerts under the old value are acknowledged
+← `{ action: "calibrate", days?: 7, factor?: 1.5 }` — reset thresholds from recent usage
+→ `{ ok: true, ... }`
+
+### GET /api/alerts/{id}
+One alert with what happened inside its window: per-project and per-model usage and cost, active sessions, reasoning blocks, timeline, user prompts.
+→ `{ alert, window: { start, end, duration_minutes }, projectBreakdown, modelBreakdown, activeSessions, reasoningBlocks, timeline, userPrompts, totals, stats }`
 
 ### GET /api/rate-limits
 Refusals — every way a provider declined a call (throttles, quota, overloaded, 5xx, model gone), from harness-reported records and scanned output.
-- `?minutes=60&target=inference|service|web&kind=all|throttles|<kind>&limit=200` (`minutes=0` lifetime; `days=N` still accepted)
-→ `{ total, byUpstream, byProvider, byDay, recent, attribution }` — every row carries `http_status`
+- `?minutes=60` — window (`minutes=0` lifetime; `days=N` still accepted, default 30 days)
+- `?target=inference|service|web|all` — default `inference`
+- `?kind=all|throttles|<kind>` — default `all`; `throttles` = rate_limit, concurrency, quota, overloaded
+- `?limit=100` — recent rows (max 500)
+→ `{ days, minutes, target, kind, total, targets, kinds, byProvider, byUpstream, byDay, recent, now, attribution }` — every row carries `http_status`
 
 ### POST /api/rate-limits
-← `{ fromScratch: true, drain: true }` rescan history with current rules; `{ backfillReported: true }` rebuild harness-reported rows from JSONL on disk
+← `{ fromScratch: true, drain: true, batch?: 5000 }` rescan history with current rules (`drain` runs batches to the newest block); `{ backfillReported: true }` rebuild harness-reported rows from JSONL on disk
 
 ### GET /api/rate-limits/status
 Vendor status pages as our worker last polled them (language-model vendors only; incident feeds, robots.txt honoured).
-- `?history=<targetId>&hours=24` → `{ history: [{ timestamp, indicator, description, http_status, latency_ms }] }`
+- `?history=<targetId>&hours=24` → `{ target, hours, history: [{ timestamp, indicator, description, http_status, latency_ms }] }`
 → `{ current: [{ id, name, url, feed, since, poll: { indicator: none|minor|major|unknown|unreachable|blocked_by_robots, description, incidents: [...] } }] }`
 
 ### POST /api/rate-limits/status
@@ -312,74 +504,138 @@ Vendor status pages as our worker last polled them (language-model vendors only;
 ## Triage
 
 ### GET /api/triage
-Triage overview for a project.
-- `?project=...&days=7&limit=20`
+Triage overview: totals, projects with stale sessions and open todos, and the stale sessions themselves.
+- `?project=...` — one project
+- `?days=7` — staleness threshold
+- `?limit=25` — max projects (max 50)
+→ `{ thresholdDays, totals: { activeSessions, closedSessions, openTodos, closedTodos, staleSessions, staleTodos }, projects: [...], sessions: [...] }`
 
 ### POST /api/triage
-Execute triage actions.
-← `{ actions: [...] }`
+Execute triage actions in one transaction.
+← `{ actions: [{ action: "close_project_sessions", project, olderThanDays }, { action: "close_sessions", sessionUuids: [...] }, { action: "obsolete_todos", todoIds: [...] }, { action: "keep_todos", todoIds: [...] }] }`
 → `{ ok: true, results: [...] }`
 
+### GET /api/sessions/stale
+Sessions inactive past a threshold, with their open todo counts — candidates for closing.
+- `?days=7` — inactivity threshold
+- `?project=...`
+- `?status=active` — session status to consider
+- `?limit=50` — max 200
+→ `{ thresholdDays, summary: { total, active, closed, stale }, sessions: [{ id, sessionUuid, displayName, firstPrompt, gitBranch, status, cliVersion, createdAt, updatedAt, lastMessageAt, inactiveDays, projectName, projectDisplay, messageCount, pendingTodos, totalTodos }] }`
 
-## API Keys
+### PATCH /api/sessions/close
+Close sessions (kept for history, never deleted) and by default obsolete the todos they left open.
+← `{ sessionUuids: [...] }` or `{ project, olderThanDays: 14 }` (max 500), plus `obsoleteTodos?: true`, `reason?`
+→ `{ ok: true, closedSessions, obsoletedTodos, reason }`
 
-### GET /api/keys
-List API keys for programmatic access.
-→ `{ keys: [...] }`
 
-### POST /api/keys
-Create an API key.
-← `{ label: "my-agent", parentKeyId?, scopes: ["read"] }`
-→ `{ ok: true, id, key: "unfh-...", keyPrefix }`
+## Providence (answer cache)
 
-### DELETE /api/keys
-Revoke an API key.
-← `{ keyId: "..." }`
+### GET /api/providence
+Recorded question/answer provenance rows, newest first.
+- `?uri=...&root=...&git=...&model_id=...&backend=...&node_id=...` — each narrows one column
+- `?limit=50` — max 200
+→ `{ total, rows: [...] }`
 
-### GET /api/keys/usage
-API key usage analytics.
-- `?days=30`
-→ `{ period, total, byKey: {...} }`
+### POST /api/providence
+Record an answer with its provenance. A repeat of the same cache key counts a hit instead of inserting.
+← `{ document_root, document_uri, question_text, answer_text, model_id?, model_revision?, quantization?, conversation_hash?, seed?, ... }` (every other `providence_cache` column is optional)
+→ `{ id, cache_key, hit }` (201 when new)
+
+### DELETE /api/providence
+- `?id=123` or `?uri=...`
+→ `{ deleted }`
+
+### GET /api/providence/lookup
+Look up a cached answer by its key inputs; a different model, quantization or prompt is a different entry.
+- `?q=<question>` — required
+- `?root=<merkle or git root>` or `?git=<commit>` — one required
+- `?model_id=&model_revision=&quantization=&conversation_hash=&seed=` — optional key inputs
+→ `{ hit: false, cache_key, document_root, question_hash }` or `{ hit: true, answer, ...provenance, hit_count }`
 
 
 ## Ingest
 
 ### GET /api/ingest
-Ingest status and database info.
-→ `{ ingested, db }`
+Database row counts.
+→ `{ projects, sessions, messages, contentBlocks, thinkingBlocks, totalTokensStored, alerts }`
 
 ### POST /api/ingest
-Ingest JSONL conversation data.
-← Raw JSONL lines
-→ `{ accepted, errors }`
+Start an on-demand ingest pass over every harness log, in a detached worker process. Answers 202 at once; one pass at a time.
+→ `{ started: true, pid, startedAt }` or `{ started: false, alreadyRunning: true, pid, startedAt }`
 
 
 ## Boot & Harness Management
 
 ### POST /api/boot
-Boot a Claude Code session on a mesh node.
-← `{ projectPath, sessionId?, yolo?, prompt?, host?, sudoPassword? }`
-→ `{ success, tmuxSession, command }`
+Boot a harness session (Claude Code by default) in tmux on localhost, a mesh node, or unsandbox.
+← `{ projectPath, host?: "localhost" | "<mesh node>" | "unsandbox", sessionId?, yolo?, prompt?, parentSessionUuid?, todoIds?: [...], projectName?, harness?: "claude", harnessKey?, model?, preferMultiplexer?: "tmux" | "screen", bootstrap?, sudoPassword?, repoUrl? }`
+→ `{ success, tmuxSession, tmuxWindow, multiplexer, host, command }`
 
 ### POST /api/boot/finished
-Mark a boot session as complete.
+Called by an agent when it is done: sends `/exit` to its tmux window and marks the deployment completed.
+← `{ tmuxSession, tmuxWindow? }` or `{ projectName }` or `{ todoId }`
+→ `{ ok: true, exited: [...] }`
+
+### GET /api/boot/mega
+Status of every running deployment, checked against live tmux sessions.
+→ `{ active, dead, allDone, deployments: [...] }`
 
 ### POST /api/boot/mega
-Mega-boot: batch bootstrap across multiple nodes.
+Mega-boot: spawn one agent per project with open todos.
+← `{ maxAgents?: 10 }`
+→ `{ launched, total, results: [...] }`
+
+### DELETE /api/boot/mega
+Cull deployments whose todos are all done, and record dead ones.
+→ `{ culled, dead, culledProjects, deadProjects }`
+
+### GET /api/harness/models
+Models a harness can run on a target, so dispatch picks a model rather than a harness default.
+- `?harness=uncloseai` — required
+- `?host=4090-ai.foxhop.net` — default localhost
+- `?refresh=1` — skip our cache
+→ `{ harness, host, models: [...], selectable, source: static|none|cache|local|ssh|error, error? }`
+
+### POST /api/harness/verify
+Install (optional) and verify a harness on localhost or a remote node.
+← `{ host?, install?: "npm i -g ...", verify: "claude --version" }` — shell commands; `verify` is required
+→ `{ success, version, steps: [{ step, ok, output }] }`
 
 ### GET /api/tmux/stream
 SSE stream of tmux terminal output.
-- `?session=mysession&host=cammy&windows=true`
+- no `session` — list sessions → `{ sessions, deployments }`
+- `?session=mysession` — stream that session
+- `?window=2` — one window
+- `?windows=true` — list a session's windows → `{ windows }`
+- `?host=cammy` — a mesh node over SSH
 
 ### POST /api/tmux/stream
-Send keystrokes to tmux session.
-← `{ session, keys: "ls -la", special?: "Enter" }`
+Send keystrokes to a tmux session.
+← `{ session, keys: "ls -la", host?, window? }` · `{ session, special: "Enter" }` (named keys: Enter, Escape, Tab, C-c, arrows, …) · `{ session, action: "resize", cols, rows }`
+→ `{ ok: true, content? }`
+
+### POST /api/tmux/new
+Create a detached tmux session.
+← `{ name, host?, command?: "zsh || bash", cwd? }`
+→ `{ ok: true, name, host }`; 409 when the name exists
+
+### POST /api/tmux/upload
+Upload a file into a session's machine. `multipart/form-data` with `file`, `session` and optional `host` (`unsandbox` writes to `/tmp/input/` in the container, max 4 MB; otherwise max 50 MB).
+→ `{ ok: true, path, name }`
+
+### GET /api/sessions/nickname
+Every session nickname.
+→ `{ [session_id]: { nickname, host, service_name, updated_at } }`
+
+### POST /api/sessions/nickname
+Upsert a nickname; fields left out keep their value.
+← `{ session_id, nickname?, host?, service_name? }`
 → `{ ok: true }`
 
-### POST /api/harness/verify
-Verify harness installation on a remote node.
-← `{ host, install?: true, verify?: true }`
-→ `{ success, version, steps }`
+### DELETE /api/sessions/nickname
+← `{ session_id }`
+→ `{ ok: true }`
 
 
 ## Maintenance
@@ -390,16 +646,26 @@ Scan and redact PII from stored conversation data.
 
 ### GET /api/ssh-config
 Parse and list SSH config hosts and keys.
-→ `{ hosts: [...], keys: [...] }`
+→ `{ hosts: [...], keys: [...], hash }`
 
 ### POST /api/ssh-config
-Add/update SSH config entry.
-← `{ name, hostname, port?, user?, identityFile? }`
+Add or update an SSH config entry. Pass the `hash` you loaded; a config changed on disk since then is a 409.
+← `{ name, hostname, port?, user?, identityFile?, forwardAgent?, originalName?, hash? }` — `originalName` renames an existing block
+→ `{ ok: true, host, hash }`
+
+### DELETE /api/ssh-config
+← `{ name, hash? }`
+→ `{ ok: true, hash }`
 
 ### GET /api/apmonitor
-Application monitoring for mesh nodes.
-- `?host=...&path=...`
-→ `{ nodes: [...], summary }`
+APMonitor statefiles from localhost and every mesh node.
+- `?host=...` — one host only (returns its state directly)
+- `?path=...` — override our statefile path (else our `apmonitor_statefile` setting)
+→ `{ nodes: [...], summary: { totalResources, up, down, nodesPolled, nodesWithData } }`
+
+### POST /api/apmonitor
+Webhook receiver for APMonitor outage/recovery notifications (point its `outage_webhooks` here). Keeps the last 1000 raw payloads.
+→ `{ ok: true, received_at }`
 
 
 ## Agent Workflow Examples
@@ -414,16 +680,16 @@ curl -s "localhost:3000/api/projects/activity?days=7"
 ### Search conversation history
 ```bash
 curl -s "localhost:3000/api/logs?search=auth+error&types=assistant&from=2026-03-01&limit=50"
-curl -s "localhost:3000/api/thinking?search=architecture&limit=100"
+curl -s "localhost:3000/api/logs?search=architecture&has_thinking=true&limit=100"
 ```
 
 ### Extract training data (thinking traces)
 ```bash
-# All thinking blocks for a project
-curl -s "localhost:3000/api/thinking?project=-home-fox-git-myapp&limit=1000"
+# Messages carrying reasoning for a project (previews; replay a session for full text)
+curl -s "localhost:3000/api/logs?project=-home-fox-git-myapp&has_thinking=true&limit=500"
 
-# Full session replay with thinking
-curl -s "localhost:3000/api/sessions/SESSION_ID?types=user,assistant,thinking"
+# Full session replay, thinking blocks included
+curl -s "localhost:3000/api/sessions/SESSION_ID?project=-home-fox-git-myapp&types=user,assistant"
 
 # Scrobble payload — structured activity + model usage data
 curl -s localhost:3000/api/scrobble/payload

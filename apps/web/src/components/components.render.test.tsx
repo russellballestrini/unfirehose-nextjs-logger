@@ -94,7 +94,7 @@ const PROPS = {
   // component whose type says `filter: string` should not have to defend
   // against not being given one.
   harnesses: [], filter: '', setFilter: vi.fn(), statuses: {}, header: null,
-} as never;
+} as Record<string, unknown>;
 
 describe('every shared component mounts', () => {
   it('finds them, so this cannot quietly cover nothing', () => {
@@ -111,7 +111,7 @@ describe('every shared component mounts', () => {
       );
 
       for (const [, Component] of exported) {
-        const C = Component as (p: never) => React.ReactNode;
+        const C = Component as React.ComponentType<Record<string, unknown>>;
         act(() => { render(<C {...PROPS} />); });
         cleanup();
       }

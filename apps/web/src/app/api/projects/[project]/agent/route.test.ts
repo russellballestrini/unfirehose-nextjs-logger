@@ -136,7 +136,7 @@ describe('POST — finish', () => {
     const body = await (await post({ action: 'finish' })).json();
     expect(ran).toContain('add -A');
     expect(ran).toContain('push');
-    expect(body.result.actions.join(' ')).toMatch(/Committed.*Pushed 1 commit/s);
+    expect(body.result.actions.join(' ')).toMatch(/Committed[\s\S]*Pushed 1 commit/);
   });
 
   it('uses the message it was given rather than inventing one', async () => {

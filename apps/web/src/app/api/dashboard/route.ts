@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDashboard, refreshDashboard } from '@unturf/unfirehose/dashboard';
+import { readDashboard, refreshDashboard, DASHBOARD_RANGES } from '@unturf/unfirehose/dashboard';
 import { ingestLagMinutes } from '@unturf/unfirehose/db/ingest';
 
 /**
@@ -11,6 +11,15 @@ import { ingestLagMinutes } from '@unturf/unfirehose/db/ingest';
  */
 export async function GET(request: NextRequest) {
   const range = request.nextUrl.searchParams.get('range') ?? '7d';
+  // An unknown range was built as 7d and stored under its own name, where
+  // the worker never refreshed it: a stale copy served forever, and a
+  // settings row per typo. /api/tokens refuses one the same way.
+  if (!(range in DASHBOARD_RANGES)) {
+    return NextResponse.json(
+      { error: `Unknown range "${range}"`, ranges: Object.keys(DASHBOARD_RANGES) },
+      { status: 400 },
+    );
+  }
 
   // Keep the last successful result available while the worker is importing.
   // X-Computed-At exposes its age; expiry must not move rebuilds onto requests.
