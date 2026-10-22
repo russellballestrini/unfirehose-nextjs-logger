@@ -2,12 +2,38 @@ stages:
   - test
   - publish
 
+# Node comes from nodejs.org, pinned by sha256 and installed on first use, so
+# a fresh `build` runner provisions itself and a tampered tarball fails the
+# job. NODE_SHA256 is the linux-x64 .tar.gz line of SHASUMS256.txt for this
+# release, whose detached signature verifies against a releaser key listed in
+# nodejs/node README (Antoine du Hamel, 5BE8A3F6C8A5C01D106C0AD820B1A390B168D356).
+# 22.23.4 carries the eMudhra distrust in its compiled-in root store
+# (Oct 2026). Bump version and hash together.
+.install_node: &install_node |
+  NODE_VERSION="22.23.4"
+  NODE_SHA256="b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+  NODE_INSTALL_DIR="$HOME/.local/node-v${NODE_VERSION}"
+  NODE_TARBALL="$HOME/node-v${NODE_VERSION}-linux-x64.tar.gz"
+  if [ ! -x "$NODE_INSTALL_DIR/bin/node" ]; then
+    echo "Installing Node ${NODE_VERSION}..."
+    if [ ! -f "$NODE_TARBALL" ] || ! echo "${NODE_SHA256}  ${NODE_TARBALL}" | sha256sum -c - >/dev/null 2>&1; then
+      rm -f "$NODE_TARBALL"
+      wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O "$NODE_TARBALL"
+    fi
+    echo "${NODE_SHA256}  ${NODE_TARBALL}" | sha256sum -c - || { echo "NODE CHECKSUM FAIL"; exit 1; }
+    rm -rf "$NODE_INSTALL_DIR"
+    mkdir -p "$NODE_INSTALL_DIR"
+    tar -xzf "$NODE_TARBALL" -C "$NODE_INSTALL_DIR" --strip-components=1
+  fi
+  export PATH="$NODE_INSTALL_DIR/bin:$PATH"
+  node --version
+
 test:
   stage: test
   tags:
     - build
   before_script:
-    - export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+    - *install_node
     - npm ci
   script:
     - npm run lint
@@ -25,7 +51,7 @@ publish:
   only:
     - tags
   before_script:
-    - export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+    - *install_node
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
     - npm ci
   script:

@@ -21,7 +21,10 @@
 #    socket; the cgroup path works without it, names do not).
 
 # --- builder ------------------------------------------------------
-FROM node:24-alpine AS builder
+# Pinned by multi-arch index digest: a tag moves, a digest does not. 24.22.1
+# carries the eMudhra distrust in its compiled-in root store (Oct 2026).
+# Bump both stages together.
+FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS builder
 
 # better-sqlite3 is native and Alpine is musl: it compiles here against musl,
 # and the .node it produces runs in the musl runtime stage unchanged. No
@@ -50,7 +53,7 @@ COPY . .
 RUN cd apps/web && NEXT_STANDALONE=1 npx next build
 
 # --- runtime ------------------------------------------------------
-FROM node:24-alpine
+FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 
 # coreutils first — the reason this file is not plain busybox. See the header.
 RUN apk add --no-cache coreutils bash openssh-client git curl ca-certificates tmux docker-cli

@@ -13,7 +13,23 @@ jobs:
       uses: actions/checkout@v4
     - name: script
       run: |-
-        export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+        NODE_VERSION="22.23.4"
+        NODE_SHA256="b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+        NODE_INSTALL_DIR="$HOME/.local/node-v${NODE_VERSION}"
+        NODE_TARBALL="$HOME/node-v${NODE_VERSION}-linux-x64.tar.gz"
+        if [ ! -x "$NODE_INSTALL_DIR/bin/node" ]; then
+          echo "Installing Node ${NODE_VERSION}..."
+          if [ ! -f "$NODE_TARBALL" ] || ! echo "${NODE_SHA256}  ${NODE_TARBALL}" | sha256sum -c - >/dev/null 2>&1; then
+            rm -f "$NODE_TARBALL"
+            wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O "$NODE_TARBALL"
+          fi
+          echo "${NODE_SHA256}  ${NODE_TARBALL}" | sha256sum -c - || { echo "NODE CHECKSUM FAIL"; exit 1; }
+          rm -rf "$NODE_INSTALL_DIR"
+          mkdir -p "$NODE_INSTALL_DIR"
+          tar -xzf "$NODE_TARBALL" -C "$NODE_INSTALL_DIR" --strip-components=1
+        fi
+        export PATH="$NODE_INSTALL_DIR/bin:$PATH"
+        node --version
         npm ci
         npm run lint
         npm test
@@ -26,7 +42,23 @@ jobs:
       uses: actions/checkout@v4
     - name: script
       run: |
-        export PATH="$HOME/.local/node-v22.14.0/bin:$PATH"
+        NODE_VERSION="22.23.4"
+        NODE_SHA256="b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+        NODE_INSTALL_DIR="$HOME/.local/node-v${NODE_VERSION}"
+        NODE_TARBALL="$HOME/node-v${NODE_VERSION}-linux-x64.tar.gz"
+        if [ ! -x "$NODE_INSTALL_DIR/bin/node" ]; then
+          echo "Installing Node ${NODE_VERSION}..."
+          if [ ! -f "$NODE_TARBALL" ] || ! echo "${NODE_SHA256}  ${NODE_TARBALL}" | sha256sum -c - >/dev/null 2>&1; then
+            rm -f "$NODE_TARBALL"
+            wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O "$NODE_TARBALL"
+          fi
+          echo "${NODE_SHA256}  ${NODE_TARBALL}" | sha256sum -c - || { echo "NODE CHECKSUM FAIL"; exit 1; }
+          rm -rf "$NODE_INSTALL_DIR"
+          mkdir -p "$NODE_INSTALL_DIR"
+          tar -xzf "$NODE_TARBALL" -C "$NODE_INSTALL_DIR" --strip-components=1
+        fi
+        export PATH="$NODE_INSTALL_DIR/bin:$PATH"
+        node --version
         echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
         npm ci
         export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
