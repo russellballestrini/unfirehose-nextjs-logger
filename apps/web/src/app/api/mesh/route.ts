@@ -254,16 +254,23 @@ function fromSnapshots(now: number, t: Timing): { payload: MeshPayload; computed
   for (const n of meshCache?.data.nodes ?? []) if (n.reachable) facts.set(n.hostname, n);
   const factsAge = meshCache ? now - meshCache.ts : 0;
 
+  // Walk ssh config order, the order the live path answers in. The rows
+  // themselves arrive in timestamp order, so taking them as they came put
+  // whichever host had sampled earliest inside the window first — and the
+  // sampler's phases rotate against the window, so the fleet page shuffled
+  // its cards on every reload.
   const nodes: MeshNode[] = [];
   let oldest = now;
-  for (const row of fresh.values()) {
+  const unclaimed = new Map(fresh);
+  const take = (row: SnapshotRow) => {
+    unclaimed.delete(row.hostname);
     nodes.push(nodeFromSnapshot(row, facts.get(row.hostname), factsAge));
     oldest = Math.min(oldest, parseSqliteTime(row.timestamp));
-  }
-  const freshNames = [...fresh.keys()];
+  };
   for (const host of hosts) {
     const name = probedHostname.get(host) ?? (host === 'localhost' ? local : undefined) ?? host;
-    if (freshNames.some(s => sameBox(s, name))) continue;
+    const key = [...unclaimed.keys()].find(s => sameBox(s, name));
+    if (key) { take(unclaimed.get(key)!); continue; }
     const last = lastSampleAt([name, host, name.split('.')[0]]);
     nodes.push({
       hostname: name,
@@ -271,6 +278,9 @@ function fromSnapshots(now: number, t: Timing): { payload: MeshPayload; computed
       error: last === null ? 'No sample yet' : `Last sample ${human(last)}`,
     });
   }
+  // A box ssh config no longer lists but the sampler still wrote: shown
+  // after the configured ones, in a fixed order.
+  for (const row of [...unclaimed.values()].sort((a, b) => a.hostname.localeCompare(b.hostname))) take(row);
   const results = deduplicateNodes(nodes);
   t.mark('assemble');
   return {

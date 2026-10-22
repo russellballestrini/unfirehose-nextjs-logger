@@ -194,6 +194,26 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     expect(me.gpuUtil).toBeUndefined();
   });
 
+  it('lists nodes in ssh config order, whichever of them sampled first', async () => {
+    // Order used to follow the timestamp scan: whichever host's sample was
+    // oldest inside the window came first, and the sampler's phases rotate
+    // against the window, so the fleet page re-shuffled its cards on every
+    // reload. Seeded here oldest-first in reverse config order.
+    nodes = ['localhost', 'cammy.foxhop.net', 'guile.foxhop.net', 'blanka.foxhop.net'];
+    seedSnapshot('ghost.foxhop.net', 40);
+    seedSnapshot('blanka.foxhop.net', 30);
+    seedSnapshot('guile.foxhop.net', 20);
+    seedSnapshot('cammy.foxhop.net', 10);
+    seedSnapshot('neoblanka', 3);
+
+    const body = await (await get('')).json();
+    expect(body.nodes.map((n: any) => n.hostname)).toEqual([
+      'neoblanka', 'cammy.foxhop.net', 'guile.foxhop.net', 'blanka.foxhop.net',
+      // Still sampled, no longer configured: after the fleet, not shuffled into it.
+      'ghost.foxhop.net',
+    ]);
+  });
+
   it('marks a node whose newest sample is old, rather than ssh-ing to it inline', async () => {
     nodes = ['localhost', 'cammy.foxhop.net', 'guile.foxhop.net'];
     seedSnapshot('neoblanka', 3);

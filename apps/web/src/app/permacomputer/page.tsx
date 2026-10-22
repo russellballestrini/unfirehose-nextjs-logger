@@ -1033,7 +1033,9 @@ export function MeshEconomicsPanel(inputs: MeshScoreInputs) {
             <Link href="/docs/architecture/node-score" className="underline opacity-60 hover:opacity-100">formula</Link>
           </div>
           <div className="space-y-1">
-            {score.nodeScores.sort((a, b) => b.score - a.score).map(ns => {
+            {/* Scores live on the 7-lattice, so ties are the norm; the name
+                breaks them, and the copy keeps the sort out of shared state. */}
+            {[...score.nodeScores].sort((a, b) => b.score - a.score || a.hostname.localeCompare(b.hostname)).map(ns => {
               const maxScore = Math.max(...score.nodeScores.map(s => s.score), 1);
               const tier = ns.score >= 189 ? 'Anchor'
                          : ns.score >= 126 ? 'Contributor'
