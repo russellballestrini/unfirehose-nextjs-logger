@@ -1,5 +1,5 @@
 .PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
-        test-core test-ui test-web test-scripts \
+        test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
         build docker docker-run typecheck publish publish-dry-run
@@ -28,7 +28,7 @@ NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=
 # workspace path — make reads a slash as a directory — so each has a short
 # name and cd's itself.
 test:
-	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts
+	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts test-schema
 
 # tsc over every workspace with a tsconfig, tests included. Vitest strips
 # types without checking them, so a test can drift from the code it calls
@@ -52,6 +52,9 @@ test-web:
 	@echo "==> apps/web"; cd apps/web && npx vitest run
 test-scripts:
 	@echo "==> scripts"; cd scripts && npx vitest run
+# unfirehose/1.0 conformance: schemas compile strict, fixtures & doc examples validate.
+test-schema:
+	@echo "==> packages/schema"; cd packages/schema && npx vitest run
 
 cov-core:
 	@echo "==> packages/core"; cd packages/core && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
