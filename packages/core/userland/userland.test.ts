@@ -43,6 +43,10 @@ for (const tool of ['awk', 'basename', 'cat', 'cut', 'expr', 'grep', 'head', 'se
 afterAll(() => rmSync(bare, { recursive: true, force: true }));
 const bareScript = script.replace(/^PATH=.*$/m, `PATH=${bare}`);
 const shBin = spawnSync('which', ['sh'], { encoding: 'utf-8' }).stdout.trim();
+// What each run does is fixed now; how long it takes is not. A run is ~0.1 s
+// on an idle box and was 11 s at load 11 on four cores, so every test that
+// spawns the shell gets a deadline sized for a busy CI runner.
+const SHELL_DEADLINE_MS = 30_000;
 const onBareBox = (sysname: string) => spawnSync(shBin, [], {
   input: bareScript, encoding: 'utf-8', env: { PATH: bare, UF_SYSNAME: sysname },
 });
@@ -75,7 +79,7 @@ describe('buildProbeScript', () => {
     expect(w.complete).toBe(true);
     expect(w.kv.userland).toMatch(/^linux-/);
     expect(parseInt(w.kv.nproc!)).toBeGreaterThan(0);
-  }, 30000);
+  }, SHELL_DEADLINE_MS);
 
   // A plugin that hangs or aborts on a missing tool would mark a whole
   // node unreachable — the failure this work exists to remove. One test per
@@ -91,7 +95,7 @@ describe('buildProbeScript', () => {
       expect(w.complete, name).toBe(true);
       expect(w.kv.os, name).toBe(name);
       expect(userlandById(w.kv.userland!), `${name} → ${w.kv.userland}`).toBeDefined();
-    });
+    }, SHELL_DEADLINE_MS);
 
   it('isolates the branches from this machine: the bare box has no probing tools', () => {
     expect(bareScript).toContain(`PATH=${bare}\n`);
@@ -110,7 +114,7 @@ describe('buildProbeScript', () => {
     expect(pick('Windows NT')).toBe('windows-sh');
     expect(pick('Minix')).toBe('netbsd');
     expect(pick('NONSTOP_KERNEL')).toBe('generic');
-  });
+  }, SHELL_DEADLINE_MS);
 
   it('carries the same PowerShell for a Bourne shell on Windows as for none', () => {
     expect(userlandById('windows-sh')!.body).toContain(POWERSHELL_SCRIPT.trim().split('\n')[0]);
