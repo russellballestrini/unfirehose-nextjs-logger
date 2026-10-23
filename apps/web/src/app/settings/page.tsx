@@ -1,6 +1,7 @@
 'use client';
 
 import { useHashTab } from '@/lib/use-hash-tab';
+import { HarnessHealth } from './HarnessHealth';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -106,7 +107,7 @@ export default function SettingsPage() {
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
-  const TABS = ['General', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
+  const TABS = ['General', 'Harnesses', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];
   const [activeTab, setActiveTab] = useHashTab<SettingsTab>(TABS, 'General');
   const vault = useVault();
@@ -145,6 +146,8 @@ export default function SettingsPage() {
           </button>
         ))}
       </div>
+
+      {activeTab === 'Harnesses' && <HarnessHealth />}
 
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (

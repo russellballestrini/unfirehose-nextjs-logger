@@ -151,7 +151,7 @@ export function FirstRunWizard({ onDone }: { onDone?: () => void }) {
       </ol>
 
       <div className="flex flex-wrap gap-3 pt-2 border-t border-[var(--color-border)] text-sm">
-        <Link href="/settings#harnesses" className="px-3 py-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Harness health</Link>
+        <Link href="/settings#Harnesses" className="px-3 py-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Harness health</Link>
         <Link href="/schema" className="px-3 py-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Schema docs</Link>
         <Link href="/live" className="px-3 py-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Live stream</Link>
       </div>
