@@ -2,7 +2,7 @@
         test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
-        build docker docker-run typecheck publish publish-dry-run \
+        build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
         service-install service-start service-stop service-restart service-status service-logs service-uninstall
 
 # Everything a change should pass before it is pushed.
@@ -316,6 +316,18 @@ docker-run:
 	  -v /var/run/docker.sock:/var/run/docker.sock \
 	  -v unfirehose-data:/home/node/.unfirehose \
 	  $(IMAGE)
+
+# Web and worker together, for a machine without node. docker-compose.yml
+# says which journals it mounts and why; edit the mounts there, once.
+compose-up:
+	docker compose up -d --build
+	@echo "open http://localhost:3000"
+
+compose-down:
+	docker compose down
+
+compose-logs:
+	docker compose logs -f --tail 100
 
 # --- npm release -----------------------------------------------------
 # Bump all four packages to one version, commit, tag, publish, and wait
