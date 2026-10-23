@@ -2,21 +2,20 @@
  * Which harnesses this machine has, read off the disk.
  *
  * One answer for every place that asks: the first-run wizard, the harness
- * section in Settings, and `make doctor`. Each root comes from the module
- * that ingest itself reads it from — claudePaths, fetchPaths, uncloseaiPaths,
- * agntPaths, and the `~/.<name>/unfirehose` scan — so this cannot report a
- * harness found at a path ingest never looks at, or miss one it does.
+ * section in Settings, and `make doctor`. The harnesses are the registry's
+ * ingested ones (harness-registry.ts), each at the root ingest reads
+ * (harness-roots.ts), plus any `~/.<name>/unfirehose` native writer — so
+ * this cannot report a harness found at a path ingest never looks at, or
+ * miss one it does.
  *
  * Pure filesystem, no database: the doctor runs it before there is one.
  */
 import { readdirSync, statSync, accessSync, constants } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
-import { claudePaths } from './claude-paths';
-import { fetchPaths } from './fetch-paths';
-import { uncloseaiPaths } from './uncloseai-paths';
-import { agntPaths } from './agnt-paths';
 import { harnessRootsInHome } from './fleet-roots';
+import { ingestedHarnesses, harnessById } from './harness-registry';
+import { HARNESS_ROOTS } from './harness-roots';
 
 export interface HarnessLocation {
   /** The name sessions carry in `sessions.harness`. */
@@ -44,19 +43,19 @@ export interface HarnessDetection extends HarnessLocation {
 
 /** Every harness root ingest reads, in the order a person would look for them. */
 export function harnessLocations(home = homedir()): HarnessLocation[] {
-  const fixed: HarnessLocation[] = [
-    { id: 'claude-code', label: 'Claude Code', root: claudePaths.projects, doc: 'harnesses/claude-code.md', start: 'cd ~/your/repo && claude' },
-    { id: 'fetch', label: 'Fetch', root: fetchPaths.root, doc: 'harnesses/fetch.md' },
-    { id: 'uncloseai', label: 'uncloseai-cli', root: uncloseaiPaths.root, doc: 'harnesses/uncloseai-cli.md' },
-    { id: 'agnt', label: 'agnt', root: agntPaths.root, doc: 'harnesses/agnt.md' },
-  ];
+  const fixed: HarnessLocation[] = ingestedHarnesses().map((h) => ({
+    id: h.id, label: h.label, root: HARNESS_ROOTS[h.id](), doc: h.doc,
+    ...(h.start ? { start: h.start } : {}),
+  }));
   const seen = new Set(fixed.map((h) => h.root));
   // Any other ~/.<name>/unfirehose is a native unfirehose/1.0 writer; ingest
   // picks them up without registration, so detection does too.
   for (const h of harnessRootsInHome(home)) {
     if (seen.has(h.root)) continue;
     seen.add(h.root);
-    fixed.push({ id: h.name, label: h.name, root: h.root, doc: 'jsonl-format.md' });
+    // A native writer the registry documents keeps its own label and doc.
+    const known = harnessById(h.name);
+    fixed.push({ id: h.name, label: known?.label ?? h.name, root: h.root, doc: known?.doc ?? 'jsonl-format.md' });
   }
   return fixed;
 }

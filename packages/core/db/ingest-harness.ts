@@ -22,6 +22,7 @@ import {
   updateUsageMinutes,
 } from './ingest-rows';
 import { extractTodosFromEntry } from './ingest-todos';
+import { NOT_NATIVE_DIRS } from '../harness-registry';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -45,7 +46,8 @@ export interface NativeHarness {
   root: string;
 }
 
-const EXCLUDED_HARNESS_DIRS = new Set(['unfirehose', 'claude', 'fetch']);
+// Ours, or harnesses with their own reader: one list, in the registry.
+const EXCLUDED_HARNESS_DIRS = NOT_NATIVE_DIRS;
 
 function discoverNativeHarnesses(): NativeHarness[] {
   const home = homedir();

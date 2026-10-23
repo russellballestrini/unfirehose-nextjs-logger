@@ -18,6 +18,7 @@ vi.mock('os', async (orig) => {
 delete process.env.FETCH_JSONL_DIR;
 delete process.env.UNCLOSEAI_UNFIREHOSE_DIR;
 delete process.env.AGNT_UNFIREHOSE_DIR;
+delete process.env.UNFIREHOSE_CODEX_DIR;
 
 const { detectHarnesses, harnessLocations } = await import('./harness-detect');
 
@@ -36,7 +37,7 @@ afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
 describe('detectHarnesses', () => {
   it('finds nothing on a machine with no harness, and still names every one ingest reads', () => {
     const d = detectHarnesses();
-    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt']);
+    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'codex']);
     expect(d.every((h) => !h.found && h.files === 0 && h.newestMs === null)).toBe(true);
     expect(d[0]).toMatchObject({ root: path.join(home, '.claude', 'projects'), doc: 'harnesses/claude-code.md', start: 'cd ~/your/repo && claude' });
   });
@@ -55,9 +56,14 @@ describe('detectHarnesses', () => {
     write('.orcestra/unfirehose/proj/s.jsonl');
     write('.uncloseai/unfirehose/proj/s.jsonl');
     const d = detectHarnesses();
-    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'orcestra']);
+    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'codex', 'orcestra']);
     expect(d.find((h) => h.id === 'orcestra')).toMatchObject({ found: true, files: 1, doc: 'jsonl-format.md' });
     expect(d.find((h) => h.id === 'uncloseai')).toMatchObject({ found: true, files: 1 });
+  });
+
+  it('gives a native writer the registry documents its own label and doc', () => {
+    write('.arborist/unfirehose/p/s.jsonl');
+    expect(detectHarnesses().find((h) => h.id === 'arborist')).toMatchObject({ label: 'arborist', doc: 'harnesses/arborist.md', found: true });
   });
 
   it('stops counting at the cap and says so', () => {
@@ -77,6 +83,6 @@ describe('detectHarnesses', () => {
   });
 
   it('lists locations without touching the files', () => {
-    expect(harnessLocations().length).toBe(4);
+    expect(harnessLocations().length).toBe(5);
   });
 });

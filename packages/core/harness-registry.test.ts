@@ -1,0 +1,69 @@
+import { describe, it, expect } from 'vitest';
+import { readdirSync, existsSync } from 'fs';
+import path from 'path';
+import { HARNESS_REGISTRY, ingestedHarnesses, harnessById } from './harness-registry';
+import { HARNESS_ROOTS } from './harness-roots';
+import { HARNESSES, HARNESS_MODEL_FLAGS } from './harness-models';
+import { HARNESS_PROC_NAMES } from './harness-procs';
+import { harnessFor } from './session-paths';
+
+/**
+ * One table of harnesses, and everything that used to keep its own list
+ * reading from it. These pin the table to the adapter docs and pin the
+ * derived lists to the values saved settings and running sessions use.
+ */
+
+const DOCS = path.resolve(__dirname, '../schema/docs');
+
+describe('HARNESS_REGISTRY', () => {
+  it('has an entry for every adapter doc, and every entry\'s doc exists', () => {
+    const docs = readdirSync(path.join(DOCS, 'harnesses')).filter((f) => f.endsWith('.md')).map((f) => `harnesses/${f}`).sort();
+    expect([...new Set(HARNESS_REGISTRY.map((h) => h.doc))].sort()).toEqual(docs);
+    for (const h of HARNESS_REGISTRY) expect(existsSync(path.join(DOCS, h.doc)), h.doc).toBe(true);
+  });
+
+  it('names each harness, launcher key and process once', () => {
+    const ids = HARNESS_REGISTRY.map((h) => h.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const keys = HARNESS_REGISTRY.flatMap((h) => (h.launch ? [h.launch.key] : []));
+    expect(new Set(keys).size).toBe(keys.length);
+    const procs = HARNESS_REGISTRY.flatMap((h) => h.procNames ?? []);
+    expect(new Set(procs).size).toBe(procs.length);
+  });
+
+  it('knows where every harness it ingests writes, and nothing else', () => {
+    expect(ingestedHarnesses().map((h) => h.id).sort()).toEqual(Object.keys(HARNESS_ROOTS).sort());
+  });
+
+  it('gives the session viewer a reader for every ingested harness and its older ids', () => {
+    for (const h of ingestedHarnesses()) expect(harnessFor(`${h.id}:slug`).adapter.name).toBe(h.id);
+    expect(harnessFor('uncloseai-cli:slug').adapter.name).toBe('uncloseai-cli');
+    expect(harnessFor('-home-fox-git-x').adapter.name).toBe('claude-code');
+  });
+
+  it('looks a harness up by id', () => {
+    expect(harnessById('gemini-cli')?.label).toBe('Gemini CLI');
+    expect(harnessById('nope')).toBeUndefined();
+  });
+});
+
+describe('lists derived from the registry keep their values', () => {
+  it('boot panel: same keys, labels and commands, same order', () => {
+    expect(HARNESSES.map((h) => [h.value, h.label, h.cmd])).toEqual([
+      ['claude', 'Claude Code', 'claude'], ['uncloseai', 'uncloseai-cli', 'unclose'],
+      ['gemini', 'Gemini CLI', 'gemini'], ['codex', 'Codex CLI', 'codex'],
+      ['open-code', 'Open Code', 'opencode'], ['aider', 'Aider', 'aider'],
+      ['agnt', 'agnt', 'agnt'], ['cursor', 'Cursor', 'cursor'], ['continue', 'Continue', 'continue'],
+      ['ollama', 'Ollama', 'ollama'], ['fetch', 'Fetch', 'fetch'], ['custom', 'Custom...', ''],
+    ]);
+    expect(HARNESS_MODEL_FLAGS).toEqual({ claude: '--model', uncloseai: '--model', gemini: '--model', codex: '--model', aider: '--model', ollama: '' });
+  });
+
+  it('process names map to the same harness keys as before', () => {
+    expect(HARNESS_PROC_NAMES).toEqual({
+      claude: 'claude', unclose: 'uncloseai', 'uncloseai-cli': 'uncloseai', 'uncloseai_cli.py': 'uncloseai',
+      crossbench: 'uncloseai', gemini: 'gemini', codex: 'codex', opencode: 'open-code', aider: 'aider',
+      agnt: 'agnt', cursor: 'cursor',
+    });
+  });
+});

@@ -2,9 +2,9 @@ import { parseToolArgs } from './uncloseai-adapter';
 import path from 'path';
 import { homedir } from 'os';
 import { claudePaths } from './claude-paths';
-import { fetchPaths } from './fetch-paths';
-import { uncloseaiPaths } from './uncloseai-paths';
-import { agntPaths } from './agnt-paths';
+import { harnessPaths } from './harness-paths';
+import { ingestedHarnesses, type HarnessFormat } from './harness-registry';
+import { HARNESS_ROOTS } from './harness-roots';
 import { normalizeClaudeCodeEntry } from './claude-code-adapter';
 import { normalizeUncloseaiEntry } from './uncloseai-adapter';
 
@@ -122,33 +122,30 @@ function normalizeUncloseaiCli(raw: any): UfMessage | null {
   }
 }
 
-const HARNESSES: Record<string, HarnessAdapter> = {
-  'claude-code': {
-    name: 'claude-code',
-    sessionFile: (slug, id) => claudePaths.sessionFile(slug, id),
-    normalize: (raw) => normalizeClaudeCodeEntry(raw) as UfMessage | null,
-  },
-  fetch: {
-    name: 'fetch',
-    sessionFile: (slug, id) => fetchPaths.sessionFile(slug, id),
-    normalize: passthroughNative,
-  },
-  uncloseai: {
-    name: 'uncloseai',
-    sessionFile: (slug, id) => uncloseaiPaths.sessionFile(slug, id),
-    normalize: passthroughNative,
-  },
-  'uncloseai-cli': {
-    name: 'uncloseai-cli',
-    sessionFile: (slug, id) => uncloseaiPaths.sessionFile(slug, id),
-    normalize: normalizeUncloseaiCli,
-  },
-  agnt: {
-    name: 'agnt',
-    sessionFile: (slug, id) => agntPaths.sessionFile(slug, id),
-    normalize: passthroughNative,
-  },
+const NORMALIZE: Record<HarnessFormat, (raw: any) => UfMessage | null> = {
+  'claude-code': (raw) => normalizeClaudeCodeEntry(raw) as UfMessage | null,
+  unfirehose: passthroughNative,
+  'uncloseai-cli': normalizeUncloseaiCli,
 };
+
+function adapterFor(id: string, format: HarnessFormat): HarnessAdapter {
+  // Claude Code nests subagents under their parent session; every other
+  // harness is {root}/{slug}/{session}.jsonl.
+  const sessionFile = id === 'claude-code'
+    ? (slug: string, sid: string) => claudePaths.sessionFile(slug, sid)
+    : (slug: string, sid: string) => harnessPaths(HARNESS_ROOTS[id]()).sessionFile(slug, sid);
+  return { name: id, sessionFile, normalize: NORMALIZE[format] };
+}
+
+// Every ingested harness in the registry, plus the older ids some of them
+// also wrote under (uncloseai-cli's pre-1.0 lines).
+const HARNESSES: Record<string, HarnessAdapter> = Object.fromEntries(
+  ingestedHarnesses().flatMap((h) => [
+    [h.id, adapterFor(h.id, h.format!)],
+    ...Object.entries(h.altFormats ?? {}).map(([alt, fmt]) => [alt, { ...adapterFor(h.id, fmt), name: alt }]),
+  ]),
+);
+
 
 function genericNativeAdapter(harness: string): HarnessAdapter {
   return {
