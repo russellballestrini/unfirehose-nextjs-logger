@@ -382,3 +382,13 @@ input[type="checkbox"] {
   background: rgba(167, 139, 250, 0.22) !important;
   border: 1px solid rgba(167, 139, 250, 0.55) !important;
 }
+
+/* Coach marks (CoachMarks.tsx): a short fade-and-rise on first show. */
+@keyframes coach-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.coach-mark { animation: coach-in 180ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .coach-mark { animation: none; }
+}

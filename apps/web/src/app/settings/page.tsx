@@ -2,6 +2,7 @@
 
 import { useHashTab } from '@/lib/use-hash-tab';
 import { HarnessHealth } from './HarnessHealth';
+import { resetCoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -209,7 +210,17 @@ export default function SettingsPage() {
               <h3 className="text-base font-bold text-[var(--color-muted)]">Local Data</h3>
               <div className="text-base text-[var(--color-muted)] space-y-1">
                 <div>Database: <span className="text-[var(--color-foreground)] font-mono">~/.unfirehose/unfirehose.db</span></div>
-                <div>Sessions: <span className="text-[var(--color-foreground)] font-mono">~/.claude/projects/</span></div>
+                <div>Sessions: every harness on the <button type="button" className="text-[var(--color-accent)] hover:underline cursor-pointer" onClick={() => setActiveTab('Harnesses')}>Harnesses</button> tab</div>
+              </div>
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-[var(--color-border)]">
+                <span className="text-base text-[var(--color-muted)]">Page hints (Dashboard, Tokens, Projects, Permacomputer)</span>
+                <button
+                  type="button"
+                  className="px-3 py-1 text-sm rounded border border-[var(--color-border)] hover:border-[var(--color-accent)] cursor-pointer"
+                  onClick={() => { resetCoachMarks(); showToast('Hints will show again on each page'); }}
+                >
+                  Show hints again
+                </button>
               </div>
             </div>
 
