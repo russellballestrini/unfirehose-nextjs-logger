@@ -5,7 +5,7 @@ import { mkdirSync } from 'fs';
 import { applyBasePragmas } from './pragmas';
 import { migrate } from './migrate';
 
-const UNFIREHOSE_DIR = path.join(homedir(), '.unfirehose');
+import { UNFIREHOSE_DIR } from './data-dir';
 
 // `UNFIREHOSE_DB_PATH` redirects the whole process at one file. Tests use it
 // to get a scratch database, and it lets a second instance run against a copy

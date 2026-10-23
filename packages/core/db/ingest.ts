@@ -85,8 +85,6 @@ export { getSetting, setSetting, getAllSettings, deleteSetting } from './ingest-
 export { createPost, getPosts, getPost, deletePost } from './ingest-posts';
 export type { PostRow } from './ingest-posts';
 
-const CANONICAL_ROOT = path.join(homedir(), '.unfirehose', 'canonical');
-
 // Poison pill: when an agent emits UNEOF, the orchestrator culls its deployment
 export const AGENT_FINISHED_TOKEN = 'UNEOF';
 

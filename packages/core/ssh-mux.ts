@@ -17,7 +17,7 @@
 
 import { mkdirSync, chmodSync } from 'fs';
 import path from 'path';
-import { UNFIREHOSE_DIR } from './db/schema';
+import { UNFIREHOSE_DIR } from './db/data-dir';
 
 export const CONTROL_PERSIST_S = 120;
 export const SSH_CONTROL_DIR = path.join(UNFIREHOSE_DIR, 'ssh');
