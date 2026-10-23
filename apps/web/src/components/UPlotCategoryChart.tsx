@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import uPlot from 'uplot';
+import uPlot from '@/lib/uplot';
 import 'uplot/dist/uPlot.min.css';
 
 /**

@@ -10,7 +10,7 @@
  * within a 16ms frame budget — mouse never sees a hitch.
  */
 
-import uPlot from 'uplot';
+import uPlot from '@/lib/uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useEffect, useRef } from 'react';
 
