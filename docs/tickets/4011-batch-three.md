@@ -311,7 +311,7 @@ Decisions for fox:
 
 ## Decisions for fox, all items
 
-1. Aider, Cursor and OpenCode are still documented only; their on-disk formats were not stable enough to read.
+1. Aider, Cursor and OpenCode are still documented only. Aider keeps its history in each repo, so which repos to scan needs a decision. Cursor and OpenCode store sessions in a shape that changes between releases.
 2. (none)
 3. Lint and budget jobs are red on arrival: fix the code, or raise the budgets?
 4. Should `DELETE /sessions/:id` (kill session) be fixed inside the boundary? Should an upgrade keep unsandbox off until someone turns it on?
