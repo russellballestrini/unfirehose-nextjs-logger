@@ -16,6 +16,7 @@ import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TodoBoard } from '@/components/TodoBoard';
+import { TrainingExport } from '@/components/TrainingExport';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
 
@@ -669,6 +670,8 @@ export function OverviewTab({ full, data, meta, project, decodedProject: _decode
               </div>
             </div>
           )}
+
+          <TrainingExport project={decodeURIComponent(project)} />
 
           {/* Top Tools */}
           {full?.toolUsage?.length > 0 && (

@@ -303,6 +303,23 @@ One calendar month of spend, itemised for an expense claim. Each line names its 
 - `rebuild=1` — build and file a closed month again
 → `{ month, timeZone, periodStart, periodEnd, closed, generatedAt, currency: { code, rate, rateDate, source, fallbackReason? }, lines: [{ category, item, detail, basis, usd }], memo: [{ item, detail, usd }], byCategory, byProject, byModel, totalUSD, notes }`; 400 on a bad month, zone or format, or a month not yet begun
 
+### GET /api/training-export
+Our sessions as supervised fine-tuning data: NDJSON, one line per session in our chat SFT shape `{"messages":[{"role":"user","content":…},{"role":"assistant","content":…,"tool_calls"?:[{"id","type":"function","function":{"name","arguments"}}],"reasoning_content"?},{"role":"tool","tool_call_id","content"}]}` (OpenAI fine-tuning / TRL), as a download (`Content-Disposition: attachment`). Every string is redacted for secrets (API keys, tokens, JWTs, private keys, URL passwords, `password=`-style assignments), the username in home paths, and PII (emails, phones, cards, SSNs, public IPs): replaced by a `__TYPE_N__` token, never dropped. Calls and results are paired within a turn; system and sidechain lines are left out. Rendering rules and our JSON Schema for a line (`SFT_EXAMPLE_JSON_SCHEMA`): `packages/core/training-export.ts`.
+- `project` — encoded project name or an alias of it (404 when neither)
+- `model` — sessions with an assistant message on this model
+- `harness` — `sessions.harness` (none means `claude-code`)
+- `from`, `to` — session start, ISO date or instant; a bare `to` date covers that whole day
+- `toolErrors` — `turn` (default: drop a turn whose tool result errored), `session` (drop its session) or `keep`
+- `minTurns`, `maxTurns` — turns kept after tool-error filtering; a session outside is skipped
+- `reasoning=1` — include reasoning as `reasoning_content` (off by default)
+- `tools=0` — drop tool calls and results, keep the prose
+- `metadata=1` — add `metadata: { session, project (display name), harness, models, startedAt, turns }`
+- `toolResultMaxChars` — cut tool output past N characters with a `…[truncated N chars]` marker
+- `limit` — stop after N examples
+- `dryRun=1` — answer JSON instead of the file: `{ filters, stats: { sessionsScanned, examples, turns, messages, toolCalls, toolResults, turnsDroppedForToolErrors, skipped: { toolErrors, tooFewTurns, tooManyTurns, empty }, redactions: { <type>: n }, redactionsTotal }, sample, bytes }`
+- `facets=1` — answer `{ harnesses, models }` seen in `project` (or everywhere), for a filter form
+→ `application/x-ndjson` file `unfirehose-training-<project>-<date>.jsonl`; 400 on a filter that cannot mean anything
+
 ### GET /api/stats
 Claude Code's own `~/.claude/stats-cache.json`, passed through. Takes no parameters.
 → Aggregate stats object

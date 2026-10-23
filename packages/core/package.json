@@ -60,6 +60,7 @@
     "./db/harness-stats": "./db/harness-stats.ts",
     "./db/data-dir": "./db/data-dir.ts",
     "./cost-report": "./cost-report.ts",
+    "./training-export": "./training-export.ts",
     "./rate-limits": "./rate-limits.ts",
     "./status-pages": "./status-pages.ts",
     "./db/rate-limit-scan": "./db/rate-limit-scan.ts",
@@ -110,10 +111,11 @@
     "better-sqlite3": "^12.6.2"
   },
   "devDependencies": {
-    "@unturf/unfirehose-config": "*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
+    "@unturf/unfirehose-config": "*",
     "@vitest/coverage-v8": "^4.0.18",
+    "ajv": "^8.20.0",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }

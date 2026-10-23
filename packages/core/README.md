@@ -150,7 +150,8 @@ import { TIERS } from '@unturf/unfirehose/tiers'
 | `./jsonl-reader` | JSONL streaming utilities |
 | `./format` | Token, byte, cost, time formatters |
 | `./types` | TypeScript type definitions |
-| `./pii` | PII detection and anonymization |
+| `./pii` | PII detection and anonymization; `redactForExport` adds secrets and home paths for files that leave our machine |
+| `./training-export` | Sessions as SFT `{"messages":[…]}` NDJSON, streamed, filtered and redacted |
 | `./session-name` | Human-readable session name generator |
 | `./uuidv7` | Time-ordered UUID generator |
 | `./mesh` | Permacomputer mesh integration |
