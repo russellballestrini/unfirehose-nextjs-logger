@@ -38,6 +38,9 @@ x-mounts: &mounts
   # - ${HOME}/.fetch:/home/node/.fetch:ro
   # - ${HOME}/.uncloseai:/home/node/.uncloseai:ro
   # - ${HOME}/.agnt:/home/node/.agnt:ro
+  # - ${HOME}/.codex/sessions:/home/node/.codex/sessions:ro
+  # - ${HOME}/.gemini/tmp:/home/node/.gemini/tmp:ro
+  # - ${HOME}/.continue/sessions:/home/node/.continue/sessions:ro
   # Any other harness that writes the generic native pattern
   # ~/.<name>/unfirehose/<slug>/<session>.jsonl mounts the same way:
   # - ${HOME}/.arborist:/home/node/.arborist:ro

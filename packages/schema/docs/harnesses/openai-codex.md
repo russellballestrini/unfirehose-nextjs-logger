@@ -1,32 +1,33 @@
 # OpenAI Codex CLI
 
-Status: supported through `scripts/codex-bridge.mts` and `packages/core/codex-adapter.ts`.
+Status: supported. Ingest reads Codex's own rollouts in place
+(`packages/core/db/ingest-foreign.ts`, mapping in `packages/core/codex-adapter.ts`).
+Nothing to run beside our worker.
 
-Run alongside the dashboard and ingestion worker:
+Reads `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` (default
+`~/.codex/sessions`). Source rollouts are never modified. Archives outside
+`sessions/` are not scanned. `UNFIREHOSE_HARNESSES=codex` restricts ingestion to
+Codex (add `claude-code` and the rest to keep them).
 
-```sh
-npx tsx scripts/codex-bridge.mts
-```
+A rollout is append-only, so a file resumes from its stored byte offset; an
+incomplete trailing line waits for the next pass. The reader's state (session,
+working directory, model, cumulative token counters) is stored beside the
+offset, so a resumed file never rereads earlier lines. Each file reads about
+32 MiB per pass, so a long backlog catches up over several. Malformed lines are
+skipped.
 
-Reads `$CODEX_HOME/sessions/**/*.jsonl` (default `~/.codex/sessions`) and writes
-native unfirehose/1.0 to `~/.codex/unfirehose/<project>/<session>.jsonl`. The
-worker discovers this directory automatically and the session viewer reads it.
-Source rollouts are never modified. Run only one bridge per output/checkpoint
-directory. `--once` runs one bounded pass; repeat until caught up.
+Projects are `codex:<encoded cwd>`; message ids are
+`codex:<sha256(rollout path)>:<byte offset of the line>`.
 
-Configuration:
+### The bridge, retired
 
-- `CODEX_BRIDGE_STATE`: checkpoints (default `~/.unfirehose/codex-bridge`).
-- `UNFIREHOSE_CODEX_DIR`: output override for isolated tests. Production native
-  discovery expects `~/.codex/unfirehose`; a symlink to another disk is supported.
-- `UNFIREHOSE_HARNESSES=codex`: restrict ingestion and watchers to Codex.
-
-Each source processes approximately 32 MiB per pass. Byte offsets preserve UTF-8
-and retry incomplete trailing records. Checkpoints retain model/session context
-and cumulative usage. Restarts roll back uncommitted output; deterministic
-source-file/byte-offset message IDs prevent duplicate database rows. Malformed
-complete JSON and source truncation fail visibly. Archives outside `sessions/`
-are not scanned.
+Until 2026-10-23 `scripts/codex-bridge.mts` copied rollouts into
+`~/.codex/unfirehose`, which ingest read as a native harness. Ingest now gives
+every line the same message id, project and session the bridge gave it, so a
+box that ran the bridge keeps its history and gains no duplicates. `~/.codex/unfirehose`
+is no longer read (reading it as well would count every rollout twice); it and
+the bridge's checkpoints in `~/.unfirehose/codex-bridge` can be deleted. The
+script now only says so.
 
 ## Mapping and limits
 
@@ -42,5 +43,6 @@ are not scanned.
 - Images, audio and unknown record kinds are currently omitted.
 - Costs are catalog-derived API equivalents, not subscription charges.
 
-Verified against Codex CLI 0.154.0 rollout envelopes. No API key, CLI configuration
+Verified against Codex CLI 0.154.0 rollout envelopes (fixture:
+`packages/core/test/fixtures/harnesses/codex/`). No API key, CLI configuration
 change, or extra inference call is required.

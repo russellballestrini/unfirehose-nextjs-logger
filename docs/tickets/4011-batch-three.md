@@ -121,3 +121,56 @@ decisions appended to this ticket like 4010 did.
   and failed every build. procps and lsblk joined the web image too: the
   local probe reads `ps aux` columns and `lsblk`, which busybox lacks.
 - **4004** status line now reads blocked and lists fox's three questions.
+
+## Outcome: item 1 (2026-10-23)
+
+Codex, Gemini CLI and Continue are ingested from the tools' own files; Aider,
+Cursor and OpenCode are not yet (below).
+
+- **One reader per foreign format**, driven by the registry: `HarnessFormat`
+  gains `codex-rollout`, `gemini-chat`, `continue-session` (`FOREIGN_FORMATS`);
+  each entry has a root in `harness-roots.ts`; `harness-files.ts` lists their
+  session files for ingest and detection alike; `db/ingest-foreign.ts` reads
+  them on every full pass, honouring `UNFIREHOSE_HARNESSES`. Every reader lands
+  through the rows Claude Code's do, and a test per harness ingests its fixture
+  (`packages/core/test/fixtures/harnesses/`) and holds its block shape, texts
+  and token totals equal to a Claude Code fixture of the same turn.
+- **Discipline.** Codex rollouts are append-only: byte offset plus the
+  reader's folded state (session, model, cumulative token counters) in two new
+  `ingest_offsets` columns (`mtime_ms`, `reader_state`). Gemini recordings are
+  append-only but re-record a message as it fills in, with `$patch`/`$rewindTo`
+  lines; Continue rewrites whole. Both skip a file while size and mtime match,
+  refold a changed one, insert by id, and hold back the newest message of a file
+  touched in the last 30 s so a turn is not frozen half-written.
+- **Codex bridge retired.** Ingest reads `$CODEX_HOME/sessions` and gives each
+  line the bridge's message id, project and session, so bridged history stays
+  and nothing doubles; `~/.codex/unfirehose` joins `NOT_NATIVE_DIRS` so it is
+  not read too. `scripts/codex-bridge.mts` now prints that and exits.
+- **Viewer.** These harnesses have no `{slug}/{session}.jsonl`, so their
+  adapters are `stored` and the session page reads `db/session-messages.ts`
+  (the rows) instead; chain-live and inject answer plainly for them.
+- **Demo, doctor, wizard.** `make demo` adds one session each (24 in all);
+  doctor and the wizard list the three from the registry with counts from the
+  real layouts (checked against a fake home holding the fixtures).
+
+Decisions to review:
+- Gemini message ids are Gemini's own UUIDs (tool results `<id>:tool-results`);
+  Continue's are `continue:<sessionId>:<history index>`, so a turn edited in
+  place keeps the version first seen.
+- Continue messages carry no timestamps; they are stamped from reasoning times
+  or the session's creation time, never running backwards.
+- Gemini cwd: `.project_root`, then `~/.gemini/projects.json`, then a known
+  project path whose sha256 names a legacy dir; otherwise `gemini-<dir>`.
+- Foreign sources are not fs-watched; the next full pass (a minute) reads them.
+
+Not done, and why:
+- **Aider** keeps `.aider.chat.history.md` inside each repo (no central
+  directory), as markdown with no per-message ids or times and token counts
+  rounded to "1.2k". Needs a decision on which repos to scan; not guessed.
+- **Cursor** chats live in an undocumented SQLite key-value store
+  (`state.vscdb`, `cursorDiskKV`) whose shape changes between releases; no
+  public format to cite.
+- **OpenCode** moved storage twice in a year (JSON tree to v1.1, SQLite from
+  v1.2, a v2 restructure in 2026 whose source we could not read); a reader
+  would chase a moving target. Worth doing against v2 once its schema is
+  readable.

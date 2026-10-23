@@ -1,6 +1,6 @@
 # unfirehose
 
-A local-first observability dashboard for machine learning coding agents. Reads JSONL session data from Claude Code, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
+A local-first observability dashboard for machine learning coding agents. Reads session data from Claude Code, OpenAI Codex, Gemini CLI, Continue, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
 
 No cloud. No telemetry. Your data stays on your machine.
 
@@ -318,18 +318,28 @@ unfirehose/
 
 No external services. No API keys required. Docker optional: `npm install && make dev` is our whole install.
 
-## Codex CLI
+## Codex CLI, Gemini CLI and Continue
 
-After installing dependencies, run `npx tsx scripts/codex-bridge.mts` alongside
-`make dev`. The bridge reads existing `$CODEX_HOME/sessions` logs incrementally;
-no extra model calls are needed. To select harnesses explicitly, set
-`UNFIREHOSE_HARNESSES=codex,claude-code` on the ingestion worker. Claude includes
-regular and workflow-nested subagent transcripts. See [Codex setup and format details](packages/schema/docs/harnesses/openai-codex.md).
+Nothing to set up: our worker reads each tool's own session files where the
+tool keeps them, incrementally, and never writes to them.
+
+| Harness | Reads | Notes |
+|---|---|---|
+| OpenAI Codex | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` | [format](packages/schema/docs/harnesses/openai-codex.md); `scripts/codex-bridge.mts` is retired |
+| Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` (and legacy `.json`) | [format](packages/schema/docs/harnesses/gemini-cli.md); follows `GEMINI_CLI_HOME` |
+| Continue | `~/.continue/sessions/<id>.json` | [format](packages/schema/docs/harnesses/continue-dev.md); follows `CONTINUE_GLOBAL_DIR` |
+
+Their sessions land as the same message and content-block rows Claude Code's
+do, so tokens, tool calls, reasoning and the session viewer work the same. To
+select harnesses explicitly, set `UNFIREHOSE_HARNESSES=codex,gemini-cli,claude-code`
+on the ingestion worker. Claude includes regular and workflow-nested subagent
+transcripts.
 
 ## Architecture
 
 Ingest reads session data from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`,
-`~/.agnt/` and any `~/.<name>/unfirehose/` directory into SQLite at
+`~/.agnt/`, `~/.codex/sessions/`, `~/.gemini/tmp/`, `~/.continue/sessions/`
+and any `~/.<name>/unfirehose/` directory into SQLite at
 `~/.unfirehose/unfirehose.db`. After our first pass it is incremental
 (byte-offset tracking per file) and driven by a file watcher on JSONL changes.
 
@@ -537,7 +547,8 @@ week of synthetic history and serves it:
 make demo        # seed ~/.unfirehose-demo, then open http://localhost:3010
 ```
 
-Two projects, three harnesses (claude-code, uncloseai, agnt), 21 sessions with
+Two projects, three harnesses (claude-code, uncloseai, agnt) with a session a
+day each, one session each for codex, gemini-cli and continue (24 sessions) with
 tool calls and reasoning, a few todos, one alert and a week of samples for a
 `demo-node` on Permacomputer. Every message is booked against a synthetic model
 (`demo-model`, `demo-model-small`), so every cost reads $0 and our pricing book
