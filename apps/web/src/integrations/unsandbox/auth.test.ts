@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHmac } from 'crypto';
-import { sign, authHeaders, UNSANDBOX_API_BASE } from './unsandbox-auth';
+import { sign, authHeaders, UNSANDBOX_API_BASE } from './auth';
 
 /**
  * Signing a request to the unsandbox API.

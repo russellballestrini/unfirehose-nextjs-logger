@@ -4,7 +4,7 @@ import { harnessesFor, harnessById, type Harness } from './harnesses';
 /**
  * The harness catalogue, which used to be three catalogues.
  *
- * It was copied into the node page, its tabs, and the unsandbox page, and
+ * It was copied into the node page, its tabs, and a cloud container page, and
  * the copies had drifted: the container one had lost the third tag from
  * all sixteen entries, so the same search box matched different things
  * depending on which page you typed it into.
@@ -62,7 +62,7 @@ describe('context', () => {
   });
 
   it('names claude absolutely in a container, which has no login shell', () => {
-    // unsandbox runs as root without one, so the same command finds
+    // a container runs as root without one, so the same command finds
     // nothing and the harness reads as failed to install.
     const claude = container.find(h => h.id === 'claude-code')!;
     expect(claude.verify).toBe('/root/.local/bin/claude --version');

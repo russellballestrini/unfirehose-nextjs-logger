@@ -3,16 +3,15 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import { useRouter } from 'next/navigation';
 import {
-  MeshSummaryBar, NodeCard, UnsandboxProbeBody, UnsandboxServiceBody,
-  UnsandboxNodeCard, FleetMetricsChart, FleetMetricsPanel, MeshEconomicsPanel, UnsandboxPanel, AddNodeButton,
+  MeshSummaryBar, NodeCard, FleetMetricsChart, FleetMetricsPanel, MeshEconomicsPanel, AddNodeButton,
 } from './page';
 
 /**
  * The panels the mesh page is made of.
  *
- * Each needs a fleet behind it — nodes that answer, an unsandbox account, a
- * timeline of snapshots — so none of them rendered under a page test against
- * an empty machine.
+ * Each needs a fleet behind it — nodes that answer, a timeline of
+ * snapshots — so none of them rendered under a page test against an empty
+ * machine. Panels an integration adds are tested in its own directory.
  */
 
 vi.mock('next/navigation', () => ({
@@ -60,7 +59,6 @@ const node = {
   gpuUtil: 0, gpuMemTotalMB: 24576, gpuMemUsedMB: 0, swapUsedGB: 3.3,
 };
 
-const status = { connected: true, tier: 13, rateLimit: 91, maxSessions: 4, burst: 91 };
 
 describe('mesh panels', () => {
   it('summarises the fleet', () => {
@@ -110,37 +108,6 @@ describe('mesh panels', () => {
 
   it('renders a node that has not been probed at all', () => {
     expect(() => render(<NodeCard node={undefined} sshHost={{ name: 'new' }} econ={econ} />)).not.toThrow();
-  });
-
-  it('shows what a cloud container reported', () => {
-    const { container } = render(
-      <UnsandboxProbeBody status={status} probe={{
-        cpuCores: 4, memTotalGB: 8, memUsedGB: 2, loadAvg: [0.2, 0.1, 0.1],
-        uptime: '3h', cpuModel: 'AMD EPYC', gpuModel: 'NVIDIA L4', gpuMemTotalMB: 24576,
-        gpuPowerWatts: 40, swapUsedGB: 0,
-      }} />,
-    );
-    expect(container.textContent).toContain('L4');
-  });
-
-  it('shows a deployed service that has not answered a probe', () => {
-    const { container } = render(
-      <UnsandboxServiceBody status={status} running
-        service={{ name: 'unfirehose', status: 'running', domain: 'demo.unsandbox.com' }} />,
-    );
-    expect(container.textContent).toContain('unfirehose');
-  });
-
-  it('renders the cloud card in each of its three states', () => {
-    for (const props of [
-      { status },
-      { status, service: { name: 'unfirehose', status: 'running' } },
-      { status: { ...status, connected: false } },
-    ]) {
-      const { unmount } = render(<UnsandboxNodeCard {...(props as React.ComponentProps<typeof UnsandboxNodeCard>)} />);
-      unmount();
-    }
-    expect(true).toBe(true);
   });
 
   it('charts the fleet', () => {
@@ -202,8 +169,7 @@ describe('mesh panels', () => {
     expect(container.textContent).toContain('Fleet Metrics');
   });
 
-  it('renders the unsandbox panel and the add-node control', () => {
-    expect(() => render(<UnsandboxPanel />)).not.toThrow();
+  it('renders the add-node control', () => {
     expect(() => render(
       <AddNodeButton hosts={[]} keys={['~/.ssh/id_ed25519']} configHash="abc"
                      mutate={vi.fn()} seedEcon={vi.fn()} settings={{}} />,

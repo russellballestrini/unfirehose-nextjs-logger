@@ -36,7 +36,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/components/UPlotTimeChart', () => ({ UPlotTimeChart: () => null, default: () => null }));
 
-const { UnsandboxPanel } = await import('./page');
+const { UnsandboxPanel } = await import('./MeshPanel');
 
 let answer: Record<string, unknown>;
 let ok = true;

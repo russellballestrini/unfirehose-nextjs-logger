@@ -9,6 +9,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import '@xterm/xterm/css/xterm.css';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
+import { IntegrationOffNotice, integrationForHost, terminalFor, useIntegrations } from '@/integrations';
 
 // ── Drop overlay animations ──────────────────────────────────────────────────
 const DROP_STYLES = `
@@ -25,199 +26,11 @@ const DROP_STYLES = `
   .xterm-viewport { overflow-y: auto !important; }
 `;
 
-// ── XtermPane — full terminal emulator for unsandbox sessions ────────────────
-function XtermPane({
-  sessionId,
-  interactive,
-  sendKeysRef,
-  onConnect,
-  onServiceState,
-}: {
-  sessionId: string;
-  interactive: boolean;
-  sendKeysRef: React.MutableRefObject<((keys: string) => void) | null>;
-  onConnect: (connected: boolean) => void;
-  onServiceState: (state: string | null, message: string) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const interactiveRef = useRef(interactive);
-  interactiveRef.current = interactive;
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    let disposed = false;
-    let es: EventSource | null = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let term: any = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let fitAddon: any = null;
-
-    (async () => {
-      const { Terminal } = await import('@xterm/xterm');
-      const { FitAddon } = await import('@xterm/addon-fit');
-      if (disposed || !containerRef.current) return;
-
-      term = new Terminal({
-        theme: {
-          background: '#0d0d0d',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
-          selectionBackground: '#3b4048',
-          black: '#1e1e1e', red: '#ef4444', green: '#22c55e', yellow: '#eab308',
-          blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#d4d4d4',
-          brightBlack: '#737373', brightRed: '#f87171', brightGreen: '#4ade80',
-          brightYellow: '#facc15', brightBlue: '#93c5fd', brightMagenta: '#d8b4fe',
-          brightCyan: '#67e8f9', brightWhite: '#ffffff',
-        },
-        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
-        fontSize: 14,
-        lineHeight: 1.3,
-        cursorBlink: true,
-        convertEol: false,
-        allowProposedApi: true,
-      });
-
-      fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(containerRef.current);
-      term.focus();
-
-      // Small delay so container has its final size before fitting
-      await new Promise(r => setTimeout(r, 50));
-      if (disposed) return;
-      fitAddon.fit();
-
-      // When Ctrl+C is pressed with a text selection, xterm v5 copies to clipboard
-      // and does NOT fire onData. Override: always send \x03 regardless of selection.
-      term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-        if (e.type !== 'keydown' || !interactiveRef.current) return true;
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
-          const CTRL_SEQS: Record<string, string> = {
-            c: '\x03', d: '\x04', z: '\x1a', a: '\x01', e: '\x05',
-            k: '\x0b', l: '\x0c', r: '\x12', u: '\x15', w: '\x17',
-          };
-          const seq = CTRL_SEQS[e.key.toLowerCase()];
-          if (seq) {
-            // Send directly, bypassing xterm's copy-on-ctrl-c behavior
-            fetch('/api/unsandbox/shell', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session_id: sessionId, keys: seq }),
-            }).catch(() => {});
-            return false; // prevent xterm from also processing (avoids double-send)
-          }
-        }
-        return true;
-      });
-
-      // Send resize when terminal re-fits
-      term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-        if (disposed) return;
-        fetch('/api/unsandbox/shell', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, action: 'resize', cols, rows }),
-        }).catch(() => {});
-      });
-
-      // Send keyboard input — xterm handles all key-to-ANSI conversion
-      term.onData((data: string) => {
-        if (!interactiveRef.current || disposed) return;
-        fetch('/api/unsandbox/shell', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, keys: data }),
-        }).catch(() => {});
-      });
-
-      // Expose sendKeys for file-drop injection
-      sendKeysRef.current = (keys: string) => {
-        if (disposed) return;
-        fetch('/api/unsandbox/shell', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, keys }),
-        }).catch(() => {});
-      };
-
-      // ResizeObserver → re-fit xterm
-      const ro = new ResizeObserver(() => {
-        if (!disposed && fitAddon) {
-          try { fitAddon.fit(); } catch { /* ignore */ }
-        }
-      });
-      ro.observe(containerRef.current);
-
-      // SSE stream
-      const connect = () => {
-        if (disposed) return;
-        es = new EventSource(`/api/unsandbox/shell?session_id=${encodeURIComponent(sessionId)}`);
-
-        es.onmessage = (e) => {
-          if (disposed) return;
-          try {
-            const msg = JSON.parse(e.data);
-            if (msg.type === 'output') {
-              onConnect(true);
-              onServiceState(null, ''); // clear any service state
-              const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
-              term.write(bytes);
-            } else if (msg.type === 'service_state') {
-              // Service lifecycle event — don't spam reconnect
-              onServiceState(msg.state, msg.data);
-              if (msg.state === 'running') {
-                // Service came back — reconnect to get the shell
-                onServiceState(null, '');
-                es?.close();
-                setTimeout(connect, 1000);
-              }
-            } else if (msg.type === 'error') {
-              term.write(`\r\n\x1b[31m[error: ${msg.data}]\x1b[0m\r\n`);
-            } else if (msg.type === 'close') {
-              onConnect(false);
-              term.write('\r\n\x1b[33m[session closed]\x1b[0m\r\n');
-              // Reconnect after 2s
-              es?.close();
-              setTimeout(connect, 2000);
-            }
-          } catch { /* skip */ }
-        };
-
-        es.onerror = () => {
-          if (disposed) return;
-          onConnect(false);
-          es?.close();
-          // Slower reconnect — don't spam on dead services
-          setTimeout(connect, 3000);
-        };
-      };
-
-      connect();
-      onConnect(true); // optimistic
-
-      // Cleanup
-      return () => {
-        ro.disconnect();
-      };
-    })();
-
-    return () => {
-      disposed = true;
-      es?.close();
-      if (term) { try { term.dispose(); } catch { /* ignore */ } }
-      sendKeysRef.current = null;
-      onConnect(false);
-    };
-  }, [sessionId, sendKeysRef, onConnect]);
-
-  return <div ref={containerRef} className="h-full w-full" />;
-}
-
 // ── Main viewer ──────────────────────────────────────────────────────────────
 /** Session name, connection state and the interactive controls. */
 function TmuxHeader(props: any) {
   const {
-    session, host, isUnsandbox, connected, serviceState, interactive, setInteractive,
+    host, isContainer, terminal, connected, serviceState, interactive, setInteractive,
     termRef, disconnecting, enqueueKeys, handleDisconnect,
     nick, sessionId,
   } = props;
@@ -232,8 +45,8 @@ function TmuxHeader(props: any) {
         )}
         <div className="flex items-center gap-2">
           <h2 className={`font-mono truncate ${nick?.nickname ? 'text-xs text-[var(--color-muted)]' : 'text-lg font-bold'}`}>{sessionId}</h2>
-          {isUnsandbox
-            ? <span className="text-xs text-violet-400 font-mono flex-shrink-0">@unsandbox</span>
+          {isContainer
+            ? <span className="text-xs text-violet-400 font-mono flex-shrink-0">@{terminal?.label ?? host}</span>
             : host && <span className="text-xs text-[var(--color-muted)] font-mono flex-shrink-0">@{host}</span>
           }
         </div>
@@ -262,13 +75,9 @@ function TmuxHeader(props: any) {
             try {
               const text = await navigator.clipboard.readText();
               if (!text) return;
-              if (isUnsandbox) {
-                // send directly to unsandbox shell
-                fetch('/api/unsandbox/shell', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ session_id: decodeURIComponent(session), keys: text }),
-                }).catch(() => {});
+              if (isContainer) {
+                // straight into the container's shell
+                terminal?.sendKeys(sessionId, text);
               } else {
                 enqueueKeys({ keys: text });
               }
@@ -287,7 +96,7 @@ function TmuxHeader(props: any) {
         >
           ⏻ Disconnect
         </button>
-        {!isUnsandbox && (
+        {!isContainer && (
           <button
             onClick={() => setInteractive(!interactive)}
             className={`px-3 py-1 text-xs rounded font-bold cursor-pointer transition-colors ${
@@ -306,10 +115,10 @@ function TmuxHeader(props: any) {
 
 /** One button per tmux window, when a session has more than one. */
 function TmuxWindowTabs(props: any) {
-  const { windows, activeWindow, setActiveWindow, termRef, isUnsandbox } = props;
+  const { windows, activeWindow, setActiveWindow, termRef, isContainer } = props;
   return (
     <>
-    {!isUnsandbox && windows.length > 1 && (
+    {!isContainer && windows.length > 1 && (
       <div className="flex items-center gap-1 mb-2">
         {windows.map((w: any) => (
           <button
@@ -333,10 +142,10 @@ function TmuxWindowTabs(props: any) {
 
 /** Why a service is not showing a terminal, and what to do about it. */
 function ServiceStateOverlay(props: any) {
-  const { serviceState, isUnsandbox, sessionId, handleServiceAction, serviceAction, serviceLogs, serviceMessage, setServiceLogs } = props;
+  const { serviceState, isContainer, handleServiceAction, serviceAction, serviceLogs, serviceMessage, setServiceLogs } = props;
   return (
     <>
-      {isUnsandbox && serviceState && serviceState !== 'running' && (
+      {isContainer && serviceState && serviceState !== 'running' && (
         <div className="absolute inset-0 rounded-lg flex flex-col items-center justify-center z-10"
           style={{ background: 'rgba(10,0,20,0.92)' }}>
           <div className="flex items-center gap-2 mb-3">
@@ -438,34 +247,34 @@ export default function TmuxViewerPage() {
   const searchParams = useSearchParams();
   const session = params.session as string;
   const host = searchParams.get('host') ?? undefined;
-  const isUnsandbox = host === 'unsandbox';
+  // A session on a host an integration owns (a cloud container) is drawn by
+  // that integration's terminal; while the integration is off, or its state
+  // is still loading, nothing here reaches for the tmux endpoints either.
+  const integrations = useIntegrations();
+  const owner = integrationForHost(host);
+  const terminal = owner && integrations.enabled(owner) ? terminalFor(owner) : undefined;
+  const isContainer = !!owner;
 
   const [disconnecting, setDisconnecting] = useState(false);
   const referrerRef = useRef(typeof document !== 'undefined' ? document.referrer : '');
 
   const handleDisconnect = useCallback(() => {
     setDisconnecting(true);
-    // If unsandbox, kill the session
-    if (isUnsandbox) {
-      fetch('/api/unsandbox', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'kill-session', sessionId: decodeURIComponent(session) }),
-      }).catch(() => {});
-    }
+    // A container is ours to end; a tmux session is somebody's work.
+    terminal?.kill(decodeURIComponent(session));
     // Fade animation runs 2.5s, then redirect
     setTimeout(() => {
       const dest = referrerRef.current || '/tmux';
       window.location.href = dest;
     }, 2500);
-  }, [isUnsandbox, session]);
+  }, [terminal, session]);
 
   // Nickname for this session
   const { data: nicknamesData } = useSWR('/api/sessions/nickname', fetcher, { refreshInterval: 30000 });
   const nicknames: Record<string, { nickname: string; service_name: string }> = nicknamesData ?? {};
   const sessionId = decodeURIComponent(session);
   const nick = nicknames[sessionId];
-  const hostParam = host && !isUnsandbox ? `&host=${encodeURIComponent(host)}` : '';
+  const hostParam = host && !isContainer ? `&host=${encodeURIComponent(host)}` : '';
   const [connected, setConnected] = useState(false);
   const connectedRef = useRef(false);
   const [activeWindow, setActiveWindow] = useState<string | undefined>(undefined);
@@ -475,8 +284,8 @@ export default function TmuxViewerPage() {
   const lastRenderedRef = useRef('');
   const rafIdRef = useRef<number>(0);
 
-  // Unsandbox: ref to xterm sendKeys function (for file drop)
-  const unsandboxSendRef = useRef<((keys: string) => void) | null>(null);
+  // Container terminal: ref to its sendKeys function (for file drop)
+  const containerSendRef = useRef<((keys: string) => void) | null>(null);
   const pathFixSentRef = useRef(false);
   // Service lifecycle state
   const [serviceState, setServiceState] = useState<string | null>(null);
@@ -489,51 +298,33 @@ export default function TmuxViewerPage() {
     setServiceMessage(message);
   }, []);
 
-  const handleUnsandboxConnect = useCallback((c: boolean) => {
+  const handleContainerConnect = useCallback((c: boolean) => {
     connectedRef.current = c;
     setConnected(c);
     if (c) {
       setServiceState(null);
       setServiceMessage('');
     }
-    // On first connect, auto-attach to the 'claude' tmux session if it exists
+    // On first connect, let the terminal settle in (attach to the agent's tmux)
     if (c && !pathFixSentRef.current) {
       pathFixSentRef.current = true;
-      setTimeout(() => {
-        fetch('/api/unsandbox/shell', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId, keys: 'source ~/.bashrc 2>/dev/null; tmux attach -t claude 2>/dev/null || true\r' }),
-        }).catch(() => {});
-      }, 500);
+      terminal?.onFirstConnect?.(sessionId);
     }
-  }, [sessionId]);
+  }, [sessionId, terminal]);
 
   const handleServiceAction = useCallback(async (action: 'wake' | 'redeploy' | 'logs') => {
     setServiceAction(action);
     try {
-      if (action === 'logs') {
-        const res = await fetch('/api/unsandbox', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'service-logs', serviceId: sessionId }),
-        });
-        const data = await res.json();
-        setServiceLogs(data.logs || data.stdout || data.output || JSON.stringify(data, null, 2));
-      } else {
-        await fetch('/api/unsandbox', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: `service-${action}`, serviceId: sessionId }),
-        });
-        setServiceMessage(`${action === 'wake' ? 'Waking' : 'Redeploying'}... waiting for container`);
-      }
+      if (!terminal?.serviceAction) return;
+      const logs = await terminal.serviceAction(sessionId, action);
+      if (action === 'logs') setServiceLogs(logs ?? '');
+      else setServiceMessage(`${action === 'wake' ? 'Waking' : 'Redeploying'}... waiting for container`);
     } catch (err) {
       setServiceMessage(`${action} failed: ${err}`);
     } finally {
       setServiceAction(null);
     }
-  }, [sessionId]);
+  }, [sessionId, terminal]);
 
   // Paint content to terminal — tmux mode
   const paintContent = useCallback((raw: string) => {
@@ -546,7 +337,7 @@ export default function TmuxViewerPage() {
   }, []);
 
   const { data: windowsData } = useSWR(
-    isUnsandbox ? null : `/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`,
+    isContainer ? null : `/api/tmux/stream?session=${encodeURIComponent(session)}&windows=1${hostParam}`,
     fetcher,
     { refreshInterval: 5000 }
   );
@@ -626,7 +417,7 @@ export default function TmuxViewerPage() {
   }, [session, activeWindow, hostParam, paintContent]);
 
   useEffect(() => {
-    if (isUnsandbox) return; // xterm handles its own connection
+    if (isContainer) return; // the container's terminal holds its own connection
     if (termRef.current && !termRef.current.textContent) {
       termRef.current.textContent = 'Connecting...';
     }
@@ -635,7 +426,7 @@ export default function TmuxViewerPage() {
       es.close();
       if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = 0; }
     };
-  }, [session, activeWindow, hostParam, isUnsandbox]);
+  }, [session, activeWindow, hostParam, isContainer]);
 
   // Interactive mode
   const [interactive, setInteractive] = useState(true);
@@ -681,9 +472,9 @@ export default function TmuxViewerPage() {
     }
   }, [flushQueue]);
 
-  // Keyboard handler — tmux mode only (unsandbox uses xterm.onData)
+  // Keyboard handler — tmux mode only (a container terminal reads its own keys)
   useEffect(() => {
-    if (!interactive || isUnsandbox) return;
+    if (!interactive || isContainer) return;
     const SPECIAL_MAP: Record<string, string> = {
       Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'BSpace',
       Delete: 'DC', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left',
@@ -710,11 +501,11 @@ export default function TmuxViewerPage() {
       window.removeEventListener('keydown', handler);
       window.removeEventListener('paste', pasteHandler);
     };
-  }, [interactive, isUnsandbox, enqueueKeys]);
+  }, [interactive, isContainer, enqueueKeys]);
 
-  // Resize — tmux mode only (xterm FitAddon handles unsandbox resize)
+  // Resize — tmux mode only (a container terminal fits itself)
   useEffect(() => {
-    if (isUnsandbox || !termRef.current) return;
+    if (isContainer || !termRef.current) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const sendResize = () => {
       if (!termRef.current) return;
@@ -739,7 +530,7 @@ export default function TmuxViewerPage() {
     observer.observe(termRef.current);
     sendResize();
     return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
-  }, [session, activeWindow, host, isUnsandbox]);
+  }, [session, activeWindow, host, isContainer]);
 
   const handleScroll = () => {
     if (!termRef.current) return;
@@ -768,7 +559,7 @@ export default function TmuxViewerPage() {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('session', decodeURIComponent(session));
-      if (host) fd.append('host', host); // 'unsandbox' triggers container injection
+      if (host) fd.append('host', host); // a container host writes the file into the container
       const res = await fetch('/api/tmux/upload', { method: 'POST', body: fd });
       clearInterval(tick);
       if (!res.ok) {
@@ -780,8 +571,8 @@ export default function TmuxViewerPage() {
       setDropFile({ name: file.name, path });
       setDropState('done');
       // Type the path into terminal
-      if (isUnsandbox) {
-        unsandboxSendRef.current?.(path);
+      if (isContainer) {
+        containerSendRef.current?.(path);
       } else {
         await fetch('/api/tmux/stream', {
           method: 'POST',
@@ -809,7 +600,7 @@ export default function TmuxViewerPage() {
       <div className="flex flex-col h-[calc(100vh-2rem)]">
         {/* Header */}
         <TmuxHeader
-          session={session} host={host} isUnsandbox={isUnsandbox}
+          host={host} isContainer={isContainer} terminal={terminal}
           connected={connected} serviceState={serviceState}
           interactive={interactive} setInteractive={setInteractive}
           termRef={termRef}
@@ -820,7 +611,7 @@ export default function TmuxViewerPage() {
         {/* Window tabs (tmux only) */}
         <TmuxWindowTabs
           windows={windows} activeWindow={activeWindow} setActiveWindow={setActiveWindow}
-          termRef={termRef} isUnsandbox={isUnsandbox}
+          termRef={termRef} isContainer={isContainer}
         />
 
         {/* Terminal + drop overlay */}
@@ -831,7 +622,7 @@ export default function TmuxViewerPage() {
           onDragOver={onDragOver}
           onDrop={onDrop}
         >
-          {isUnsandbox ? (
+          {isContainer ? (
             <div
               className={`h-full rounded-lg border overflow-hidden transition-all duration-300 ${
                 dropState === 'hover' ? 'border-violet-500 shadow-[0_0_20px_rgba(139,92,246,0.6)]'
@@ -841,13 +632,17 @@ export default function TmuxViewerPage() {
               }`}
               style={dropState === 'done' ? { animation: 'uf-glow-orange 0.6s ease-in-out 3' } : undefined}
             >
-              <XtermPane
-                sessionId={decodeURIComponent(session)}
-                interactive={interactive}
-                sendKeysRef={unsandboxSendRef}
-                onConnect={handleUnsandboxConnect}
-                onServiceState={handleServiceState}
-              />
+              {terminal ? (
+                <terminal.Pane
+                  sessionId={decodeURIComponent(session)}
+                  interactive={interactive}
+                  sendKeysRef={containerSendRef}
+                  onConnect={handleContainerConnect}
+                  onServiceState={handleServiceState}
+                />
+              ) : (
+                <IntegrationOffNotice id={owner!} loading={!integrations.loaded} />
+              )}
             </div>
           ) : (
             <pre
@@ -864,9 +659,9 @@ export default function TmuxViewerPage() {
             />
           )}
 
-          {/* Service state overlay — unsandbox services that aren't running */}
+          {/* Service state overlay — container services that aren't running */}
           <ServiceStateOverlay
-            serviceState={serviceState} isUnsandbox={isUnsandbox} sessionId={sessionId}
+            serviceState={serviceState} isContainer={isContainer}
             handleServiceAction={handleServiceAction} serviceAction={serviceAction}
             serviceLogs={serviceLogs} serviceMessage={serviceMessage}
             setServiceLogs={setServiceLogs}
@@ -890,7 +685,7 @@ export default function TmuxViewerPage() {
                 <div className="absolute inset-0" style={{ background: 'repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(0,0,0,0.2) 6px,rgba(0,0,0,0.2) 7px)' }} />
               </div>
               <div className="font-mono text-red-500 text-xs mt-2 tabular-nums">
-                {uploadProgress.toFixed(0)}%{isUnsandbox ? '  →  CONTAINER' : host && host !== 'localhost' ? `  →  SCP → ${host}` : '  →  LOCAL'}
+                {uploadProgress.toFixed(0)}%{isContainer ? '  →  CONTAINER' : host && host !== 'localhost' ? `  →  SCP → ${host}` : '  →  LOCAL'}
               </div>
             </div>
           )}
@@ -909,8 +704,8 @@ export default function TmuxViewerPage() {
         </div>
 
         <div className="text-xs text-[var(--color-muted)] mt-1">
-          {isUnsandbox
-            ? 'unsandbox container, full interactive terminal. Drag a file to inject its path.'
+          {isContainer
+            ? (terminal?.footer ?? '')
             : interactive
               ? 'Keystrokes are sent to tmux. Ctrl+C, arrows, Enter, Tab, Escape all work. Click the terminal first to focus. Drag a file to inject its path.'
               : 'Read-only mode. Click Interactive to enable keyboard input.'

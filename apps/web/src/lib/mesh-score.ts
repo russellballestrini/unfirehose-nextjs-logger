@@ -103,7 +103,6 @@ export const PROVIDERS = [
   { value: 'linode', label: 'Linode/Akamai' },
   { value: 'oracle', label: 'Oracle Cloud' },
   { value: 'scaleway', label: 'Scaleway' },
-  { value: 'unsandbox', label: 'unsandbox.com' },
   { value: 'other', label: 'Other' },
 ];
 

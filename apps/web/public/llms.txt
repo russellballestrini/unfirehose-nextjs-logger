@@ -437,8 +437,101 @@ Prefix-cache hit rate vLLM measured on each node and model over a window — wha
 Sample every mesh node's vLLM metrics now.
 → `{ nodes: [...] }`
 
+
+## Boot & Harness Management
+
+### POST /api/boot
+Boot a harness session (Claude Code by default) in tmux on localhost or a mesh node, or in a container an integration that is on provides (see Integrations).
+← `{ projectPath, host?: "localhost" | "<mesh node>" | "<integration host>", sessionId?, yolo?, prompt?, parentSessionUuid?, todoIds?: [...], projectName?, harness?: "claude", harnessKey?, model?, preferMultiplexer?: "tmux" | "screen", bootstrap?, sudoPassword?, repoUrl? }`
+→ `{ success, tmuxSession, tmuxWindow, multiplexer, host, command }`
+
+### POST /api/boot/finished
+Called by an agent when it is done: sends `/exit` to its tmux window and marks the deployment completed.
+← `{ tmuxSession, tmuxWindow? }` or `{ projectName }` or `{ todoId }`
+→ `{ ok: true, exited: [...] }`
+
+### GET /api/boot/mega
+Status of every running deployment, checked against live tmux sessions.
+→ `{ active, dead, allDone, deployments: [...] }`
+
+### POST /api/boot/mega
+Mega-boot: spawn one agent per project with open todos.
+← `{ maxAgents?: 10 }`
+→ `{ launched, total, results: [...] }`
+
+### DELETE /api/boot/mega
+Cull deployments whose todos are all done, and record dead ones.
+→ `{ culled, dead, culledProjects, deadProjects }`
+
+### GET /api/harness/models
+Models a harness can run on a target, so dispatch picks a model rather than a harness default.
+- `?harness=uncloseai` — required
+- `?host=4090-ai.foxhop.net` — default localhost
+- `?refresh=1` — skip our cache
+→ `{ harness, host, models: [...], selectable, source: static|none|cache|local|ssh|error, error? }`
+
+### POST /api/harness/verify
+Install (optional) and verify a harness on localhost or a remote node.
+← `{ host?, install?: "npm i -g ...", verify: "claude --version" }` — shell commands; `verify` is required
+→ `{ success, version, steps: [{ step, ok, output }] }`
+
+### GET /api/tmux/stream
+SSE stream of tmux terminal output.
+- no `session` — list sessions → `{ sessions, deployments }`
+- `?session=mysession` — stream that session
+- `?window=2` — one window
+- `?windows=true` — list a session's windows → `{ windows }`
+- `?host=cammy` — a mesh node over SSH
+
+### POST /api/tmux/stream
+Send keystrokes to a tmux session.
+← `{ session, keys: "ls -la", host?, window? }` · `{ session, special: "Enter" }` (named keys: Enter, Escape, Tab, C-c, arrows, …) · `{ session, action: "resize", cols, rows }`
+→ `{ ok: true, content? }`
+
+### POST /api/tmux/new
+Create a detached tmux session.
+← `{ name, host?, command?: "zsh || bash", cwd? }`
+→ `{ ok: true, name, host }`; 409 when the name exists
+
+### POST /api/tmux/upload
+Upload a file into a session's machine. `multipart/form-data` with `file`, `session` and optional `host` (a host an integration owns writes to `/tmp/input/` in its container; max 50 MB either way).
+→ `{ ok: true, path, name }`
+
+### GET /api/sessions/nickname
+Every session nickname.
+→ `{ [session_id]: { nickname, host, service_name, updated_at } }`
+
+### POST /api/sessions/nickname
+Upsert a nickname; fields left out keep their value.
+← `{ session_id, nickname?, host?, service_name? }`
+→ `{ ok: true }`
+
+### DELETE /api/sessions/nickname
+← `{ session_id }`
+→ `{ ok: true }`
+
+
+## Integrations
+
+Optional products this dashboard can talk to, each off by default. While an integration is off it makes no requests, adds nothing to any page, and every route it owns answers 404 `{ error: "Not found", integration, detail }`; a `host` it owns on `/api/boot` or `/api/tmux/upload` gets the same 404.
+
+Turn one on in Settings → Integrations, with `POST /api/integrations`, or for the whole process with `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` in the environment (when set, the environment decides and the toggle is locked; `none` turns all off). The setting behind the toggle is `integration_<id>` = `"true"`.
+
+| id | adds | routes |
+| --- | --- | --- |
+| `unsandbox` | unsandbox.com cloud containers: a node card and keys panel on /permacomputer, the /permacomputer/unsandbox page, container sessions under /tmux, a boot target on project pages (host `unsandbox`) | `/api/unsandbox`, `/api/unsandbox/shell`, `/api/unsandbox/sync` |
+
+### GET /api/integrations
+Every integration, and whether it is on.
+→ `{ env: "UNFIREHOSE_INTEGRATIONS", integrations: [{ id, name, summary, hosts, href, enabled, source: "env" | "setting" | "default" }] }`
+
+### POST /api/integrations
+Turn one on or off.
+← `{ id, enabled: true | false }`
+→ `{ ok: true, id, enabled, source }`; 400 for an unknown id, 409 while `UNFIREHOSE_INTEGRATIONS` decides
+
 ### GET /api/unsandbox
-unsandbox.com cloud platform integration (HMAC-signed with our stored keys).
+Our unsandbox.com proxy (HMAC-signed with our stored keys).
 - no `action` — key status → `{ connected, tier, rateLimit, maxSessions, expiresAt, expiresAtHuman, burst }`
 - `?action=sessions` → `{ sessions: [...] }`
 - `?action=services` → `{ services: [...] }`
@@ -666,80 +759,6 @@ Database row counts.
 ### POST /api/ingest
 Start an on-demand ingest pass over every harness log, in a detached worker process. Answers 202 at once; one pass at a time.
 → `{ started: true, pid, startedAt }` or `{ started: false, alreadyRunning: true, pid, startedAt }`
-
-
-## Boot & Harness Management
-
-### POST /api/boot
-Boot a harness session (Claude Code by default) in tmux on localhost, a mesh node, or unsandbox.
-← `{ projectPath, host?: "localhost" | "<mesh node>" | "unsandbox", sessionId?, yolo?, prompt?, parentSessionUuid?, todoIds?: [...], projectName?, harness?: "claude", harnessKey?, model?, preferMultiplexer?: "tmux" | "screen", bootstrap?, sudoPassword?, repoUrl? }`
-→ `{ success, tmuxSession, tmuxWindow, multiplexer, host, command }`
-
-### POST /api/boot/finished
-Called by an agent when it is done: sends `/exit` to its tmux window and marks the deployment completed.
-← `{ tmuxSession, tmuxWindow? }` or `{ projectName }` or `{ todoId }`
-→ `{ ok: true, exited: [...] }`
-
-### GET /api/boot/mega
-Status of every running deployment, checked against live tmux sessions.
-→ `{ active, dead, allDone, deployments: [...] }`
-
-### POST /api/boot/mega
-Mega-boot: spawn one agent per project with open todos.
-← `{ maxAgents?: 10 }`
-→ `{ launched, total, results: [...] }`
-
-### DELETE /api/boot/mega
-Cull deployments whose todos are all done, and record dead ones.
-→ `{ culled, dead, culledProjects, deadProjects }`
-
-### GET /api/harness/models
-Models a harness can run on a target, so dispatch picks a model rather than a harness default.
-- `?harness=uncloseai` — required
-- `?host=4090-ai.foxhop.net` — default localhost
-- `?refresh=1` — skip our cache
-→ `{ harness, host, models: [...], selectable, source: static|none|cache|local|ssh|error, error? }`
-
-### POST /api/harness/verify
-Install (optional) and verify a harness on localhost or a remote node.
-← `{ host?, install?: "npm i -g ...", verify: "claude --version" }` — shell commands; `verify` is required
-→ `{ success, version, steps: [{ step, ok, output }] }`
-
-### GET /api/tmux/stream
-SSE stream of tmux terminal output.
-- no `session` — list sessions → `{ sessions, deployments }`
-- `?session=mysession` — stream that session
-- `?window=2` — one window
-- `?windows=true` — list a session's windows → `{ windows }`
-- `?host=cammy` — a mesh node over SSH
-
-### POST /api/tmux/stream
-Send keystrokes to a tmux session.
-← `{ session, keys: "ls -la", host?, window? }` · `{ session, special: "Enter" }` (named keys: Enter, Escape, Tab, C-c, arrows, …) · `{ session, action: "resize", cols, rows }`
-→ `{ ok: true, content? }`
-
-### POST /api/tmux/new
-Create a detached tmux session.
-← `{ name, host?, command?: "zsh || bash", cwd? }`
-→ `{ ok: true, name, host }`; 409 when the name exists
-
-### POST /api/tmux/upload
-Upload a file into a session's machine. `multipart/form-data` with `file`, `session` and optional `host` (`unsandbox` writes to `/tmp/input/` in the container, max 4 MB; otherwise max 50 MB).
-→ `{ ok: true, path, name }`
-
-### GET /api/sessions/nickname
-Every session nickname.
-→ `{ [session_id]: { nickname, host, service_name, updated_at } }`
-
-### POST /api/sessions/nickname
-Upsert a nickname; fields left out keep their value.
-← `{ session_id, nickname?, host?, service_name? }`
-→ `{ ok: true }`
-
-### DELETE /api/sessions/nickname
-← `{ session_id }`
-→ `{ ok: true }`
-
 
 ## Maintenance
 

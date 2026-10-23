@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import {
   OverviewTab, HarnessesTab, BootstrapTab, ServicesTab, SessionsTab, EphemeralTab,
-} from './page';
+} from './NodePage';
 
 /**
  * The six tabs of the unsandbox page, each on its own.

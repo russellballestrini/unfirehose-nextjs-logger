@@ -20,7 +20,7 @@ vi.mock('@unturf/unfirehose/db/ingest', () => ({
 }));
 vi.mock('fs/promises', () => ({ readFile: async () => { throw new Error('ENOENT'); }, stat: async () => { throw new Error('ENOENT'); } }));
 
-const { GET, POST } = await import('./route');
+const { GET, POST } = await import('./proxy');
 
 /** Every outbound request, with the headers the route signed it with. */
 let sent: Array<{ path: string; method: string; body?: string; headers: Record<string, string> }>;

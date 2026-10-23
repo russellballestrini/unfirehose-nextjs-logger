@@ -32,11 +32,11 @@ digraph pages {
     scrobble [label="/scrobble\nVisibility Controls\nauto-detection\npayload preview" fillcolor="#1a3a3a"]
     active [label="/active\nActive Sessions\nlive session list" fillcolor="#1a3a3a"]
     permacomputer [label="/permacomputer\nMesh Overview\nnode cards + economics\nbootstrap panel" fillcolor="#1a2a3a"]
-    unsandbox [label="/permacomputer/unsandbox\nCloud Compute\nunsandbox.com" fillcolor="#1a2a3a"]
+    unsandbox [label="/permacomputer/unsandbox\nCloud Compute\nintegration, off by default" fillcolor="#1a2a3a"]
     node_detail [label="/usage/node/[h]\nNode Detail\nSystem/Harnesses/Procs" fillcolor="#1a2a3a"]
     tmux_viewer [label="/tmux/[session]\nTerminal Viewer\ninteractive keystrokes\nSSE capture" fillcolor="#3a2a1a"]
     terminals [label="/tmux\nTerminals List\nlocal + remote" fillcolor="#1a2a3a"]
-    settings [label="/settings\nGeneral | Appearance\nMesh | Connection\nAPI Keys (vault)" fillcolor="#2a1a3a"]
+    settings [label="/settings\nGeneral | Appearance\nMesh | Connection\nAPI Keys (vault) | Integrations" fillcolor="#2a1a3a"]
   }
 
   // API dependencies

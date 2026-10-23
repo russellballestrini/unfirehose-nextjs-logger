@@ -28,7 +28,7 @@ vi.mock('fs/promises', () => ({
   mkdir: async () => {}, writeFile: async () => {}, unlink: async () => {},
 }));
 
-const { POST, GET } = await import('./route');
+const { POST, GET } = await import('./sync');
 
 /** Every request the route made, and canned answers per path. */
 let calls: string[];

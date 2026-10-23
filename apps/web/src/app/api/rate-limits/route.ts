@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  *
  * `target=inference` is the default and the one that matters for cost: an LLM
  * provider refused a call. `web` is a crawled site returning 429 and `service`
- * is our own infrastructure (unsandbox concurrency, Matrix); both are real but
+ * is infrastructure we run (container concurrency, Matrix); both are real but
  * neither says anything about our API budget.
  *
  * `kind` narrows to one refusal condition, or to `throttles` for the four

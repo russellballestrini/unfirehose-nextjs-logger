@@ -207,3 +207,22 @@ Not done, and why:
   page `/actions` under Analyze, linked from a project's Activity tab; rows
   link to `/projects/<p>/<session>#tool-<id>`, which our session viewer now
   scrolls to. `make demo` seeds a `git reset --hard` and a WebFetch.
+
+## Outcome: item 4 (unsandbox behind one boundary)
+
+- Code lives in `apps/web/src/integrations/unsandbox/`. Registration points:
+  `integrations/catalog.ts` (ids, names, flag logic; plain data),
+  `integrations/index.tsx` (what pages may render), `integrations/server.ts`
+  (`gated()` route wrapper, `hostIntegration()` for `/api/boot` and
+  `/api/tmux/upload`). `app/api/unsandbox/**/route.ts` are two-line gated
+  wrappers; `app/permacomputer/unsandbox/page.tsx` renders `IntegrationPage`.
+- Flag, default off: settings key `integration_unsandbox` (Settings →
+  Integrations, `POST /api/integrations`), overridden whole by
+  `UNFIREHOSE_INTEGRATIONS=unsandbox` (`none` = all off; when set the toggle
+  is locked). Off: routes 404, the mesh page, project page, /tmux and the
+  viewer render without it and ask none of its endpoints.
+- `integrations/boundary.test.ts` fails on any import of the directory from
+  outside the registry and its wrappers, and on the directory importing from
+  `src/app/` outside its tests.
+- Decision: an install that already had keys stored starts with the
+  integration off after upgrading; turn it on once in Settings.

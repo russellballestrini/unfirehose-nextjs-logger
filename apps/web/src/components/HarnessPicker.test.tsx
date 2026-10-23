@@ -7,7 +7,7 @@ import { harnessesFor } from '@/lib/harnesses';
 /**
  * The grid two pages use to install a harness.
  *
- * A machine we ssh to and an unsandbox container both drew this
+ * A machine we ssh to and a cloud container both drew this
  * themselves, in the same sixty lines twice, which is how they came to
  * disagree about which tags a card shows. It is one component now, and
  * what the pages still choose is only the line above the grid.
@@ -105,7 +105,7 @@ describe('HarnessPicker', () => {
   });
 
   it('leaves the footer to the page, which knows what the target is', () => {
-    // An ssh node keeps its credentials; an unsandbox container
+    // An ssh node keeps its credentials; a cloud container
     // self-destructs. Same grid, different consequence.
     expect(show({ footer: 'The container self-destructs after verification.' })
       .container.textContent).toContain('self-destructs');

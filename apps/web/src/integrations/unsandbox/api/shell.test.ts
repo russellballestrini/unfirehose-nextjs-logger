@@ -28,7 +28,7 @@ class FakeSocket {
 }
 vi.mock('ws', () => ({ default: Object.assign(FakeSocket, { OPEN: 1, CONNECTING: 0, CLOSED: 3 }) }));
 
-const { GET, POST, HEAD } = await import('./route');
+const { GET, POST, HEAD } = await import('./shell');
 
 let fetched: string[];
 let sessions: unknown[];

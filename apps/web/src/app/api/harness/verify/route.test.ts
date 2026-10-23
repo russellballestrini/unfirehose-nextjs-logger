@@ -96,7 +96,7 @@ describe('POST /api/harness/verify', () => {
   });
 
   it('creates the remote directory with a tight umask before copying into it', async () => {
-    // Every unsandbox container hands its user root. A credentials file
+    // Every cloud container hands its user root. A credentials file
     // that lands world-readable trips the tripwire on these nodes.
     await post({ id: 'claude-code', host: 'cammy', verify: 'claude --version' });
     expect(ran[0].args.at(-1)).toBe('umask 077 && mkdir -p ~/.claude');

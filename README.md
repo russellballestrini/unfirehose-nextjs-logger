@@ -275,6 +275,9 @@ Public usage profile, opt-in. Sessions, streaks, hours-of-day heatmap, badges. P
 ### Settings
 Configure alert thresholds, display preferences, vault for BYO LLM keys (used by the in-app agent helpers), mesh defaults, scan paths.
 
+### Integrations
+Optional products the dashboard can talk to, every one off by default: while off it makes no network request, adds nothing to any page, and its API routes answer 404. Turn one on in Settings → Integrations, or for the whole process with `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` (when set, the environment decides and the toggle is locked; `none` turns all off). Today there is one: `unsandbox`, cloud containers as a mesh node, which needs a key pair from that service. Each lives in its own directory under `apps/web/src/integrations/`.
+
 ## Packages
 
 This is a Turborepo monorepo. Four packages are published to npm under the [`@unturf`](https://www.npmjs.com/org/unturf) scope:

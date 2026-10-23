@@ -39,7 +39,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/components/UPlotTimeChart', () => ({ UPlotTimeChart: () => null, default: () => null }));
 
-const UnsandboxNodePage = (await import('./page')).default;
+const UnsandboxNodePage = (await import('./NodePage')).default;
 
 let answer: (body: Record<string, unknown>) => Record<string, unknown>;
 const posts = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls

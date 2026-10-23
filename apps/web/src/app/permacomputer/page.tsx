@@ -18,23 +18,20 @@ import { sshHostForMesh } from '@unturf/unfirehose/hostname-match';
 import type { SshHost } from './types';
 import { MeshSummaryBar } from './MeshSummaryBar';
 import { NodeCard } from './NodeCard';
-import { UnsandboxNodeCard } from './UnsandboxNodeCard';
 import { AddNodeButton } from './AddNodeButton';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { FleetMetricsPanel } from './FleetMetrics';
 import { MeshEconomicsPanel } from './MeshEconomicsPanel';
-import { UnsandboxPanel } from './UnsandboxPanel';
+import { useMeshIntegrations } from '@/integrations';
 import { CoachMarks } from '@/components/CoachMarks';
 
 // The panels this page is made of live beside it; they are re-exported here
 // because their tests import them from './page'.
 export { MeshSummaryBar } from './MeshSummaryBar';
 export { NodeCard } from './NodeCard';
-export { UnsandboxProbeBody, UnsandboxServiceBody, UnsandboxNodeCard } from './UnsandboxNodeCard';
 export { AddNodeButton } from './AddNodeButton';
 export { FleetMetricsChart, FleetMetricsPanel } from './FleetMetrics';
 export { MeshEconomicsPanel } from './MeshEconomicsPanel';
-export { UnsandboxPanel } from './UnsandboxPanel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,14 +47,8 @@ export default function PermacomputerPage() {
 
   const { data: sshData, mutate: mutateSsh } = useSWR<{ hosts: SshHost[]; keys: string[]; hash?: string }>('/api/ssh-config', fetcher);
   const { data: settings, mutate: mutateSettings } = useSWR('/api/settings', fetcher);
-  const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { refreshInterval: 60000 });
-  const { data: unsandboxServices } = useSWR(
-    unsandboxStatus?.connected ? '/api/unsandbox?action=services' : null,
-    fetcher, { refreshInterval: 60000 }
-  );
-  const unsandboxService = (unsandboxServices?.services ?? []).find(
-    (s: any) => s.name?.includes('unfirehose') || s.name?.includes('firehose')
-  );
+  // Nodes, cards and panels an integration adds (a cloud account), when one is on.
+  const extra = useMeshIntegrations();
   const geoipEnabled = settings?.mesh_geoip_auto !== 'false';
   const { data: geoipData, isLoading: geoipLoading } = useSWR(
     geoipEnabled ? '/api/mesh/geoip' : null,
@@ -175,8 +166,8 @@ export default function PermacomputerPage() {
     <div className="space-y-6">
       <PageContext
         pageType="permacomputer"
-        summary={`Permacomputer. ${allNodes.length + (unsandboxStatus?.connected ? 1 : 0)} nodes, ${reachable.length + (unsandboxService ? 1 : 0)} reachable, ${mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? 0} agents.`}
-        metrics={{ nodes: allNodes.length + (unsandboxStatus?.connected ? 1 : 0), reachable: reachable.length + (unsandboxService ? 1 : 0), agents: mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? 0 }}
+        summary={`Permacomputer. ${allNodes.length + extra.nodes} nodes, ${reachable.length + extra.reachable} reachable, ${mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? 0} agents.`}
+        metrics={{ nodes: allNodes.length + extra.nodes, reachable: reachable.length + extra.reachable, agents: mesh?.summary?.totalAgents ?? mesh?.summary?.totalClaudes ?? 0 }}
       />
 
       <div>
@@ -198,7 +189,7 @@ export default function PermacomputerPage() {
       {/* Node Grid */}
       <div data-coach="mesh-nodes" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} configHash={sshData?.hash} mutate={() => { mutateSsh(); mutateMesh(); }} seedEcon={saveNodeEcon} settings={settings} />
-        {mesh && allNodes.length === 0 && !unsandboxStatus?.connected && (
+        {mesh && allNodes.length === 0 && extra.nodes === 0 && (
           <EmptyState
             className="md:col-span-1 xl:col-span-2"
             what="Nodes will appear here: every host in our SSH config that answers a probe, with its power, load, GPUs and agents."
@@ -217,9 +208,7 @@ export default function PermacomputerPage() {
             onHide={() => hideNode(key)}
           />
         ))}
-        {unsandboxStatus?.connected && (
-          <UnsandboxNodeCard status={unsandboxStatus} service={unsandboxService} />
-        )}
+        {extra.cards}
       </div>
 
       {/* Fleet metrics — power, cost, CPU%, memory, GPU util, GPU VRAM.
@@ -227,8 +216,8 @@ export default function PermacomputerPage() {
           cards are what a glance is for; the charts are for a look. */}
       <FleetMetricsPanel allNodes={allNodes} meshNodes={meshNodes} getNodeEcon={getNodeEcon} geoipNodes={geoipData?.nodes ?? []} />
 
-      {/* Unsandbox */}
-      <UnsandboxPanel />
+      {/* Integrations that are on (Settings → Integrations) */}
+      {extra.panels}
     </div>
   );
 }

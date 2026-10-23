@@ -2,6 +2,7 @@
 /// <reference types="vite/client" />
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
+import { INTEGRATION_IDS } from '@/integrations/catalog';
 
 /**
  * Every page renders against data.
@@ -48,6 +49,8 @@ const FIXTURE: Record<string, unknown> = {
   streaks: { current: 1, longest: 2 },
   project: { displayName: 'demo' }, tier: 0, connected: false, ok: true, count: 0,
   db: { projects: 1, sessions: 1, messages: 1 },
+  // Every integration on, so what each adds to a page renders here too.
+  integrations: INTEGRATION_IDS.map((id) => ({ id, name: id, summary: '', enabled: true, source: 'setting' })),
 };
 
 

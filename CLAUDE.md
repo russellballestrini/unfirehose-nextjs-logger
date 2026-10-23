@@ -127,31 +127,14 @@ Our Permacomputer page (`/permacomputer`) manages a mesh of compute nodes. Nodes
 
 Key files:
 - `apps/web/src/app/permacomputer/page.tsx` — main mesh overview with node cards, economics, bootstrap panel
-- `apps/web/src/app/permacomputer/unsandbox/page.tsx` — unsandbox.com cloud node page
 - `apps/web/src/app/permacomputer/[node]/page.tsx` + `tabs.tsx` — per-node detail (Overview/Harnesses/Processes/Containers/Bootstrap/Settings tabs)
 - `apps/web/src/app/api/mesh/route.ts` — mesh summary (local + SSH probes, RAPL power, GPU via nvidia-smi)
 - `apps/web/src/app/api/mesh/node/route.ts` — detailed single-node probe via SSH
 - `apps/web/src/app/api/mesh/history/route.ts` — time-series from `mesh_snapshots` table
-- `apps/web/src/app/api/unsandbox/route.ts` — unsandbox.com API proxy (HMAC-signed)
 - `apps/web/src/app/api/boot/route.ts` — bootstrap harnesses on nodes (tmux, SCP credentials, sudo)
 - `apps/web/src/app/api/tmux/stream/route.ts` — SSE tmux capture + interactive keystroke POST
 - `apps/web/src/app/tmux/[session]/page.tsx` — full-screen tmux viewer (local + remote via `?host=`)
 - `packages/core/mesh.ts` — `discoverNodes()` from SSH config
-
-### Unsandbox Integration
-
-API at `api.unsandbox.com`. Auth: HMAC-SHA256 signing with `${timestamp}:${method}:${path}:${body}`.
-
-Key endpoints used:
-- `GET /keys/self` — key status (returns `tier`, `rate_per_minute`/`rate_limit`, `concurrency`, `burst`)
-- `POST /execute` — one-shot code execution (`{ language, code, network }`)
-- `GET /sessions` — list active sessions
-- `DELETE /sessions/:id` — kill session
-- `POST /services` — create persistent service (`{ name, ports, bootstrap, network }`)
-- `GET /services` — list services
-- `DELETE /services/:id` — destroy service
-
-Network modes: `zerotrust` (no network) or `semitrusted` (egress proxy). Our TypeScript SDK lives at `~/git/unsandbox.com/cli/un-inception/clients/typescript/sync/src/un.ts`.
 
 ### Node Harnesses
 
@@ -177,16 +160,38 @@ Our bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:
 - Optional sudo password for privileged setup (piped via `sudo -S` stdin)
 - Creates tmux session with harness command
 
-### Unsandbox Claude bootstrap
+## Integrations
 
-Bootstrap installs claude via `curl -fsSL https://claude.ai/install.sh | bash` if not already present, persists `~/.local/bin` in PATH via bashrc and `/etc/profile.d/claude.sh`. Auth credentials (`~/.claude/.credentials.json`, settings) are base64-encoded server-side and injected into our bootstrap script, written with `umask 077`, `chmod 600` on files, `chmod 700` on `~/.claude/`.
+Optional products the dashboard talks to, each **off by default** and each one removable directory under `apps/web/src/integrations/<id>/`. Off means no requests, no UI, and every route it owns answers 404.
+
+- **Switch:** Settings → Integrations (settings key `integration_<id>` = `true`), or `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` in the environment, which when set decides alone (`none` = all off) and locks the toggle. `GET`/`POST /api/integrations` reads and flips it.
+- **Layout:** `integrations/catalog.ts` (what exists, the flag logic; plain data), `integrations/index.tsx` (what pages may render: mesh nodes/cards/panels, boot targets, terminal sessions, an integration's own page), `integrations/server.ts` (`gated()` route wrapper, `hostIntegration()` for `/api/boot` and `/api/tmux/upload`), `integrations/SettingsSection.tsx`.
+- **Rule:** nothing outside `src/integrations/` imports `src/integrations/<id>/` except its thin wrappers `app/api/<id>/**/route.ts` (`export const GET = gated(id, handler.GET)`); the directory imports nothing from `src/app/` outside its tests. `integrations/boundary.test.ts` enforces both.
+- **Removing one:** delete its directory, its `app/api/<id>/` wrappers and page wrapper, its row in `catalog.ts`, and its line in the `CLIENT`/`SERVER` maps.
+
+### unsandbox (`integrations/unsandbox/`)
+
+Cloud containers as a mesh node. Handlers: `api/proxy.ts`, `api/shell.ts`, `api/sync.ts` (behind `/api/unsandbox`, `/api/unsandbox/shell`, `/api/unsandbox/sync`); `boot.ts` and `upload.ts` (host `unsandbox` on `/api/boot` and `/api/tmux/upload`); `auth.ts` (HMAC signing); `NodePage.tsx` (`/permacomputer/unsandbox`), `NodeCard.tsx`, `MeshPanel.tsx` (keys), `Terminals.tsx` + `terminal.ts` + `XtermPane.tsx` (`/tmux`).
+
+API at `api.unsandbox.com`. Auth: HMAC-SHA256 signing with `${timestamp}:${method}:${path}:${body}`.
+
+Key endpoints used:
+- `GET /keys/self` — key status (returns `tier`, `rate_per_minute`/`rate_limit`, `concurrency`, `burst`)
+- `POST /execute` — one-shot code execution (`{ language, code, network }`)
+- `GET /sessions` — list active sessions
+- `DELETE /sessions/:id` — kill session
+- `POST /services` — create persistent service (`{ name, ports, bootstrap, network }`)
+- `GET /services` — list services
+- `DELETE /services/:id` — destroy service
+
+Network modes: `zerotrust` (no network) or `semitrusted` (egress proxy). Our TypeScript SDK lives at `~/git/unsandbox.com/cli/un-inception/clients/typescript/sync/src/un.ts`.
+
+**Bootstrap.** Bootstrap installs claude via `curl -fsSL https://claude.ai/install.sh | bash` if not already present, persists `~/.local/bin` in PATH via bashrc and `/etc/profile.d/claude.sh`. Auth credentials (`~/.claude/.credentials.json`, settings) are base64-encoded server-side and injected into our bootstrap script, written with `umask 077`, `chmod 600` on files, `chmod 700` on `~/.claude/`.
 
 - On terminal connect: auto-send `tmux attach -t claude` to land in claude's UI
 - `IS_SANDBOX=1` env var set when running claude in unsandbox containers
 
-### Unsandbox threat model
-
-**Assume an untrusted user has bash-level access on all unsandbox containers.** Credential files must never be world-readable. Permacomputer nodes run tripwire processes that monitor for public file permissions on sensitive paths — any credential file created with lax permissions will trigger an alert. All credential writes must use `umask 077` before `mkdir`/file creation, followed by explicit `chmod 600` (files) and `chmod 700` (directories) as belt-and-suspenders.
+**Threat model.** **Assume an untrusted user has bash-level access on all unsandbox containers.** Credential files must never be world-readable. Permacomputer nodes run tripwire processes that monitor for public file permissions on sensitive paths — any credential file created with lax permissions will trigger an alert. All credential writes must use `umask 077` before `mkdir`/file creation, followed by explicit `chmod 600` (files) and `chmod 700` (directories) as belt-and-suspenders.
 
 ## Todo System
 

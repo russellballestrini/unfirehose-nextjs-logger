@@ -4,6 +4,8 @@ import { useHashTab } from '@/lib/use-hash-tab';
 import { HarnessHealth } from './HarnessHealth';
 import { AlertDelivery } from './AlertDelivery';
 import { DatabaseHealth } from './DatabaseHealth';
+import { IntegrationsSettings } from '@/integrations/SettingsSection';
+import { PROVIDERS } from '@/lib/mesh-score';
 import { resetCoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
@@ -110,7 +112,7 @@ export default function SettingsPage() {
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
-  const TABS = ['General', 'Harnesses', 'Database', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys'] as const;
+  const TABS = ['General', 'Harnesses', 'Database', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys', 'Integrations'] as const;
   type SettingsTab = (typeof TABS)[number];
   const [activeTab, setActiveTab] = useHashTab<SettingsTab>(TABS, 'General');
   const vault = useVault();
@@ -153,6 +155,8 @@ export default function SettingsPage() {
       {activeTab === 'Harnesses' && <HarnessHealth />}
       {activeTab === 'Alerts' && <AlertDelivery />}
       {activeTab === 'Database' && <DatabaseHealth />}
+
+      {activeTab === 'Integrations' && <IntegrationsSettings />}
 
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (
@@ -520,22 +524,7 @@ function HoseToggle({
   );
 }
 
-const MESH_PROVIDERS = [
-  { value: 'home', label: 'Home ISP' },
-  { value: 'colo', label: 'Colocation' },
-  { value: 'aws', label: 'AWS' },
-  { value: 'gcp', label: 'Google Cloud' },
-  { value: 'azure', label: 'Azure' },
-  { value: 'hetzner', label: 'Hetzner' },
-  { value: 'ovh', label: 'OVH' },
-  { value: 'digitalocean', label: 'DigitalOcean' },
-  { value: 'vultr', label: 'Vultr' },
-  { value: 'linode', label: 'Linode/Akamai' },
-  { value: 'oracle', label: 'Oracle Cloud' },
-  { value: 'scaleway', label: 'Scaleway' },
-  { value: 'unsandbox', label: 'unsandbox.com' },
-  { value: 'other', label: 'Other' },
-];
+const MESH_PROVIDERS = PROVIDERS;
 
 const DEFAULT_REGIONS = [
   { key: 'us-east', label: 'US East', electricityKwh: '0.31' },
