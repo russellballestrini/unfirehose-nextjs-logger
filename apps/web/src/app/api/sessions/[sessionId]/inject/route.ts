@@ -42,7 +42,11 @@ export async function POST(
     }
 
     // Construct JSONL file path
-    const filePath = resolveSessionFile(session.project_name, sessionId);
+    // A harness in a format of its own has no session file we may append to.
+    let filePath: string;
+    try { filePath = resolveSessionFile(session.project_name, sessionId); } catch {
+      return NextResponse.json({ error: 'this harness keeps no session file to inject into' }, { status: 409 });
+    }
     if (!existsSync(filePath)) {
       return NextResponse.json({ error: 'session file not found on disk' }, { status: 404 });
     }

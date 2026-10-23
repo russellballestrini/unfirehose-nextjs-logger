@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, existsSync } from 'fs';
 import path from 'path';
-import { HARNESS_REGISTRY, ingestedHarnesses, harnessById } from './harness-registry';
+import { HARNESS_REGISTRY, FOREIGN_FORMATS, ingestedHarnesses, harnessById } from './harness-registry';
+import { foreignSessionFiles } from './harness-files';
 import { HARNESS_ROOTS } from './harness-roots';
 import { HARNESSES, HARNESS_MODEL_FLAGS } from './harness-models';
 import { HARNESS_PROC_NAMES } from './harness-procs';
@@ -39,6 +40,20 @@ describe('HARNESS_REGISTRY', () => {
     for (const h of ingestedHarnesses()) expect(harnessFor(`${h.id}:slug`).adapter.name).toBe(h.id);
     expect(harnessFor('uncloseai-cli:slug').adapter.name).toBe('uncloseai-cli');
     expect(harnessFor('-home-fox-git-x').adapter.name).toBe('claude-code');
+  });
+
+  it('gives every foreign format a file lister, and reads its sessions back from our database', () => {
+    const foreign = ingestedHarnesses().filter((h) => FOREIGN_FORMATS.has(h.format!));
+    expect(foreign.map((h) => h.id).sort()).toEqual(['codex', 'continue', 'gemini-cli']);
+    for (const h of foreign) {
+      expect(foreignSessionFiles(h.format!, '/nonexistent'), h.id).toEqual([]);
+      expect(harnessFor(`${h.id}:slug`).adapter.stored, h.id).toBe(true);
+      expect(() => harnessFor(`${h.id}:slug`).adapter.sessionFile('slug', 'sid')).toThrow();
+    }
+    for (const h of ingestedHarnesses().filter((x) => !FOREIGN_FORMATS.has(x.format!))) {
+      expect(foreignSessionFiles(h.format!, '/nonexistent'), h.id).toBeNull();
+      expect(harnessFor(`${h.id}:slug`).adapter.stored, h.id).toBeFalsy();
+    }
   });
 
   it('looks a harness up by id', () => {

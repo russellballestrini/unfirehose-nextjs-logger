@@ -26,7 +26,22 @@ export type HarnessFormat =
   /** unfirehose/1.0 messages, as native adopters write them. */
   | 'unfirehose'
   /** uncloseai-cli's pre-1.0 event lines (session_start, assistant, tool_call…). */
-  | 'uncloseai-cli';
+  | 'uncloseai-cli'
+  /** Codex CLI rollouts: $CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl, appended (codex-adapter.ts). */
+  | 'codex-rollout'
+  /** Gemini CLI chat recordings: ~/.gemini/tmp/<project>/chats/session-*.jsonl (or legacy .json) (gemini-adapter.ts). */
+  | 'gemini-chat'
+  /** Continue sessions: ~/.continue/sessions/<id>.json, rewritten whole (continue-adapter.ts). */
+  | 'continue-session';
+
+/**
+ * Formats that are not `{root}/{slug}/{session}.jsonl` of message lines.
+ * Each has its own source walker (db/ingest-foreign.ts), and the session
+ * viewer reads its sessions back from our database rather than the disk.
+ */
+export const FOREIGN_FORMATS: ReadonlySet<HarnessFormat> = new Set<HarnessFormat>([
+  'codex-rollout', 'gemini-chat', 'continue-session',
+]);
 
 export interface HarnessDef {
   id: string;
@@ -76,14 +91,14 @@ export const HARNESS_REGISTRY: readonly HarnessDef[] = [
   },
   {
     id: 'codex', label: 'OpenAI Codex', doc: 'harnesses/openai-codex.md',
-    // Today through scripts/codex-bridge.mts, which writes native
-    // unfirehose/1.0 from $CODEX_HOME/sessions (see harness-roots.ts).
-    format: 'unfirehose', nativeDir: '.codex/sessions',
+    // Read straight from $CODEX_HOME/sessions. scripts/codex-bridge.mts,
+    // which used to copy rollouts into ~/.codex/unfirehose, is retired.
+    format: 'codex-rollout', start: 'cd ~/your/repo && codex',
     launch: { key: 'codex', cmd: 'codex', rank: 3, modelFlag: '--model', label: 'Codex CLI' }, procNames: ['codex'],
   },
   {
     id: 'gemini-cli', label: 'Gemini CLI', doc: 'harnesses/gemini-cli.md',
-    nativeDir: '.gemini/tmp',
+    format: 'gemini-chat', start: 'cd ~/your/repo && gemini',
     launch: { key: 'gemini', cmd: 'gemini', rank: 2, modelFlag: '--model' }, procNames: ['gemini'],
   },
   {
@@ -102,7 +117,7 @@ export const HARNESS_REGISTRY: readonly HarnessDef[] = [
   },
   {
     id: 'continue', label: 'Continue', doc: 'harnesses/continue-dev.md',
-    nativeDir: '.continue/sessions',
+    format: 'continue-session',
     launch: { key: 'continue', cmd: 'continue', rank: 8 },
   },
   {
@@ -128,5 +143,11 @@ export function ingestedHarnesses(): HarnessDef[] {
   return HARNESS_REGISTRY.filter((h) => h.format);
 }
 
-/** Directory names under `~/.<name>/unfirehose` that are ours or have their own reader, not native harnesses. */
-export const NOT_NATIVE_DIRS = new Set(['unfirehose', 'claude', 'fetch']);
+/**
+ * Directory names under `~/.<name>/unfirehose` that are ours or have their
+ * own reader, not native harnesses. `codex` is here because
+ * ~/.codex/unfirehose is what the retired codex bridge wrote: the same
+ * rollouts we now read from $CODEX_HOME/sessions, so reading both would
+ * count them twice.
+ */
+export const NOT_NATIVE_DIRS = new Set(['unfirehose', 'claude', 'fetch', 'codex']);

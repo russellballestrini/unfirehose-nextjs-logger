@@ -1,0 +1,119 @@
+{
+  "sessionId": "5e9d8c7b-6a5f-4e3d-8c2b-1a0f9e8d7c6b",
+  "title": "Add pagination to orders",
+  "workspaceDirectory": "file:///home/demo/git/demo-web",
+  "mode": "agent",
+  "chatModelTitle": "Claude Sonnet 4.5",
+  "history": [
+    {
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Add pagination to the /orders endpoint"
+          }
+        ]
+      },
+      "contextItems": []
+    },
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Let me look at the route.",
+        "toolCalls": [
+          {
+            "id": "toolu_c1",
+            "type": "function",
+            "function": {
+              "name": "grep_search",
+              "arguments": "{\"query\":\"orders\"}"
+            }
+          }
+        ],
+        "usage": {
+          "promptTokens": 4200,
+          "completionTokens": 80,
+          "promptTokensDetails": {
+            "cachedTokens": 3000,
+            "cacheWriteTokens": 0
+          }
+        }
+      },
+      "contextItems": [],
+      "reasoning": {
+        "active": false,
+        "text": "Find the orders route first.",
+        "startAt": 1792487705000,
+        "endAt": 1792487709000
+      },
+      "promptLogs": [
+        {
+          "modelTitle": "Claude Sonnet 4.5",
+          "modelProvider": "anthropic",
+          "prompt": "...",
+          "completion": "Let me look at the route."
+        }
+      ],
+      "toolCallStates": [
+        {
+          "toolCallId": "toolu_c1",
+          "toolCall": {
+            "id": "toolu_c1",
+            "type": "function",
+            "function": {
+              "name": "grep_search",
+              "arguments": "{\"query\":\"orders\"}"
+            }
+          },
+          "status": "done",
+          "parsedArgs": {
+            "query": "orders"
+          },
+          "output": [
+            {
+              "name": "Search results",
+              "description": "grep_search",
+              "content": "src/routes.ts:12: router.get('/orders', listOrders)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "message": {
+        "role": "tool",
+        "content": "src/routes.ts:12: router.get('/orders', listOrders)",
+        "toolCallId": "toolu_c1"
+      },
+      "contextItems": []
+    },
+    {
+      "message": {
+        "role": "assistant",
+        "content": "The route is in src/routes.ts; I'll add limit and offset.",
+        "usage": {
+          "promptTokens": 4600,
+          "completionTokens": 60,
+          "promptTokensDetails": {
+            "cachedTokens": 3200
+          }
+        }
+      },
+      "contextItems": [],
+      "promptLogs": [
+        {
+          "modelTitle": "Claude Sonnet 4.5",
+          "modelProvider": "anthropic",
+          "prompt": "...",
+          "completion": "The route is in src/routes.ts; I'll add limit and offset."
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "promptTokens": 8800,
+    "completionTokens": 140,
+    "totalCost": 0.0
+  }
+}

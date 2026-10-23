@@ -42,12 +42,14 @@ import {
   refreshNativeHarnesses,
 } from './ingest-harness';
 import type { IngestResult } from './ingest-harness';
+import { foreignSources, ingestForeignSource } from './ingest-foreign';
 import { checkThresholds } from './ingest-alerts';
 import { getSetting, setSetting } from './ingest-settings';
 
 export { gitConfigPath, readGitRemotes, mergeProjects, autoMergeIdenticalProjects } from './ingest-projects';
 export { archiveToolResultsForSession } from './ingest-claude-code';
 export { ingestJsonlSource, nativeHarnesses } from './ingest-harness';
+export { ingestForeignSource, foreignSources } from './ingest-foreign';
 export type { IngestResult, NativeHarness } from './ingest-harness';
 export {
   getRecentAlerts,
@@ -488,7 +490,7 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     result.providenceAdded += fetchResult.providenceAdded;
   }
 
-  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.),
+  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, etc.),
   // then the same harnesses under every fleet worker's private HOME
   // (fleet-roots.ts) — found each pass, never fs-watched.
   const fleet = (!enabled || enabled.includes('fleet')) ? fleetHarnesses() : [];
@@ -507,6 +509,23 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     result.blocksAdded += hResult.blocksAdded;
     result.filesScanned += hResult.filesScanned;
     result.providenceAdded += hResult.providenceAdded;
+  }
+
+  // Harnesses with a layout of their own (Codex's dated rollouts, Gemini
+  // CLI's chat recordings, Continue's session files), one reader per format,
+  // driven by the registry. Not fs-watched: a targeted pass leaves them to
+  // the next full one, a minute away at most.
+  if (!only) {
+    for (const source of foreignSources()) {
+      if (enabled && !enabled.includes(source.harness)) continue;
+      const fResult = ingestForeignSource(db, source);
+      result.projectsAdded += fResult.projectsAdded;
+      result.sessionsAdded += fResult.sessionsAdded;
+      result.messagesAdded += fResult.messagesAdded;
+      result.blocksAdded += fResult.blocksAdded;
+      result.filesScanned += fResult.filesScanned;
+      result.providenceAdded += fResult.providenceAdded;
+    }
   }
 
   // A targeted pass ends here: the rows it read are in, an alert that

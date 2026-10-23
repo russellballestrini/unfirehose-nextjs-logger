@@ -43,6 +43,9 @@ const HARNESS_COLORS: Record<string, string> = {
   'agnt': '#34d399',
   'uncloseai': '#60a5fa',
   'fetch': '#fbbf24',
+  'codex': '#22d3ee',
+  'gemini-cli': '#f97316',
+  'continue': '#e879f9',
 };
 
 function harnessColor(h: string | null): string {

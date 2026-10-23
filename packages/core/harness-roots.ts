@@ -18,7 +18,10 @@ export const HARNESS_ROOTS: Record<string, () => string> = {
   fetch: () => fetchPaths.root,
   uncloseai: () => uncloseaiPaths.root,
   agnt: () => agntPaths.root,
-  // scripts/codex-bridge.mts writes native unfirehose/1.0 here from
-  // $CODEX_HOME/sessions.
-  codex: () => process.env.UNFIREHOSE_CODEX_DIR || path.join(homedir(), '.codex', 'unfirehose'),
+  // Codex CLI's own rollouts, read in place (codex-adapter.ts).
+  codex: () => path.join(process.env.CODEX_HOME || path.join(homedir(), '.codex'), 'sessions'),
+  // Gemini CLI honours GEMINI_CLI_HOME as its home (packages/core/src/utils/paths.ts).
+  'gemini-cli': () => path.join(process.env.GEMINI_CLI_HOME || homedir(), '.gemini', 'tmp'),
+  // Continue honours CONTINUE_GLOBAL_DIR (core/util/paths.ts).
+  continue: () => path.join(process.env.CONTINUE_GLOBAL_DIR || path.join(homedir(), '.continue'), 'sessions'),
 };

@@ -515,6 +515,12 @@ export function migrate(db: Database.Database) {
   // (unfirehose-chain-v1), so a message on screen joins to the leaf its
   // session root commits to. NULL for an unchained writer.
   addColumn('messages', 'row_hash', 'TEXT');
+  // Foreign-format readers (db/ingest-foreign.ts). A file rewritten whole
+  // (Gemini's legacy .json, Continue) is unchanged when its size AND mtime
+  // are; a reader that folds lines into state (Codex's cumulative token
+  // counters, its session and model) resumes from the state it stopped at.
+  addColumn('ingest_offsets', 'mtime_ms', 'REAL');
+  addColumn('ingest_offsets', 'reader_state', 'TEXT');
   ensureProvenanceTables(db);
   ensureRewriteTables(db);
   // One-time backfill: harness tells us provider with high confidence even when

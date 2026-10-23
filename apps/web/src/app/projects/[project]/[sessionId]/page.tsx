@@ -22,6 +22,9 @@ const HARNESS_COLORS: Record<string, string> = {
   'fetch': '#fbbf24',
   'arborist': '#fb7185',
   'aborist': '#fb7185',
+  'codex': '#22d3ee',
+  'gemini-cli': '#f97316',
+  'continue': '#e879f9',
 };
 
 function harnessColor(h: string): string {

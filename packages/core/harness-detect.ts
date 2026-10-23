@@ -16,6 +16,8 @@ import path from 'path';
 import { harnessRootsInHome } from './fleet-roots';
 import { ingestedHarnesses, harnessById } from './harness-registry';
 import { HARNESS_ROOTS } from './harness-roots';
+import { foreignSessionFiles } from './harness-files';
+import type { HarnessFormat } from './harness-registry';
 
 export interface HarnessLocation {
   /** The name sessions carry in `sessions.harness`. */
@@ -27,6 +29,8 @@ export interface HarnessLocation {
   doc: string;
   /** How a person starts it writing, for the wizard's "not found" line. */
   start?: string;
+  /** How its session files are laid out; absent for a native `~/.<name>/unfirehose` writer. */
+  format?: HarnessFormat;
 }
 
 export interface HarnessDetection extends HarnessLocation {
@@ -44,7 +48,7 @@ export interface HarnessDetection extends HarnessLocation {
 /** Every harness root ingest reads, in the order a person would look for them. */
 export function harnessLocations(home = homedir()): HarnessLocation[] {
   const fixed: HarnessLocation[] = ingestedHarnesses().map((h) => ({
-    id: h.id, label: h.label, root: HARNESS_ROOTS[h.id](), doc: h.doc,
+    id: h.id, label: h.label, root: HARNESS_ROOTS[h.id](), doc: h.doc, format: h.format,
     ...(h.start ? { start: h.start } : {}),
   }));
   const seen = new Set(fixed.map((h) => h.root));
@@ -69,7 +73,21 @@ function isDir(p: string): boolean {
  * Claude Code install holds tens of thousands of transcripts, and the wizard
  * polls this.
  */
-function survey(root: string, maxFiles: number): { files: number; newestMs: number | null; truncated: boolean } {
+function survey(root: string, maxFiles: number, format?: HarnessFormat): { files: number; newestMs: number | null; truncated: boolean } {
+  // A format with its own layout (Codex's dated tree, Gemini's chats/,
+  // Continue's flat .json) is listed the way ingest lists it.
+  const foreign = format ? foreignSessionFiles(format, root) : null;
+  if (foreign) {
+    let newestMs: number | null = null;
+    const counted = foreign.slice(0, maxFiles);
+    for (const f of counted) {
+      try {
+        const m = statSync(f).mtimeMs;
+        if (newestMs === null || m > newestMs) newestMs = m;
+      } catch { /* gone between listing and stat */ }
+    }
+    return { files: counted.length, newestMs, truncated: foreign.length > maxFiles };
+  }
   let files = 0;
   let newestMs: number | null = null;
   let projects: string[] = [];
@@ -98,6 +116,6 @@ export function detectHarnesses(opts: { home?: string; maxFiles?: number } = {})
     let readable = true;
     try { accessSync(loc.root, constants.R_OK | constants.X_OK); } catch { readable = false; }
     if (!readable) return { ...loc, found: true, readable, files: 0, newestMs: null, truncated: false };
-    return { ...loc, found: true, readable, ...survey(loc.root, maxFiles) };
+    return { ...loc, found: true, readable, ...survey(loc.root, maxFiles, loc.format) };
   });
 }
