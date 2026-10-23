@@ -3,7 +3,8 @@
         cov-core cov-ui cov-web cov-scripts \
         dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
         build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
-        service-install service-start service-stop service-restart service-status service-logs service-uninstall
+        service-install service-start service-stop service-restart service-status service-logs service-uninstall \
+        doctor
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -217,6 +218,17 @@ fix-watches:
 persist-watches:
 	echo 'fs.inotify.max_user_watches=524288' > /etc/sysctl.d/90-inotify.conf
 	sysctl --system
+
+# Is this machine ready to run us, and if not, what to do. Node version,
+# better-sqlite3's native build, our data dir, port 3000, worker unit vs
+# make dev, each harness directory, disk free. Green / yellow / red with the
+# fix beside each red; exits non-zero only on red. Read-only, never sudo.
+# The shell half covers what must hold before tsx can run at all; the rest
+# is scripts/doctor.ts, its rules in scripts/doctor-checks.ts.
+doctor:
+	@command -v node >/dev/null 2>&1 || { echo "[FAIL] node  not on PATH"; echo "       fix: install node 22.x (nvm install 22), then npm ci"; exit 1; }
+	@test -x node_modules/.bin/tsx || { echo "[FAIL] deps  node_modules missing (no tsx)"; echo "       fix: npm ci --no-audit --no-fund"; exit 1; }
+	@node_modules/.bin/tsx scripts/doctor.ts
 
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
