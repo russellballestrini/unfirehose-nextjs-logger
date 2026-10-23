@@ -587,6 +587,23 @@ Vendor status pages as our worker last polled them (language-model vendors only;
 ← `{ action: "remove", id: "x-ai" }` · `{ action: "poll" }` polls every target now
 
 
+## Actions
+
+### GET /api/actions
+Agent action ledger — every tool call that touched the filesystem, git or the network, newest first, classified from ingested content blocks for every harness (Claude Code, Codex, Gemini CLI, OpenCode, pi, hermes tool names). Secrets are redacted from what it returns.
+- `?project=<encoded name or alias>` · `?session=<uuid>` · `?harness=claude-code` · `?tool=Bash`
+- `?from=2026-10-01&to=2026-10-23` — ISO instants or dates, both inclusive
+- `?kind=fs-read|fs-write|git|network|shell`
+- `?flag=any|destructive|force-push|force-with-lease|secrets-in-diff|secret-in-command|sudo|curl-pipe-shell`
+- `?path=<substring>` (paths, URLs, hosts) · `?command=<substring>`
+- `?limit=100` (max 500) · `?cursor=<nextCursor>` keyset paging · `?format=csv` downloads up to 10 000 matching rows
+→ `{ rows: [{ id, timestamp, kind, tool, harness, paths, command, flags, reasons, projectName, projectDisplayName, sessionUuid, toolUseId }], nextCursor, total, kinds, flags, flaggedRows, status: { rows, backfillRemaining, headLag, rulesVersion } }`
+
+### POST /api/actions
+← `{ rebuild: true }` empties our ledger and re-classifies from content blocks (one window now, our worker fills history in the background); `{}` runs one window of catch-up
+→ `{ ok, rebuilt, rows, backfillRemaining, headLag, rulesVersion, done }`
+
+
 ## Triage
 
 ### GET /api/triage

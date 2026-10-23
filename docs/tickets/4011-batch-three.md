@@ -174,3 +174,36 @@ Not done, and why:
   v1.2, a v2 restructure in 2026 whose source we could not read); a reader
   would chase a moving target. Worth doing against v2 once its schema is
   readable.
+
+## Outcome
+
+### Item 6: agent action ledger
+- `packages/core/action-ledger.ts` classifies one tool call into
+  `fs-read | fs-write | git | network | shell`, the paths, URLs or hosts it
+  named, its command, and flags: `destructive`, `force-push`,
+  `force-with-lease`, `secrets-in-diff`, `secret-in-command`, `sudo`,
+  `curl-pipe-shell`, each with a reason in words. Tool names for Claude Code,
+  Codex (`shell` argv, `exec_command`, `apply_patch`), Gemini CLI, OpenCode,
+  pi and hermes. Shell text is split with shell-pretty's `splitTopLevel`.
+- Destructive is judged by target: `rm -r` of root, home, a home's dot or
+  `git` folders, system or top-level directories, `$VAR/`, `.` or `*`;
+  `git reset --hard`, `clean -f`, `checkout .`, `restore .`, `branch -D`,
+  `stash drop|clear`, `push --delete|--mirror`, `filter-branch`; `dd` onto a
+  device, `mkfs`, `shred`, `truncate` outside /tmp, `chmod -R 777`; `>` over
+  system files, ssh files or login dotfiles; SQL `DROP`, `TRUNCATE`, `DELETE`
+  without WHERE through a database client. `rm -rf dist` and
+  `find . -name '*.pyc' -delete` are not flagged.
+- Credentials: `findSecrets` / `redactSecrets` in `pii.ts` (vendor token
+  shapes plus credential-named assignments whose value looks random). Not
+  added to `sanitizePII`, so ingest stores what it stored before; the ledger
+  redacts what it keeps.
+- Table `action_ledger` (not `agent_actions`, our dispatch queue), keyed on
+  `block_id`, indexed by time, session, project, kind, harness and a partial
+  index on flagged rows. Filled by `db/action-ledger.ts`: a head cursor at the
+  end of every ingest pass, and a newest-first backfill in block-id windows of
+  50 000 from our worker every 15 s while no ingest runs (about 47 windows for
+  2.35 M blocks). A `LEDGER_RULES_VERSION` bump re-classifies history.
+- `GET /api/actions` (filters, keyset paging, `format=csv`), `POST` rebuild;
+  page `/actions` under Analyze, linked from a project's Activity tab; rows
+  link to `/projects/<p>/<session>#tool-<id>`, which our session viewer now
+  scrolls to. `make demo` seeds a `git reset --hard` and a WebFetch.

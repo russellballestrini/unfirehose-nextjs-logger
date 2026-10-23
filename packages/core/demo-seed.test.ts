@@ -60,6 +60,8 @@ describe('seedDemo', () => {
       todos: 5,
       alerts: 1,
       meshSnapshots: DEMO_DAYS * 24 * 12,
+      // Every turn but the first and last calls one tool, and each touches something.
+      actions: sessions * (DEMO_TURNS - 2),
     });
     const harnesses = db.prepare('SELECT harness, COUNT(*) AS n FROM sessions GROUP BY harness ORDER BY harness').all();
     expect(harnesses).toEqual([
@@ -90,6 +92,14 @@ describe('seedDemo', () => {
     const days = db.prepare(`SELECT COUNT(DISTINCT substr(timestamp, 1, 10)) AS n FROM messages`).get() as { n: number };
     expect(days.n).toBeGreaterThanOrEqual(DEMO_DAYS);
     expect(db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE status = 'active'`).get()).toEqual({ n: 1 });
+  });
+
+  it('fills our action ledger, a destructive call and a network call among it', () => {
+    const kinds = db.prepare(`SELECT kind, COUNT(*) AS n FROM action_ledger GROUP BY kind`).all() as Array<{ kind: string; n: number }>;
+    expect(kinds.map((k) => k.kind).sort()).toEqual(['fs-read', 'fs-write', 'git', 'network', 'shell']);
+    const flagged = db.prepare(`SELECT command, flags FROM action_ledger WHERE flagged = 1`).all() as Array<{ command: string; flags: string }>;
+    expect(flagged.length).toBeGreaterThan(0);
+    expect(flagged.every((f) => f.flags === 'destructive' && f.command.includes('reset --hard'))).toBe(true);
   });
 
   it('carries text, reasoning, tool calls and their results', () => {

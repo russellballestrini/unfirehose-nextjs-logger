@@ -45,6 +45,7 @@ import {
 import type { IngestResult } from './ingest-harness';
 import { foreignSources, ingestForeignSource } from './ingest-foreign';
 import { checkThresholds } from './ingest-alerts';
+import { scanLedgerHead } from './action-ledger';
 import { getSetting, setSetting } from './ingest-settings';
 
 export { gitConfigPath, readGitRemotes, mergeProjects, autoMergeIdenticalProjects } from './ingest-projects';
@@ -180,6 +181,19 @@ export function housekeepingDue(
 ): boolean {
   return result.filesScanned > 0 || result.projectsAdded > 0 || result.sessionsAdded > 0 || result.messagesAdded > 0
     || now - lastAt >= HOUSEKEEPING_INTERVAL_MS;
+}
+
+/**
+ * Classify the tool calls that just landed (action-ledger.ts). Bounded, so a
+ * first ingest of a large history leaves the rest to the worker's backfill.
+ * Derived data: a failure here never fails ingest.
+ */
+function ledgerAfterIngest(db: ReturnType<typeof getDb>): void {
+  try {
+    scanLedgerHead(db);
+  } catch (err) {
+    console.error('[ingest] action ledger scan failed:', err);
+  }
 }
 
 export async function ingestAll(opts: IngestOptions = {}): Promise<IngestResult> {
@@ -535,6 +549,7 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
   // the pass that also swept the whole filesystem.
   if (result.filesScanned > 0) _ingestActivityAt = Date.now();
   if (only) {
+    ledgerAfterIngest(db);
     result.alertsTriggered = checkThresholds(db);
     if (uneofProjects.size > 0) cullUneofDeployments(db, uneofProjects);
     setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
@@ -669,6 +684,9 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     `).run();
 
   }
+
+  // The tool calls this pass brought in, into our action ledger.
+  ledgerAfterIngest(db);
 
   // Check alert thresholds
   result.alertsTriggered = checkThresholds(db);

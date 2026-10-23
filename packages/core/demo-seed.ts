@@ -25,6 +25,7 @@
 import type Database from 'better-sqlite3';
 import { getOrCreateSession, insertMessage, insertContentBlocks, updateUsageMinutes } from './db/ingest-rows';
 import { DEMO_MODELS } from './pricing';
+import { drainLedger } from './db/action-ledger';
 
 export { DEMO_MODELS };
 
@@ -86,6 +87,9 @@ const TOOLS = [
   { name: 'Grep', input: () => ({ pattern: 'TODO', path: 'src' }), output: 'src/routes.ts:42: // TODO paginate\nsrc/db.ts:7: // TODO index' },
   { name: 'Bash', input: () => ({ command: 'npm test -- --run' }), output: 'Test Files  12 passed (12)\n     Tests  148 passed (148)' },
   { name: 'Edit', input: (p: string) => ({ file_path: `${p}/src/routes.ts`, old_string: 'limit = 100', new_string: 'limit = query.limit ?? 50' }), output: 'The file has been updated.' },
+  // For our action ledger: one call it flags as destructive, one network call.
+  { name: 'Bash', input: () => ({ command: 'git stash && git reset --hard origin/main' }), output: 'HEAD is now at 3f2c1a9 Merge branch fix/pagination' },
+  { name: 'WebFetch', input: () => ({ url: 'https://registry.npmjs.org/better-sqlite3', prompt: 'Which version is latest?' }), output: 'The latest version is 12.4.1.' },
 ] as const;
 
 const TODOS = [
@@ -126,6 +130,8 @@ export interface DemoSeedResult {
   todos: number;
   alerts: number;
   meshSnapshots: number;
+  /** Rows in our action ledger, classified from the tool calls above. */
+  actions: number;
 }
 
 /**
@@ -139,7 +145,7 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
 
   const now = Math.floor((opts.now ?? Date.now()) / 1000) * 1000;
   const rng = prng(4010);
-  const result: DemoSeedResult = { projects: 0, sessions: 0, messages: 0, todos: 0, alerts: 0, meshSnapshots: 0 };
+  const result: DemoSeedResult = { projects: 0, sessions: 0, messages: 0, todos: 0, alerts: 0, meshSnapshots: 0, actions: 0 };
 
   db.transaction(() => {
     const projectIds: number[] = [];
@@ -304,6 +310,9 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
       DEMO_DAYS * 86400, sqlTime(now),
     );
   })();
+
+  // What the worker's backfill would leave: every tool call above, classified.
+  result.actions = drainLedger(db).recorded;
 
   return result;
 }

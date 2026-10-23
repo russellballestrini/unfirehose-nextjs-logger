@@ -841,6 +841,42 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rle_session   ON rate_limit_events(session_id);
   `);
 
+  // Agent action ledger: every tool call that touched the filesystem, git or
+  // the network, classified once by action-ledger.ts and kept here so a
+  // search reads a few hundred thousand narrow rows instead of classifying
+  // 2.35 M content blocks per request. Derived, never a source: the scanner
+  // (db/action-ledger-scan.ts) rebuilds it from content_blocks whenever its
+  // rules change. Not `agent_actions`, which is our dispatch queue.
+  //
+  // `paths` is newline-joined and `flags` space-joined, so a substring
+  // search is one LIKE; `flagged` carries a partial index because flagged
+  // rows are the few a person opens this page to find.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS action_ledger (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      block_id     INTEGER NOT NULL UNIQUE,  -- content_blocks.id
+      message_id   INTEGER NOT NULL,
+      session_id   INTEGER,
+      project_id   INTEGER,
+      harness      TEXT,
+      timestamp    TEXT NOT NULL,
+      tool_name    TEXT NOT NULL,
+      tool_use_id  TEXT,
+      kind         TEXT NOT NULL,            -- fs-read | fs-write | git | network | shell
+      paths        TEXT NOT NULL DEFAULT '', -- newline-joined, secrets redacted
+      command      TEXT,                     -- secrets redacted, capped at 4000 chars
+      flags        TEXT NOT NULL DEFAULT '', -- space-joined: destructive force-push sudo …
+      flagged      INTEGER NOT NULL DEFAULT 0,
+      reasons      TEXT NOT NULL DEFAULT ''  -- why each flag fired, '; '-joined
+    );
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_ts      ON action_ledger(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_session ON action_ledger(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_project ON action_ledger(project_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_kind    ON action_ledger(kind, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_harness ON action_ledger(harness, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_flagged ON action_ledger(timestamp) WHERE flagged = 1;
+  `);
+
   // Vendor status pages, polled by the worker (see status-pages.ts). Raw
   // polls for 28 days, then one row per hour carrying the worst light.
   db.exec(`

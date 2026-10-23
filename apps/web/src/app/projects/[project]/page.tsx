@@ -943,6 +943,9 @@ export function ActivityTab({ activityData, project, decodedProject: _decodedPro
 
   return (
     <div className="space-y-6">
+      <Link href={`/actions?project=${project}`} className="inline-block text-[var(--color-accent)] hover:underline">
+        Every file, git and network action agents took in this project →
+      </Link>
       <h3 className="text-sm font-bold text-[var(--color-muted)]">Recent Prompt-Commit Activity</h3>
 
       {prompts.length > 0 ? (

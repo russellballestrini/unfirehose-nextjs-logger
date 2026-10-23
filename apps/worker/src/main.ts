@@ -8,6 +8,7 @@ import { rollupDrain } from './mesh-rollup';
 import { startSampler, startPayloadBuilder } from './sampler-supervisor';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
+import { scanLedgerHead, backfillLedger } from '@unturf/unfirehose/db/action-ledger';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
 import { fileSecretStore } from '@unturf/unfirehose/db/alert-delivery';
 import { createAlertTicker, ALERT_DELIVERY_TICK_MS } from './alert-tick';
@@ -34,6 +35,10 @@ const PRICE_SYNC_INTERVAL_MS = (() => {
 // time between the syncs that check triggers.
 const UNPRICED_CHECK_INTERVAL_MS = 5 * 60_000;
 const UNPRICED_SYNC_MIN_INTERVAL_MS = 60 * 60_000;
+// Action ledger history: one window of block ids per tick, only while no
+// ingest is running. 2.35 M blocks is ~47 windows, so a large history fills
+// in about twelve minutes without ever holding the write lock for long.
+const LEDGER_BACKFILL_TICK_MS = 15_000;
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
@@ -128,6 +133,35 @@ async function main() {
       console.error('[worker] rate limit scan failed:', err);
     }
   }, POLL_INTERVAL_MS);
+
+  // Agent action ledger. New tool calls are classified at the end of every
+  // ingest pass; this catches up anything a bounded pass left, then walks
+  // history newest first. Skipped while ingest holds the database.
+  let ledgerBackfillDone = false;
+  let ledgerLogged = 0;
+  const ledgerInterval = setInterval(() => {
+    if (ingestInFlight) return;
+    try {
+      const db = getDb();
+      scanLedgerHead(db);
+      // Cheap once history is done (two settings reads), and it resumes on
+      // its own after a rebuild from /api/actions.
+      const t0 = Date.now();
+      const r = backfillLedger(db);
+      ledgerLogged += r.recorded;
+      if (r.done) {
+        if (!ledgerBackfillDone) console.log(`[worker] action ledger: history classified (${ledgerLogged} action(s) this run)`);
+        ledgerBackfillDone = true;
+        return;
+      }
+      ledgerBackfillDone = false;
+      if (r.recorded > 0) {
+        console.log(`[worker] action ledger: +${r.recorded} from ${r.scanned} tool call(s) in ${Date.now() - t0}ms, ${r.remaining} block id(s) to go`);
+      }
+    } catch (err) {
+      console.error('[worker] action ledger failed:', err);
+    }
+  }, LEDGER_BACKFILL_TICK_MS);
 
   // Watchdog: if no ingest has completed within INGEST_STALL_MS the loop is
   // wedged — force a recovery run instead of waiting for a restart. A run that
@@ -304,6 +338,7 @@ async function main() {
       clearInterval(watchdog);
       clearInterval(rollupInterval);
       clearInterval(rateLimitInterval);
+      clearInterval(ledgerInterval);
       clearTimeout(statusKickoff);
       clearInterval(statusInterval);
       clearInterval(statusRollup);

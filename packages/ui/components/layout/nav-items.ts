@@ -34,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/tokens', label: 'Tokens', icon: '¤' },
   { href: '/usage', label: 'Usage', icon: '△' },
   { href: '/rate-limits', label: 'Refusals', icon: '⏳' },
+  { href: '/actions', label: 'Actions', icon: '⚑' },
   { href: '/reports', label: 'Reports', icon: '▦' },
   { href: '/logs', label: 'All Logs', icon: '≡' },
   // Configure

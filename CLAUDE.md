@@ -98,7 +98,9 @@ git push origin HEAD --follow-tags
 ```
 `scripts/publish.sh` counts up from whichever is higher, git's version or npm's. A pushed `v*` tag also runs the CI publish job, which tolerates a version already on npm.
 
-Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Reports, Scrobble, Schema, Settings, Permacomputer.
+Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Reports, Actions, Scrobble, Schema, Settings, Permacomputer.
+
+**Actions** (`/actions`, `GET /api/actions`): our agent action ledger, every tool call that touched files, git or the network, flagged when destructive, a force push, a credential, sudo or curl | sh. Classifier: `packages/core/action-ledger.ts`; table `action_ledger`, filled at ingest and backfilled by our worker (`packages/core/db/action-ledger.ts`); ticket 4011 item 6.
 
 **Reports** (`/reports`, `GET /api/reports/monthly?month=&tz=&format=json|csv|pdf`): one month of spend for an expense claim, in the first `display_currency` at that month's published rate. A closed month is filed on first build and every later download matches it; `rebuild=1` refiles. Builder: `packages/core/cost-report.ts`; ticket 4009.
 

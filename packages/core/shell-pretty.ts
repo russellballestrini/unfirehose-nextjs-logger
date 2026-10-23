@@ -17,13 +17,15 @@ const OPENERS: Record<string, string> = { '(': ')', '{': '}', '[': ']' };
 /** Words that close a body and are written at the parent indent. */
 const BODY_CLOSE = new Set(['fi', 'done', 'esac']);
 
-interface Piece { text: string; joiner: '' | ';' | '&&' | '||' | '|' | '&' | '|&' }
+export interface ShellPiece { text: string; joiner: '' | ';' | '&&' | '||' | '|' | '&' | '|&' }
+type Piece = ShellPiece;
 
 /**
  * Split at top-level operators. Returns null when the text is not safely
  * tokenizable (an unterminated quote or heredoc) so the caller can leave it.
+ * Exported for the action ledger, which reads each statement on its own.
  */
-function splitTopLevel(src: string): Piece[] | null {
+export function splitTopLevel(src: string): Piece[] | null {
   const pieces: Piece[] = [];
   let buf = '';
   let i = 0;

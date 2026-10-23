@@ -124,6 +124,103 @@ export function sanitizePII(text: string): {
   return { sanitized, replacements };
 }
 
+// Two credential detectors live here on purpose, tuned for opposite costs.
+// redactForExport (below the ledger's) is for a file that leaves this
+// machine, where a missed key is a leak, so it errs toward redacting.
+// findSecrets is for the action ledger's flags, where a false alarm teaches
+// people to ignore the flag, so it errs toward precision. Their vendor key
+// shapes overlap; keep the two lists in step when a vendor changes one.
+
+// ── Secrets ──────────────────────────────────────────────────────────────────
+//
+// Credentials, as distinct from personal data. sanitizePII above runs on
+// every text block at ingest and these do not join it: redacting a key out
+// of a transcript is a decision about what we store, and it belongs to its
+// own change. These answer a narrower question for the action ledger — did
+// a tool call write a credential into a file, or carry one on a command
+// line — and redact them out of what the ledger itself keeps.
+//
+// Precision over recall. Each pattern is a vendor's published token shape,
+// or a credential-named assignment whose value looks random; a placeholder
+// like `sk-ant-...` or `API_KEY=your-key-here` never matches.
+
+export interface SecretMatch {
+  /** private_key, aws_access_key, github_token, anthropic_key, … */
+  kind: string;
+  start: number;
+  end: number;
+}
+
+interface SecretPattern {
+  kind: string;
+  regex: RegExp;
+  /** Which capture group is the secret itself; 0 = the whole match. */
+  group?: number;
+  validate?: (value: string) => boolean;
+}
+
+const PLACEHOLDER = /(?:your|example|placeholder|changeme|dummy|redacted|xxxx|\*\*\*|\.\.\.|<|>|\$\{?|process\.env|os\.environ)/i;
+
+/** A value that reads as random: letters and digits both, not one repeated run. */
+function looksRandom(v: string): boolean {
+  if (PLACEHOLDER.test(v)) return false;
+  if (!/[A-Za-z]/.test(v) || !/\d/.test(v)) return false;
+  return new Set(v).size >= 8;
+}
+
+// Ordered most specific first; a later pattern never claims a span an
+// earlier one already matched (sk-ant- before the generic sk-).
+const SECRET_PATTERNS: SecretPattern[] = [
+  { kind: 'private_key', regex: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----/g },
+  { kind: 'aws_access_key', regex: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
+  { kind: 'github_token', regex: /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})\b/g },
+  { kind: 'gitlab_token', regex: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
+  { kind: 'anthropic_key', regex: /\bsk-ant-[A-Za-z0-9_-]{24,}/g, validate: looksRandom },
+  { kind: 'openai_key', regex: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g, validate: looksRandom },
+  { kind: 'unsandbox_key', regex: /\bunsb-sk-[A-Za-z0-9_-]{16,}/g, validate: looksRandom },
+  { kind: 'slack_token', regex: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, validate: looksRandom },
+  { kind: 'stripe_key', regex: /\b[sr]k_live_[A-Za-z0-9]{20,}\b/g },
+  { kind: 'google_api_key', regex: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  { kind: 'npm_token', regex: /\bnpm_[A-Za-z0-9]{36}\b/g },
+  { kind: 'bearer_token', regex: /\bBearer\s+([A-Za-z0-9._~+/-]{24,}=*)/g, group: 1, validate: looksRandom },
+  {
+    kind: 'assigned_secret',
+    regex: /\b[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_?KEY|ACCESS_?TOKEN|AUTH_?TOKEN|PRIVATE_?KEY)[A-Za-z0-9_]*["']?\s*[:=]\s*["']?([A-Za-z0-9+/_.=-]{16,})/gi,
+    group: 1,
+    validate: looksRandom,
+  },
+];
+
+/** Every credential in `text`, by kind and span. Spans never overlap. */
+export function findSecrets(text: string): SecretMatch[] {
+  if (!text) return [];
+  const found: SecretMatch[] = [];
+  for (const p of SECRET_PATTERNS) {
+    const regex = new RegExp(p.regex.source, p.regex.flags);
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      const value = p.group ? m[p.group] : m[0];
+      if (!value) continue;
+      const start = p.group ? m.index + m[0].lastIndexOf(value) : m.index;
+      const end = start + value.length;
+      if (found.some((f) => start < f.end && end > f.start)) continue;
+      if (p.validate && !p.validate(value)) continue;
+      found.push({ kind: p.kind, start, end });
+    }
+  }
+  return found.sort((a, b) => a.start - b.start);
+}
+
+/** `text` with each credential replaced by `__SECRET_<KIND>__`. */
+export function redactSecrets(text: string): string {
+  const hits = findSecrets(text);
+  let out = text;
+  for (const h of [...hits].reverse()) {
+    out = out.slice(0, h.start) + `__SECRET_${h.kind.toUpperCase()}__` + out.slice(h.end);
+  }
+  return out;
+}
+
 // ── Export redaction: secrets, home paths, then PII ──────────────────────────
 //
 // sanitizePII is what ingest applies before a row is stored, and it covers
@@ -140,7 +237,7 @@ export function sanitizePII(text: string): {
  * Only the secret goes and its surroundings stay: every regex here has three
  * groups, (before)(secret)(after), and the first and last are written back.
  */
-interface SecretPattern {
+interface ExportSecretPattern {
   piiType: string;
   regex: RegExp;
 }
@@ -167,7 +264,7 @@ const KEY_PREFIXES = [
   'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',    // SendGrid
 ];
 
-const SECRET_PATTERNS: SecretPattern[] = [
+const EXPORT_SECRET_PATTERNS: ExportSecretPattern[] = [
   {
     // A truncated block (no END line) still goes, to the end of the text.
     piiType: 'private_key',
@@ -227,7 +324,7 @@ export function redactForExport(text: string): ExportRedaction {
   const seen = new Map<string, string>();
   const next: Record<string, number> = {};
   let out = text;
-  for (const pattern of SECRET_PATTERNS) {
+  for (const pattern of EXPORT_SECRET_PATTERNS) {
     const regex = new RegExp(pattern.regex.source, pattern.regex.flags);
     out = out.replace(regex, (whole: string, before: string, secret: string, after: string) => {
       if (TOKEN_RE.test(secret)) return whole;
