@@ -527,6 +527,29 @@ market, so the dashboard shows what running them ourselves saved.
 - Anyone who wants to see exactly where the tokens (and the cache reads) go
 - Anyone who wants to know whether their reasoning is readable or sealed by the model provider
 
+## Demo mode
+
+Want to look around before any harness has written a log? `make demo` seeds a
+week of synthetic history and serves it:
+
+```bash
+make demo        # seed ~/.unfirehose-demo, then open http://localhost:3010
+```
+
+Two projects, three harnesses (claude-code, uncloseai, agnt), 21 sessions with
+tool calls and reasoning, a few todos, one alert and a week of samples for a
+`demo-node` on Permacomputer. Every message is booked against a synthetic model
+(`demo-model`, `demo-model-small`), so every cost reads $0 and our pricing book
+is untouched.
+
+It never reads or writes your real data: the database lives in
+`~/.unfirehose-demo` (`UNFIREHOSE_DIR`), no worker runs, `UNFIREHOSE_HARNESSES=none`
+keeps any on-demand ingest from reading a harness, and HOME points at an empty
+home inside the demo directory. It runs on :3010, so it can sit beside a real
+stack on :3000. Run it again to re-seed from now; `rm -rf ~/.unfirehose-demo`
+removes it. Our seed (`packages/core/demo-seed.ts`) also powers the tests in
+`packages/core/demo-seed.test.ts` and `apps/web/src/app/render.demo.test.tsx`.
+
 ## Contributing
 
 PRs welcome. The codebase is straightforward Next.js — pick a page, read the API route, improve something.

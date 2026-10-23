@@ -1,7 +1,7 @@
 .PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
         test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
-        dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
+        dev demo fix-watches persist-watches rescue-tool-results pricing pricing-report \
         build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
         service-install service-start service-stop service-restart service-status service-logs service-uninstall \
         doctor
@@ -236,6 +236,22 @@ dev:
 	@systemctl --user is-active --quiet unfirehose-worker 2>/dev/null && { \
 	  echo "unfirehose-worker.service is active; two workers would double-ingest. make service-stop first."; exit 1; } || true
 	NODE_OPTIONS=--max-old-space-size=4096 npm run dev
+
+# A week of synthetic history to look around in, with no harness on disk and
+# nothing of ours touched: scripts/demo.ts seeds ~/.unfirehose-demo fresh
+# (two projects, three harnesses, todos, an alert, one mesh node; every
+# model synthetic, so every cost reads $0), then our web app serves it on
+# :3010, beside a real stack on :3000 if one is running. No worker: the
+# payloads it would build are built by the seed. HOME points at an empty
+# home inside the demo dir and UNFIREHOSE_HARNESSES=none, so even an
+# on-demand ingest (the usage page asks for one) reads no real ~/.claude.
+# Run it again to re-seed from now; rm -rf ~/.unfirehose-demo to be rid of it.
+demo:
+	UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo npx tsx scripts/demo.ts
+	@echo ""
+	@echo "unfirehose demo: http://localhost:3010   (data: $(HOME)/.unfirehose-demo, Ctrl-C to stop)"
+	@echo ""
+	cd apps/web && HOME=$(HOME)/.unfirehose-demo/home UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo UNFIREHOSE_DB_PATH=$(HOME)/.unfirehose-demo/unfirehose.db UNFIREHOSE_HARNESSES=none NODE_OPTIONS=--max-old-space-size=4096 npx next dev -p 3010
 
 # ---------------------------------------------------------------------------
 # Run as systemd USER units — respawn on crash, no root.

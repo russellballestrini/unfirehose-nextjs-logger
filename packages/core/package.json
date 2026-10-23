@@ -81,6 +81,7 @@
     "./scrobble-range": "./scrobble-range.ts",
     "./projects-list": "./projects-list.ts",
     "./dashboard": "./dashboard.ts",
+    "./demo-seed": "./demo-seed.ts",
     "./tokens": "./tokens.ts",
     "./test/db-helper": "./test/db-helper.ts",
     "./precomputed": "./precomputed.ts",

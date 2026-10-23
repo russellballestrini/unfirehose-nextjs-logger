@@ -5,7 +5,11 @@ import { mkdirSync } from 'fs';
 import { applyBasePragmas } from './pragmas';
 import { migrate } from './migrate';
 
-import { UNFIREHOSE_DIR } from './data-dir';
+import { UNFIREHOSE_DIR as DATA_DIR } from './data-dir';
+
+// A local binding rather than a re-exported import: Vite's client transform
+// (any jsdom test that loads this) rejects `export { X }` of an imported X.
+const UNFIREHOSE_DIR = DATA_DIR;
 
 // `UNFIREHOSE_DB_PATH` redirects the whole process at one file. Tests use it
 // to get a scratch database, and it lets a second instance run against a copy
