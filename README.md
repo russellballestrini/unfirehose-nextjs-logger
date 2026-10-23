@@ -22,8 +22,9 @@ dashboard once your first session lands.
   directory, port 3000, the worker, and each harness directory, and prints the
   fix beside anything red.
 - No agent data of your own yet, or just looking? `make demo` seeds a small
-  synthetic database under `~/.unfirehose-demo/` and starts the stack against
-  it, so every page has something on it.
+  synthetic database under `~/.unfirehose-demo/` and serves it on
+  `http://localhost:3010`, beside a real stack on :3000, so every page has
+  something on it.
 - Want it to survive a crash, a logout and a reboot? See
   [Keep it running](#keep-it-running).
 - Will not install node? See [Docker](#docker).
