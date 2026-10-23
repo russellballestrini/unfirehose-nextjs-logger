@@ -2,8 +2,9 @@
  * A small synthetic database for `make demo`, our README screenshots and the
  * tests that want every page populated without anyone's real logs.
  *
- * Two projects, three harnesses (claude-code, uncloseai, agnt), a week of
- * sessions ending at `now`, a few todos, one alert and a week of samples for
+ * Two projects, three harnesses (claude-code, uncloseai, agnt) with a week of
+ * sessions ending at `now`, one session each for the harnesses with readers
+ * of their own (codex, gemini-cli, continue), a few todos, one alert and a week of samples for
  * one mesh node. Every assistant message is booked against a model in
  * SYNTHETIC_MODELS, so every cost reads $0 and the pricing sync never asks
  * an oracle about it.
@@ -27,8 +28,15 @@ import { DEMO_MODELS } from './pricing';
 
 export { DEMO_MODELS };
 
-/** Harness names as `sessions.harness` carries them. */
+/** Harness names as `sessions.harness` carries them: a session a day each. */
 export const DEMO_HARNESSES = ['claude-code', 'uncloseai', 'agnt'] as const;
+/**
+ * Harnesses with a reader of their own (db/ingest-foreign.ts): one session
+ * each, so their badges, token rows and session viewer have something to
+ * show. A test holds this to the registry's foreign formats.
+ */
+export const DEMO_ONE_SESSION_HARNESSES = ['codex', 'gemini-cli', 'continue'] as const;
+type DemoHarness = (typeof DEMO_HARNESSES)[number] | (typeof DEMO_ONE_SESSION_HARNESSES)[number];
 /** The node our mesh samples describe. */
 export const DEMO_NODE = 'demo-node';
 export const DEMO_DAYS = 7;
@@ -64,10 +72,13 @@ export const DEMO_PROJECTS = [
   },
 ] as const;
 
-const HARNESS_MODEL: Record<(typeof DEMO_HARNESSES)[number], string> = {
+const HARNESS_MODEL: Record<DemoHarness, string> = {
   'claude-code': DEMO_MODELS[0],
   uncloseai: DEMO_MODELS[1],
   agnt: DEMO_MODELS[0],
+  codex: DEMO_MODELS[1],
+  'gemini-cli': DEMO_MODELS[1],
+  continue: DEMO_MODELS[0],
 };
 
 const TOOLS = [
@@ -150,88 +161,94 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
     let toolSeq = 0;
     let lastSessionId = 0;
 
+    const seedSession = (harness: DemoHarness, h: number, daysAgo: number) => {
+      const projectIdx = (daysAgo + h) % DEMO_PROJECTS.length;
+      const project = DEMO_PROJECTS[projectIdx];
+      const projectId = projectIds[projectIdx];
+      const model = HARNESS_MODEL[harness];
+
+      // Gaps between messages, laid out first so a session can end on a
+      // chosen instant. The newest claude-code session ends exactly at now.
+      const gaps: number[] = [];
+      for (let k = 0; k < DEMO_TURNS; k++) {
+        gaps.push(k === 0 ? 0 : rng.int(2, 6) * MINUTE + rng.int(0, 59) * 1000); // user after previous assistant
+        gaps.push(rng.int(15, 90) * 1000); // assistant after user
+      }
+      const span = gaps.reduce((a, b) => a + b, 0);
+      const end = daysAgo === 0 && h === 0 ? now : now - daysAgo * DAY - h * 3 * HOUR - rng.int(1, 60) * MINUTE;
+      let t = end - span;
+
+      const prompt = project.prompts[(DEMO_DAYS - 1 - daysAgo + h) % project.prompts.length];
+      const sessionUuid = rng.uuid();
+      const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
+        firstPrompt: prompt,
+        createdAt: iso(t),
+        harness,
+        gitBranch: 'main',
+        cliVersion: harness === 'claude-code' ? '2.1.0' : '1.0.0',
+      });
+      result.sessions++;
+
+      let parent: string | null = null;
+      let pendingTool: { id: string; output: string } | null = null;
+      let g = 0;
+      for (let k = 0; k < DEMO_TURNS; k++) {
+        t += gaps[g++];
+        const userContent: any[] = pendingTool
+          ? [{ type: 'tool-result', toolCallId: pendingTool.id, output: pendingTool.output }]
+          : [{ type: 'text', text: k === 0 ? prompt : 'Looks right. Keep going.' }];
+        pendingTool = null;
+        const userUuid = rng.uuid();
+        const userId = insertMessage(db, sessionId, { role: 'user', id: userUuid, parentId: parent, timestamp: iso(t) });
+        if (userId) { insertContentBlocks(db, userId, userContent); result.messages++; }
+        parent = userUuid;
+
+        t += gaps[g++];
+        const assistantContent: any[] = [];
+        if (k === 0) {
+          assistantContent.push({ type: 'reasoning', text: `Start by reading how ${project.displayName} is laid out, then find where this change belongs.` });
+          assistantContent.push({ type: 'text', text: 'I will look at the code first, then make the change in small steps.' });
+        } else if (k < DEMO_TURNS - 1) {
+          const tool = TOOLS[(toolSeq + h) % TOOLS.length];
+          const id = `toolu_demo_${String(++toolSeq).padStart(4, '0')}`;
+          assistantContent.push({ type: 'text', text: `Next: ${tool.name.toLowerCase()}.` });
+          assistantContent.push({ type: 'tool-call', toolCallId: id, toolName: tool.name, input: tool.input(project.path) });
+          pendingTool = { id, output: tool.output };
+        } else {
+          assistantContent.push({ type: 'text', text: 'Done. Tests pass and the change is ready for review.' });
+        }
+        const input = rng.int(800, 4000);
+        const output = rng.int(100, 1200);
+        // Claude Code reads most of its prompt from cache; the others report none.
+        const cacheRead = harness === 'claude-code' ? rng.int(10_000, 60_000) : 0;
+        const cacheWrite = harness === 'claude-code' ? rng.int(0, 3000) : 0;
+        const assistantUuid = rng.uuid();
+        const assistantId = insertMessage(db, sessionId, {
+          role: 'assistant', id: assistantUuid, parentId: parent, timestamp: iso(t), model,
+          usage: { inputTokens: input, outputTokens: output, inputTokenDetails: { cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } },
+        });
+        if (assistantId) {
+          insertContentBlocks(db, assistantId, assistantContent);
+          updateUsageMinutes(db, projectId, iso(t), { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheCreationTokens: cacheWrite });
+          result.messages++;
+        }
+        parent = assistantUuid;
+      }
+      const last = iso(t);
+      closeSession.run(last, last, 'closed', last, sessionId);
+      lastSessionId = sessionId;
+    };
+
     // Oldest first, so ids climb with time the way an ingest would leave them.
     for (let daysAgo = DEMO_DAYS - 1; daysAgo >= 0; daysAgo--) {
-      DEMO_HARNESSES.forEach((harness, h) => {
-        const projectIdx = (daysAgo + h) % DEMO_PROJECTS.length;
-        const project = DEMO_PROJECTS[projectIdx];
-        const projectId = projectIds[projectIdx];
-        const model = HARNESS_MODEL[harness];
-
-        // Gaps between messages, laid out first so a session can end on a
-        // chosen instant. The newest claude-code session ends exactly at now.
-        const gaps: number[] = [];
-        for (let k = 0; k < DEMO_TURNS; k++) {
-          gaps.push(k === 0 ? 0 : rng.int(2, 6) * MINUTE + rng.int(0, 59) * 1000); // user after previous assistant
-          gaps.push(rng.int(15, 90) * 1000); // assistant after user
-        }
-        const span = gaps.reduce((a, b) => a + b, 0);
-        const end = daysAgo === 0 && h === 0 ? now : now - daysAgo * DAY - h * 3 * HOUR - rng.int(1, 60) * MINUTE;
-        let t = end - span;
-
-        const prompt = project.prompts[(DEMO_DAYS - 1 - daysAgo + h) % project.prompts.length];
-        const sessionUuid = rng.uuid();
-        const sessionId = getOrCreateSession(db, sessionUuid, projectId, {
-          firstPrompt: prompt,
-          createdAt: iso(t),
-          harness,
-          gitBranch: 'main',
-          cliVersion: harness === 'claude-code' ? '2.1.0' : '1.0.0',
-        });
-        result.sessions++;
-
-        let parent: string | null = null;
-        let pendingTool: { id: string; output: string } | null = null;
-        let g = 0;
-        for (let k = 0; k < DEMO_TURNS; k++) {
-          t += gaps[g++];
-          const userContent: any[] = pendingTool
-            ? [{ type: 'tool-result', toolCallId: pendingTool.id, output: pendingTool.output }]
-            : [{ type: 'text', text: k === 0 ? prompt : 'Looks right. Keep going.' }];
-          pendingTool = null;
-          const userUuid = rng.uuid();
-          const userId = insertMessage(db, sessionId, { role: 'user', id: userUuid, parentId: parent, timestamp: iso(t) });
-          if (userId) { insertContentBlocks(db, userId, userContent); result.messages++; }
-          parent = userUuid;
-
-          t += gaps[g++];
-          const assistantContent: any[] = [];
-          if (k === 0) {
-            assistantContent.push({ type: 'reasoning', text: `Start by reading how ${project.displayName} is laid out, then find where this change belongs.` });
-            assistantContent.push({ type: 'text', text: 'I will look at the code first, then make the change in small steps.' });
-          } else if (k < DEMO_TURNS - 1) {
-            const tool = TOOLS[(toolSeq + h) % TOOLS.length];
-            const id = `toolu_demo_${String(++toolSeq).padStart(4, '0')}`;
-            assistantContent.push({ type: 'text', text: `Next: ${tool.name.toLowerCase()}.` });
-            assistantContent.push({ type: 'tool-call', toolCallId: id, toolName: tool.name, input: tool.input(project.path) });
-            pendingTool = { id, output: tool.output };
-          } else {
-            assistantContent.push({ type: 'text', text: 'Done. Tests pass and the change is ready for review.' });
-          }
-          const input = rng.int(800, 4000);
-          const output = rng.int(100, 1200);
-          // Claude Code reads most of its prompt from cache; the others report none.
-          const cacheRead = harness === 'claude-code' ? rng.int(10_000, 60_000) : 0;
-          const cacheWrite = harness === 'claude-code' ? rng.int(0, 3000) : 0;
-          const assistantUuid = rng.uuid();
-          const assistantId = insertMessage(db, sessionId, {
-            role: 'assistant', id: assistantUuid, parentId: parent, timestamp: iso(t), model,
-            usage: { inputTokens: input, outputTokens: output, inputTokenDetails: { cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } },
-          });
-          if (assistantId) {
-            insertContentBlocks(db, assistantId, assistantContent);
-            updateUsageMinutes(db, projectId, iso(t), { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheCreationTokens: cacheWrite });
-            result.messages++;
-          }
-          parent = assistantUuid;
-        }
-        const last = iso(t);
-        closeSession.run(last, last, 'closed', last, sessionId);
-        lastSessionId = sessionId;
-      });
+      DEMO_HARNESSES.forEach((harness, h) => seedSession(harness, h, daysAgo));
     }
     // The session that ends at now is still going.
     db.prepare(`UPDATE sessions SET status = 'active', closed_at = NULL WHERE id = ?`).run(lastSessionId);
+    // One session for each harness with a reader of its own, over the last few days.
+    DEMO_ONE_SESSION_HARNESSES.forEach((harness, i) => {
+      seedSession(harness, DEMO_HARNESSES.length + i, (i + 1) % DEMO_DAYS);
+    });
 
     // ingested_at defaults to the wall clock; pin it to the message's own time
     // so the same `now` leaves byte-identical rows.
