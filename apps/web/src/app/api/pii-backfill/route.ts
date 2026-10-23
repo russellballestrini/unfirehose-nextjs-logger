@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { sanitizePII } from '@unturf/unfirehose/pii';
+import { blockTextSql, rewriteBlockText } from '@unturf/unfirehose/db/block-cold';
 
 /**
  * POST /api/pii-backfill
@@ -17,9 +18,9 @@ export async function POST() {
     let totalSessions = 0;
     let totalReplacements = 0;
 
-    const updateBlock = db.prepare(
-      'UPDATE content_blocks SET text_content = ? WHERE id = ?'
-    );
+    // Hot or cold (db/block-cold.ts): old text past a retention window is
+    // packed away, and it is sanitized all the same.
+    const updateBlock = { run: (text: string, id: number) => rewriteBlockText(db, id, text) };
     const insertPII = db.prepare(
       'INSERT INTO pii_replacements (original_hash, token, pii_type, message_id) VALUES (?, ?, ?, ?)'
     );
@@ -28,15 +29,16 @@ export async function POST() {
     let lastId = 0;
     while (true) {
       const rows = db.prepare(
-        `SELECT cb.id, cb.message_id, cb.text_content FROM content_blocks cb
-         WHERE cb.id > ? AND cb.text_content IS NOT NULL AND cb.text_content <> ''
+        `SELECT cb.id, cb.message_id, ${blockTextSql('cb')} AS text_content FROM content_blocks cb
+         WHERE cb.id > ? AND (cb.cold = 1 OR (cb.text_content IS NOT NULL AND cb.text_content <> ''))
          ORDER BY cb.id LIMIT ?`
-      ).all(lastId, BATCH) as Array<{ id: number; message_id: number; text_content: string }>;
+      ).all(lastId, BATCH) as Array<{ id: number; message_id: number; text_content: string | null }>;
 
       if (rows.length === 0) break;
 
       const tx = db.transaction(() => {
         for (const row of rows) {
+          if (!row.text_content) continue; // a cold tool call: no text
           const { sanitized, replacements } = sanitizePII(row.text_content);
           if (replacements.length > 0) {
             updateBlock.run(sanitized, row.id);

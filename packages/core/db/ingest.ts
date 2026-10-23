@@ -19,6 +19,7 @@ import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
 import type { SessionsIndex } from '../types';
 import { TOOL_CALL_SQL } from '../block-types';
+import { blockTextSql } from './block-cold';
 
 // ingest.ts is the public entry point (`@unturf/unfirehose/db/ingest`): the
 // pass itself lives here, and everything else it was once a single file of
@@ -556,14 +557,16 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     if (needsName.length > 0) {
       const updateName = db.prepare('UPDATE sessions SET display_name = ? WHERE id = ?');
       // Try to find a real user prompt if first_prompt is a preamble
+      // A session's opening prompt may be older than a retention window.
+      const CBT = blockTextSql('cb');
       const findRealPrompt = db.prepare(`
-        SELECT cb.text_content FROM messages m
+        SELECT ${CBT} AS text_content FROM messages m
         JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
         WHERE m.session_id = ? AND m.type = 'user'
-          AND cb.text_content NOT LIKE '%blackops%'
-          AND cb.text_content NOT LIKE '%Request interrupted%'
-          AND cb.text_content NOT LIKE '%shadow clone%'
-          AND LENGTH(cb.text_content) > 15
+          AND ${CBT} NOT LIKE '%blackops%'
+          AND ${CBT} NOT LIKE '%Request interrupted%'
+          AND ${CBT} NOT LIKE '%shadow clone%'
+          AND LENGTH(${CBT}) > 15
         ORDER BY m.timestamp
         LIMIT 1
       `);

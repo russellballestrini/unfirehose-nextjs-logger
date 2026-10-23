@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { ensureProvenanceTables } from './provenance-ingest';
 import { ensureRewriteTables } from './rewrite-watch';
+import { registerColdFunctions } from './block-cold';
 
 /**
  * The schema. One definition, applied everywhere a database is created:
@@ -13,6 +14,9 @@ import { ensureRewriteTables } from './rewrite-watch';
  * where nothing has a reason to mock it.
  */
 export function migrate(db: Database.Database) {
+  // unfirehose_unz(): every reader of block text may meet a cold row, so
+  // every connection gets the function before anything queries.
+  registerColdFunctions(db);
   db.exec(`
     -- Projects: one row per unique project directory
     CREATE TABLE IF NOT EXISTS projects (
@@ -523,6 +527,34 @@ export function migrate(db: Database.Database) {
   addColumn('ingest_offsets', 'reader_state', 'TEXT');
   ensureProvenanceTables(db);
   ensureRewriteTables(db);
+  // Retention for block text (db/block-cold.ts). cold = 1 means text_content
+  // and tool_input moved, compressed, into content_blocks_cold under the
+  // same id; NULL on the hot row. ADD COLUMN with a constant default is
+  // instant on SQLite, whatever the table's size.
+  addColumn('content_blocks', 'cold', 'INTEGER NOT NULL DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS content_blocks_cold (
+      block_id     INTEGER PRIMARY KEY,      -- content_blocks.id
+      codec        TEXT NOT NULL DEFAULT 'br',
+      text_z       BLOB,                     -- NULL when text_content was NULL
+      tool_input_z BLOB,                     -- NULL when tool_input was NULL
+      raw_bytes    INTEGER NOT NULL,         -- UTF-8 bytes of both fields before packing
+      moved_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- One row per UTC day, written by our worker (db/db-health.ts). Size by
+    -- table comes from dbstat, which reads the whole file, so it is measured
+    -- once a day rather than on every Settings page load.
+    CREATE TABLE IF NOT EXISTS db_size_snapshots (
+      day            TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
+      taken_at       TEXT NOT NULL,
+      db_bytes       INTEGER NOT NULL,       -- page_count * page_size
+      freelist_bytes INTEGER NOT NULL,
+      wal_bytes      INTEGER NOT NULL,
+      method         TEXT NOT NULL,          -- dbstat | pages
+      tables_json    TEXT                    -- [{ name, bytes, indexBytes, rows }]
+    );
+  `);
   // One-time backfill: harness tells us provider with high confidence even when
   // the message row pre-dates endpoint/provider ingestion.
   //

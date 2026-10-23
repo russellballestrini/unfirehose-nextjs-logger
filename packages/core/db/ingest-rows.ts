@@ -7,6 +7,10 @@ import type { ClaudeApiRefusal } from '../claude-code-adapter';
 import { recordHarnessRefusal } from './refusals';
 import { sanitizePII } from '../pii';
 import { generateSessionName } from '../session-name';
+import { blockTextSql } from './block-cold';
+
+// Block text may be cold (db/block-cold.ts).
+const CB2_TEXT = blockTextSql('cb2');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -271,10 +275,10 @@ export function extractProvidenceFromSession(
   // Fetch all user/assistant messages with their text content for this session
   const rows = db.prepare(`
     SELECT m.id, m.type, m.model, m.duration_ms,
-           (SELECT GROUP_CONCAT(cb2.text_content, '\n\n')
+           (SELECT GROUP_CONCAT(${CB2_TEXT}, '\n\n')
             FROM content_blocks cb2
             WHERE cb2.message_id = m.id AND cb2.block_type = 'text'
-              AND cb2.text_content IS NOT NULL AND cb2.text_content != ''
+              AND ${CB2_TEXT} IS NOT NULL AND ${CB2_TEXT} != ''
            ) AS text_content
     FROM messages m
     WHERE m.session_id = ? AND m.type IN ('user', 'assistant')
