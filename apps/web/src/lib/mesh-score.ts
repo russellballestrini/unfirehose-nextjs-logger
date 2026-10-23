@@ -19,6 +19,7 @@
  */
 
 import { DEFAULT_KWH_RATE } from '@unturf/unfirehose/pricing';
+import { DEFAULT_ISP_COST_MONTHLY } from '@unturf/unfirehose/mesh-econ';
 
 export interface NodeEcon {
   ispCostMonthly: number;       // default $110
@@ -32,7 +33,7 @@ export interface NodeEcon {
 }
 
 export const HARDCODED_DEFAULTS: NodeEcon = {
-  ispCostMonthly: 110,
+  ispCostMonthly: DEFAULT_ISP_COST_MONTHLY,
   // Core's rate, not a number of our own: 0.31 here against 0.33 there
   // priced one node two ways depending on which page asked.
   electricityCostKwh: DEFAULT_KWH_RATE,
@@ -131,20 +132,8 @@ export const PRESET_LOCATIONS: { value: string; label: string; lat: number; lon:
   { value: 'home-australia', label: 'Home: Australia', lat: -33.9, lon: 151.2 },
 ];
 
-export function nodeEconKey(hostname: string): string {
-  return `mesh_node_econ_${hostname.replace(/[^a-zA-Z0-9]/g, '_')}`;
-}
-
-export const EXCLUDED_HOSTS_KEY = 'mesh_excluded_hosts';
-
-export function parseExcludedHosts(settings: any): Set<string> {
-  const raw = settings?.[EXCLUDED_HOSTS_KEY];
-  if (!raw) return new Set();
-  try {
-    const arr = JSON.parse(raw);
-    return new Set(Array.isArray(arr) ? arr : []);
-  } catch { return new Set(); }
-}
+// The settings keys moved to core so the cost report reads the same ones.
+export { nodeEconKey, EXCLUDED_HOSTS_KEY, parseExcludedHosts } from '@unturf/unfirehose/mesh-econ';
 
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;

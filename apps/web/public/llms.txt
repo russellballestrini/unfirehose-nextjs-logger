@@ -291,6 +291,14 @@ Push an extra-usage snapshot; any field left out keeps its last value.
 ← `{ spent?, limit?, balance?, resetDate? }`
 → `{ ok: true }`
 
+### GET /api/reports/monthly
+One calendar month of spend, itemised for an expense claim. Each line names its basis: `stated` (a provider's own figure), `priced` (tokens at our price ledger on the day spent), `measured` (sampled watts × hours × the node's $/kWh), `flat` (a configured monthly amount). Claude Code usage under a detected Claude subscription, and the market value of self-hosted models, are `memo` lines, never in the total. Amounts are USD; the report carries the one rate a renderer converts at, for the first currency in `display_currency` on the month's last day (ECB via Frankfurter, CoinGecko for crypto), and falls back to USD with a `fallbackReason` when no rate can be had. A closed month is filed when first built and served as filed afterwards.
+- `month` — `YYYY-MM` (default: last month in `tz`)
+- `tz` — IANA zone the month is read in (default: the server's)
+- `format` — `json` (default), `csv` (one row per line, memo rows `counted=no`, a total, the rate) or `pdf`
+- `rebuild=1` — build and file a closed month again
+→ `{ month, timeZone, periodStart, periodEnd, closed, generatedAt, currency: { code, rate, rateDate, source, fallbackReason? }, lines: [{ category, item, detail, basis, usd }], memo: [{ item, detail, usd }], byCategory, byProject, byModel, totalUSD, notes }`; 400 on a bad month, zone or format, or a month not yet begun
+
 ### GET /api/stats
 Claude Code's own `~/.claude/stats-cache.json`, passed through. Takes no parameters.
 → Aggregate stats object

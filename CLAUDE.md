@@ -98,7 +98,9 @@ git push origin HEAD --follow-tags
 ```
 `scripts/publish.sh` counts up from whichever is higher, git's version or npm's. A pushed `v*` tag also runs the CI publish job, which tolerates a version already on npm.
 
-Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Scrobble, Schema, Settings, Permacomputer.
+Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Reports, Scrobble, Schema, Settings, Permacomputer.
+
+**Reports** (`/reports`, `GET /api/reports/monthly?month=&tz=&format=json|csv|pdf`): one month of spend for an expense claim, in the first `display_currency` at that month's published rate. A closed month is filed on first build and every later download matches it; `rebuild=1` refiles. Builder: `packages/core/cost-report.ts`; ticket 4009.
 
 ### Running as a service (respawn on crash)
 
