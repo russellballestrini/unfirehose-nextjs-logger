@@ -603,6 +603,10 @@ Delete one setting.
 ← `{ key: "theme_accent_color" }`
 → `{ ok: true }`
 
+### GET /api/lan
+This machine's IPv4 addresses a phone on the same network could open, for the QR in Settings → Phone. From `os.networkInterfaces()`, skipping loopback, link-local (169.254/16), IPv6, and container or VM bridges (`docker0`, `br-*`, `veth*`, `virbr*`, …); each kept address is `lan` (a private range), `vpn` (a tunnel interface or 100.64/10) or `public`, in that order. `url` uses the port this request arrived on; `listening` is a local TCP probe of `address:port` (true when our server binds 0.0.0.0, the default for `next dev` and `next start`; false under `-H 127.0.0.1`). The probe never leaves this machine and cannot see a firewall in front of the phone. Takes no parameters. There is no login on this dashboard: anyone who can open the URL sees everything.
+→ `{ hostname, port, addresses: [{ address, iface, kind, url, listening }], skipped: [{ address, iface, reason }], checkedAt }`
+
 ### GET /api/llm/providers
 Discover available LLM providers (auto-detected + mesh).
 → `{ providers: [{ id, name, source, type, model, ready, detail }] }`

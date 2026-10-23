@@ -58,6 +58,21 @@ Services and `make dev` are mutually exclusive: two workers would ingest
 everything twice and two webs fight over :3000. Each side refuses to start
 while the other runs, so `make service-stop` before `make dev`.
 
+### On a phone, same network
+
+Settings → Phone lists this machine's LAN addresses and draws a QR code for
+`http://<address>:<port>/`; point a phone's camera at it. Nothing goes
+through a cloud. It works because `next dev` and `next start` (so `make dev`,
+`make demo` and the systemd unit) listen on every interface, 0.0.0.0, by
+default; the tab probes each address and says whether our server answers
+there. To keep the dashboard to this machine, start it with
+`-H 127.0.0.1` (for example `cd apps/web && npx next start -H 127.0.0.1`);
+`HOSTNAME=0.0.0.0` matters only to the standalone server in our Docker
+image, where compose publishes `127.0.0.1:3000:3000` (change it to
+`3000:3000` for the LAN). **There is no login**: anyone on the network who
+opens the address sees every session and cost and can use every action, so
+use it on a network you trust.
+
 ## Docker
 
 For a machine without node, `docker-compose.yml` runs web and worker from
@@ -273,7 +288,7 @@ Mesh status view across your compute nodes: per-node resource tracking (CPU, mem
 Public usage profile, opt-in. Sessions, streaks, hours-of-day heatmap, badges. Per-project visibility (public / unlisted / private). Generates a `unfirehose-scrobble/1.0` payload you can host anywhere. No prompts, responses, or training data — ever.
 
 ### Settings
-Configure alert thresholds, display preferences, vault for BYO LLM keys (used by the in-app agent helpers), mesh defaults, scan paths.
+Configure alert thresholds, display preferences, vault for BYO LLM keys (used by the in-app agent helpers), mesh defaults, scan paths. The Phone tab draws a QR code that opens this dashboard on a phone on the same network.
 
 ### Integrations
 Optional products the dashboard can talk to, every one off by default: while off it makes no network request, adds nothing to any page, and its API routes answer 404. Turn one on in Settings → Integrations, or for the whole process with `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` (when set, the environment decides and the toggle is locked; `none` turns all off). Today there is one: `unsandbox`, cloud containers as a mesh node, which needs a key pair from that service. Each lives in its own directory under `apps/web/src/integrations/`.

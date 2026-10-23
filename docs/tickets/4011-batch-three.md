@@ -226,3 +226,45 @@ Not done, and why:
   `src/app/` outside its tests.
 - Decision: an install that already had keys stored starts with the
   integration off after upgrading; turn it on once in Settings.
+
+## Outcome: item 9, phone on the LAN (2026-10-23)
+
+**Responsive pass.** Below `lg` our sidebar is a drawer behind a ☰ button
+in a 56px top bar (closes on navigation, Escape, a tap outside). Measured in
+headless Chromium against `make demo`, `main.scrollWidth / clientWidth`:
+
+| Page | 375 before | 375 after | 768 before | 768 after |
+|---|---|---|---|---|
+| Dashboard | 871 / 87 | 375 / 375 | 871 / 480 | 768 / 768 |
+| Tokens | 626 / 87 | 375 / 375 | 626 / 480 | 768 / 768 |
+| Projects | 373 / 87 | 375 / 375 | 522 / 480 | 768 / 768 |
+| Live | 295 / 87 | 375 / 375 | 480 / 480 | 768 / 768 |
+
+Also clean at 360 and 430. Tables scroll in their own box, chart rows and
+stat grids reflow, `StatDivider` becomes a rule when its strip wraps, tap
+targets are 40px below `lg`. Hover now has a tap equivalent: uPlot readouts
+stay up after a tap (`lib/uplot-touch.ts`), live entries toggle on tap, and
+our dashboard model table spells out its column titles in a disclosure.
+
+**QR in Settings → Phone.** `GET /api/lan` lists IPv4 addresses from
+`os.networkInterfaces()` (no loopback, link-local, IPv6, or docker/VM
+bridges), kinds `lan` / `vpn` / `public`, and probes each `address:port`
+locally to say whether our server answers there. Encoder in repo
+(`lib/qr.ts`, byte mode, versions 1–10): matched uqr module for module and
+decoded with jsQR in 27 cases, checked once outside this repo; neither is a
+dependency. Our dashboard is drawn dark on white whatever our theme.
+
+**Decisions for fox.**
+- `next dev` and `next start` bind 0.0.0.0 by default, so `make dev`,
+  `make demo` and the systemd unit already serve this no-login dashboard
+  (commit and push, tmux keystrokes, bootstrap) to the whole LAN today. The
+  Phone tab only makes that visible. A safer default is `-H 127.0.0.1`
+  with an opt-in, which would also make the tab's "not answering" branch
+  the common one.
+- The sidebar becomes a drawer below 1024px, not 768px: at 768 a 288px
+  column left a portrait tablet 432px of page.
+- Settings' own tab strip still scrolls the page sideways at 375 (seven
+  tabs); out of this item's scope, a one-class fix (`overflow-x-auto`).
+- `next dev` warns "Cross origin request detected" for its HMR socket
+  when opened by LAN address; a future Next blocks it unless
+  `allowedDevOrigins` lists the address.

@@ -158,7 +158,7 @@ export function TokenSplitCards({
   const inputCost = costs?.input;
   const outputCost = costs?.output;
 
-  const cols = showTotal ? 'grid-cols-4' : 'grid-cols-3';
+  const cols = showTotal ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3';
   return (
     <div className={`grid ${cols} gap-4 ${className ?? ''}`}>
       {showTotal && (

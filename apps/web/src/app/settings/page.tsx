@@ -6,6 +6,7 @@ import { AlertDelivery } from './AlertDelivery';
 import { DatabaseHealth } from './DatabaseHealth';
 import { IntegrationsSettings } from '@/integrations/SettingsSection';
 import { PROVIDERS } from '@/lib/mesh-score';
+import { PhoneAccess } from './PhoneAccess';
 import { resetCoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
@@ -112,7 +113,7 @@ export default function SettingsPage() {
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
-  const TABS = ['General', 'Harnesses', 'Database', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys', 'Integrations'] as const;
+  const TABS = ['General', 'Harnesses', 'Database', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys', 'Phone', 'Integrations'] as const;
   type SettingsTab = (typeof TABS)[number];
   const [activeTab, setActiveTab] = useHashTab<SettingsTab>(TABS, 'General');
   const vault = useVault();
@@ -136,7 +137,8 @@ export default function SettingsPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-[var(--color-border)]">
+      {/* Ten tabs: on a phone the strip scrolls in place, not the page. */}
+      <div className="flex gap-1 border-b border-[var(--color-border)] overflow-x-auto">
         {TABS.map(tab => (
           <button
             key={tab}
@@ -157,6 +159,7 @@ export default function SettingsPage() {
       {activeTab === 'Database' && <DatabaseHealth />}
 
       {activeTab === 'Integrations' && <IntegrationsSettings />}
+      {activeTab === 'Phone' && <PhoneAccess />}
 
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (
