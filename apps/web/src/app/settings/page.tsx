@@ -3,6 +3,7 @@
 import { useHashTab } from '@/lib/use-hash-tab';
 import { HarnessHealth } from './HarnessHealth';
 import { AlertDelivery } from './AlertDelivery';
+import { DatabaseHealth } from './DatabaseHealth';
 import { resetCoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
@@ -109,7 +110,7 @@ export default function SettingsPage() {
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
-  const TABS = ['General', 'Harnesses', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys'] as const;
+  const TABS = ['General', 'Harnesses', 'Database', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys'] as const;
   type SettingsTab = (typeof TABS)[number];
   const [activeTab, setActiveTab] = useHashTab<SettingsTab>(TABS, 'General');
   const vault = useVault();
@@ -151,6 +152,7 @@ export default function SettingsPage() {
 
       {activeTab === 'Harnesses' && <HarnessHealth />}
       {activeTab === 'Alerts' && <AlertDelivery />}
+      {activeTab === 'Database' && <DatabaseHealth />}
 
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (

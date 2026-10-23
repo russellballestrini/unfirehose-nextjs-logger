@@ -25,6 +25,11 @@ dashboard once your first session lands.
   synthetic database under `~/.unfirehose-demo/` and serves it on
   `http://localhost:3010`, beside a real stack on :3000, so every page has
   something on it.
+- Database getting big? Settings → Database shows size by table and growth
+  per week, and offers a retention window for old block text: past it, text
+  is packed into a compressed cold table (nothing deleted, every count
+  exact, every page still reads it). `make vacuum` gives freed pages back to
+  disk; our worker also runs one daily while ingest is quiet.
 - Want it to survive a crash, a logout and a reboot? See
   [Keep it running](#keep-it-running).
 - Will not install node? See [Docker](#docker).

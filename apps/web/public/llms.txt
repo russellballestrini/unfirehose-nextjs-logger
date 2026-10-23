@@ -359,6 +359,34 @@ Record one web-vitals sample.
 Our SQLite database's size and shape: pragmas, page and file sizes, and per-table and per-index byte counts, largest first.
 → `{ pageSize, pageCount, freelistCount, cacheSize, journalMode, walCheckpoint, totalBytes, usedBytes, freeBytes, fileSize, totalBytesHuman, usedBytesHuman, freeBytesHuman, fileSizeHuman, tables: [...], indexes: [...] }`
 
+### GET /api/db/health
+What Settings → Database shows. Cheap: pragmas, one stat, and our worker's
+newest daily size snapshot (`db_size_snapshots`); never a dbstat scan.
+`growthPerWeekBytes` is the slope of live bytes (freelist left out) over up
+to 28 days of snapshots, null until two days exist. `diskLevel` is `low`
+under 10 GB free on the filesystem under our database, `critical` under 1 GB.
+→ `{ path, pageSize, dbBytes, freelistBytes, walBytes, disk: { path, freeBytes, totalBytes } | null, diskLevel: "ok" | "low" | "critical" | "unknown", lowDiskBytes, dbstat, snapshot: { day, takenAt, dbBytes, freelistBytes, walBytes, method: "dbstat" | "pages", tables: [{ name, bytes, indexBytes, rows }] } | null, history: [{ day, dbBytes, liveBytes }], growthPerWeekBytes, cold: { blocks, rawBytes, storedBytes }, retention: { days, choices, minDays } }`
+
+### POST /api/db/health
+Take today's size snapshot now instead of waiting for our worker. Reads
+every page through dbstat, so seconds on a large database.
+← `{ action: "measure" }`
+→ the GET body plus `measuredMs`
+
+### GET /api/db/retention
+Our retention window for content-block text. `days: null` (our default)
+keeps every block's text hot. With a window, our worker moves text of
+blocks older than it, compressed (brotli), into `content_blocks_cold`
+while ingest is quiet; every reader gets it back byte for byte, and token,
+cost and message counts never change (they live on `messages`).
+→ `{ days, choices: [30, 90, 180, 365], minDays: 30, cold: { blocks, rawBytes, storedBytes } }`
+
+### POST /api/db/retention
+- `{ action: "estimate", days }` — dry run, changes nothing → `{ days, cutoff, blocks, rawBytes, estimatedColdBytes, estimatedSavedBytes, ratio, sampled, measuredMs }`
+- `{ action: "set", days }` — save the window; `null` or `"off"` keeps everything → `{ days, cold }`
+- `{ action: "thaw", days? }` — put one batch (5,000 blocks) of cold text back hot; with `days`, only blocks inside that window → `{ blocks, done, cold }`
+- 400 for a window under 30 days or an unknown action
+
 
 ## Mesh / Permacomputer
 
