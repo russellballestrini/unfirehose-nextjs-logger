@@ -177,9 +177,9 @@ No flexbox anywhere. All layouts use CSS Grid.
 
 ```
 ┌─────────────────────────────────────────┐
-│ Sidebar (w-72)  │  Main Content         │
-│ shrink-0        │  flex-1 overflow-auto  │
-│ bg-surface      │  p-6                   │
+│ Sidebar (w-72)  │  Main Content         │   ≥ lg (1024px); below that the
+│ shrink-0        │  flex-1 overflow-auto  │   sidebar is a drawer opened by
+│ bg-surface      │  p-4 sm:p-6            │   ☰ in a 56px top bar
 │ border-r        │                        │
 │ h-screen        │  space-y-8 sections    │
 │                 │                        │
@@ -199,14 +199,33 @@ Mobile-first with Tailwind v4 defaults.
 
 | Breakpoint | Width | Behavior |
 |---|---|---|
-| default | 0px | 1 column, sidebar hidden |
-| `sm` | 640px | Small tablets, minor adjustments |
-| `md` | 768px | Sidebar visible, 2-col grids |
-| `lg` | 1024px | Full dashboard, 3-col grids |
+| default | 0px | 1 column; sidebar is a drawer behind the ☰ button in a top bar; `p-4` page padding |
+| `sm` | 640px | Small tablets, minor adjustments; `p-6` page padding |
+| `md` | 768px | 2-col grids; sidebar still a drawer (a 288px column would leave a portrait tablet 432px) |
+| `lg` | 1024px | Sidebar visible as a column, full dashboard, 3-col grids |
 | `xl` | 1280px | Wide monitors, 4-col card grids |
 | `2xl` | 1536px | Ultra-wide, no max-w constraint |
 
 Grid columns adapt: `grid-cols-1 md:grid-cols-2 xl:grid-cols-4` is the common card pattern.
+
+### Phones (360–430px) and portrait tablets (768px)
+
+- **No sideways page scroll.** `main` is `min-w-0`; anything wider than our
+  column scrolls inside its own box. A table sits in
+  `<div className="overflow-x-auto" data-scroll-x>`, a tab strip carries
+  `overflow-x-auto` with `shrink-0 whitespace-nowrap` buttons.
+- **Stat strips wrap.** `StatStrip` is `flex-wrap`; below `sm` its
+  `StatDivider` becomes a full-width rule so the cost half starts a row of its own.
+- **Charts size to their box.** uPlot and the donut follow a ResizeObserver;
+  give chart cells `min-w-0` so a grid track can shrink below the canvas.
+- **Tap targets are 40px** (`min-h-10`) below `lg`; desktop density is kept
+  with `lg:min-h-0` where a control was smaller.
+- **Hover has a tap equivalent.** uPlot readouts stay up after a tap
+  (`lib/uplot-touch.ts`); live feed entries toggle on tap; a table whose
+  headers explain themselves on `title` also says it in a
+  "What the columns mean" disclosure.
+- Verify with a headless browser at 375×812 and 768×1024:
+  `document.querySelector('main').scrollWidth <= clientWidth`.
 
 ## Iconography
 
@@ -602,7 +621,7 @@ Note: Custom accent colors may reduce contrast. The accent is user-controlled �
 
 ### Touch Targets
 
-- Buttons: minimum `py-1.5` (36px clickable height)
+- Buttons: minimum `py-1.5` (36px clickable height) on a desktop, 40px (`min-h-10`) below `lg`
 - Sidebar links: full-width click area
 - Kanban cards: entire card surface is draggable
 - Scrollbar: 8px width (adequate for touch)

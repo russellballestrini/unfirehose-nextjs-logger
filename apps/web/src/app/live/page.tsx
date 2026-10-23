@@ -200,7 +200,7 @@ export function LiveEntry(props: any) {
   const {
 item, i, reasoningOnly, showThinking, expanded, setExpanded,
     getColorForSession, sessionNames, now, entries, hoveredEntry,
-    mostRecentOutputIdx, onEntryMouseEnter, onEntryMouseLeave, chain,
+    mostRecentOutputIdx, onEntryMouseEnter, onEntryMouseLeave, onEntryPointerDown, onEntryTap, chain,
     prettyShell = false,
   } = props;
         const e = item.entry;
@@ -256,9 +256,11 @@ item, i, reasoningOnly, showThinking, expanded, setExpanded,
             } ${hasErrors ? 'border-l-2 border-l-[var(--color-error)]' : ''}`}
             onMouseEnter={() => hasExpandableContent && onEntryMouseEnter(i)}
             onMouseLeave={onEntryMouseLeave}
+            onPointerDown={(ev: { pointerType: string }) => onEntryPointerDown?.(ev.pointerType)}
+            onClick={() => hasExpandableContent && onEntryTap?.(i)}
           >
             {/* Header row — metadata only; output always goes on its own line below */}
-            <div className="flex gap-2 pt-1.5 pb-0.5 px-3 select-none min-w-0 items-center">
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 pt-1.5 pb-0.5 px-3 select-none min-w-0 items-center">
               {/* Session dot + harness badge + project */}
               <div className="flex items-center gap-1.5 min-w-0">
                 <span
@@ -306,7 +308,7 @@ item, i, reasoningOnly, showThinking, expanded, setExpanded,
 
               {/* Model tag for assistant */}
               {isAssistant && model && (
-                <span className="shrink-0 text-[var(--color-muted)] text-sm">
+                <span className="min-w-0 break-all text-[var(--color-muted)] text-sm">
                   [{shortModel(model)}
                   {usage ? ` in:${(usage.input_tokens / 1000).toFixed(0)}k out:${(usage.output_tokens / 1000).toFixed(0)}k` : ''}]
                 </span>
@@ -445,12 +447,27 @@ export default function LivePage() {
     return getSessionColor(sessionColorMap.get(sessionId)!);
   }, [sessionColorMap]);
 
+  // A phone has no hover: a tap sends a synthetic mouseenter that would open
+  // an entry 180ms later and never close it. So a touch or pen marks the
+  // gesture, hover ignores it, and the tap toggles the entry instead.
+  const lastPointerTouch = useRef(false);
+  const onEntryPointerDown = useCallback((pointerType: string) => {
+    lastPointerTouch.current = pointerType !== 'mouse';
+  }, []);
+  const onEntryTap = useCallback((index: number) => {
+    if (!lastPointerTouch.current) return;
+    clearTimeout(hoverTimeout.current);
+    setHoveredEntry((cur) => (cur === index ? null : index));
+  }, []);
+
   const onEntryMouseEnter = useCallback((index: number) => {
+    if (lastPointerTouch.current) return;
     clearTimeout(hoverTimeout.current);
     hoverTimeout.current = setTimeout(() => setHoveredEntry(index), 180);
   }, []);
 
   const onEntryMouseLeave = useCallback(() => {
+    if (lastPointerTouch.current) return;
     clearTimeout(hoverTimeout.current);
     hoverTimeout.current = setTimeout(() => setHoveredEntry(null), 150);
   }, []);
@@ -552,7 +569,7 @@ export default function LivePage() {
   }, [entries]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)]">
+    <div className="flex flex-col h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6.5rem)] lg:h-[calc(100vh-3rem)]">
       <PageContext
         pageType="live"
         summary={`Live stream. ${connected ? 'Connected' : 'Disconnected'}. ${sessions.length} hot sessions, ${activeSessionIds.size} active, ${entries.length} entries buffered.`}
@@ -567,7 +584,7 @@ export default function LivePage() {
 
       {/* Header */}
       <div className="shrink-0 mb-3">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-lg font-bold">Live</h2>
           <span
             className={`inline-block w-2 h-2 rounded-full ${
@@ -593,7 +610,7 @@ export default function LivePage() {
               role="tab"
               aria-selected={tab === id}
               onClick={() => setTab(id)}
-              className={`text-base px-3 py-1 -mb-px border-b-2 cursor-pointer transition-colors ${
+              className={`text-base px-3 py-1 min-h-10 -mb-px border-b-2 cursor-pointer transition-colors ${
                 tab === id
                   ? 'border-[var(--color-accent)] text-[var(--color-foreground)]'
                   : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
@@ -606,8 +623,8 @@ export default function LivePage() {
         </div>
 
         {tab === 'feed' && (
-        <div className="flex items-center gap-4 mt-2 flex-wrap">
-          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
+        <div className="flex items-center gap-x-4 gap-y-0 mt-2 flex-wrap">
+          <label className="flex items-center gap-1.5 min-h-10 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={showThinking}
@@ -617,7 +634,7 @@ export default function LivePage() {
             Show reasoning
           </label>
           <label
-            className={`flex items-center gap-1.5 text-base cursor-pointer ${reasoningCount === 0 ? 'opacity-40 cursor-not-allowed' : 'text-[var(--color-muted)]'}`}
+            className={`flex items-center gap-1.5 min-h-10 text-base cursor-pointer ${reasoningCount === 0 ? 'opacity-40 cursor-not-allowed' : 'text-[var(--color-muted)]'}`}
             title={
               reasoningCount === 0
                 ? 'No reasoning in the buffer yet'
@@ -639,7 +656,7 @@ export default function LivePage() {
             Reasoning only
             <ReasoningBadge count={reasoningCount} sealed={reasoningStats.sealed} />
           </label>
-          <label className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer">
+          <label className="flex items-center gap-1.5 min-h-10 text-base text-[var(--color-muted)] cursor-pointer">
             <input
               type="checkbox"
               checked={autoScroll}
@@ -649,7 +666,7 @@ export default function LivePage() {
             Auto-scroll
           </label>
           <label
-            className="flex items-center gap-1.5 text-base text-[var(--color-muted)] cursor-pointer"
+            className="flex items-center gap-1.5 min-h-10 text-base text-[var(--color-muted)] cursor-pointer"
             title="Lay bash one-liners out one statement per line"
           >
             <input
@@ -662,7 +679,7 @@ export default function LivePage() {
           </label>
           <button
             onClick={() => { setEntries([]); setHoveredEntry(null); }}
-            className="text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
+            className="min-h-10 px-1 text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] cursor-pointer"
           >
             Clear
           </button>
@@ -696,7 +713,7 @@ export default function LivePage() {
                   <Link
                     key={key}
                     href={`/projects/${encodeURIComponent(first.project)}`}
-                    className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                    className="text-base px-2 py-0.5 min-h-10 rounded-full border shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 hover:opacity-80 transition-opacity"
                     style={{
                       borderColor: hasActive ? color : 'var(--color-border)',
                       color: hasActive ? color : 'var(--color-muted)',
@@ -765,6 +782,7 @@ export default function LivePage() {
             entries={entries} hoveredEntry={hoveredEntry}
             mostRecentOutputIdx={mostRecentOutputIdx}
             onEntryMouseEnter={onEntryMouseEnter} onEntryMouseLeave={onEntryMouseLeave}
+            onEntryPointerDown={onEntryPointerDown} onEntryTap={onEntryTap}
           />
         ))}
       </div>

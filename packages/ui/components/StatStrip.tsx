@@ -17,9 +17,13 @@ export function StatStrip({ children }: { children: ReactNode }) {
   );
 }
 
-/** Separates what happened from what it cost. */
+/**
+ * Separates what happened from what it cost. On a phone our strip wraps, and
+ * a vertical rule would land mid-row beside whichever stat wrapped last; there
+ * it is a full-width rule that starts the cost half on a line of its own.
+ */
 export function StatDivider() {
-  return <span className="self-stretch w-px bg-[var(--color-border)]" aria-hidden />;
+  return <span className="basis-full h-px sm:basis-auto sm:h-auto sm:self-stretch sm:w-px bg-[var(--color-border)]" aria-hidden />;
 }
 
 export function Stat({

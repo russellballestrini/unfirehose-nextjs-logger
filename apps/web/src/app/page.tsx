@@ -17,8 +17,8 @@ const DashboardCharts = dynamic(() => import('./DashboardCharts').then((m) => m.
   ssr: false,
   loading: () => (
     <>
-      <div className="grid grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
-      <div className="grid grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
     </>
   ),
 });
@@ -54,7 +54,7 @@ function shortModel(model: string): string {
 export function ModelRow({ m }: { m: any }) {
   return (
                 <tr className="border-t border-[var(--color-border)]">
-                  <td className="py-1.5 flex items-center gap-2">
+                  <td className="py-1.5 flex items-center gap-2 whitespace-nowrap">
                     <span
                       className="inline-block w-2 h-2 rounded-full"
                       style={{ background: getModelColor(m.fullName) }}
@@ -308,7 +308,7 @@ export default function DashboardPage() {
       <IngestLag minutes={data.ingestLagMinutes} />
 
       {/* Header with time range dropdown */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-bold">Dashboard</h2>
         <div data-coach="dashboard-range"><TimeRangeSelect value={range} onChange={setRange} /></div>
       </div>
@@ -373,9 +373,11 @@ export default function DashboardPage() {
             action="No message in range named its model. Widen our range above to see earlier replies."
           />
         ) : (
-        <div className="flex items-start gap-8">
+        <div className="flex flex-col md:flex-row items-stretch md:items-start gap-4 md:gap-8">
           <ModelUsagePie modelData={modelData} />
-          <div className="flex-1">
+          {/* On a phone eight columns cannot fit; the table scrolls inside
+              its own box so our page never scrolls sideways. */}
+          <div className="flex-1 min-w-0 overflow-x-auto" data-scroll-x>
             <table className="w-full text-base [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
@@ -410,8 +412,47 @@ export default function DashboardPage() {
           </div>
         </div>
         )}
+        {modelData.length > 0 && <ModelColumnsKey />}
       </div>
     </div>
+  );
+}
+
+/**
+ * What each column and badge in our model table means, for a reader without
+ * a mouse. The same sentences ride on `title` for hover; a phone has no
+ * hover, so here they are one tap away.
+ */
+const MODEL_COLUMN_NOTES: [string, string][] = [
+  ['Input', 'Fresh prompt tokens the provider read for the first time.'],
+  ['Cache', 'Cache read + cache write. A model we serve ourselves reports no cache tokens, so its cell shows what vLLM measured, marked ~. A dash means the provider told us nothing: unknown, not zero.'],
+  ['Output', 'Tokens the model generated.'],
+  ['Tokens', 'Input + output + cache read + cache write.'],
+  ['Cost', 'What these tokens cost to buy: the invoice for a provider row, and for one we serve ourselves, what the same tokens would have cost from OpenRouter. A dash is unknown, not free.'],
+  ['Power', 'Electricity we actually spent serving this on our own hardware. Dashed for anything we bought.'],
+  ['Saved', 'Buy price minus our power bill: what running it ourselves saved.'],
+  ['\u26a1host', 'Self-hosted on that node; cost is watts \u00d7 GPU-seconds \u00d7 $/kWh.'],
+  ['billed', 'Billed figure quoted by the gateway, not tokens times list price.'],
+  ['list', 'List price while a temporary provider discount runs.'],
+  ['\u2248model', 'No own price; shadow-priced against the named model.'],
+  ['test', 'Test fixture, not a real model. $0 by construction.'],
+];
+
+function ModelColumnsKey() {
+  return (
+    <details className="mt-3 text-sm text-[var(--color-muted)]" data-columns-key>
+      <summary className="cursor-pointer select-none min-h-10 py-2 hover:text-[var(--color-foreground)]">
+        What the columns mean
+      </summary>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 mt-1">
+        {MODEL_COLUMN_NOTES.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="font-bold text-[var(--color-foreground)] whitespace-nowrap">{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 

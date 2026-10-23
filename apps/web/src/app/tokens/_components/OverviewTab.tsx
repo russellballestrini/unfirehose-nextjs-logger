@@ -81,7 +81,7 @@ export function OverviewTab({ totals, modelBreakdown, cacheHitPct, vllmModels, e
         }}
         formatCost={formatCost}
       />
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <StatCard label="Equivalent Cost" value={formatCost(totalCost)} sub="at API rates" />
         <StatCard
           label="Cache Hit Rate"
@@ -97,7 +97,7 @@ export function OverviewTab({ totals, modelBreakdown, cacheHitPct, vllmModels, e
       <VllmCacheTable vllmModels={vllmModels} />
 
       {/* Cost split — output usually dominates */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           label="Input Cost"
           value={formatCost(totalInputCost)}
@@ -126,13 +126,13 @@ export function OverviewTab({ totals, modelBreakdown, cacheHitPct, vllmModels, e
 
       {/* Card charges strip — shown if synced */}
       {extraSpent !== null && (
-        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3 flex items-center gap-6">
+        <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-3 flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="shrink-0">
             <div className="text-base text-[var(--color-muted)]">Card Charges (Max overage)</div>
             <div className="text-xl font-bold text-red-400">${extraSpent.toFixed(2)}</div>
           </div>
           {extraLimit !== null && (
-            <div className="flex-1 space-y-1 min-w-0">
+            <div className="flex-1 basis-48 space-y-1 min-w-0">
               <div className="flex justify-between text-base text-[var(--color-muted)]">
                 <span>${extraSpent.toFixed(2)} spent{extraPct !== null ? ` (${extraPct.toFixed(0)}%)` : ''}</span>
                 <span>${extraLimit} limit{extraBalance !== null ? ` · $${extraBalance.toFixed(2)} balance` : ''}</span>
@@ -155,7 +155,7 @@ export function OverviewTab({ totals, modelBreakdown, cacheHitPct, vllmModels, e
       <PriceBookPanel book={priceBook} />
 
       {/* Row: Token type pie + Cost type pie + Model donut + Cost donut */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Token type breakdown */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">

@@ -102,7 +102,7 @@ export function EmptyState({
             <button
               type="button"
               onClick={onWiden}
-              className="cursor-pointer rounded border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-foreground)] hover:border-[var(--color-accent)]"
+              className="cursor-pointer min-h-10 lg:min-h-0 rounded border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-foreground)] hover:border-[var(--color-accent)]"
             >
               {widenLabel}
             </button>
@@ -115,7 +115,8 @@ export function EmptyState({
 }
 
 function EmptyLink({ href, label }: EmptyStateLink) {
-  const cls = 'text-[var(--color-accent)] hover:underline';
+  // 40px tall below lg, where a finger does the tapping.
+  const cls = 'inline-grid items-center min-h-10 lg:min-h-0 text-[var(--color-accent)] hover:underline';
   // Our own pages route client side; another site opens in its own tab;
   // a hash (a tab on this page) stays a plain same-page anchor.
   if (href.startsWith('/')) return <Link href={href} className={cls}>{label}</Link>;

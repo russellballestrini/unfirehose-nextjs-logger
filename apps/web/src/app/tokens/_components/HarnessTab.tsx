@@ -22,7 +22,7 @@ export function HarnessTab({ harnessData, harnessModelBreakdown, harnessSessions
 
       {/* Harness stat cards */}
       {harnessData && harnessData.length > 0 && (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {harnessData
             .filter((h: any) => h.totalTokens > 0)
             .sort((a: any, b: any) => b.totalTokens - a.totalTokens)
@@ -50,7 +50,7 @@ export function HarnessTab({ harnessData, harnessModelBreakdown, harnessSessions
 
       {/* Row: Harness charts */}
       {harnessData && harnessData.length > 0 ? (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Tokens by Harness donut */}
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
@@ -152,85 +152,87 @@ export function HarnessTab({ harnessData, harnessModelBreakdown, harnessSessions
           <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
             Per-Harness Breakdown
           </h3>
-          <table className="w-full text-base">
-            <thead>
-              <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
-                <th className="pb-2">Harness</th>
-                <th className="pb-2 text-right">Sessions</th>
-                <th className="pb-2 text-right" colSpan={5}>Tokens</th>
-                <th className="pb-2 text-right">Cache Eff</th>
-                <th className="pb-2 text-right" colSpan={5}>Equivalent Cost</th>
-              </tr>
-              <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
-                <th className="pb-2"></th>
-                <th className="pb-2"></th>
-                <th className="pb-2 text-right">Input</th>
-                <th className="pb-2 text-right">Output</th>
-                <th className="pb-2 text-right">Cache Read</th>
-                <th className="pb-2 text-right">Cache Write</th>
-                <th className="pb-2 text-right">Total</th>
-                <th className="pb-2"></th>
-                <th className="pb-2 text-right">Input</th>
-                <th className="pb-2 text-right">Output</th>
-                <th className="pb-2 text-right">Cache Read</th>
-                <th className="pb-2 text-right">Cache Write</th>
-                <th className="pb-2 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {harnessData
-                .filter((h: any) => h.totalTokens > 0)
-                .sort((a: any, b: any) => b.totalTokens - a.totalTokens)
-                .map((h: any) => {
-                  const sessions = (harnessSessions ?? []).find((s: any) => s.harness === h.harness);
-                  return (
-                    <tr key={h.harness} className="border-b border-[var(--color-border)]">
-                      <td className="py-2 flex items-center gap-2">
-                        <span
-                          className="inline-block w-2 h-2 rounded-full shrink-0"
-                          style={{ background: getHarnessColor(h.harness) }}
-                        />
-                        {h.harness}
-                      </td>
-                      <td className="py-2 text-right">{sessions?.sessions ?? 0}</td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
-                        {formatTokens(h.inputTokens)}
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
-                        {formatTokens(h.outputTokens)}
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
-                        {formatTokens(h.cacheReadTokens)}
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
-                        {formatTokens(h.cacheCreationTokens)}
-                      </td>
-                      <td className="py-2 text-right font-bold">
-                        {formatTokens(h.totalTokens)}
-                      </td>
-                      <td className="py-2 text-right">
-                        {h.cacheEfficiency.toFixed(0)}x
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
-                        {formatCost(h.inputCostUSD ?? 0)}
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
-                        {formatCost(h.outputCostUSD ?? 0)}
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
-                        {formatCost(h.cacheReadCostUSD ?? 0)}
-                      </td>
-                      <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
-                        {formatCost(h.cacheWriteCostUSD ?? 0)}
-                      </td>
-                      <td className="py-2 text-right text-[var(--color-accent)] font-bold">
-                        {formatCost(h.costUSD)}
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto" data-scroll-x>
+            <table className="w-full text-base">
+              <thead>
+                <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
+                  <th className="pb-2">Harness</th>
+                  <th className="pb-2 text-right">Sessions</th>
+                  <th className="pb-2 text-right" colSpan={5}>Tokens</th>
+                  <th className="pb-2 text-right">Cache Eff</th>
+                  <th className="pb-2 text-right" colSpan={5}>Equivalent Cost</th>
+                </tr>
+                <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
+                  <th className="pb-2"></th>
+                  <th className="pb-2"></th>
+                  <th className="pb-2 text-right">Input</th>
+                  <th className="pb-2 text-right">Output</th>
+                  <th className="pb-2 text-right">Cache Read</th>
+                  <th className="pb-2 text-right">Cache Write</th>
+                  <th className="pb-2 text-right">Total</th>
+                  <th className="pb-2"></th>
+                  <th className="pb-2 text-right">Input</th>
+                  <th className="pb-2 text-right">Output</th>
+                  <th className="pb-2 text-right">Cache Read</th>
+                  <th className="pb-2 text-right">Cache Write</th>
+                  <th className="pb-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {harnessData
+                  .filter((h: any) => h.totalTokens > 0)
+                  .sort((a: any, b: any) => b.totalTokens - a.totalTokens)
+                  .map((h: any) => {
+                    const sessions = (harnessSessions ?? []).find((s: any) => s.harness === h.harness);
+                    return (
+                      <tr key={h.harness} className="border-b border-[var(--color-border)]">
+                        <td className="py-2 flex items-center gap-2">
+                          <span
+                            className="inline-block w-2 h-2 rounded-full shrink-0"
+                            style={{ background: getHarnessColor(h.harness) }}
+                          />
+                          {h.harness}
+                        </td>
+                        <td className="py-2 text-right">{sessions?.sessions ?? 0}</td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
+                          {formatTokens(h.inputTokens)}
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
+                          {formatTokens(h.outputTokens)}
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                          {formatTokens(h.cacheReadTokens)}
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
+                          {formatTokens(h.cacheCreationTokens)}
+                        </td>
+                        <td className="py-2 text-right font-bold">
+                          {formatTokens(h.totalTokens)}
+                        </td>
+                        <td className="py-2 text-right">
+                          {h.cacheEfficiency.toFixed(0)}x
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
+                          {formatCost(h.inputCostUSD ?? 0)}
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
+                          {formatCost(h.outputCostUSD ?? 0)}
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
+                          {formatCost(h.cacheReadCostUSD ?? 0)}
+                        </td>
+                        <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
+                          {formatCost(h.cacheWriteCostUSD ?? 0)}
+                        </td>
+                        <td className="py-2 text-right text-[var(--color-accent)] font-bold">
+                          {formatCost(h.costUSD)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </>

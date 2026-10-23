@@ -13,6 +13,7 @@
 import uPlot from '@/lib/uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useEffect, useRef } from 'react';
+import { touchHold } from '@/lib/uplot-touch';
 
 export interface UPlotSeries {
   key: string;          // field in `data` rows
@@ -110,6 +111,7 @@ export function UPlotTimeChart({
     // Only count data (non-watermark) series toward focus — single-data
     // charts shouldn't dim anything on hover even if a watermark is present.
     const dataSeriesCount = series.filter(s => !s.watermark).length;
+    const hold = touchHold();
     const opts: uPlot.Options = {
       width: el.clientWidth || 600,
       height,
@@ -139,6 +141,7 @@ export function UPlotTimeChart({
       },
       legend: { show: false },
       cursor: {
+        bind: hold.bind,
         sync: { key: syncKey, scales: ['x', null] },
         drag: { x: true, y: false, setScale: false },
         points: {
@@ -316,6 +319,7 @@ export function UPlotTimeChart({
     };
 
     const u = new uPlot(opts, buildData(data, series), el);
+    const releaseHold = hold.attach(u);
     uRef.current = u;
 
     // Inline-style uPlot's drag-zoom selection rectangle to translucent
@@ -385,6 +389,7 @@ export function UPlotTimeChart({
 
     return () => {
       ro.disconnect();
+      releaseHold();
       u.destroy();
       uRef.current = null;
     };

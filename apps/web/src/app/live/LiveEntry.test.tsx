@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import { LiveEntry, formatOutput } from './page';
 
 /**
@@ -181,6 +181,23 @@ describe('LiveEntry', () => {
       }, { prettyShell: true });
       expect(container.querySelector('pre')).toBeNull();
     });
+  });
+});
+
+describe('LiveEntry on a phone', () => {
+  // Hover expands an entry on a desktop; a phone has no hover, so a tap
+  // reports its pointer type and toggles the entry instead.
+  it('reports a tap with its pointer type and index', () => {
+    const onEntryPointerDown = vi.fn();
+    const onEntryTap = vi.fn();
+    const many = Array.from({ length: 7 }, () => item());
+    const twoLines = { entry: entry({ message: { role: 'assistant', content: [{ type: 'text', text: 'first line\nsecond line' }] } }) };
+    const { container } = show(twoLines, { onEntryPointerDown, onEntryTap, mostRecentOutputIdx: -1, entries: many });
+    const row = container.firstElementChild as HTMLElement;
+    fireEvent.pointerDown(row, { pointerType: 'touch' });
+    fireEvent.click(row);
+    expect(onEntryPointerDown).toHaveBeenCalled();
+    expect(onEntryTap).toHaveBeenCalledWith(0);
   });
 });
 

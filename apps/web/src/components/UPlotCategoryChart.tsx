@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import uPlot from '@/lib/uplot';
 import 'uplot/dist/uPlot.min.css';
+import { touchHold } from '@/lib/uplot-touch';
 
 /**
  * Bars or lines over a labelled axis, on uPlot.
@@ -102,6 +103,7 @@ export function UPlotCategoryChart({
     // Bars need room between them; lines want the points on the tick.
     const barPaths = uPlot.paths.bars?.({ size: [0.6, Infinity], align: 0 });
 
+    const hold = touchHold();
     const opts: uPlot.Options = {
       width: el.clientWidth || 600,
       height,
@@ -113,6 +115,7 @@ export function UPlotCategoryChart({
         ...(hasRight ? { r: { auto: true, range: (_u, _min, max) => [0, Math.max(max * 1.08, 1)] } } : {}),
       },
       cursor: {
+        bind: hold.bind,
         drag: { x: false, y: false, setScale: false },
         points: { show: !bars },
         x: !bars, y: false,
@@ -216,6 +219,7 @@ export function UPlotCategoryChart({
     const aligned: uPlot.AlignedData = [labels.map((_, i) => i), ...drawnColumns];
     const u = new uPlot(opts, aligned, el);
     uRef.current = u;
+    const releaseHold = hold.attach(u);
 
     const box = document.createElement('div');
     box.style.cssText = 'position:absolute;top:8px;pointer-events:none;opacity:0;background:rgba(24,24,27,0.95);border:1px solid #3f3f46;border-radius:4px;padding:4px 8px;font-size:12px;line-height:1.4;color:#fafafa;white-space:nowrap;transition:opacity .1s;';
@@ -228,7 +232,7 @@ export function UPlotCategoryChart({
     });
     ro.observe(el);
 
-    return () => { ro.disconnect(); u.destroy(); uRef.current = null; readoutRef.current = null; };
+    return () => { ro.disconnect(); releaseHold(); u.destroy(); uRef.current = null; readoutRef.current = null; };
     // Rebuilding on any change is the simple, correct thing: these charts
     // redraw on a range change, not on a live tick.
   }, [data, labelKey, series, kind, height, horizontal, stacked, format, formatRight, tick, hover, refLines]);

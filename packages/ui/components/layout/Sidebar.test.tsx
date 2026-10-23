@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { NAV_ITEMS, isLink } from './nav-items';
 
 vi.mock('next/navigation', () => ({
@@ -36,7 +36,29 @@ describe('Sidebar', () => {
 
   it('renders the app title', () => {
     render(<Sidebar />);
-    expect(screen.getByText('firehose', { exact: false })).toBeTruthy();
+    expect(screen.getAllByText('firehose', { exact: false }).length).toBeGreaterThan(0);
+  });
+
+  // Below lg our sidebar is a drawer; the menu button in the top bar opens
+  // it, and Escape or a tap on the backdrop closes it again.
+  it('opens and closes the phone drawer from the menu button', () => {
+    const { container } = render(<Sidebar />);
+    const aside = container.querySelector('#site-nav')!;
+    const button = screen.getByRole('button', { name: 'Open menu' });
+    expect(aside.getAttribute('data-open')).toBe('false');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(button);
+    expect(aside.getAttribute('data-open')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Close menu' }).getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(aside.getAttribute('data-open')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    fireEvent.click(container.querySelector('[data-nav-backdrop]')!);
+    expect(aside.getAttribute('data-open')).toBe('false');
+    expect(container.querySelector('[data-nav-backdrop]')).toBeNull();
   });
 
   it('renders correct href for nav items', () => {
