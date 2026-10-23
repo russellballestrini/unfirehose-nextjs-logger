@@ -5,6 +5,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import { human as humanAgo } from '@unturf/unfirehose/ago';
+import { formatBytes } from '@unturf/unfirehose/format';
 
 // Seconds are the finest grain a person watching this cares about.
 const human = (t: string | number) => humanAgo(t, { smallest: 'second' });
@@ -85,6 +86,21 @@ export function FirstRunWizard({ onDone }: { onDone?: () => void }) {
 
       {error && (
         <p className="text-[var(--color-error)]">Could not reach our web server&apos;s onboarding check: {String(error.message ?? error)}</p>
+      )}
+
+      {(s?.disk?.level === 'low' || s?.disk?.level === 'critical') && (
+        <div role="alert" data-disk={s.disk.level}
+             className="border rounded px-4 py-3 text-sm space-y-1"
+             style={{ borderColor: s.disk.level === 'critical' ? 'var(--color-error)' : 'var(--color-tool)' }}>
+          <p className="font-bold" style={{ color: s.disk.level === 'critical' ? 'var(--color-error)' : 'var(--color-tool)' }}>
+            {formatBytes(s.disk.freeBytes)} free under our database{s.disk.path ? <> at <code>{s.disk.path}</code></> : null}
+          </p>
+          <p className="text-[var(--color-muted)]">
+            {s.disk.level === 'critical'
+              ? 'SQLite fails writes on a full disk. Free space, or point UNFIREHOSE_DIR at a bigger disk, before our worker reads your history.'
+              : `Under ${formatBytes(s.disk.lowBytes)}. Our database grows with every session (a year of heavy use is several GB). Free space, or set a retention window later in Settings → Database.`}
+          </p>
+        </div>
       )}
 
       <ol className="space-y-6">

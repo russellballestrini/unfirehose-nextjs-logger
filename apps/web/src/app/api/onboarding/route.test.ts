@@ -6,6 +6,13 @@ vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 // The machine running the tests is not the machine being onboarded.
 let found: Array<Record<string, unknown>> = [];
 vi.mock('@unturf/unfirehose/harness-detect', () => ({ detectHarnesses: () => found }));
+// Nor is its disk the one being checked.
+const GiB = 1024 ** 3;
+let space: { path: string; freeBytes: number; totalBytes: number } | null = { path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB };
+vi.mock('@unturf/unfirehose/db/maintenance', async (orig) => ({
+  ...(await orig<typeof import('@unturf/unfirehose/db/maintenance')>()),
+  dbDiskSpace: () => space,
+}));
 
 const { GET } = await import('./route');
 const { setSetting } = await import('@unturf/unfirehose/db/ingest');
@@ -40,5 +47,16 @@ describe('GET /api/onboarding', () => {
     expect(stale.payloadAt).not.toBeNull();
     setSetting('last_ingest_at', new Date().toISOString());
     expect((await (await GET()).json()).workerAlive).toBe(true);
+  });
+
+  it('reports free disk under our database, low under 10 GB', async () => {
+    space = { path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB };
+    expect((await (await GET()).json()).disk).toEqual({ path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB, level: 'ok', lowBytes: 10 * GiB });
+    space = { path: '/data', freeBytes: 6 * GiB, totalBytes: 500 * GiB };
+    expect((await (await GET()).json()).disk.level).toBe('low');
+    space = { path: '/data', freeBytes: 0.2 * GiB, totalBytes: 500 * GiB };
+    expect((await (await GET()).json()).disk.level).toBe('critical');
+    space = null;
+    expect((await (await GET()).json()).disk).toMatchObject({ freeBytes: null, level: 'unknown' });
   });
 });
