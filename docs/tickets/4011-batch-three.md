@@ -175,9 +175,7 @@ Not done, and why:
   would chase a moving target. Worth doing against v2 once its schema is
   readable.
 
-## Outcome
-
-### Item 6: agent action ledger
+## Outcome: item 6, agent action ledger
 - `packages/core/action-ledger.ts` classifies one tool call into
   `fs-read | fs-write | git | network | shell`, the paths, URLs or hosts it
   named, its command, and flags: `destructive`, `force-push`,
@@ -268,3 +266,24 @@ dependency. Our dashboard is drawn dark on white whatever our theme.
 - `next dev` warns "Cross origin request detected" for its HMR socket
   when opened by LAN address; a future Next blocks it unless
   `allowedDevOrigins` lists the address.
+
+## Outcome: item 2, one harness registry (2026-10-23)
+
+`packages/core/harness-registry.ts` lists every harness once, one entry per adapter doc (19). The entries are pure data, so client components import it freely. Where an ingested harness writes is server-side, in `harness-roots.ts`. These lists are now derived from the registry rather than kept by hand:
+
+- what ingest reads (`session-paths`);
+- what the wizard, Settings and doctor show (`harness-detect`);
+- what the boot panel launches (`harness-models`);
+- what a probe recognises in `ps` (`harness-procs`);
+- what counts as a native writer (`NOT_NATIVE_DIRS`).
+
+`harness-registry.test.ts` holds the table to the docs and checks that ids, launch keys and process names are unique. It also checks that the ingested set equals the roots map, and that every derived list keeps the values it had before. Item 1 then added Codex, Gemini CLI and Continue as three registry entries.
+
+Decisions: `launch.key` keeps the boot panel's older keys (`open-code`, `gemini`), because saved settings and running tmux sessions use them.
+
+## Outcome: items 7 and 8 (2026-10-23)
+
+- **7. Alert delivery** — Settings → Alerts; webhook (HMAC-signed), ntfy, Slack, Discord from our worker; once per rule, 5 attempts with backoff, per-rule hourly cap drops the excess (`rate_limited`); Send test. Tables `alert_delivery_rules`, `alert_deliveries`. Secrets in `$UNFIREHOSE_DIR/alert-secrets.json` (0600), masked to the client.
+  Decisions: secrets in a file (the browser vault is unreadable by the worker; the DB is copied/seeded); over-limit alerts dropped not queued; new rules start from now; localhost/LAN destinations allowed (single-user local app), no redirects, 10 s timeout; the per-project filter matches nothing until alerts are raised per project.
+- **8. Training-set export** — project page → Export training set: chat-SFT JSONL (`{"messages":[…]}`, OpenAI tool_calls form; reasoning and metadata off by default), filters for project, model, harness, dates, tool errors, turn counts; preview with redaction counts, then a streamed download (`GET /api/training-export`). Every string passes `redactForExport` (secrets, home-path usernames, then `sanitizePII`), redacted to `__TYPE_N__` tokens, never dropped. Lines checked against `SFT_EXAMPLE_JSON_SCHEMA` with Ajv.
+  Decisions: the `password=/token:` rule over-redacts code like `password: process.env.X`; an errored tool result drops its turn by default (session / keep are options); sessions outside min/max turns are skipped, not truncated; should the export schema move into packages/schema (a spec addition)? `packages/core/package.json` exports `./training` → a file that does not exist (left as found).
