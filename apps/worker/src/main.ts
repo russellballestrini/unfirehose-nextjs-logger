@@ -2,7 +2,8 @@ import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
 import { ingestAll, getDbStats, ingestActivityAt, type IngestResult } from '@unturf/unfirehose/db/ingest';
 import { POLL_INTERVAL_MS, nextPollDelayMs } from './poll-cadence';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
+import { checkpointTruncate } from '@unturf/unfirehose/db/pragmas';
+import { maintenanceTick, describeTick, MAINTENANCE_TICK_MS } from './maintenance';
 import { rollupDrain } from './mesh-rollup';
 import { startSampler, startPayloadBuilder } from './sampler-supervisor';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
@@ -15,15 +16,7 @@ import { createAlertTicker, ALERT_DELIVERY_TICK_MS } from './alert-tick';
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
 // (capped at 16) catches up quickly without locking the DB for long.
 const ROLLUP_TICK_MS = 60_000;
-// Daily VACUUM to reclaim pages freed by the snake-eats-tail delete after a
-// run of rollups. Locks briefly and rewrites our whole database — schedule at
-// off-hours by offsetting our first run, and gate it on our freelist so it only
-// runs when there is something to reclaim.
-const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
-// Below this much reclaimable space a VACUUM costs far more than it returns:
-// it rewrites every page through our WAL, so a no-op VACUUM on a 3.6G database
-// buys ~0 bytes and leaves a 3.6G WAL behind.
-const VACUUM_MIN_FREELIST_BYTES = 256 * 1024 * 1024;
+// Daily VACUUM, size snapshot and retention moves: see ./maintenance.ts.
 // Hourly WAL checkpoint so `journal_size_limit` is actually applied — SQLite
 // truncates our -wal on checkpoint, never on write.
 const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000;
@@ -282,38 +275,26 @@ async function main() {
       .catch((err) => console.error('[worker] unpriced price sync failed:', err));
   }, UNPRICED_CHECK_INTERVAL_MS);
 
-  // VACUUM only when there is something to reclaim. This ran unconditionally
-  // every day and was our reason our WAL reached 3.6G: VACUUM rewrites every
-  // page of our database, and in WAL mode those pages all land in our WAL, so
-  // one run sizes our WAL to match our whole database. Measured 2026-08-14 it
-  // recovered 9MB from a 3.6G database — it was paying our entire database size
-  // in WAL growth to reclaim a rounding error. Our freelist tells us what a
-  // VACUUM would genuinely return, so we only pay when it is worth paying.
-  // Offset our first run by 1 hour so a fresh worker doesn't VACUUM the moment
-  // ingest is busiest.
-  const vacuumKickoff = setTimeout(() => {
-    const runVacuum = () => {
-      try {
-        const db = getDb();
-        const reclaimable = freelistBytes(db);
-        if (reclaimable < VACUUM_MIN_FREELIST_BYTES) {
-          console.log(`[worker] VACUUM skipped — freelist ${(reclaimable / 1048576).toFixed(1)}MB below ${(VACUUM_MIN_FREELIST_BYTES / 1048576).toFixed(0)}MB threshold`);
-          return;
-        }
-        const t0 = Date.now();
-        db.exec('VACUUM');
-        console.log(`[worker] VACUUM reclaimed ${(reclaimable / 1048576).toFixed(1)}MB in ${Date.now() - t0}ms`);
-        // VACUUM just pushed our whole database through our WAL. Fold it back
-        // immediately rather than leaving our file at its new high-water mark
-        // until our next hourly tick.
-        checkpointTruncate(db);
-      } catch (err) {
-        console.error('[worker] VACUUM failed:', err);
-      }
-    };
-    runVacuum();
-    setInterval(runVacuum, VACUUM_INTERVAL_MS);
-  }, 60 * 60 * 1000);
+  // Upkeep while ingest is idle (./maintenance.ts, rules in core's
+  // db/maintenance): today's size snapshot for Settings → Database, the
+  // retention window's move of old block text into cold storage, and the
+  // daily VACUUM. VACUUM runs only when our freelist makes it worth a full
+  // rewrite (it once sized our WAL to the whole 3.6G database to reclaim
+  // 9MB) and only after fifteen quiet minutes; a busy day defers it to the
+  // next quiet tick rather than skipping it.
+  const bootAt = Date.now();
+  let vacuumDeferral = '';
+  const maintenanceInterval = setInterval(() => {
+    try {
+      const r = maintenanceTick(getDb(), { inFlight: ingestInFlight, lastActivityAt: ingestActivityAt() }, { bootAt });
+      for (const line of describeTick(r)) console.log(`[worker] ${line}`);
+      const deferred = r.skipped.find((s) => s.startsWith('vacuum:'));
+      if (deferred && !vacuumDeferral) console.log(`[worker] VACUUM due, deferred until ingest is quiet (${deferred.slice(8)})`);
+      vacuumDeferral = r.vacuum ? '' : deferred ?? vacuumDeferral;
+    } catch (err) {
+      console.error('[worker] maintenance failed:', err);
+    }
+  }, MAINTENANCE_TICK_MS);
 
   // Graceful shutdown
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -327,7 +308,7 @@ async function main() {
       clearInterval(statusInterval);
       clearInterval(statusRollup);
       clearInterval(checkpointInterval);
-      clearTimeout(vacuumKickoff);
+      clearInterval(maintenanceInterval);
       clearTimeout(priceKickoff);
       clearInterval(unpricedInterval);
       clearInterval(alertDeliveryInterval);

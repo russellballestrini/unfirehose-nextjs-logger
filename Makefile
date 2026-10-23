@@ -4,7 +4,7 @@
         dev demo fix-watches persist-watches rescue-tool-results pricing pricing-report \
         build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
         service-install service-start service-stop service-restart service-status service-logs service-uninstall \
-        doctor
+        doctor vacuum
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -229,6 +229,17 @@ doctor:
 	@command -v node >/dev/null 2>&1 || { echo "[FAIL] node  not on PATH"; echo "       fix: install node 22.x (nvm install 22), then npm ci"; exit 1; }
 	@test -x node_modules/.bin/tsx || { echo "[FAIL] deps  node_modules missing (no tsx)"; echo "       fix: npm ci --no-audit --no-fund"; exit 1; }
 	@node_modules/.bin/tsx scripts/doctor.ts
+
+# Checkpoint, VACUUM, checkpoint: give our freelist back to the disk. Same
+# rules as our worker's daily run (packages/core/db/maintenance.ts), and it
+# refuses while another process (worker, make dev, web) has our database
+# open, since a VACUUM beside them leaves a WAL as big as our database.
+# Run it after a retention window has moved old block text cold.
+#   make vacuum
+#   make vacuum MIN_MB=256     only if at least 256 MB would come back
+#   make vacuum FORCE=1        beside a running stack, knowingly
+vacuum:
+	@MIN_MB=$(MIN_MB) FORCE=$(FORCE) node_modules/.bin/tsx scripts/vacuum.ts
 
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
