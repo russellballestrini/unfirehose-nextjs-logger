@@ -287,3 +287,37 @@ Decisions: `launch.key` keeps the boot panel's older keys (`open-code`, `gemini`
   Decisions: secrets in a file (the browser vault is unreadable by the worker; the DB is copied/seeded); over-limit alerts dropped not queued; new rules start from now; localhost/LAN destinations allowed (single-user local app), no redirects, 10 s timeout; the per-project filter matches nothing until alerts are raised per project.
 - **8. Training-set export** — project page → Export training set: chat-SFT JSONL (`{"messages":[…]}`, OpenAI tool_calls form; reasoning and metadata off by default), filters for project, model, harness, dates, tool errors, turn counts; preview with redaction counts, then a streamed download (`GET /api/training-export`). Every string passes `redactForExport` (secrets, home-path usernames, then `sanitizePII`), redacted to `__TYPE_N__` tokens, never dropped. Lines checked against `SFT_EXAMPLE_JSON_SCHEMA` with Ajv.
   Decisions: the `password=/token:` rule over-redacts code like `password: process.env.X`; an errored tool result drops its turn by default (session / keep are options); sessions outside min/max turns are skipped, not truncated; should the export schema move into packages/schema (a spec addition)? `packages/core/package.json` exports `./training` → a file that does not exist (left as found).
+
+## Outcome: item 3, GitHub CI and honest deadlines (2026-10-23)
+
+`.github/workflows/ci.yml` runs on pull requests and on pushes to main. Actions are pinned to full SHAs, the job holds `contents: read`, and checkout does not persist credentials. Jobs:
+
+- `typecheck` runs first.
+- core, ui and web then run on separate runners under coverage, each enforcing its floor.
+- `schema` and `build` also wait for typecheck.
+- `scripts` runs after core, ui and web, with their coverage downloaded and `UNFIREHOSE_REQUIRE_COVERAGE=1` set.
+- `budgets` runs after scripts.
+- `lint` runs on its own.
+
+On a fresh clone the report tests that need coverage now skip, with the reason in their names, instead of failing. CI sets the variable, so there a missing measurement still fails.
+
+The timeouts were reproduced with every suite pinned to 2 cores beside 24 CPU hogs. Each slow test now has a named deadline constant, with a comment giving its idle and loaded times. Nothing was skipped or disabled. The same heavy run is green after the change.
+
+Decisions for fox:
+
+- `npm run lint` fails today, with 16 errors in apps/web that predate this ticket.
+- `make quality-budgets` fails today: crap is 20747 against a budget of 19000, and duplication is 3134 against 1200. The GitLab gate is red for the same reason.
+- Both are separate CI jobs that nothing else waits on, so they show red until the code is fixed or the budgets are raised. Which should it be?
+
+## Decisions for fox, all items
+
+1. Aider, Cursor and OpenCode are still documented only; their on-disk formats were not stable enough to read.
+2. (none)
+3. Lint and budget jobs are red on arrival: fix the code, or raise the budgets?
+4. Should `DELETE /sessions/:id` (kill session) be fixed inside the boundary? Should an upgrade keep unsandbox off until someone turns it on?
+5. Retention window defaults. Is the brotli cold store OK?
+6. Wire the secret detectors into ingest as well? Should `npm install` and MCP tool calls count as network actions?
+7. Alert secrets live in a 0600 file. Over-limit alerts are dropped, not queued.
+8. The `password:` rule over-redacts code. `./training` is exported from core's package.json but points at a file that does not exist.
+9. `next dev` already listens on 0.0.0.0, so a dashboard with no login is on the LAN today. The mobile drawer cutoff is 1024 px.
+10. Ticket 4004 is marked blocked.
