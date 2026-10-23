@@ -96,7 +96,9 @@
     "./vllm-sample": "./vllm-sample.ts",
     "./db/provenance-ingest": "./db/provenance-ingest.ts",
     "./db/rewrite-watch": "./db/rewrite-watch.ts",
-    "./provenance": "./provenance.ts"
+    "./provenance": "./provenance.ts",
+    "./alert-delivery": "./alert-delivery.ts",
+    "./db/alert-delivery": "./db/alert-delivery.ts"
   },
   "scripts": {
     "test": "vitest run",

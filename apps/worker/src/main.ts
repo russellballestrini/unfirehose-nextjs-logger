@@ -8,6 +8,8 @@ import { startSampler, startPayloadBuilder } from './sampler-supervisor';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
+import { fileSecretStore } from '@unturf/unfirehose/db/alert-delivery';
+import { createAlertTicker, ALERT_DELIVERY_TICK_MS } from './alert-tick';
 
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
@@ -67,6 +69,9 @@ process.on('unhandledRejection', (reason) => {
 let lastIngestAt = Date.now();
 let ingestInFlight = false;
 
+// Alert delivery (see alert-tick.ts): a no-op until a user creates a rule.
+const deliverAlerts = createAlertTicker({ db: getDb, store: () => fileSecretStore() });
+
 async function runIngestOnce(reason: string): Promise<IngestResult | null> {
   if (ingestInFlight) return null;
   ingestInFlight = true;
@@ -78,6 +83,8 @@ async function runIngestOnce(reason: string): Promise<IngestResult | null> {
     // 2026-09-17 and nobody could see it, because this line said only what
     // the database held afterwards.
     console.log(`[worker] ingest (${reason}): ${s.projects}p ${s.sessions}s ${s.messages}m · +${r.messagesAdded}m from ${r.filesScanned} file(s) in ${Date.now() - t0}ms`);
+    // A fresh alert goes out now, not on the next delivery tick.
+    if (r.alertsTriggered > 0) void deliverAlerts();
     return r;
   } catch (err) {
     console.error(`[worker] ingest (${reason}) failed:`, err);
@@ -180,6 +187,9 @@ async function main() {
       console.error('[worker] vendor status rollup failed:', err);
     }
   }, STATUS_ROLLUP_INTERVAL_MS);
+
+  // Alert delivery: rules in Settings → Alerts, attempts in alert_deliveries.
+  const alertDeliveryInterval = setInterval(() => { void deliverAlerts(); }, ALERT_DELIVERY_TICK_MS);
 
   // Headless mesh sampler — keeps GPU watts / utilization rolling without a
   // browser tab being open — and the vLLM cache sampler, as one small child
@@ -320,6 +330,7 @@ async function main() {
       clearTimeout(vacuumKickoff);
       clearTimeout(priceKickoff);
       clearInterval(unpricedInterval);
+      clearInterval(alertDeliveryInterval);
       sampler.stop();
       payloads.stop();
       stopWatcher();

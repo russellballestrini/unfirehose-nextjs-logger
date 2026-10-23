@@ -933,4 +933,48 @@ export function migrate(db: Database.Database) {
     );
   `);
 
+  // Alert delivery (ticket 4011 item 7). A rule says which alerts go where;
+  // its secrets (Slack/Discord webhook URLs, ntfy tokens, HMAC keys) are NOT
+  // here — they live in a 0600 file beside our database (db/alert-delivery).
+  // match_* NULL = any. since_alert_id: a new or re-enabled rule delivers
+  // what fires from then on, never the backlog.
+  // alert_deliveries: one row per (alert, rule), which is the dedupe; a
+  // test send has alert_id NULL and is_test 1.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS alert_delivery_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      destination TEXT NOT NULL,           -- webhook | ntfy | slack | discord
+      config TEXT NOT NULL DEFAULT '{}',   -- JSON, non-secret: url, server, topic
+      match_metric TEXT,
+      match_window INTEGER,
+      match_project TEXT,
+      rate_limit_per_hour INTEGER NOT NULL DEFAULT 10,
+      since_alert_id INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS alert_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alert_id INTEGER,
+      rule_id INTEGER NOT NULL,
+      is_test INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending', -- pending | sent | failed | rate_limited
+      http_status INTEGER,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      delivered_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_once
+      ON alert_deliveries(alert_id, rule_id) WHERE alert_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_alert_deliveries_due
+      ON alert_deliveries(status, next_retry_at);
+    CREATE INDEX IF NOT EXISTS idx_alert_deliveries_rule
+      ON alert_deliveries(rule_id, delivered_at);
+  `);
+
 }

@@ -488,6 +488,35 @@ Manage alerts and thresholds.
 ← `{ action: "calibrate", days?: 7, factor?: 1.5 }` — reset thresholds from recent usage
 → `{ ok: true, ... }`
 
+### GET /api/alerts/delivery
+Alert delivery rules (Settings → Alerts): which alerts go to a webhook, ntfy, Slack or Discord. Our worker sends each new alert once per rule, retries with backoff (30 s, 2 min, 8 min, 32 min; 5 attempts; 4xx other than 408/425/429 fails at once) and holds each rule to `rate_limit_per_hour` (over it: `rate_limited`, not sent). Secrets come back masked, never whole.
+- `?limit=50` — recent delivery attempts (max 500)
+→ `{ rules: [{ id, name, enabled, destination, config, match: { metric, window, project }, rate_limit_per_hour, secrets: { field: "••••abcd" | null }, last, sent_24h, failed_24h }], deliveries: [{ alert_id, rule_id, is_test, status, http_status, error, attempts, next_retry_at, delivered_at }], destinations, secretFields, metrics }`
+
+### POST /api/alerts/delivery
+Create a rule. It delivers alerts raised from now on, never the backlog.
+← `{ name?, destination: "webhook" | "ntfy" | "slack" | "discord", enabled?: true, config?, secrets?, match?: { metric?, window?, project? }, rate_limit_per_hour?: 10 }`
+- webhook: `config: { url }` (http or https; localhost and LAN allowed), `secrets: { hmacSecret? }` → POST JSON `{ event: "alert.triggered" | "alert.test", version: 1, title, message, severity, path, alert }` with `X-Unfirehose-Timestamp` and, when a secret is set, `X-Unfirehose-Signature: sha256=HMAC_SHA256(secret, timestamp + "." + body)`
+- ntfy: `config: { server: "https://ntfy.sh", topic }`, `secrets: { token? }` → body is the message; `Title`, `Priority` (3/4/5), `Tags` headers
+- slack, discord: `secrets: { webhookUrl }` (https)
+→ 201 `{ ok: true, rule }` · 400 `{ error, errors: { field: reason } }`
+
+### GET /api/alerts/delivery/{id}
+One rule (secrets masked) and its last 50 attempts.
+→ `{ rule, deliveries }`
+
+### PATCH /api/alerts/delivery/{id}
+Change a rule. Any field of POST but `destination`. A secret left out or `""` keeps what is stored; `null` clears it. Re-enabling starts from now.
+→ `{ ok: true, rule }` · 400 `{ errors }` · 404
+
+### DELETE /api/alerts/delivery/{id}
+Remove a rule, its attempts and its stored secrets.
+→ `{ ok: true }` · 404
+
+### POST /api/alerts/delivery/{id}/test
+Send one synthetic alert through the same build, sign and send path, once, no retry. Works on a disabled rule; recorded as a test attempt; never counts against the rate limit.
+→ `{ ok, status: 204 | null, error: string | null }`
+
 ### GET /api/alerts/{id}
 One alert with what happened inside its window: per-project and per-model usage and cost, active sessions, reasoning blocks, timeline, user prompts.
 → `{ alert, window: { start, end, duration_minutes }, projectBreakdown, modelBreakdown, activeSessions, reasoningBlocks, timeline, userPrompts, totals, stats }`
