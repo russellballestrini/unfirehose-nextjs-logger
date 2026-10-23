@@ -1,9 +1,44 @@
 # 4010: Onboarding — from install to first insight in five minutes
 
-**Status:** open, ready for a web session
+**Status:** done 2026-10-23, fox reviews
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 2 to 3 sessions
 **Owner:** web session; fox reviews
+
+## Outcome (2026-10-23)
+
+| # | Deliverable | Where |
+|---|---|---|
+| — | One detector, per-harness stats, `UNFIREHOSE_DIR` | `packages/core/harness-detect.ts`, `db/harness-stats.ts`, `db/data-dir.ts` |
+| 1 | First-run wizard | `apps/web/src/components/FirstRunWizard.tsx`, `GET /api/onboarding`; shown only when the database holds no sessions (a quiet range draws our dashboard) |
+| 2 | Harness health | Settings → Harnesses (`app/settings/HarnessHealth.tsx`), same route |
+| 3 | Empty states | `@unturf/unfirehose-ui/EmptyState` (`first-run` / `quiet`), `lib/ever.ts` lifetime probes on six routes |
+| 4 | `make demo` | `packages/core/demo-seed.ts`, `scripts/demo.ts`; serves `~/.unfirehose-demo` on :3010, `UNFIREHOSE_HARNESSES=none`, no worker; `DEMO_MODELS` in `SYNTHETIC_MODELS` |
+| 5 | `make doctor` | `scripts/doctor.ts` (facts) + `scripts/doctor-checks.ts` (rules, tested) |
+| 6 | Install story | README quickstart, Keep it running, `docker-compose.yml` (+ `compose-up/down/logs`) |
+| 7 | Coach marks | `components/CoachMarks.tsx`, `data-coach` anchors on four pages, Settings → General → Show hints again |
+
+Checked in a browser against `make demo`: Dashboard, Tokens, Projects and
+Permacomputer render populated, three hints each, no "nothing yet", no
+page errors; a fresh data dir shows the wizard with nothing ingested.
+
+Found on the way and fixed: the dashboard's Day of Week chart drew no bars
+for any range (per-bar colours sat where uPlot ignores them).
+
+Decisions taken that fox may want to revisit:
+- doctor: a missing harness is a neutral line when another harness is
+  found, yellow only when none is (otherwise a healthy box is never all green).
+- compose: only `~/.claude` mounted by default (a missing bind source makes
+  docker create a root-owned dir in the home); the worker runs from the
+  Dockerfile's builder stage, which has no ssh/git, so mesh probes fail in
+  the container. A worker stage in the Dockerfile would be cleaner.
+- `make docker-run` now lags compose (no worker, all interfaces).
+- demo: a demo web server with an empty price book still bootstraps it from
+  the public price feeds on first cost, as any fresh install does.
+
+Not ours, seen once: uPlot builds an `Intl.NumberFormat(navigator.language)`
+at module load, which throws for a POSIX-suffixed browser locale
+(`en-US@posix`, a `LANG=C` headless chromium).
 
 ## Why
 
