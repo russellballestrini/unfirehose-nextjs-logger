@@ -112,6 +112,14 @@ describe('GET /api/mesh/history', () => {
     expect((await (await get('hours=24')).json()).hostnames).toEqual([]);
   });
 
+  it('says whether any probe was ever recorded, so an empty window reads as quiet', async () => {
+    expect((await (await get('hours=24')).json()).hasAnySnapshots).toBe(false);
+    seedAt(50, 'neoblanka');
+    const body = await (await get('hours=24')).json();
+    expect(body.timeline).toEqual([]);
+    expect(body.hasAnySnapshots).toBe(true);
+  });
+
   it('narrows to one host when asked', async () => {
     seedAt(1, 'neoblanka');
     seedAt(1, 'cammy');

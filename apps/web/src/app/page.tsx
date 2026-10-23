@@ -28,6 +28,7 @@ const ModelUsagePie = dynamic(() => import('./DashboardCharts').then((m) => m.Mo
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
 import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
@@ -358,6 +359,16 @@ export default function DashboardPage() {
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Model Usage ({range})
         </h3>
+        {modelData.length === 0 ? (
+          // Sessions in range, none of them with a model reply: a quiet
+          // range for models, not a first run (that is the branch above).
+          <EmptyState
+            compact
+            kind="quiet"
+            what="Tokens, cost, power and savings per model appear here."
+            action="No message in range named its model. Widen our range above to see earlier replies."
+          />
+        ) : (
         <div className="flex items-start gap-8">
           <ModelUsagePie modelData={modelData} />
           <div className="flex-1">
@@ -394,6 +405,7 @@ export default function DashboardPage() {
             </table>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

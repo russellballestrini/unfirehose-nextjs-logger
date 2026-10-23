@@ -5,6 +5,7 @@ import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import { useEffect } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
 import { formatRelativeTime } from '@unturf/unfirehose/format';
@@ -204,10 +205,15 @@ export default function RateLimitsPage() {
       {isLoading && !data && <div className="text-[var(--color-muted)]">Loading…</div>}
 
       {data && data.total === 0 && (
-        <div className="text-[var(--color-muted)] border border-dashed border-[var(--color-border)] rounded p-6">
-          No {target} refusals{kind === 'all' ? '' : ` of kind ${kind}`} in this
-          window. Nothing refused a call.
-        </div>
+        // No refusal is the good case, in range or ever; the copy is the
+        // same either way, so this one is always quiet.
+        <EmptyState
+          kind="quiet"
+          what={`No ${target} refusals${kind === 'all' ? '' : ` of kind ${kind}`} in this window. Nothing refused a call.`}
+          action="Every 429, overload and quota refusal a harness logs or reports appears here, by upstream and by hour."
+          range={range}
+          onWiden={range === 'all' ? undefined : () => setRange('all')}
+        />
       )}
 
       {byUpstream.length > 0 && (

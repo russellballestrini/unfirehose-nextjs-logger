@@ -365,6 +365,38 @@ the styleguide drew a fifth from raw divs.
 
 Live: `localhost:3000/styleguide` → StatCard.
 
+### EmptyState
+
+What a panel says when it has nothing — `@unturf/unfirehose-ui/EmptyState`.
+Never "nothing yet" alone: say what will appear here, the action that makes
+it appear, and where to go.
+
+```tsx
+<EmptyState
+  what="Sessions will appear here."
+  action="Run a harness session in any git repo:"
+  command="cd ~/your/repo && claude"
+  link={{ href: '/schema', label: 'Other harnesses: adapter docs' }}
+/>
+<EmptyState kind="quiet" what="No sessions in range." range={range} onWiden={() => setRange('all')} />
+```
+
+| Prop | Effect |
+|---|---|
+| `kind="first-run"` (default) | No data ever. Teach the action; never offers a wider range |
+| `kind="quiet"` | Data exists, none in range. Default action suggests widening; `onWiden` adds a button |
+| `command` | Shown in an accent code span after the action |
+| `link` | `/path` routes client side, `https://` opens a new tab, `#Tab` stays on the page |
+| `compact` | No frame, `p-2`, for a chart slot or a cell inside a panel |
+
+Which kind is not a guess: a ranged route answers a cheap "ever" signal
+beside its rows (`hasAnySessions`, `hasAnyMessages`, `hasAnyTodos`,
+`hasAnySnapshots`, via `apps/web/src/lib/ever.ts`), or the page reads a
+lifetime figure it already has (scrobble's `lifetime.totalSessions`, the
+alerts list). The element carries `data-empty-kind` for tests.
+
+Live: `localhost:3000/styleguide` → EmptyState.
+
 ### Buttons
 
 | Variant | Classes |

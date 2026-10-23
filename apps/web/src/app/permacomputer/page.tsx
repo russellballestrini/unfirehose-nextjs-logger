@@ -20,6 +20,7 @@ import { MeshSummaryBar } from './MeshSummaryBar';
 import { NodeCard } from './NodeCard';
 import { UnsandboxNodeCard } from './UnsandboxNodeCard';
 import { AddNodeButton } from './AddNodeButton';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { FleetMetricsPanel } from './FleetMetrics';
 import { MeshEconomicsPanel } from './MeshEconomicsPanel';
 import { UnsandboxPanel } from './UnsandboxPanel';
@@ -193,6 +194,14 @@ export default function PermacomputerPage() {
       {/* Node Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} configHash={sshData?.hash} mutate={() => { mutateSsh(); mutateMesh(); }} seedEcon={saveNodeEcon} settings={settings} />
+        {mesh && allNodes.length === 0 && !unsandboxStatus?.connected && (
+          <EmptyState
+            className="md:col-span-1 xl:col-span-2"
+            what="Nodes will appear here: every host in our SSH config that answers a probe, with its power, load, GPUs and agents."
+            action="Add one with the card beside this, or a Host entry in our SSH config, then reload:"
+            command="~/.ssh/config"
+          />
+        )}
         {allNodes.map(({ meshNode, sshHost, key }) => (
           <NodeCard
             key={key}

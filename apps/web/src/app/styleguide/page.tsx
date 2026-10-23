@@ -10,6 +10,7 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { groupNavItems } from '@unturf/unfirehose-ui/layout/nav-items';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { GaugeTrack, GaugeRow, GaugeBlock, GaugeCard, GaugePill } from '@unturf/unfirehose-ui/Gauge';
 import { KV, MiniStat } from '@unturf/unfirehose-ui/KV';
 
@@ -187,6 +188,24 @@ export default function StyleguidePage() {
           <StatCard label="Cache" value="9.4B" color="#4ade80" compact />
           <StatCard label="CPU" value="Ryzen 7 5800X" sub="16 cores" compact />
         </div>
+      </Section>
+
+      <Section title="EmptyState">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <EmptyState
+            what="Sessions will appear here."
+            action="Run a harness session in any git repo:"
+            command="cd ~/your/repo && claude"
+            link={{ href: '/schema', label: 'Other harnesses: adapter docs' }}
+          />
+          <EmptyState kind="quiet" what="No sessions in range." range="7d" onWiden={() => {}} />
+        </div>
+        <EmptyState compact kind="quiet" what="No tool calls in range." action="Tool calls appear when a session runs tools." />
+        <Note>
+          Every empty panel says what will appear, the action that makes it appear, and where to go.
+          <code>first-run</code> is no data ever; <code>quiet</code> is data elsewhere, none in range, and offers a wider one.
+          <code>compact</code> drops the frame for a chart slot inside a panel.
+        </Note>
       </Section>
 
       <Section title="Gauge, KV, MiniStat">

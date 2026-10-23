@@ -4,6 +4,7 @@ import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import { useMemo } from 'react';
 import useSWR from 'swr';
 import { useStickyState } from '@unturf/unfirehose-ui/useStickyState';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { UPlotTimeChart, type UPlotSeries } from '@/components/UPlotTimeChart';
 import { getKwhRate } from '@unturf/unfirehose/pricing';
 import { fmtLocalDateTime } from '@/lib/local-time';
@@ -144,9 +145,22 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
         </div>
       </div>
       {!hasData && (
-        <div className="bg-[var(--color-background)] border border-dashed border-[var(--color-border)] rounded p-4 text-xs text-[var(--color-muted)]">
-          No mesh snapshots in the selected window. Keep this page open — fresh probes are recorded every 30s and charts populate as data arrives.
-        </div>
+        data?.hasAnySnapshots === false ? (
+          <EmptyState
+            what="Fleet power, CPU, memory and GPU history will appear here, one line per node."
+            action="Keep this page open: a probe of every node is recorded every 30s and these charts fill as they land. Nodes come from our SSH config."
+            command="~/.ssh/config"
+          />
+        ) : (
+          <EmptyState
+            kind="quiet"
+            what="No mesh snapshots in the selected window."
+            range={hours >= 24 && hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`}
+            action={hours < 168 ? undefined : 'Older probes roll up into 15-minute samples; fresh ones land every 30s while this page is open.'}
+            onWiden={hours < 168 ? () => setHours(168) : undefined}
+            widenLabel="Show 7 days"
+          />
+        )
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 

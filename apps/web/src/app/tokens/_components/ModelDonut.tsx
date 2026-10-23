@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Donut } from '@/components/Donut';
 
 // Donut for the per-model breakdowns. Model names are open-ended (self-hosted
@@ -12,15 +13,17 @@ export function ModelDonut({
   title,
   data,
   format,
+  empty,
 }: {
   title: string;
   data: Array<{ name: string; fullName?: string; value: number; color: string }>;
   format: (n: number) => string;
+  empty?: ReactNode;
 }) {
   return (
     <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
       <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">{title}</h3>
-      <Donut data={data} format={format} height={160} topN={MODEL_DONUT_TOP_N} />
+      <Donut data={data} format={format} height={160} topN={MODEL_DONUT_TOP_N} empty={empty} />
     </div>
   );
 }

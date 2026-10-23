@@ -14,6 +14,7 @@ import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TodoBoard } from '@/components/TodoBoard';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
@@ -577,7 +578,21 @@ export function OverviewTab({ full, data, meta, project, decodedProject: _decode
                 )}
               </div>
             ) : (
-              <p className="text-sm text-[var(--color-muted)]">No open todos</p>
+              full?.hasAnyTodos ? (
+                <EmptyState
+                  compact
+                  kind="quiet"
+                  what="Open todos for this project appear here."
+                  action="All done: none open right now. Queue a task above, or see finished ones on our board."
+                  link={{ href: `/todos?project=${project}`, label: 'Todo board' }}
+                />
+              ) : (
+                <EmptyState
+                  compact
+                  what="Open todos for this project will appear here."
+                  action="Our agents write them as they plan; queue a task above to start one."
+                />
+              )
             )}
           </div>
 
@@ -874,7 +889,12 @@ export function CommitsTab({ meta, fetchRemotes, activityData, project }: any) {
             })}
           </div>
         ) : (
-          <p className="px-4 py-8 text-center text-[var(--color-muted)]">No commits found</p>
+          <EmptyState
+            compact
+            what="Commits will appear here, matched to the prompts that led to them."
+            action="We read them from git at our project's path. No history there yet: make a first commit."
+            command="git commit"
+          />
         )}
       </div>
     </div>
@@ -959,7 +979,10 @@ export function ActivityTab({ activityData, project, decodedProject: _decodedPro
           ))}
         </div>
       ) : (
-        <p className="text-center text-[var(--color-muted)] py-8">No recent activity</p>
+        <EmptyState
+          what="Prompts will appear here, each beside the commit it led to."
+          action="Every prompt typed in a session for this project lands here; none has been logged yet."
+        />
       )}
     </div>
   );
@@ -1106,7 +1129,7 @@ const breadcrumbs = pathParts.map((part: string, i: number) => ({
               </button>
             ))}
             {treeData.entries?.length === 0 && (
-              <div className="px-4 py-8 text-center text-[var(--color-muted)]">Empty directory</div>
+              <EmptyState compact what="Empty directory." action="Files committed under this path appear here." />
             )}
           </div>
         )}

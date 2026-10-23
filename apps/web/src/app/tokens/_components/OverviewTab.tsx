@@ -5,6 +5,7 @@ import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 import { Donut } from '@/components/Donut';
 import { shortModel, formatCost, type ExtraUsage } from '../_lib';
 import { ModelDonut } from './ModelDonut';
+import { NoCostEmpty } from './empties';
 import { PriceBookPanel } from './PriceBookPanel';
 import { VllmCacheTable } from './VllmCacheTable';
 import { ModelBreakdownTable, type TokenTotals } from './ModelBreakdownTable';
@@ -168,14 +169,14 @@ export function OverviewTab({ totals, modelBreakdown, cacheHitPct, vllmModels, e
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Cost by Type
           </h3>
-          <Donut data={costTypePie} format={formatCost} height={200} />
+          <Donut data={costTypePie} format={formatCost} height={200} empty={<NoCostEmpty />} />
         </div>
 
         {/* Model token breakdown donut */}
         <ModelDonut title="Tokens by Model" data={modelPie} format={formatTokens} />
 
         {/* Cost by model donut */}
-        <ModelDonut title="Equivalent Cost by Model" data={costPie} format={formatCost} />
+        <ModelDonut title="Equivalent Cost by Model" data={costPie} format={formatCost} empty={<NoCostEmpty />} />
       </div>
 
       <ModelBreakdownTable modelBreakdown={modelBreakdown} totals={totals} />

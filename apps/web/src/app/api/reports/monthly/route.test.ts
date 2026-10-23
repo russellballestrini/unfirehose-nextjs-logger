@@ -46,6 +46,13 @@ describe('GET /api/reports/monthly', () => {
     expect(r.byProject).toEqual([{ project: 'acme', usd: 30 }]);
   });
 
+  it('says beside the report, not in it, whether any message has ever landed', async () => {
+    const r = await (await get('month=2026-08&tz=UTC')).json();
+    expect(r.hasAnyMessages).toBe(true);
+    const csv = await (await get('month=2026-08&tz=UTC&format=csv')).text();
+    expect(csv).not.toContain('hasAnyMessages');
+  });
+
   it('converts at the published rate for the month\'s last day, and files it so later downloads match', async () => {
     setSetting('display_currency', 'EUR,USD');
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ date: '2026-09-30', rates: { EUR: 0.9 } })));

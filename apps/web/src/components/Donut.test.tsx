@@ -41,8 +41,14 @@ describe('Donut', () => {
 
   it('says so, with no canvas, when there is nothing to share', () => {
     render(<Donut data={[]} format={fmt} />);
-    expect(screen.getByText('nothing yet')).toBeTruthy();
+    expect(screen.getByText(/Shares will appear here/)).toBeTruthy();
     expect(document.querySelector('canvas')).toBeNull();
+  });
+
+  it('lets the caller say which empty it is', () => {
+    render(<Donut data={[]} format={fmt} empty={<p>No tool calls in range.</p>} />);
+    expect(screen.getByText('No tool calls in range.')).toBeTruthy();
+    expect(screen.queryByText(/Shares will appear here/)).toBeNull();
   });
 
   it('shows the full name on hover when the label is an abbreviation', () => {

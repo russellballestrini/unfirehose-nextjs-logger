@@ -148,6 +148,10 @@ export async function GET(
         activeDays: stats.active_days ?? 0,
       },
       models: topModels,
+      // The list holds open todos only, so an empty one is "all done" unless
+      // this project never had a todo at all. One LIMIT 1 probe on the index.
+      hasAnyTodos: todos.length > 0
+        || db.prepare('SELECT 1 FROM todos WHERE project_id = ? LIMIT 1').get(proj.id) !== undefined,
       todos: todos.map((t: any) => ({
         id: t.id,
         uuid: t.uuid,

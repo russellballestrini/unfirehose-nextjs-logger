@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { hasAny } from '@/lib/ever';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -87,6 +88,9 @@ export async function GET(request: NextRequest) {
         readableReasoningCount: s.readable_reasoning_count ?? 0,
       })),
       count: sessions.length,
+      // Zero in range is a quiet hour unless nothing has ever landed; the
+      // page's empty state says which. One LIMIT 1 probe.
+      hasAnySessions: sessions.length > 0 || hasAny(db, 'sessions'),
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

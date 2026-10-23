@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { formatCurrency } from '@unturf/unfirehose-ui/useCurrency';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -126,7 +127,21 @@ export default function ReportsPage() {
           <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
             <h2 className="text-lg font-bold mb-3">Line items</h2>
             {groups.length === 0 ? (
-              <div className="text-[var(--color-muted)]">Nothing was spent in {monthTitle(r.month)} that unfirehose knows about.</div>
+              r.hasAnyMessages === false ? (
+                <EmptyState
+                  compact
+                  what="Line items will appear here: API usage priced on the day it was spent, plans, power and other monthly costs."
+                  action="Nothing has been ingested yet. Run a harness session and this month's report fills in as it happens."
+                  command="cd ~/your/repo && claude"
+                />
+              ) : (
+                <EmptyState
+                  compact
+                  kind="quiet"
+                  what={`Nothing was spent in ${monthTitle(r.month)} that unfirehose knows about.`}
+                  action="Pick another month above; a month with sessions, a plan or a node's power lists its line items here."
+                />
+              )
             ) : (
               <table className="w-full text-base">
                 <thead>

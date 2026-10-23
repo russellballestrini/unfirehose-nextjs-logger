@@ -1,6 +1,7 @@
 'use client';
 
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { formatCost, planLabel, type ExtraUsage } from '../_lib';
 
@@ -97,14 +98,12 @@ export function PlanTab({ planData, extraData, extra, mutateExtra }: {
                   {' '}to re-sync.
                 </p>
               ) : (
-                <p className="text-base text-[var(--color-muted)]">
-                  No data yet. Drag the bookmarklet below to your browser bar, then click it on{' '}
-                  <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"
-                    className="text-[var(--color-accent)] hover:underline">
-                    claude.ai/settings/usage
-                  </a>
-                  {' '}to sync the actual card charges.
-                </p>
+                <EmptyState
+                  compact
+                  what="Our actual extra-usage card charges will appear here."
+                  action="Drag the bookmarklet below to your browser bar, then click it on our usage page to sync them."
+                  link={{ href: 'https://claude.ai/settings/usage', label: 'claude.ai/settings/usage' }}
+                />
               )}
 
               {/* Extension install instructions */}

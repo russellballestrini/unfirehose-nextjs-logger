@@ -8,6 +8,7 @@ import useSWR from 'swr';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
 
@@ -625,19 +626,18 @@ export function TodoBoard({ project }: { project?: string } = {}) {
         // Still the board, not a dead end. The columns and the Add Todo
         // button above stay reachable, because a project with no todos yet
         // is exactly when you want to write the first one.
-        <div className="border border-[var(--color-border)] rounded-lg p-6 text-center">
-          <p className="text-[var(--color-muted)] text-base mb-1">
-            No todos {projectFilter ? 'for this project ' : ''}yet.
-          </p>
-          <p className="text-[var(--color-muted)] text-sm">
-            They are extracted from agent sessions during ingestion — or press
+        <EmptyState
+          what={`Todos ${projectFilter ? 'for this project ' : ''}will appear here, in pending, in progress and completed columns.`}
+          action={<>
+            Our agents write them as they plan, and ingestion picks them up from every session — or press
             <button
               onClick={() => setShowCreateForm(true)}
               className="mx-1 px-2 py-0.5 rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10"
             >+ Add Todo</button>
             to write one.
-          </p>
-        </div>
+          </>}
+          link={{ href: '/projects', label: 'Projects' }}
+        />
       ) : (
         <>
           {view === 'kanban' ? (
@@ -698,7 +698,12 @@ export function TodoBoard({ project }: { project?: string } = {}) {
                   <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-220px)] pr-1">
                     {isCompleted ? (
                       completedDays.length === 0 ? (
-                        <p className="text-sm text-[var(--color-muted)] text-center py-8 italic">No completions in last {COMPLETED_WINDOW_DAYS} days</p>
+                        <EmptyState
+                          compact
+                          kind="quiet"
+                          what={`Todos finished in the last ${COMPLETED_WINDOW_DAYS} days land here.`}
+                          action="None this week. Drop a card here to mark it done; older completions stay in our list view."
+                        />
                       ) : (
                         completedDays.map(day => (
                           <div key={day}>
@@ -728,7 +733,12 @@ export function TodoBoard({ project }: { project?: string } = {}) {
                           );
                         })}
                         {columnTodos.length === 0 && !validDrop && (
-                          <p className="text-sm text-[var(--color-muted)] text-center py-8 italic">Empty</p>
+                          <EmptyState
+                            compact
+                            kind="quiet"
+                            what={col.key === 'in_progress' ? 'Todos an agent is working on appear here.' : 'Todos waiting for work appear here.'}
+                            action={col.key === 'in_progress' ? 'Drag a pending card here to boot an agent on it.' : 'Nothing queued. Add a todo, or drag one back to queue it.'}
+                          />
                         )}
                       </>
                     )}
@@ -745,6 +755,15 @@ export function TodoBoard({ project }: { project?: string } = {}) {
                 Hide completed
               </label>
             </div>
+            {hideCompleted && byProject.every(g => g.todos.every(t => t.status === 'completed')) && (
+              <EmptyState
+                kind="quiet"
+                what="Open todos appear here, grouped by project."
+                action="Every todo here is completed."
+                onWiden={() => setHideCompleted(false)}
+                widenLabel="Show completed"
+              />
+            )}
             {byProject.map(group => {
               const visibleTodos = hideCompleted ? group.todos.filter(t => t.status !== 'completed') : group.todos;
               if (visibleTodos.length === 0) return null;
@@ -1065,7 +1084,13 @@ function MegaPanel({ megaStatus, onClose }: { megaStatus: any; onClose: () => vo
               <span className="text-xs text-[var(--color-muted)] ml-auto">{formatRelativeTime(d.startedAt)}</span>
             </div>
           ))}
-          {megaStatus.deployments.length === 0 && <p className="text-[var(--color-muted)]">No active deployments</p>}
+          {megaStatus.deployments.length === 0 && (
+            <EmptyState
+              compact
+              what="Running agent deployments appear here, one row per tmux session."
+              action="Drag a todo to In Progress to boot one."
+            />
+          )}
         </div>
       )}
       {megaStatus.error && <p className="text-[var(--color-error)] text-sm">{megaStatus.error}</p>}

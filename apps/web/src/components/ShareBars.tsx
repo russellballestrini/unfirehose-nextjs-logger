@@ -9,6 +9,11 @@
  * server and needs no canvas.
  */
 
+import type { ReactNode } from 'react';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
+
+const DEFAULT_EMPTY = 'Shares will appear here once something lands to divide.';
+
 export interface Share {
   name: string;
   /** Shown on hover, when the name is an abbreviation. */
@@ -18,7 +23,7 @@ export interface Share {
 }
 
 export function ShareBars({
-  data, format, topN = 8, className = '',
+  data, format, topN = 8, className = '', empty,
 }: {
   data: Share[];
   /** How to print a value: tokens, dollars, counts. */
@@ -26,10 +31,13 @@ export function ShareBars({
   /** Rows past this fold into one "other" row, so a long tail does not push the head off screen. */
   topN?: number;
   className?: string;
+  /** What to say when there is nothing to divide; the caller knows which
+   *  empty it is — a first run, or a quiet range. */
+  empty?: ReactNode;
 }) {
   const sorted = [...data].filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return <div className={`text-sm text-[var(--color-muted)] ${className}`}>nothing yet</div>;
+  if (total === 0) return <div className={className}>{empty ?? <EmptyState compact what={DEFAULT_EMPTY} />}</div>;
 
   const head = sorted.slice(0, topN);
   const tail = sorted.slice(topN);

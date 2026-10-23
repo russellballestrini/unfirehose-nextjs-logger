@@ -2,6 +2,7 @@ import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
 import { Donut } from '@/components/Donut';
+import { NoCostEmpty } from './empties';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { getHarnessColor, shortModel, formatCost } from '../_lib';
 
@@ -71,6 +72,7 @@ export function HarnessTab({ harnessData, harnessModelBreakdown, harnessSessions
               data={harnessData.filter((h: any) => h.costUSD > 0).map((h: any) => ({ name: h.harness, value: h.costUSD, color: getHarnessColor(h.harness) }))}
               format={formatCost}
               height={200}
+              empty={<NoCostEmpty />}
             />
           </div>
 

@@ -6,6 +6,7 @@ import { useState, useRef } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -162,12 +163,16 @@ export default function TmuxListPage() {
             <h3 className="text-sm font-bold text-[var(--color-muted)] mb-2 uppercase tracking-wide">tmux</h3>
             {isLoading && <p className="text-sm text-[var(--color-muted)]">Loading...</p>}
             {!isLoading && sessions.length === 0 && (
-              <div className="text-sm text-[var(--color-muted)] text-center py-6 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
-                No tmux sessions.{' '}
-                <button onClick={() => setTab('new')} className="text-[var(--color-accent)] hover:underline">
-                  Create one →
-                </button>
-              </div>
+              <EmptyState
+                what="No tmux sessions. Each one we can reach appears here, ready to watch or type into."
+                action={<>
+                  Start one from a shell, or{' '}
+                  <button onClick={() => setTab('new')} className="text-[var(--color-accent)] hover:underline cursor-pointer">
+                    create one here →
+                  </button>
+                </>}
+                command="tmux new -s work"
+              />
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {sessions.map(s => {
@@ -411,7 +416,12 @@ export default function TmuxListPage() {
                 {cwdMode === 'project' && (
                   <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
                     {projects.length === 0 && (
-                      <p className="text-xs text-[var(--color-muted)]">No projects with paths found.</p>
+                      <EmptyState
+                        compact
+                        what="No projects with paths found. Projects whose directory we know are listed here to start in."
+                        action="A project gets its path from the first session a harness logs there."
+                        link={{ href: '/projects', label: 'Projects' }}
+                      />
                     )}
                     {projects.map((p: any) => (
                       <button

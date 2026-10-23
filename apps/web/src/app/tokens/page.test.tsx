@@ -263,5 +263,15 @@ describe('tokens page', () => {
                toolsByModel: [], totalTokens: 0, totalCost: 0 };
     const { container } = await show();
     expect(container.textContent).toContain('Tokens');
+    expect(container.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
+    expect(container.textContent).toContain('No tokens in range');
+  });
+
+  it('teaches a first run when no message has ever landed', async () => {
+    tokens = { ...payload(), modelBreakdown: [], dailyActivity: [], toolCalls: [],
+               toolsByModel: [], totalTokens: 0, totalCost: 0, hasAnyMessages: false };
+    const { container } = await show();
+    expect(container.querySelector('[data-empty-kind="first-run"]')).not.toBeNull();
+    expect(container.textContent).toContain('cd ~/your/repo && claude');
   });
 });
