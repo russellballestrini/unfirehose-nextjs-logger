@@ -46,7 +46,9 @@ describe('GET /api/training-export', () => {
 
   it('offers the harnesses and models a form can filter on', async () => {
     const r = await (await get(`facets=1&project=${encodeURIComponent(DEMO_PROJECTS[0].name)}`)).json();
-    expect(r.harnesses).toEqual(['agnt', 'claude-code', 'uncloseai']);
+    // The seed's harnesses for this project, whatever the seed grows to.
+    expect(r.harnesses).toEqual(expect.arrayContaining(['agnt', 'claude-code', 'uncloseai']));
+    expect([...r.harnesses].sort()).toEqual(r.harnesses);
     expect(r.models.length).toBeGreaterThan(0);
   });
 

@@ -106,7 +106,9 @@ describe('training export from our demo database', () => {
     expect(all(db, { project: 'no-such-project' }).examples).toHaveLength(0);
 
     const agnt = all(db, { harness: 'agnt', metadata: true }).examples;
-    expect(agnt).toHaveLength(seeded.sessions / DEMO_HARNESSES.length);
+    const agntSessions = (db.prepare("SELECT COUNT(*) n FROM sessions WHERE harness = 'agnt'").get() as { n: number }).n;
+    expect(agntSessions).toBeGreaterThan(0);
+    expect(agnt).toHaveLength(agntSessions);
     expect(agnt.every((e) => e.metadata?.harness === 'agnt')).toBe(true);
 
     const byModel = all(db, { model: DEMO_MODELS[1], metadata: true }).examples;
