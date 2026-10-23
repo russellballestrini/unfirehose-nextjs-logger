@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type uPlot from 'uplot';
+import type uPlot from '@/lib/uplot';
 import { touchHold } from './uplot-touch';
 
 /**

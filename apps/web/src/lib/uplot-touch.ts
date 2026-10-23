@@ -1,4 +1,4 @@
-import type uPlot from 'uplot';
+import type uPlot from '@/lib/uplot';
 
 /**
  * A tap equivalent for our uPlot hover readouts.
