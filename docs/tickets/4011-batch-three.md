@@ -98,3 +98,26 @@ access" without a cloud.
 `make test` green, `tsc --noEmit` clean in all four packages, `make demo`
 still populated, no new network calls, no new "nothing yet". Outcome and
 decisions appended to this ticket like 4010 did.
+
+## Outcome: item 10 (2026-10-23)
+- **uPlot locale guard.** Every uPlot import goes through `apps/web/src/lib/uplot`
+  (an eslint `no-restricted-imports` rule keeps it so). Its first import,
+  `locale-guard.ts`, has no imports of its own, so ESM evaluates it before
+  uPlot's module body; it rewrites `navigator.language`/`languages` to a tag
+  `Intl.getCanonicalLocales` accepts (`en-US@posix` -> `en-US`, else `en-US`).
+  Tested under jsdom with the real uPlot, plus a control file proving a bare
+  import still throws. In Chromium, with `navigator.language` forced to
+  `en-US@posix` by an init script, `/`, `/tokens`, `/scrobble` and
+  `/styleguide` load with charts and no pageerror; the same run against bare
+  imports reproduced `RangeError: Invalid language tag: en-US@posix`. (A
+  plain LANG=C launch of our Chromium 1194 reports `en-US`, so the defect
+  needs the forced tag to reproduce here.)
+- **Docker.** New stages: `deps` (npm ci), `builder` (next build), `worker`
+  (workspace + node_modules, tsx, ssh, git, bash, GNU coreutils, procps,
+  lsblk; runs as node) and `web` (last, the default). Both images create
+  `~/.unfirehose` owned by node, so compose's `init-data` chown service is
+  gone. `make docker-run` is `docker compose up --build` in the foreground.
+  Also removed a `COPY apps/extension/package.json` that has no source file
+  and failed every build. procps and lsblk joined the web image too: the
+  local probe reads `ps aux` columns and `lsblk`, which busybox lacks.
+- **4004** status line now reads blocked and lists fox's three questions.

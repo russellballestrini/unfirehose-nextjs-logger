@@ -1,6 +1,9 @@
 # 4004: Mesh-history-attributed cost for self-hosted models
 
-**Status:** open
+**Status:** blocked — on fox's answers to the three open questions below (restated 2026-10-23, ticket 4011 item 10). No answers are assumed; work starts once all three are decided:
+1. Where does the join live: per row in `calcCost`, or in a pre-aggregated `model_energy` table refreshed by the mesh poller?
+2. Idle GPU draw: subtract a baseline, or count every watt drawn during the inference window?
+3. Multi-GPU nodes: sum watts across a node's GPUs, or attribute to the specific CUDA device that served the model?
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 1-2 days
 **Todo IDs:** (proposed by fox 2026-06-08)
