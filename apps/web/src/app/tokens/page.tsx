@@ -1,6 +1,7 @@
 'use client';
 
 import { useHashTab } from '@/lib/use-hash-tab';
+import { CoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useMemo, useState } from 'react';
@@ -165,11 +166,12 @@ export default function TokensPage() {
             </button>
           )}
         </div>
-        <TimeRangeSelect value={range} onChange={setRange} />
+        <div data-coach="tokens-range"><TimeRangeSelect value={range} onChange={setRange} /></div>
       </div>
+      <CoachMarks page="tokens" />
 
       {/* Tabs */}
-      <div className="flex items-center gap-0.5 border-b border-[var(--color-border)]">
+      <div data-coach="tokens-tabs" className="flex items-center gap-0.5 border-b border-[var(--color-border)]">
         {([
           { id: 'overview' as const, label: 'Overview', icon: '¤' },
           { id: 'harness' as const, label: 'Harness', icon: '◈' },

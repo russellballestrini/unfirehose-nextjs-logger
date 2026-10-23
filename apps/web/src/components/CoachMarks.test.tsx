@@ -67,3 +67,23 @@ describe('CoachMarks', () => {
     for (const hints of Object.values(COACH_HINTS)) expect(hints).toHaveLength(3);
   });
 });
+
+describe('every hint has an anchor in our pages', () => {
+  it('finds data-coach="<anchor>" in apps/web/src for each hint', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('fs');
+    const path = await import('path');
+    const root = path.resolve(__dirname, '..');
+    const src: string[] = [];
+    const walk = (d: string) => {
+      for (const e of readdirSync(d)) {
+        const p = path.join(d, e);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.tsx$/.test(e) && !/\.test\./.test(e)) src.push(readFileSync(p, 'utf8'));
+      }
+    };
+    walk(root);
+    const all = src.join('\n');
+    const missing = Object.values(COACH_HINTS).flat().map((h) => h.anchor).filter((a) => !all.includes(`data-coach="${a}"`));
+    expect(missing).toEqual([]);
+  });
+});

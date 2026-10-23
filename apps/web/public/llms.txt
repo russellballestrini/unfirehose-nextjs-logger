@@ -291,6 +291,10 @@ Push an extra-usage snapshot; any field left out keeps its last value.
 ← `{ spent?, limit?, balance?, resetDate? }`
 → `{ ok: true }`
 
+### GET /api/onboarding
+What a first run needs, all local: each harness root ingest reads (core's detector — the same one Settings and `make doctor` use) with `found`, `readable`, `files` (one project level deep, capped; `truncated` says so), `newestMs`, `doc` (adapter doc under the schema package's docs/), and `sessions` / `lastMessageAt` from our database; our totals; and whether our worker is alive (ingest heartbeat or a stored payload fresher than 10 min). The first-run wizard polls it every 6 s, Settings → Harnesses every 30 s. Takes no parameters.
+→ `{ harnesses: [{ id, label, root, doc, start?, found, readable, files, newestMs, truncated, sessions, lastMessageAt }], sessions, projects, messages, lastIngestAt, payloadAt, workerAlive, checkedAt }`
+
 ### GET /api/reports/monthly
 One calendar month of spend, itemised for an expense claim. Each line names its basis: `stated` (a provider's own figure), `priced` (tokens at our price ledger on the day spent), `measured` (sampled watts × hours × the node's $/kWh), `flat` (a configured monthly amount). Claude Code usage under a detected Claude subscription, and the market value of self-hosted models, are `memo` lines, never in the total. Amounts are USD; the report carries the one rate a renderer converts at, for the first currency in `display_currency` on the month's last day (ECB via Frankfurter, CoinGecko for crypto), and falls back to USD with a `fallbackReason` when no rate can be had. A closed month is filed when first built and served as filed afterwards.
 - `month` — `YYYY-MM` (default: last month in `tz`)

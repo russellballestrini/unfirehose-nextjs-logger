@@ -33,8 +33,8 @@ export const COACH_HINTS: Record<CoachPage, CoachHint[]> = {
   ],
   projects: [
     { anchor: 'projects-search', title: 'Find a project', body: 'Search by name or path. Renamed repos stay one project: identity is the git root commit.' },
+    { anchor: 'projects-chips', title: 'Focus on one', body: 'Click a chip to show only that project; the hotter its colour, the more recent its work.' },
     { anchor: 'projects-list', title: 'One card per repo', body: 'Agent scratch workspaces fold into the repo they worked on.' },
-    { anchor: 'projects-sort', title: 'Most recent first', body: 'Sort by activity, sessions or messages.' },
   ],
   permacomputer: [
     { anchor: 'mesh-nodes', title: 'Your machines', body: 'Every host in ~/.ssh/config, probed over ssh. Click one for its processes, containers and harnesses.' },
@@ -93,7 +93,8 @@ export function CoachMarks({ page }: { page: CoachPage }) {
 
   useEffect(() => { setOpen(!coachDismissed(page)); }, [page]);
 
-  const layout = useCallback(() => setPlaced(place(COACH_HINTS[page])), [page]);
+  // An unknown page has no hints rather than a crash.
+  const layout = useCallback(() => setPlaced(place(COACH_HINTS[page] ?? [])), [page]);
   useLayoutEffect(() => {
     if (!open) return;
     layout();

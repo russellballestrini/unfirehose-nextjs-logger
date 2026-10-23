@@ -48,6 +48,7 @@ export function AddNodeButton({ hosts: _hosts, keys, configHash, mutate, seedEco
   if (!adding) {
     return (
       <button
+        data-coach="mesh-add"
         onClick={() => setAdding(true)}
         className="border border-dashed border-[var(--color-border)] rounded p-4 flex items-center justify-center gap-2 text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:border-[var(--color-accent)]/50 transition-colors cursor-pointer min-h-[120px]"
       >

@@ -33,6 +33,7 @@ import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSe
 import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
 import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
 import { FirstRunWizard, WIZARD_POLL_MS } from '@/components/FirstRunWizard';
+import { CoachMarks } from '@/components/CoachMarks';
 
 function shortModel(model: string): string {
   return model
@@ -309,8 +310,9 @@ export default function DashboardPage() {
       {/* Header with time range dropdown */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Dashboard</h2>
-        <TimeRangeSelect value={range} onChange={setRange} />
+        <div data-coach="dashboard-range"><TimeRangeSelect value={range} onChange={setRange} /></div>
       </div>
+      <CoachMarks page="dashboard" />
 
       {/* Stats cards */}
       {/* One strip, not nine cards.
@@ -318,6 +320,7 @@ export default function DashboardPage() {
           what it cost. The old layout also printed the same dollar figure
           twice — "Total Tokens $5,349" beside "Equiv Cost $5,349" — so the
           cost lives on the token it belongs to now. */}
+      <div data-coach="dashboard-stats">
       <StatStrip>
         <Stat label="Sessions" value={String(data.summary.sessions)} />
         <Stat label="Messages" value={formatTokens(data.summary.messages)} />
@@ -351,11 +354,12 @@ export default function DashboardPage() {
           color={TOKEN_TYPE_COLORS.output}
         />
       </StatStrip>
+      </div>
 
       <DashboardCharts data={data} range={range} />
 
       {/* Model usage */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <div data-coach="dashboard-models" className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Model Usage ({range})
         </h3>

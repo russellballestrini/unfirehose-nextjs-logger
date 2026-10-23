@@ -12,6 +12,7 @@ import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
 import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
+import { CoachMarks } from '@/components/CoachMarks';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -362,7 +363,7 @@ export default function ProjectsPage() {
           {totalCost > 0 && <span className="text-[var(--color-accent)]">${totalCost.toFixed(0)} / {rangeDays}d</span>}
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <div className="relative">
+          <div className="relative" data-coach="projects-search">
             <input
               type="text"
               value={search}
@@ -407,7 +408,8 @@ export default function ProjectsPage() {
       {tab === 'projects' && (
         <>
           {/* Bandit arms — clickable project chips to filter */}
-          <div className="flex flex-wrap gap-1.5 items-center">
+          <CoachMarks page="projects" />
+          <div data-coach="projects-chips" className="flex flex-wrap gap-1.5 items-center">
             {selected && (
               <button
                 onClick={() => setSelected(null)}
@@ -440,7 +442,7 @@ export default function ProjectsPage() {
             })}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+          <div data-coach="projects-list" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
             {filteredProjects.map((project, idx) => (
               <ProjectCard
                 key={project.name}
