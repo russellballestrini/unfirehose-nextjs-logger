@@ -330,20 +330,17 @@ IMAGE ?= unfirehose:latest
 build:
 	@cd apps/web && npx next build
 
-# The Alpine image. See Dockerfile for the coreutils/timeout tuning.
+# The Alpine images: the dashboard (the Dockerfile's last stage) and the
+# worker that ingests for it. See Dockerfile for the coreutils/timeout tuning.
 docker:
-	@docker build -t $(IMAGE) .
+	@docker build --target web -t $(IMAGE) .
+	@docker build --target worker -t unfirehose-worker:latest .
 
-# Run it, wired to the operator's world: the mesh (~/.ssh), the harness
-# journals it ingests, the docker socket for the Containers tab, and a named
-# volume for its SQLite. Read-only mounts where it only reads.
+# Web and worker in the foreground, Ctrl-C stops both. This is compose, not
+# a second hand-kept `docker run`: the same mounts (docker-compose.yml,
+# edited there once), the same loopback-only port, the same data volume.
 docker-run:
-	@docker run --rm -p 3000:3000 \
-	  -v $(HOME)/.ssh:/home/node/.ssh:ro \
-	  -v $(HOME)/.claude:/home/node/.claude:ro \
-	  -v /var/run/docker.sock:/var/run/docker.sock \
-	  -v unfirehose-data:/home/node/.unfirehose \
-	  $(IMAGE)
+	docker compose up --build
 
 # Web and worker together, for a machine without node. docker-compose.yml
 # says which journals it mounts and why; edit the mounts there, once.
