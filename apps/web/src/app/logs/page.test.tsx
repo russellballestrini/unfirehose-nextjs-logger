@@ -296,3 +296,19 @@ describe('paging honestly', () => {
   });
 });
 
+
+describe('when there is nothing to show', () => {
+  it('suggests a wider range when messages exist outside these filters', () => {
+    data = { entries: [], total: 0, hasAnyMessages: true };
+    render(<LogsPage />);
+    expect(document.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Nothing here for these filters');
+  });
+
+  it('teaches a first run when no message has ever landed', () => {
+    data = { entries: [], total: 0, hasAnyMessages: false };
+    render(<LogsPage />);
+    expect(document.querySelector('[data-empty-kind="first-run"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('cd ~/your/repo && claude');
+  });
+});

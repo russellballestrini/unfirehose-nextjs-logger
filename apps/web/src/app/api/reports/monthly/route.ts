@@ -9,6 +9,7 @@ import {
 import { reportCurrencyCode, reportRate, rateDateFor } from '@/lib/report-currency';
 import { readClaudePlanIdentity, claudePlanForReport } from '@/lib/claude-plan';
 import { costReportPdf } from '@/lib/cost-report-pdf';
+import { hasAny } from '@/lib/ever';
 
 /**
  * GET /api/reports/monthly?month=2026-10&tz=America/New_York&format=json|csv|pdf
@@ -71,5 +72,7 @@ export async function GET(request: NextRequest) {
       headers: { ...headers, 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${name}.pdf"` },
     });
   }
-  return NextResponse.json(report, { headers });
+  // For the page only, never filed with the report or printed on a claim:
+  // whether a month with no lines is a quiet one or a fresh install.
+  return NextResponse.json({ ...report, hasAnyMessages: hasAny(getDb(), 'messages') }, { headers });
 }

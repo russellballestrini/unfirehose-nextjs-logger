@@ -7,6 +7,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { formatRelativeTime, formatTimestamp } from '@unturf/unfirehose/format';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -178,7 +179,13 @@ function OverviewTab({ todo, copy, copied, mutate }: { todo: any; copy: (l: stri
 
 function DeploymentsTab({ todo }: { todo: any }) {
   if (!todo.deployments?.length) {
-    return <p className="text-sm text-[var(--color-muted)] py-8 text-center">No deployments for this todo.</p>;
+    return (
+      <EmptyState
+        what="No deployments for this todo. Each agent booted on it will appear here, with its tmux session and status."
+        action="Drag its card to In Progress on our board to boot one."
+        link={{ href: `/todos?project=${encodeURIComponent(todo.project?.name ?? '')}`, label: 'Open our board' }}
+      />
+    );
   }
 
   return (
@@ -244,7 +251,11 @@ function SessionTab({ todo, copy, copied }: { todo: any; copy: (l: string, t: st
           </div>
         </div>
       ) : (
-        <p className="text-sm text-[var(--color-muted)]">No direct session link (manual todo).</p>
+        <EmptyState
+          compact
+          what="No direct session link: this todo was written by hand."
+          action="Todos an agent writes link back to the session that wrote them; recent sessions in this project are below."
+        />
       )}
 
       {/* Recent project sessions */}
@@ -277,7 +288,13 @@ function SessionTab({ todo, copy, copied }: { todo: any; copy: (l: string, t: st
 
 function AttachmentsTab({ todo }: { todo: any }) {
   if (!todo.attachments?.length) {
-    return <p className="text-sm text-[var(--color-muted)] py-8 text-center">No attachments.</p>;
+    return (
+      <EmptyState
+        what="Files attached to this todo will appear here: screenshots, logs, anything up to 10MB."
+        action="Attach them when adding a todo on our board, or post one:"
+        command={`curl -F todoId=${todo.id} -F files=@shot.png localhost:3000/api/todos/attachments`}
+      />
+    );
   }
 
   return (

@@ -1,9 +1,10 @@
 .PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
         test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
-        dev fix-watches persist-watches rescue-tool-results pricing pricing-report \
-        build docker docker-run typecheck publish publish-dry-run \
-        service-install service-start service-stop service-restart service-status service-logs service-uninstall
+        dev demo fix-watches persist-watches rescue-tool-results pricing pricing-report \
+        build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
+        service-install service-start service-stop service-restart service-status service-logs service-uninstall \
+        doctor
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -218,12 +219,39 @@ persist-watches:
 	echo 'fs.inotify.max_user_watches=524288' > /etc/sysctl.d/90-inotify.conf
 	sysctl --system
 
+# Is this machine ready to run us, and if not, what to do. Node version,
+# better-sqlite3's native build, our data dir, port 3000, worker unit vs
+# make dev, each harness directory, disk free. Green / yellow / red with the
+# fix beside each red; exits non-zero only on red. Read-only, never sudo.
+# The shell half covers what must hold before tsx can run at all; the rest
+# is scripts/doctor.ts, its rules in scripts/doctor-checks.ts.
+doctor:
+	@command -v node >/dev/null 2>&1 || { echo "[FAIL] node  not on PATH"; echo "       fix: install node 22.x (nvm install 22), then npm ci"; exit 1; }
+	@test -x node_modules/.bin/tsx || { echo "[FAIL] deps  node_modules missing (no tsx)"; echo "       fix: npm ci --no-audit --no-fund"; exit 1; }
+	@node_modules/.bin/tsx scripts/doctor.ts
+
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
 dev:
 	@systemctl --user is-active --quiet unfirehose-worker 2>/dev/null && { \
 	  echo "unfirehose-worker.service is active; two workers would double-ingest. make service-stop first."; exit 1; } || true
 	NODE_OPTIONS=--max-old-space-size=4096 npm run dev
+
+# A week of synthetic history to look around in, with no harness on disk and
+# nothing of ours touched: scripts/demo.ts seeds ~/.unfirehose-demo fresh
+# (two projects, three harnesses, todos, an alert, one mesh node; every
+# model synthetic, so every cost reads $0), then our web app serves it on
+# :3010, beside a real stack on :3000 if one is running. No worker: the
+# payloads it would build are built by the seed. HOME points at an empty
+# home inside the demo dir and UNFIREHOSE_HARNESSES=none, so even an
+# on-demand ingest (the usage page asks for one) reads no real ~/.claude.
+# Run it again to re-seed from now; rm -rf ~/.unfirehose-demo to be rid of it.
+demo:
+	UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo npx tsx scripts/demo.ts
+	@echo ""
+	@echo "unfirehose demo: http://localhost:3010   (data: $(HOME)/.unfirehose-demo, Ctrl-C to stop)"
+	@echo ""
+	cd apps/web && HOME=$(HOME)/.unfirehose-demo/home UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo UNFIREHOSE_DB_PATH=$(HOME)/.unfirehose-demo/unfirehose.db UNFIREHOSE_HARNESSES=none NODE_OPTIONS=--max-old-space-size=4096 npx next dev -p 3010
 
 # ---------------------------------------------------------------------------
 # Run as systemd USER units — respawn on crash, no root.
@@ -316,6 +344,18 @@ docker-run:
 	  -v /var/run/docker.sock:/var/run/docker.sock \
 	  -v unfirehose-data:/home/node/.unfirehose \
 	  $(IMAGE)
+
+# Web and worker together, for a machine without node. docker-compose.yml
+# says which journals it mounts and why; edit the mounts there, once.
+compose-up:
+	docker compose up -d --build
+	@echo "open http://localhost:3000"
+
+compose-down:
+	docker compose down
+
+compose-logs:
+	docker compose logs -f --tail 100
 
 # --- npm release -----------------------------------------------------
 # Bump all four packages to one version, commit, tag, publish, and wait

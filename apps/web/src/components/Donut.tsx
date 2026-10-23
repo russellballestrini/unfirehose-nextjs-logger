@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { Donut as DonutChart } from '@/lib/donut';
 
 /**
@@ -18,6 +19,8 @@ import { Donut as DonutChart } from '@/lib/donut';
  * selectable and screen-readable — the canvas is the picture, not the data.
  */
 
+const DEFAULT_EMPTY = 'Shares will appear here once something lands to divide.';
+
 export interface Share {
   name: string;
   /** Shown on hover and as the title, when the name is an abbreviation. */
@@ -27,7 +30,7 @@ export interface Share {
 }
 
 export function Donut({
-  data, format, height = 160, topN = 8, inner = 0.55, center = true, className = '',
+  data, format, height = 160, topN = 8, inner = 0.55, center = true, className = '', empty,
 }: {
   data: Share[];
   format: (v: number) => string;
@@ -38,6 +41,9 @@ export function Donut({
   /** Draw the total in the hole. */
   center?: boolean;
   className?: string;
+  /** What to say when there is nothing to divide; the caller knows which
+   *  empty it is — a first run, or a quiet range. */
+  empty?: ReactNode;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const readoutRef = useRef<HTMLDivElement>(null);
@@ -86,7 +92,7 @@ export function Donut({
   }, [key, height, inner, center]);
 
   if (rows.length === 0) {
-    return <div className={`text-sm text-[var(--color-muted)] ${className}`}>nothing yet</div>;
+    return <div className={className}>{empty ?? <EmptyState compact what={DEFAULT_EMPTY} />}</div>;
   }
 
   return (

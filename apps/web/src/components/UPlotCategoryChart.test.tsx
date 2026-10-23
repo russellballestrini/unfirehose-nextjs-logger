@@ -78,11 +78,18 @@ describe('bars', () => {
 
   it('colours each bar on its own through disp, which is uPlot\'s per-point path', () => {
     // Day-of-week is drawn with a colour per weekday. `fill` is one colour
-    // for the whole series; per-bar colour only exists through disp.
+    // for the whole series; per-bar colour only exists through disp, and
+    // uPlot reads disp from the bars path builder's options. On the series,
+    // where this test used to look for it, uPlot ignores it and the bars
+    // draw nothing.
+    barsPaths.mockClear();
     render(<UPlotCategoryChart data={ROWS} labelKey="day" series={[{ key: 'count', label: 'msgs', color: COLOURS }]} height={100} />);
     const s = opts().series[1];
     expect(s.fill).toBeUndefined();
-    expect(s.disp.fill.values()).toEqual(COLOURS);
+    expect(s.disp).toBeUndefined();
+    const withDisp = (barsPaths.mock.calls as unknown as Array<[{ disp?: { fill: { values: () => string[] } } }]>)
+      .map(([o]) => o).find((o) => o?.disp);
+    expect(withDisp!.disp!.fill.values()).toEqual(COLOURS);
   });
 
   it('treats a missing or non-numeric value as zero rather than a hole', () => {

@@ -27,7 +27,7 @@ export function ModelBreakdownTable({ modelBreakdown, totals }: {
     totalCacheWriteCost, totalInput, totalOutput, totalCacheRead, totalCacheWrite,
   } = totals;
   return (
-    <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+    <div data-coach="tokens-models" className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
       <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
         Per-Model Breakdown
       </h3>

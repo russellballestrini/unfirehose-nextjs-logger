@@ -198,4 +198,17 @@ describe('GET /api/tokens', () => {
 
     expect(db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'tokens_%'").get()).toEqual({ n: 0 });
   });
+
+  // The page cannot tell a quiet range from a fresh install by its rows:
+  // both are zero. This flag is read live, so a stored payload from before
+  // the first message never answers it.
+  it('says whether any message has ever landed, beside a ranged payload', async () => {
+    const empty = await (await GET(await req('?range=7d'))).json();
+    expect(empty.hasAnyMessages).toBe(false);
+
+    seedToolSession('proj-a', 'claude-code', 'claude-opus-4-6', 'Bash');
+    const stored = await GET(await req('?range=7d'));
+    expect(stored.headers.get('Server-Timing')).toMatch(/^stored;/);
+    expect((await stored.json()).hasAnyMessages).toBe(true);
+  });
 });

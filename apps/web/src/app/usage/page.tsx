@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { formatTokens } from '@unturf/unfirehose/format';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -321,7 +322,23 @@ export default function UsageMonitorPage() {
         {daily === undefined ? (
           <p className="text-base text-[var(--color-muted)]">Loading…</p>
         ) : days.length === 0 ? (
-          <p className="text-base text-[var(--color-muted)]">No threshold breaches in the last {HISTORY_DAYS} days.</p>
+          // The recent list is lifetime: an alert there means our rules have
+          // fired before, so an empty fortnight is a quiet one.
+          Array.isArray(recent) && recent.length > 0 ? (
+            <EmptyState
+              compact
+              kind="quiet"
+              what={`No threshold breaches in the last ${HISTORY_DAYS} days.`}
+              action="Each day a rule fires appears here as a bar. Older alerts are listed beside this."
+            />
+          ) : (
+            <EmptyState
+              compact
+              what="Days a usage rule fired will appear here, one bar per day."
+              action="The worker checks every rule each minute against our token rate; tune them under Rules."
+              link={{ href: '#Rules', label: 'Rules' }}
+            />
+          )
         ) : (
           <div className="space-y-1">
             {days.map(d => (
@@ -390,7 +407,14 @@ export default function UsageMonitorPage() {
                     </Link>
                   ))}
                 </div>
-              ) : <p className="text-sm text-[var(--color-muted)]">No alerts yet.</p>}
+              ) : (
+                <EmptyState
+                  compact
+                  what="Alerts will appear here when a session runs past one of our usage rules."
+                  action="None on record. Rules are enabled under the Rules tab; acknowledged alerts cleared here are gone for good."
+                  link={{ href: '#Rules', label: 'Rules' }}
+                />
+              )}
           </div>
         </div>
       )}

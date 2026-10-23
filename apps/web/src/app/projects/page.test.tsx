@@ -200,7 +200,8 @@ describe('the dirty repositories tab', () => {
     // broken; this is the state most of the fleet is in most of the time.
     gitStatuses = { '-home-fox-git-demo': status({ dirty: 0, unpushed: 0 }) };
     const { container } = await openDirty();
-    expect(container.textContent).toContain('No dirty or unpushed repos');
+    expect(container.textContent).toContain('All clean: every project');
+    expect(container.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
   });
 
   it('expands and collapses every repository at once', async () => {

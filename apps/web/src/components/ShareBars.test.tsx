@@ -56,7 +56,12 @@ describe('ShareBars', () => {
 
   it('says so when there is nothing to share', () => {
     render(<ShareBars data={[]} format={fmt} />);
-    expect(screen.getByText('nothing yet')).toBeTruthy();
+    expect(screen.getByText(/Shares will appear here/)).toBeTruthy();
+  });
+
+  it('lets the caller say which empty it is', () => {
+    render(<ShareBars data={[]} format={fmt} empty={<p>Quiet week.</p>} />);
+    expect(screen.getByText('Quiet week.')).toBeTruthy();
   });
 
   it('shows the full name on hover when the label is an abbreviation', () => {

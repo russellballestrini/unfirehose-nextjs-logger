@@ -20,9 +20,11 @@ import { MeshSummaryBar } from './MeshSummaryBar';
 import { NodeCard } from './NodeCard';
 import { UnsandboxNodeCard } from './UnsandboxNodeCard';
 import { AddNodeButton } from './AddNodeButton';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { FleetMetricsPanel } from './FleetMetrics';
 import { MeshEconomicsPanel } from './MeshEconomicsPanel';
 import { UnsandboxPanel } from './UnsandboxPanel';
+import { CoachMarks } from '@/components/CoachMarks';
 
 // The panels this page is made of live beside it; they are re-exported here
 // because their tests import them from './page'.
@@ -188,11 +190,22 @@ export default function PermacomputerPage() {
       {mesh?.summary && <MeshSummaryBar summary={mesh.summary} geoipLoading={geoipLoading} geoipCount={geoipData?.nodes?.filter((n: any) => !n.error).length ?? 0} />}
 
       {/* Mesh Economics */}
-      <MeshEconomicsPanel allNodes={allNodes} meshNodes={meshNodes} getNodeEcon={getNodeEcon} geoipNodes={geoipData?.nodes ?? []} />
+      <div data-coach="mesh-economics">
+        <MeshEconomicsPanel allNodes={allNodes} meshNodes={meshNodes} getNodeEcon={getNodeEcon} geoipNodes={geoipData?.nodes ?? []} />
+      </div>
+      <CoachMarks page="permacomputer" />
 
       {/* Node Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div data-coach="mesh-nodes" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <AddNodeButton hosts={hosts} keys={sshData?.keys ?? []} configHash={sshData?.hash} mutate={() => { mutateSsh(); mutateMesh(); }} seedEcon={saveNodeEcon} settings={settings} />
+        {mesh && allNodes.length === 0 && !unsandboxStatus?.connected && (
+          <EmptyState
+            className="md:col-span-1 xl:col-span-2"
+            what="Nodes will appear here: every host in our SSH config that answers a probe, with its power, load, GPUs and agents."
+            action="Add one with the card beside this, or a Host entry in our SSH config, then reload:"
+            command="~/.ssh/config"
+          />
+        )}
         {allNodes.map(({ meshNode, sshHost, key }) => (
           <NodeCard
             key={key}

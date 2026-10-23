@@ -2,6 +2,7 @@ import { buildWhere, inClause } from '@/lib/sql-filters';
 import { summarise } from '@/lib/log-preview';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
+import { hasAny } from '@/lib/ever';
 import { isToolCall } from '@unturf/unfirehose/block-types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -95,7 +96,9 @@ export async function GET(request: NextRequest) {
     const messages = db.prepare(query).all(...params, limit, offset) as any[];
 
     if (messages.length === 0) {
-      return NextResponse.json({ entries: [], total: 0, limit, offset });
+      // Empty for these filters, or empty forever? The page's empty state
+      // says which; one LIMIT 1 probe, paid only when the page is empty.
+      return NextResponse.json({ entries: [], total: 0, limit, offset, hasAnyMessages: hasAny(db, 'messages') });
     }
 
     // Every block that can say something about a message, in one query.
@@ -185,7 +188,7 @@ export async function GET(request: NextRequest) {
       total = offset + messages.length;
     }
 
-    return NextResponse.json({ entries, total, limit, offset });
+    return NextResponse.json({ entries, total, limit, offset, hasAnyMessages: true });
   } catch (err: any) {
     return NextResponse.json(
       { error: 'Failed to query logs', detail: err.message },

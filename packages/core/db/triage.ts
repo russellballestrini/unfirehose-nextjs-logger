@@ -1,9 +1,9 @@
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
 import { createHash } from 'crypto';
+import { UNFIREHOSE_DIR } from './data-dir';
 
-const TRIAGE_PATH = join(homedir(), '.unfirehose', 'triage.jsonl');
+const TRIAGE_PATH = join(UNFIREHOSE_DIR, 'triage.jsonl');
 
 interface TriageEntry {
   project: string;   // project name (e.g. -home-fox-git-unsandbox-com)

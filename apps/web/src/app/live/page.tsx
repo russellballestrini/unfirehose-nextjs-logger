@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 // Dual-shape block extraction lives in core so every viewer reads Claude Code
 // and unfirehose/1.0 the same way. The copies that used to live here handled
 // the Claude shape only, so uncloseai tool calls and results were dropped and
@@ -733,15 +734,24 @@ export default function LivePage() {
         hidden={tab !== 'feed'}
       >
         {entries.length === 0 && connected && (
-          <div className="text-[var(--color-muted)] text-base py-8 text-center">
-            Watching for activity across all sessions...
-          </div>
+          <EmptyState
+            className="my-4"
+            what="Watching for activity across all sessions. Every line a running session writes appears here as it lands."
+            action="Start or resume a session in any repo and its first message shows up within seconds:"
+            command="cd ~/your/repo && claude"
+            link={{ href: '/active', label: 'Active sessions' }}
+          />
         )}
 
         {entries.length > 0 && reasoningOnly && reasoningCount === 0 && (
-          <div className="text-[var(--color-muted)] text-base py-8 text-center">
-            No reasoning yet in the live buffer.
-          </div>
+          <EmptyState
+            className="my-4"
+            kind="quiet"
+            what="No reasoning yet in the live buffer."
+            action="Thinking blocks appear here as a model writes them; sealed ones are counted beside the filter. Clear our filter to see everything else."
+            onWiden={() => setReasoningOnly(false)}
+            widenLabel="Show every entry"
+          />
         )}
 
         {entries.map((item: any, i: number) => (

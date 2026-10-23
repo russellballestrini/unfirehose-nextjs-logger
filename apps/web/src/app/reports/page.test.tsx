@@ -69,6 +69,11 @@ describe('Reports page', () => {
   it('says so when a month had no spend, and when the report failed', () => {
     data = report({ lines: [], byCategory: [], byProject: [], memo: [], totalUSD: 0 });
     expect(render(<ReportsPage />).container.textContent).toContain('Nothing was spent in');
+    expect(document.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
+    cleanup();
+    data = report({ lines: [], byCategory: [], byProject: [], memo: [], totalUSD: 0, hasAnyMessages: false });
+    expect(render(<ReportsPage />).container.textContent).toContain('Nothing has been ingested yet');
+    expect(document.querySelector('[data-empty-kind="first-run"]')).not.toBeNull();
     cleanup();
     data = undefined; failed = new Error('database is locked');
     expect(render(<ReportsPage />).container.textContent).toContain('Could not build the report: database is locked');

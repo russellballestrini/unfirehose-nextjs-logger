@@ -14,10 +14,11 @@ import { render, cleanup, act } from '@testing-library/react';
  */
 
 let sessions: unknown[] | undefined;
+let hasAnySessions: boolean | undefined;
 let tmux: unknown;
 vi.mock('swr', () => ({
   default: (key: string) => ({
-    data: String(key).startsWith('/api/active-sessions') ? { sessions } : tmux,
+    data: String(key).startsWith('/api/active-sessions') ? { sessions, hasAnySessions } : tmux,
     error: undefined, isLoading: false, mutate: vi.fn(),
   }),
   useSWRConfig: () => ({ mutate: vi.fn() }),
@@ -44,6 +45,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   sessions = [session()];
+  hasAnySessions = true;
   tmux = { sessions: ['demo'] };
   localStorage.clear();
 });
@@ -66,9 +68,23 @@ describe('active sessions', () => {
     expect((await show()).container.textContent).toContain('demo');
   });
 
-  it('says plainly when nothing is running', async () => {
+  it('says plainly when nothing is running, and offers a wider range', async () => {
     sessions = [];
-    expect((await show()).container.textContent).toContain('No sessions found');
+    const { container } = await show();
+    expect(container.textContent).toContain('No sessions active in range');
+    expect(container.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
+    expect(container.textContent).toContain('Show lifetime');
+  });
+
+  it('teaches a first run instead of suggesting a wider range', async () => {
+    // A quiet hour and a fresh install both arrive as zero rows; the route's
+    // hasAnySessions tells them apart.
+    sessions = [];
+    hasAnySessions = false;
+    const { container } = await show();
+    expect(container.querySelector('[data-empty-kind="first-run"]')).not.toBeNull();
+    expect(container.textContent).toContain('cd ~/your/repo && claude');
+    expect(container.textContent).not.toContain('Show lifetime');
   });
 
   it('draws before the first response arrives', async () => {

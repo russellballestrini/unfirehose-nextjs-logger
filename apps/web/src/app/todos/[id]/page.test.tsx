@@ -149,6 +149,7 @@ describe('todo detail', () => {
     const { container } = await show();
     await act(async () => { tabButton('Deployments')!.click(); });
     expect(container.textContent).toContain('No deployments for this todo.');
+    expect(container.textContent).toContain('Drag its card to In Progress');
   });
 
   it('counts what is on the tabs that have counts', async () => {

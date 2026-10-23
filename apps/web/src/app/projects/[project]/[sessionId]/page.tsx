@@ -8,6 +8,7 @@ import Link from 'next/link';
 
 import { MessageBlock } from '@unturf/unfirehose-ui/viewer/MessageBlock';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 import { ChainBadge, type ChainVerdict, type LaneAnchors } from '@unturf/unfirehose-ui/ChainBadge';
@@ -305,6 +306,21 @@ export default function SessionViewerPage({
             showThinking={showThinking}
             showTools={showTools}
             prettyShell={prettyShell}
+          />
+        ))}
+        {!loading && filteredEntries.length === 0 && (entries.length > 0 ? (
+          <EmptyState
+            kind="quiet"
+            what="No entry in this session matches our filter."
+            action="Entries with reasoning appear here when the reasoning filter is on; clear it to read the whole session."
+            onWiden={() => setReasoningOnly(false)}
+            widenLabel="Show every entry"
+          />
+        ) : (
+          <EmptyState
+            what="This session's prompts, replies, reasoning and tool calls will appear here."
+            action="Nothing from it has been ingested yet; a running session's lines land here within a minute."
+            link={{ href: `/projects/${project}`, label: 'Back to our project' }}
           />
         ))}
         {loading && (

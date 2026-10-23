@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { insertMeshSnapshots } from '@unturf/unfirehose/db/mesh-snapshots';
 import { Timing } from '@/lib/timing';
+import { hasAny } from '@/lib/ever';
 import { rollupTimeline, decimatePeaks, distinctHostnames } from '@/lib/mesh-history';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -92,8 +93,12 @@ export async function GET(req: NextRequest) {
   const hostnames = distinctHostnames(rows);
   t.mark('aggregate');
 
+  // An empty window is a quiet one unless no probe was ever recorded, in
+  // either tier; the fleet panel's empty state says which.
+  const hasAnySnapshots = rows.length > 0 || hasAny(db, 'mesh_snapshots') || hasAny(db, 'mesh_snapshots_15m');
+
   return NextResponse.json(
-    { timeline: series, hostnames, hours, count: rows.length, sampled: series.length, of: timeline.length },
+    { timeline: series, hostnames, hours, count: rows.length, sampled: series.length, of: timeline.length, hasAnySnapshots },
     { headers: { 'Server-Timing': t.header() } },
   );
 }

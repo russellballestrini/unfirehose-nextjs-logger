@@ -9,6 +9,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTimestamp, formatRelativeTime } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -122,10 +123,24 @@ export default function AllLogsPage() {
           <SessionGroup key={g.key} group={g} searchTerm={searchDebounced} chain={chains[g.entries[0]?.sessionUuid]} />
         ))}
         {!isLoading && entries.length === 0 && (
-          <div className="text-center text-[var(--color-muted)] py-12 space-y-1">
-            <div>Nothing here for these filters.</div>
-            <div className="text-xs">Widen the time range, or clear the search.</div>
-          </div>
+          data?.hasAnyMessages === false ? (
+            <EmptyState
+              what="Every message from every harness will appear here, newest first, grouped by session."
+              action="Run a session in any git repo and its prompts, replies and tool calls land here within a minute:"
+              command="cd ~/your/repo && claude"
+              link={{ href: '/schema', label: 'Other harnesses: adapter docs' }}
+            />
+          ) : (
+            <EmptyState
+              kind="quiet"
+              what="Nothing here for these filters."
+              range={range}
+              action={searchDebounced || typeFilter !== 'user,assistant,system'
+                ? `Nothing in ${range === 'all' ? 'lifetime' : 'range'} matches. Clear our search or type filter, or widen our range.`
+                : undefined}
+              onWiden={range === 'all' ? undefined : () => { setRange('all'); setPage(0); }}
+            />
+          )
         )}
       </div>
 

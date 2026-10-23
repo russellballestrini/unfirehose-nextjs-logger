@@ -11,6 +11,8 @@ import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfi
 import { formatRelativeTime, formatTokens } from '@unturf/unfirehose/format';
 import { TokenSplitInline } from '@unturf/unfirehose-ui/TokenSplit';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
+import { CoachMarks } from '@/components/CoachMarks';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -338,20 +340,13 @@ export default function ProjectsPage() {
 
       {/* First-time empty state — distinguish "no projects" from "no dirty repos". */}
       {projects && sortedProjects.length === 0 && (
-        <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] text-[var(--color-muted)] space-y-4 max-w-3xl">
-          <div>
-            <h2 className="text-xl font-bold text-[var(--color-foreground)] mb-2">No projects detected yet</h2>
-            <p className="text-base">
-              unfirehose lists every directory where a harness (Claude Code, agnt, uncloseai, fetch, …)
-              has written a JSONL session. Once one of those runs, projects show up here automatically.
-            </p>
-          </div>
-          <ul className="list-disc list-inside text-base space-y-1">
-            <li><code className="text-[var(--color-accent)]">cd ~/your/repo &amp;&amp; claude</code> — run a Claude Code session and refresh this page.</li>
-            <li>Or point another harness at <code className="text-[var(--color-accent)]">~/.unfirehose/</code> (see <a className="text-[var(--color-accent)] hover:underline" href="/schema">Schema</a>).</li>
-            <li>Configure scan paths in <a className="text-[var(--color-accent)] hover:underline" href="/settings">Settings</a> if your JSONL lives somewhere unusual.</li>
-          </ul>
-        </div>
+        <EmptyState
+          className="max-w-3xl"
+          what="Projects will appear here: every directory where a harness (Claude Code, agnt, uncloseai, fetch, …) has written a session."
+          action="Run a session in any git repo and it shows up within a minute; scan paths live in Settings if our JSONL sits somewhere unusual."
+          command="cd ~/your/repo && claude"
+          link={{ href: '/schema', label: 'Other harnesses: adapter docs' }}
+        />
       )}
 
       {/* Header */}
@@ -368,7 +363,7 @@ export default function ProjectsPage() {
           {totalCost > 0 && <span className="text-[var(--color-accent)]">${totalCost.toFixed(0)} / {rangeDays}d</span>}
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <div className="relative">
+          <div className="relative" data-coach="projects-search">
             <input
               type="text"
               value={search}
@@ -413,7 +408,8 @@ export default function ProjectsPage() {
       {tab === 'projects' && (
         <>
           {/* Bandit arms — clickable project chips to filter */}
-          <div className="flex flex-wrap gap-1.5 items-center">
+          <CoachMarks page="projects" />
+          <div data-coach="projects-chips" className="flex flex-wrap gap-1.5 items-center">
             {selected && (
               <button
                 onClick={() => setSelected(null)}
@@ -446,7 +442,7 @@ export default function ProjectsPage() {
             })}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+          <div data-coach="projects-list" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
             {filteredProjects.map((project, idx) => (
               <ProjectCard
                 key={project.name}
@@ -459,9 +455,13 @@ export default function ProjectsPage() {
             ))}
           </div>
           {filteredProjects.length === 0 && q && !selected && (
-            <div className="text-center py-12 text-[var(--color-muted)]">
-              No projects matching &ldquo;{search}&rdquo;
-            </div>
+            <EmptyState
+              kind="quiet"
+              what={<>No projects match &ldquo;{search}&rdquo;.</>}
+              action="Search matches a project's name. Clear it to see every project."
+              onWiden={() => setSearch('')}
+              widenLabel="Clear search"
+            />
           )}
         </>
       )}
@@ -827,11 +827,11 @@ function DirtyReposTab({
   // there ARE projects but none are dirty/unpushed.
   if (projects.length === 0) {
     return (
-      <div className="text-center py-16 text-[var(--color-muted)]">
-        <div className="text-3xl mb-3">✓</div>
-        <div className="text-lg font-bold mb-1">All clean</div>
-        <div>No dirty or unpushed repos in your projects</div>
-      </div>
+      <EmptyState
+        kind="quiet"
+        what="Repos with uncommitted or unpushed work appear here, ready to commit and push in one batch."
+        action="All clean: every project's working tree is committed and pushed."
+      />
     );
   }
 

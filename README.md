@@ -4,6 +4,72 @@ A local-first observability dashboard for machine learning coding agents. Reads 
 
 No cloud. No telemetry. Your data stays on your machine.
 
+## Quickstart
+
+```bash
+git clone https://github.com/russellballestrini/unfirehose-nextjs-logger.git
+cd unfirehose-nextjs-logger
+npm install
+make dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). On a fresh install our
+first-run wizard takes it from there: it shows which harness directories it
+found on this machine, counts rows as ingest moves, and hands off to the
+dashboard once your first session lands.
+
+- Something off? `make doctor` checks node, the native SQLite build, our data
+  directory, port 3000, the worker, and each harness directory, and prints the
+  fix beside anything red.
+- No agent data of your own yet, or just looking? `make demo` seeds a small
+  synthetic database under `~/.unfirehose-demo/` and serves it on
+  `http://localhost:3010`, beside a real stack on :3000, so every page has
+  something on it.
+- Want it to survive a crash, a logout and a reboot? See
+  [Keep it running](#keep-it-running).
+- Will not install node? See [Docker](#docker).
+
+Needs Node.js 18 or newer. Our data lives in `~/.unfirehose/unfirehose.db`;
+your harness logs are only ever read.
+
+## Keep it running
+
+`make dev` is for working on unfirehose: its worker restarts on a file change
+but stays down if it crashes. For a box that should just stay up, run web and
+worker as systemd **user** units, no root:
+
+```bash
+make service-install               # write the units to ~/.config/systemd/user
+make build && make service-start   # production build, then enable --now both units
+make service-status                # is each one active
+make service-logs                  # follow both journals
+sudo loginctl enable-linger $USER  # once, by hand: units keep running after logout
+```
+
+`service-restart`, `service-stop` and `service-uninstall` do what they say.
+After pulling new code on a service box: `make build && make service-restart`.
+
+Services and `make dev` are mutually exclusive: two workers would ingest
+everything twice and two webs fight over :3000. Each side refuses to start
+while the other runs, so `make service-stop` before `make dev`.
+
+## Docker
+
+For a machine without node, `docker-compose.yml` runs web and worker from
+our Dockerfile against one shared data volume:
+
+```bash
+docker compose up -d --build       # or: make compose-up
+```
+
+Then open [http://localhost:3000](http://localhost:3000). It mounts
+`~/.claude` read-only by default; uncomment the lines for `~/.fetch`,
+`~/.uncloseai`, `~/.agnt`, or any `~/.<name>/unfirehose` harness you have. Our
+database lives in the `unfirehose-data` volume, not in your `~/.unfirehose`,
+so it never collides with a host install; `docker compose down -v` deletes it.
+Mounting `~/.ssh` (Permacomputer mesh) and the docker socket (Containers tab)
+is optional and commented in our compose file with what each one hands over.
+
 ## Why
 
 If you run more than one machine learning coding agent, your sessions accumulate fast — multiple GB of JSONL spread across half a dozen tools, each with its own quirks and its own folder. There is no built-in way to:
@@ -135,7 +201,7 @@ Time-range filtered overview (1h to 28d) with:
 - Day × Hour hotspot overlay — see exactly when your agents run hottest
 - Model usage donut with per-model cost breakdown
 - Dual UTC / local time display on all hour axes
-- First-run Welcome panel — strangers landing on the dashboard get a Get Started guide instead of a wall of zeros
+- First-run wizard — an empty database shows which harnesses were found and ingest moving, not a wall of zeros
 
 ### Active Sessions
 Currently running agent sessions across every harness. Each card carries a harness badge, the model in use, recent token volume, and a reasoning indicator (with sealed-by-Anthropic disclosure for opus-4-7). One-click filter to sessions where reasoning happened.
@@ -250,36 +316,22 @@ unfirehose/
 | File watching | `fs.watch` on JSONL files for auto-ingest |
 | Monorepo | Turborepo |
 
-No external services. No API keys required. No Docker. Just `npm install && npm run dev`.
+No external services. No API keys required. Docker optional: `npm install && make dev` is our whole install.
 
 ## Codex CLI
 
 After installing dependencies, run `npx tsx scripts/codex-bridge.mts` alongside
-`npm run dev`. The bridge reads existing `$CODEX_HOME/sessions` logs incrementally;
+`make dev`. The bridge reads existing `$CODEX_HOME/sessions` logs incrementally;
 no extra model calls are needed. To select harnesses explicitly, set
 `UNFIREHOSE_HARNESSES=codex,claude-code` on the ingestion worker. Claude includes
 regular and workflow-nested subagent transcripts. See [Codex setup and format details](packages/schema/docs/harnesses/openai-codex.md).
 
-## Quickstart
-
-```bash
-git clone https://github.com/russellballestrini/unfirehose-nextjs-logger.git
-cd unfirehose-nextjs-logger
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-The first load triggers ingestion of any session data found in `~/.claude/`, `~/.fetch/`, and `~/.uncloseai/` into SQLite at `~/.unfirehose/unfirehose.db`. Subsequent ingestions are incremental (byte-offset tracking) and triggered automatically by the file watcher on JSONL changes.
-
-### Requirements
-
-- Node.js 18+
-- At least one harness directory populated — `~/.claude/`, `~/.fetch/`, or `~/.uncloseai/`. unfirehose's first-run UX teaches what to do if none exist.
-- That's it.
-
 ## Architecture
+
+Ingest reads session data from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`,
+`~/.agnt/` and any `~/.<name>/unfirehose/` directory into SQLite at
+`~/.unfirehose/unfirehose.db`. After our first pass it is incremental
+(byte-offset tracking per file) and driven by a file watcher on JSONL changes.
 
 ```
 ~/.claude/projects/          JSONL session files (Claude Code)
@@ -475,6 +527,29 @@ market, so the dashboard shows what running them ourselves saved.
 - Teams doing daily standups across agent workstreams
 - Anyone who wants to see exactly where the tokens (and the cache reads) go
 - Anyone who wants to know whether their reasoning is readable or sealed by the model provider
+
+## Demo mode
+
+Want to look around before any harness has written a log? `make demo` seeds a
+week of synthetic history and serves it:
+
+```bash
+make demo        # seed ~/.unfirehose-demo, then open http://localhost:3010
+```
+
+Two projects, three harnesses (claude-code, uncloseai, agnt), 21 sessions with
+tool calls and reasoning, a few todos, one alert and a week of samples for a
+`demo-node` on Permacomputer. Every message is booked against a synthetic model
+(`demo-model`, `demo-model-small`), so every cost reads $0 and our pricing book
+is untouched.
+
+It never reads or writes your real data: the database lives in
+`~/.unfirehose-demo` (`UNFIREHOSE_DIR`), no worker runs, `UNFIREHOSE_HARNESSES=none`
+keeps any on-demand ingest from reading a harness, and HOME points at an empty
+home inside the demo directory. It runs on :3010, so it can sit beside a real
+stack on :3000. Run it again to re-seed from now; `rm -rf ~/.unfirehose-demo`
+removes it. Our seed (`packages/core/demo-seed.ts`) also powers the tests in
+`packages/core/demo-seed.test.ts` and `apps/web/src/app/render.demo.test.tsx`.
 
 ## Contributing
 

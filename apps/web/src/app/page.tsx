@@ -2,7 +2,6 @@
 
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
-import Link from 'next/link';
 
 import useSWR from 'swr';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
@@ -29,9 +28,12 @@ const ModelUsagePie = dynamic(() => import('./DashboardCharts').then((m) => m.Mo
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
 import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
 import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
+import { FirstRunWizard, WIZARD_POLL_MS } from '@/components/FirstRunWizard';
+import { CoachMarks } from '@/components/CoachMarks';
 
 function shortModel(model: string): string {
   return model
@@ -197,8 +199,15 @@ function IngestLag({ minutes }: { minutes: number | null | undefined }) {
 
 export default function DashboardPage() {
   const [range, setRange] = useTimeRange('dashboard_range', '7d');
-  const { data, error } = useSWR(`/api/dashboard?range=${range}`, fetcher, {
+  const { data, error, mutate } = useSWR(`/api/dashboard?range=${range}`, fetcher, {
     refreshInterval: 30000,
+  });
+  // An empty range is not an empty database. Only when nothing has ever
+  // been ingested does the first-run wizard take the page; a quiet week on
+  // a database with history draws our dashboard and its empty panels.
+  const emptyRange = data?.summary?.sessions === 0;
+  const { data: onboarding } = useSWR(emptyRange ? '/api/onboarding' : null, fetcher, {
+    refreshInterval: WIZARD_POLL_MS,
   });
 
   if (error) {
@@ -265,7 +274,7 @@ export default function DashboardPage() {
 
   // First-time visitor lands here after the vault. Zero sessions = teach the
   // product, hide the embarrassing zeros.
-  if (data.summary.sessions === 0) {
+  if (emptyRange && !(onboarding?.sessions > 0)) {
     return (
       <div className="space-y-6">
         <PageContext
@@ -275,32 +284,8 @@ export default function DashboardPage() {
         />
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Dashboard</h2>
-          <TimeRangeSelect value={range} onChange={setRange} />
         </div>
-        <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] space-y-5 max-w-3xl">
-          <div>
-            <h3 className="text-2xl font-bold mb-2">Welcome to unfirehose</h3>
-            <p className="text-base text-[var(--color-muted)]">
-              A local-first observability dashboard for machine learning coding agents. Watch your sessions,
-              tokens, reasoning, and cost across every harness you run — Claude Code, agnt,
-              uncloseai, fetch, and more — without sending a byte to the cloud.
-            </p>
-          </div>
-          <div>
-            <h4 className="text-base font-bold mb-2">Get started</h4>
-            <ol className="list-decimal list-inside text-base text-[var(--color-muted)] space-y-1.5">
-              <li>Run a Claude Code session in any git repo: <code className="text-[var(--color-accent)]">cd ~/your/repo &amp;&amp; claude</code></li>
-              <li>Or point another harness at <code className="text-[var(--color-accent)]">~/.unfirehose/</code>.</li>
-              <li>Refresh this page — sessions, projects, todos, and reasoning appear automatically.</li>
-            </ol>
-          </div>
-          <div className="flex flex-wrap gap-3 pt-2 border-t border-[var(--color-border)]">
-            <Link href="/projects" className="px-3 py-1.5 text-sm rounded border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10">Projects</Link>
-            <Link href="/schema" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Schema docs</Link>
-            <Link href="/settings" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Settings</Link>
-            <Link href="/live" className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]">Live stream</Link>
-          </div>
-        </div>
+        <FirstRunWizard onDone={() => { void mutate(); }} />
       </div>
     );
   }
@@ -325,8 +310,9 @@ export default function DashboardPage() {
       {/* Header with time range dropdown */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Dashboard</h2>
-        <TimeRangeSelect value={range} onChange={setRange} />
+        <div data-coach="dashboard-range"><TimeRangeSelect value={range} onChange={setRange} /></div>
       </div>
+      <CoachMarks page="dashboard" />
 
       {/* Stats cards */}
       {/* One strip, not nine cards.
@@ -334,6 +320,7 @@ export default function DashboardPage() {
           what it cost. The old layout also printed the same dollar figure
           twice — "Total Tokens $5,349" beside "Equiv Cost $5,349" — so the
           cost lives on the token it belongs to now. */}
+      <div data-coach="dashboard-stats">
       <StatStrip>
         <Stat label="Sessions" value={String(data.summary.sessions)} />
         <Stat label="Messages" value={formatTokens(data.summary.messages)} />
@@ -367,14 +354,25 @@ export default function DashboardPage() {
           color={TOKEN_TYPE_COLORS.output}
         />
       </StatStrip>
+      </div>
 
       <DashboardCharts data={data} range={range} />
 
       {/* Model usage */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <div data-coach="dashboard-models" className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Model Usage ({range})
         </h3>
+        {modelData.length === 0 ? (
+          // Sessions in range, none of them with a model reply: a quiet
+          // range for models, not a first run (that is the branch above).
+          <EmptyState
+            compact
+            kind="quiet"
+            what="Tokens, cost, power and savings per model appear here."
+            action="No message in range named its model. Widen our range above to see earlier replies."
+          />
+        ) : (
         <div className="flex items-start gap-8">
           <ModelUsagePie modelData={modelData} />
           <div className="flex-1">
@@ -411,6 +409,7 @@ export default function DashboardPage() {
             </table>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

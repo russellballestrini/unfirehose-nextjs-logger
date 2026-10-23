@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
 import { tryPrettyJson } from '@unturf/unfirehose-ui/json-output';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 export const REWRITES_POLL_MS = 10_000;
 /** The API caps `before_text` / `after_text` at this many chars. */
@@ -445,15 +446,18 @@ export function RewritesTab({ onTotal, pollMs = REWRITES_POLL_MS }: RewritesTabP
 
       <div className="flex-1 overflow-auto font-mono text-base">
         {data && rows.length === 0 && (
-          <div className="text-[var(--color-muted)] text-base py-8 text-center space-y-1" data-testid="rewrites-empty">
-            <div>
-              {harness
+          <div className="my-4" data-testid="rewrites-empty">
+            {/* A window, not a history: no rewrite in it is the good case,
+                and a harness filter narrows it further. */}
+            <EmptyState
+              kind="quiet"
+              what={harness
                 ? `no rewrites by ${harness} in the last ${REWRITES_HOURS}h`
                 : `no rewrites recorded in the last ${REWRITES_HOURS}h — every unchained live journal has matched its shadow`}
-            </div>
-            <div className="text-sm opacity-80">
-              This tab watches for a harness rewriting lines it already wrote to a live journal, and keeps the leaf before and after each one.
-            </div>
+              action="This tab watches for a harness rewriting lines it already wrote to a live journal, and keeps the leaf before and after each one."
+              onWiden={harness ? () => setHarness(null) : undefined}
+              widenLabel="Every harness"
+            />
           </div>
         )}
         {rows.map((row) => (

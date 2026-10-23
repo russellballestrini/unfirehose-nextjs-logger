@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Section, type TabProps } from './shared';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -79,7 +80,10 @@ export function ProcessesTab(props: TabProps) {
         )}
 
         {!hasAny ? (
-          <div className="text-sm text-[var(--color-muted)]">No process data available.</div>
+          <EmptyState
+            what="No process data available. This node's process tree and its busiest processes appear here, agents marked."
+            action="The next probe over SSH fills it, within 30s; a node that refuses ps shows none."
+          />
         ) : effectiveView === 'tree' ? (
           <Section title={<span className="flex items-center justify-between gap-3"><span>Process Tree ({tree.length} processes, {agentCount} agents)</span>{toggle}</span>}>
             <div className="overflow-x-auto">

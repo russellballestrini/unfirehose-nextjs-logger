@@ -262,11 +262,18 @@ const ALIAS_LOOKUP: Record<string, string> = Object.fromEntries(
   Object.entries(MODEL_ALIASES).map(([k, v]) => [k.toLowerCase(), v.toLowerCase()]),
 );
 
+/**
+ * What our demo seed (`make demo`, demo-seed.ts) books its messages against.
+ * Not a model anyone serves; listed below so every demo cost reads $0.
+ */
+export const DEMO_MODELS = ['demo-model', 'demo-model-small'] as const;
+
 /** Test fixtures. Real rows in our DB, but not real spend. Priced $0, labelled. */
 export const SYNTHETIC_MODELS = new Set([
   'mock-1m',
   'fake-model-1',
   '<synthetic>',
+  ...DEMO_MODELS,
 ]);
 
 // Vendor prefixes we strip when a self-hosted repo name wraps an upstream model,

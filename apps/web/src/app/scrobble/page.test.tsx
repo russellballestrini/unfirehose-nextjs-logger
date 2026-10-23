@@ -184,7 +184,8 @@ describe('the scrobble page', () => {
     });
     const { container } = await show();
     expect(container.textContent).not.toContain('undefined');
-    expect(container.textContent).not.toContain('NaN');
+    expect(container.textContent).not.toContain('NaN');    expect(container.querySelector('[data-empty-kind="first-run"]')).not.toBeNull();
+    expect(container.textContent).toContain('Nothing to scrobble yet');
   });
 
   it('moves between its tabs', async () => {
@@ -330,6 +331,8 @@ describe('the scrobble page', () => {
       await pick(container, '7d');
       expect(container.textContent).not.toContain('no sessions to scrobble');
       expect(container.textContent).toContain('Figures below are last 7 days');
+      expect(container.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
+      expect(container.textContent).toContain('No sessions in range');
     });
 
     it('says the figures stay lifetime when the payload predates the grain', async () => {

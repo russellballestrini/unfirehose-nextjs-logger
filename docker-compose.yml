@@ -1,0 +1,109 @@
+# unfirehose in containers, for a machine without node.
+#
+#   docker compose up -d --build     build both images, start, open http://localhost:3000
+#   docker compose logs -f           follow web + worker
+#   docker compose down              stop (our database stays in its volume)
+#   docker compose down -v           stop and DELETE our database volume
+#
+# Two services, one database. Our Dockerfile's runtime image is the traced
+# Next.js server alone (CMD node apps/web/server.js): it serves, it does not
+# ingest. Ingest is apps/worker, a tsx process the runtime image does not
+# carry. So `worker` runs from the Dockerfile's `builder` stage, which holds
+# the whole workspace with dev dependencies (tsx included) after `npm ci`.
+# It is the larger image; it is built from our same Dockerfile and cache.
+# Both mount one data volume; the worker writes our SQLite, the web reads it.
+#
+# Run this or a host stack (`make dev`, `make service-start`), not both at
+# once: they keep separate databases, so nothing double-ingests, but both
+# want :3000.
+
+# Every mount both services need, listed once. Edit here, not per service.
+x-mounts: &mounts
+  # Our data: SQLite, blobs, attachments. A named volume rather than a bind
+  # of ~/.unfirehose, for two reasons. A host-run worker (make dev or the
+  # systemd units) may already own ~/.unfirehose, and two workers on one
+  # database double-ingest. And the container runs as uid 1000; a bind keeps
+  # host ownership, which breaks writes for anyone whose uid is not 1000.
+  # To share a host database anyway (no host worker running, uid 1000),
+  # replace the line with:  - ${HOME}/.unfirehose:/home/node/.unfirehose
+  - unfirehose-data:/home/node/.unfirehose
+
+  # Harness journals, read-only. The container user's home is /home/node, so
+  # each lands where our core looks for it: ~/.claude, ~/.fetch, ...
+  # Only Claude Code is on by default. Uncomment a line for each harness this
+  # machine has. A bind whose host directory is missing makes docker create
+  # it, owned by root, in your home; a harness installed later then cannot
+  # write there. So mount only what exists.
+  - ${HOME}/.claude:/home/node/.claude:ro
+  # - ${HOME}/.fetch:/home/node/.fetch:ro
+  # - ${HOME}/.uncloseai:/home/node/.uncloseai:ro
+  # - ${HOME}/.agnt:/home/node/.agnt:ro
+  # Any other harness that writes the generic native pattern
+  # ~/.<name>/unfirehose/<slug>/<session>.jsonl mounts the same way:
+  # - ${HOME}/.arborist:/home/node/.arborist:ro
+
+  # Optional. ~/.ssh: our Permacomputer page discovers nodes from
+  # ~/.ssh/config and probes them over ssh. Off by default because it hands
+  # the containers your private keys; mount it only if you use the mesh.
+  # The worker image has no ssh client, so remote probes run from web only.
+  # - ${HOME}/.ssh:/home/node/.ssh:ro
+
+  # Optional. Docker socket: our Containers tab names containers through it.
+  # Off by default because the socket is root on the host to anything that
+  # can open it.
+  # - /var/run/docker.sock:/var/run/docker.sock
+
+services:
+  # One-shot: make our data volume writable by uid 1000 (node). The
+  # Dockerfile declares VOLUME on a directory the image never creates, so a
+  # fresh named volume can come up owned by root. Runs, exits, and the other
+  # two wait for it.
+  init-data:
+    image: unfirehose:latest
+    build:
+      context: .
+    user: "0"
+    entrypoint: ["chown", "-R", "1000:1000", "/home/node/.unfirehose"]
+    volumes:
+      - unfirehose-data:/home/node/.unfirehose
+    restart: "no"
+
+  worker:
+    image: unfirehose-builder:latest
+    build:
+      context: .
+      target: builder
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    user: "1000:1000"
+    working_dir: /repo/apps/worker
+    # What the systemd unit runs: `start` (tsx src/main.ts), never `dev`.
+    command: ["npm", "run", "start"]
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=4096
+      PYTHONUNBUFFERED: "1"
+    volumes: *mounts
+    restart: unless-stopped
+
+  web:
+    image: unfirehose:latest
+    build:
+      context: .
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    # Loopback only. Our dashboard has no login and can boot agents into
+    # tmux; publish it on every interface (drop "127.0.0.1:") only on a
+    # network you trust.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes: *mounts
+    restart: unless-stopped
+
+volumes:
+  # Same name `make docker-run` uses, so both share one database.
+  unfirehose-data:
+    name: unfirehose-data

@@ -11,6 +11,7 @@ import {
   refreshTokensPayload,
 } from '@unturf/unfirehose/tokens';
 import { Timing } from '@/lib/timing';
+import { hasAny } from '@/lib/ever';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -98,7 +99,11 @@ export async function GET(request: NextRequest) {
 
     const headers: Record<string, string> = { 'Server-Timing': t.header() };
     if (computedAt) headers['X-Computed-At'] = computedAt;
-    return NextResponse.json({ ...payload, dailyActivity, dailyModelTokens }, { headers });
+    // Read live, never stored with the payload: a range with no tokens is a
+    // quiet one unless no message has ever landed, and the page's empty
+    // state says which. One LIMIT 1 probe.
+    const hasAnyMessages = hasAny(db, 'messages');
+    return NextResponse.json({ ...payload, dailyActivity, dailyModelTokens, hasAnyMessages }, { headers });
   } catch (err) {
     return NextResponse.json(
       { error: 'Failed to read token data', detail: String(err) },

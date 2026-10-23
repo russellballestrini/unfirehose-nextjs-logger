@@ -5,6 +5,7 @@ import { GaugeTrack, UTILISATION } from '@unturf/unfirehose-ui/Gauge';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { formatBytes } from '@unturf/unfirehose/format';
 import { Donut } from '@/components/Donut';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { Badge, Pressure, ResourceBar, Section, containerStatus, cores, type TabProps } from './shared';
 import { VirtualMachinesSection } from './virtual-machines';
 
@@ -109,9 +110,18 @@ export function ContainersTab(props: TabProps) {
     return (
       <div className="space-y-6">
         <VirtualMachinesSection vms={vms} containers={[]} hostCores={hostCores} hostMemBytes={hostMemBytes} />
-        <div className="text-sm text-[var(--color-muted)]">
-          {probe ? 'No containers on this node.' : 'No probe data available.'}
-        </div>
+        {probe ? (
+          <EmptyState
+            what="No containers on this node. Docker, Podman and LXD guests appear here with their cpu, memory and pressure."
+            action="Start one and the next probe, within 30s, lists it."
+          />
+        ) : (
+          <EmptyState
+            what="No probe data available. This node's containers, processes and harnesses appear here once a probe answers."
+            action="Probes run over SSH; check this node answers from our shell."
+            command="ssh <host> true"
+          />
+        )}
       </div>
     );
   }
@@ -171,12 +181,12 @@ export function ContainersTab(props: TabProps) {
         <Section title="CPU share">
           {cpuShares.some((s) => s.value > 0)
             ? <Donut data={cpuShares} format={(v) => `${v.toFixed(1)}%`} height={150} inner={0.6} />
-            : <div className="text-xs text-[var(--color-muted)]">Nothing running is using cpu.</div>}
+            : <EmptyState compact what="Nothing running is using cpu." action="Each running container's share appears here." />}
         </Section>
         <Section title="Memory share">
           {memShares.some((s) => s.value > 0)
             ? <Donut data={memShares} format={formatBytes} height={150} inner={0.6} />
-            : <div className="text-xs text-[var(--color-muted)]">Nothing running holds memory.</div>}
+            : <EmptyState compact what="Nothing running holds memory." action="Each running container's share appears here." />}
         </Section>
       </div>
 

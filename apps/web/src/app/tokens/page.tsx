@@ -1,6 +1,7 @@
 'use client';
 
 import { useHashTab } from '@/lib/use-hash-tab';
+import { CoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useMemo, useState } from 'react';
@@ -14,6 +15,7 @@ import { OverviewTab } from './_components/OverviewTab';
 import { HarnessTab } from './_components/HarnessTab';
 import { ToolsTab } from './_components/ToolsTab';
 import { PlanTab } from './_components/PlanTab';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -95,6 +97,10 @@ export default function TokensPage() {
   } = data;
 
   const totalToolCalls = toolCalls.reduce((s: number, t: any) => s + t.count, 0);
+  // Nothing in this window: show what would be here instead of a page of
+  // zeros. The plan tab reads its own endpoint and stays.
+  const rangeEmpty = totalTokens === 0 && modelBreakdown.length === 0 && toolCalls.length === 0;
+  const firstRun = rangeEmpty && data.hasAnyMessages === false;
 
   // Cache hit rate: cached tokens as a fraction of TOTAL prompt.
   //
@@ -160,11 +166,12 @@ export default function TokensPage() {
             </button>
           )}
         </div>
-        <TimeRangeSelect value={range} onChange={setRange} />
+        <div data-coach="tokens-range"><TimeRangeSelect value={range} onChange={setRange} /></div>
       </div>
+      <CoachMarks page="tokens" />
 
       {/* Tabs */}
-      <div className="flex items-center gap-0.5 border-b border-[var(--color-border)]">
+      <div data-coach="tokens-tabs" className="flex items-center gap-0.5 border-b border-[var(--color-border)]">
         {([
           { id: 'overview' as const, label: 'Overview', icon: '¤' },
           { id: 'harness' as const, label: 'Harness', icon: '◈' },
@@ -186,8 +193,25 @@ export default function TokensPage() {
         ))}
       </div>
 
+      {rangeEmpty && activeTab !== 'plan' && (firstRun ? (
+        <EmptyState
+          what="Tokens, cost by model, harness and tool will appear here."
+          action="Every message a harness logs lands here within a minute. Start a session in any git repo:"
+          command="cd ~/your/repo && claude"
+          link={{ href: '/schema', label: 'Other harnesses: adapter docs' }}
+        />
+      ) : (
+        <EmptyState
+          kind="quiet"
+          what={projectFilter ? `No tokens for ${projectFilter} in range.` : 'No tokens in range.'}
+          range={range}
+          onWiden={range === 'all' ? undefined : () => setRange('all')}
+          action={range === 'all' ? 'Nothing this project logged carried token counts.' : undefined}
+        />
+      ))}
+
       {/* ============ OVERVIEW TAB ============ */}
-      {activeTab === 'overview' && (
+      {!rangeEmpty && activeTab === 'overview' && (
         <OverviewTab
           totals={{
             totalTokens, totalCost, totalInputCost, totalOutputCost, totalCacheReadCost,
@@ -202,7 +226,7 @@ export default function TokensPage() {
       )}
 
       {/* ============ HARNESS TAB ============ */}
-      {activeTab === 'harness' && (
+      {!rangeEmpty && activeTab === 'harness' && (
         <HarnessTab
           harnessData={harnessData}
           harnessModelBreakdown={harnessModelBreakdown}
@@ -212,7 +236,7 @@ export default function TokensPage() {
       )}
 
       {/* ============ TOOLS TAB ============ */}
-      {activeTab === 'tools' && (
+      {!rangeEmpty && activeTab === 'tools' && (
         <ToolsTab
           toolCalls={toolCalls}
           totalToolCalls={totalToolCalls}

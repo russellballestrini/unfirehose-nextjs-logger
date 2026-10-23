@@ -2,12 +2,12 @@
 
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
-import Link from 'next/link';
 
 import { Fragment, useState } from 'react';
 import useSWR from 'swr';
 import { formatTokens, formatCost } from '@unturf/unfirehose/format';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { StatCard } from '@unturf/unfirehose-ui/StatCard';
 import { StatStrip, Stat, StatDivider, costSub } from '@unturf/unfirehose-ui/StatStrip';
 import { TimeRangeSelect, useTimeRange, getTimeRangeFrom } from '@unturf/unfirehose-ui/TimeRangeSelect';
@@ -125,17 +125,13 @@ export default function ScrobblePage() {
             {scrobbleEnabled ? '♪ Scrobbling' : '♪ Enable Scrobble'}
           </button>
         </div>
-        <div className="border border-[var(--color-border)] rounded-xl p-8 bg-[var(--color-surface)] space-y-3 max-w-3xl">
-          <h3 className="text-xl font-bold">Nothing to scrobble yet</h3>
-          <p className="text-base text-[var(--color-muted)]">
-            Scrobble is a public usage profile — counts, streaks, hours-of-day, tier badges — generated from your local
-            sessions. Toggle it on if you want others to see when you code. Run a harness session to populate the stats,
-            then this page will show your overview, projects, and badges.
-          </p>
-          <p className="text-base text-[var(--color-muted)]">
-            See <Link href="/projects" className="text-[var(--color-accent)] hover:underline">Projects</Link> for setup steps.
-          </p>
-        </div>
+        <EmptyState
+          className="max-w-3xl"
+          what="Our scrobble profile will appear here: counts, streaks, hours of day and tier badges, built from local sessions. Nothing to scrobble yet."
+          action="Run a harness session to fill it; toggle scrobbling on only if others should see when we code."
+          command="cd ~/your/repo && claude"
+          link={{ href: '/projects', label: 'Projects: setup steps' }}
+        />
       </div>
     );
   }
@@ -195,6 +191,14 @@ export default function ScrobblePage() {
             </span>
             <TimeRangeSelect value={range} onChange={setRange} options={SCROBBLE_RANGES} />
           </div>
+          {view.sliced && lt.totalSessions === 0 && (
+            <EmptyState
+              kind="quiet"
+              what="No sessions in range: our streaks, hours and badges below count from earlier work."
+              range={range}
+              onWiden={() => setRange('all')}
+            />
+          )}
           <StatStrip>
             <Stat label="Sessions" value={lt.totalSessions.toLocaleString()} />
             <Stat label="Messages" value={lt.totalMessages.toLocaleString()} />

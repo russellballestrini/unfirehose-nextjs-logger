@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ansiToHtml } from '@unturf/unfirehose-ui/ansi';
 import type { TabProps } from './shared';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -58,9 +59,11 @@ export function HarnessesTab(props: TabProps) {
       return (
         <div className="space-y-4">
           {allEntries.length === 0 && (
-            <div className="text-sm text-[var(--color-muted)] text-center py-8 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
-              No harnesses running on {host}.
-            </div>
+            <EmptyState
+              what={`No harnesses running on ${host}. Its tmux sessions and bare agent processes appear here, live.`}
+              action="Boot one from the Bootstrap tab, or start a session there in tmux:"
+              command="tmux new -s claude claude"
+            />
           )}
 
           {tmuxEntries.length > 0 && (

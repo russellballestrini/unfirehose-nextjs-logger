@@ -243,14 +243,28 @@ describe('usage monitor', () => {
     expect(button(/Clear acknowledged/)).toBeDisabled();
   });
 
+  it('calls an empty fortnight quiet when alerts are on record, and a first run when none are', async () => {
+    daily = []; recent = [alert({ acknowledged: 1 })];
+    await show();
+    expect(document.body.textContent).toContain('No threshold breaches in the last 14 days');
+    expect(document.querySelector('[data-empty-kind="quiet"]')).not.toBeNull();
+    cleanup();
+    daily = []; recent = [];
+    await show();
+    expect(document.body.textContent).toContain('Days a usage rule fired will appear here');
+    expect(document.body.textContent).toContain('Alerts will appear here');
+    expect(document.querySelector('[data-empty-kind="quiet"]')).toBeNull();
+  });
+
   it('says it is loading rather than that there is nothing, before the data arrives', async () => {
     // A screenshot taken before SWR answered read "No alerts yet" and "No
     // threshold breaches" over a table of 2,741 alerts. Loading must not
     // look like empty.
     recent = undefined; daily = undefined;
     await show();
-    expect(document.body.textContent).not.toContain('No alerts yet');
+    expect(document.body.textContent).not.toContain('Alerts will appear here');
     expect(document.body.textContent).not.toContain('No threshold breaches');
+    expect(document.body.textContent).not.toContain('Days a usage rule fired');
     expect(document.body.textContent).toContain('Loading');
   });
 

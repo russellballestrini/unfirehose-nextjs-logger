@@ -318,5 +318,12 @@ describe('what a row says', () => {
     const e = await idOf('src/b.ts');
     expect(e?.kind).toBe('tool-result');
   });
-});
 
+  // An empty page for these filters is not a fresh install; the page's
+  // empty state needs to know which it is.
+  it('says messages exist when a filter matches none of them', async () => {
+    const { body } = await get('?search=zzzz-matches-nothing');
+    expect(body.entries).toEqual([]);
+    expect(body.hasAnyMessages).toBe(true);
+  });
+});

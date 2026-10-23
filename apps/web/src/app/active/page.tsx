@@ -12,6 +12,7 @@ import { TimeRangeSelect, useTimeRange, getTimeRangeMinutes } from '@unturf/unfi
 import { ReasoningBadge } from '@unturf/unfirehose-ui/ReasoningBadge';
 import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
 import { useChainStates } from '@unturf/unfirehose-ui/useChainStates';
+import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 
 interface ActiveSession {
   id: number;
@@ -65,7 +66,7 @@ export default function ActivePage() {
   const [reasoningOnly, setReasoningOnly] = useState(false);
   const minutes = getTimeRangeMinutes(timeRange) || 60 * 24 * 365 * 10; // 'all' = 10 years
 
-  const { data, isLoading: loading } = useSWR<{ sessions: ActiveSession[] }>(
+  const { data, isLoading: loading } = useSWR<{ sessions: ActiveSession[]; hasAnySessions?: boolean }>(
     `/api/active-sessions?minutes=${minutes}`,
     fetcher,
     { refreshInterval: 5000 },
@@ -133,12 +134,32 @@ export default function ActivePage() {
       {loading ? (
         <p className="text-[var(--color-muted)]">Loading...</p>
       ) : sessions.length === 0 ? (
-        <div className="border border-[var(--color-border)] rounded p-8 text-center">
-          <p className="text-[var(--color-muted)] text-lg mb-2">No active sessions</p>
-          <p className="text-[var(--color-muted)] text-base">
-            No sessions found in the last {timeRange === 'all' ? 'lifetime' : timeRange}.
-          </p>
-        </div>
+        allSessions.length > 0 ? (
+          <EmptyState
+            kind="quiet"
+            what="No session in range carries reasoning."
+            action="Sessions with thinking blocks appear here. Clear our reasoning filter to see every running session."
+            onWiden={() => setReasoningOnly(false)}
+            widenLabel="Show all sessions"
+          />
+        ) : data?.hasAnySessions === false ? (
+          <EmptyState
+            what="Running sessions will appear here, live, as each one writes."
+            action="Start a harness session in any git repo:"
+            command="cd ~/your/repo && claude"
+            link={{ href: '/schema', label: 'Other harnesses: adapter docs' }}
+          />
+        ) : (
+          <EmptyState
+            kind="quiet"
+            what="No sessions active in range."
+            range={timeRange}
+            action={timeRange === 'all'
+              ? 'Every session we hold is closed. A new one appears here the moment it writes.'
+              : undefined}
+            onWiden={timeRange === 'all' ? undefined : () => setTimeRange('all')}
+          />
+        )
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sessions.map((session, idx) => (

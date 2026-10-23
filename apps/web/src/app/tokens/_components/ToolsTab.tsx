@@ -1,5 +1,6 @@
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { Donut } from '@/components/Donut';
+import { NoToolsEmpty } from './empties';
 import { UPlotCategoryChart } from '@/components/UPlotCategoryChart';
 import { UPlotTimeChart } from '@/components/UPlotTimeChart';
 import { getHarnessColor, shortModel, TOOL_COLORS } from '../_lib';
@@ -79,7 +80,7 @@ export function ToolsTab({ toolCalls, totalToolCalls, toolsByModel, blockTypes, 
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
             Tool Calls ({totalToolCalls.toLocaleString()} total)
           </h3>
-          <Donut data={toolPieData} format={(v) => v.toLocaleString()} height={280} />
+          <Donut data={toolPieData} format={(v) => v.toLocaleString()} height={280} empty={<NoToolsEmpty />} />
         </div>
 
         {/* Tool calls horizontal bar */}
@@ -109,6 +110,7 @@ export function ToolsTab({ toolCalls, totalToolCalls, toolsByModel, blockTypes, 
             data={toolsByModel.map((t: any) => ({ name: shortModel(t.model ?? 'unknown'), fullName: t.model ?? 'unknown', value: t.count, color: getModelColor(t.model ?? '') }))}
             format={(v) => v.toLocaleString()}
             height={200}
+            empty={<NoToolsEmpty />}
           />
         </div>
 

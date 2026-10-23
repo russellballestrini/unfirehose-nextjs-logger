@@ -2,7 +2,7 @@
 
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
@@ -10,6 +10,12 @@ import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 
 export default function SchemaPage() {
   const [selectedFile, setSelectedFile] = useState('README.md');
+  // `?doc=harnesses/claude-code.md` opens one doc: the first-run wizard and
+  // the harness section in Settings link to a harness's adapter doc this way.
+  useEffect(() => {
+    const doc = new URLSearchParams(window.location.search).get('doc');
+    if (doc && /^[\w./-]+\.md$/.test(doc) && !doc.includes('..')) setSelectedFile(doc);
+  }, []);
   const { data: index } = useSWR('/api/schema', fetcher);
   const { data: doc, isLoading } = useSWR(
     `/api/schema?file=${encodeURIComponent(selectedFile)}`,
