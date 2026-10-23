@@ -28,12 +28,15 @@ const FRAGMENTS = new Set(['content-block.json', 'usage.json']);
 describe('JSON Schemas', () => {
   const schemas = loadSchemas();
 
+  // Compiling every schema is CPU work: 0.2 s on an idle four-core box and
+  // 2.9 s of vitest's default 5 s with every suite at once beside 24 busy
+  // processes on two cores (2026-10-23). Sized for that box with room.
   it('compile under draft 2020-12 in strict mode', () => {
     // createValidator compiles lazily; force every schema now.
     for (const type of Object.keys(SCHEMA_FOR_TYPE)) {
       expect(check({ $schema: SPEC_VERSION, type }).status, type).toBe('fail');
     }
-  });
+  }, 30_000);
 
   it('carry an $id under our 1.0 namespace and a 2020-12 $schema', () => {
     for (const { file, schema } of schemas) {

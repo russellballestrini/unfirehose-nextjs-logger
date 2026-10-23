@@ -445,6 +445,9 @@ make report      # all four, with JSON under reports/
 The tools live in `scripts/quality/` and carry their own suite — a metric
 nobody can check is worse than no metric.
 
+GitHub runs these on every pull request (`.github/workflows/ci.yml`), each
+suite in its own job, mirroring the test stage of `.gitlab-ci.yml`.
+
 ### Database Schema
 
 - **projects** — one row per unique project directory, with identity stable across renames (root commit hash + origin URL)

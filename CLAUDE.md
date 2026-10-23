@@ -37,6 +37,10 @@ Then ask fox what our mission is.
 
 `git.unturf.com` is GitLab. GitHub is a secondary remote — not all repos have it.
 
+### CI
+
+Two pipelines run our same checks. `.gitlab-ci.yml` (GitLab, test + publish on `v*` tags) and `.github/workflows/ci.yml` (GitHub, pull requests and pushes to main, no secrets): `make typecheck` (and `npm run lint` as its own check), then core, ui and web each under coverage in their own job, `make test-schema`, `make build`, then the scripts suite against the coverage those jobs uploaded, and `make quality-budgets` (crap, duplication) as its own check. Locally `make test` runs the suites at once; on a fresh clone `scripts/quality/reports.test.ts` skips its coverage-reading tests by name until `make coverage` has run (`UNFIREHOSE_REQUIRE_COVERAGE=1` makes that a failure, as CI sets it).
+
 ## Architecture
 
 Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `localhost:3000`.

@@ -286,6 +286,14 @@ const pageProps = () => ({
   searchParams: Promise.resolve({}),
 }) as Record<string, unknown>;
 
+// What a page or component does here is fixed; how long it takes is not.
+// The first test in a file pays for compiling its whole module graph:
+// 3.6 s for active/page.tsx on an idle four-core box, and 71 s, past this
+// config's 30 s, with every suite at once beside 24 busy processes on two
+// cores (2026-10-23). Every test that loads a module gets a deadline sized
+// for that box with room to spare; one that hangs still fails.
+const LOAD_DEADLINE_MS = 180_000;
+
 describe('every page renders', () => {
   it('finds all of them, so this cannot quietly cover nothing', () => {
     expect(Object.keys(pages).length).toBeGreaterThanOrEqual(24);
@@ -296,7 +304,7 @@ describe('every page renders', () => {
       const mod = (await load()) as { default: React.ComponentType<Record<string, unknown>> };
       swrAnswer = { data: payloadFor(path), error: undefined, isLoading: false, isValidating: false, mutate: vi.fn() };
       expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
-    });
+    }, LOAD_DEADLINE_MS);
   }
 });
 
@@ -318,7 +326,7 @@ describe('every page renders with no data and with an error', () => {
 
       swrAnswer = { data: undefined, error: new Error('offline'), isLoading: false, isValidating: false, mutate: vi.fn() };
       expect(() => render(<mod.default {...pageProps()} />)).not.toThrow();
-    });
+    }, LOAD_DEADLINE_MS);
   }
 });
 
@@ -353,6 +361,6 @@ describe('pressing every control leaves the page standing', () => {
         }
       }
       expect(container).toBeTruthy();
-    });
+    }, LOAD_DEADLINE_MS);
   }
 });

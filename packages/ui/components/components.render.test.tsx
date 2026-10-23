@@ -58,6 +58,14 @@ const PROPS = {
   onChange: vi.fn(), onSelect: vi.fn(), onClose: vi.fn(), onSave: vi.fn(),
 } as Record<string, unknown>;
 
+// What a mount does is fixed; how long it takes is not. Mounting a module
+// and pressing every button it renders is 0.1 s for most and 2.8 s for
+// TokenSplit on an idle four-core box, and TokenSplit took 67 s, past this
+// config's 60 s, with every suite running at once beside 24 busy processes
+// on two cores (2026-10-23). Each mount gets a deadline sized for that box,
+// with room to spare; one that hangs still fails.
+const MOUNT_DEADLINE_MS = 180_000;
+
 describe('every published component mounts', () => {
   it('finds them, so this cannot quietly cover nothing', () => {
     expect(Object.keys(modules).length).toBeGreaterThan(10);
@@ -81,6 +89,6 @@ describe('every published component mounts', () => {
         unmount();
       }
       expect(true).toBe(true);
-    });
+    }, MOUNT_DEADLINE_MS);
   }
 });

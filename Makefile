@@ -1,4 +1,4 @@
-.PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
+.PHONY: all clean test userland-plugins coverage coverage-check coverage-report quality-gate quality-budgets cc crap dupes orphans report \
         test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
         dev demo fix-watches persist-watches rescue-tool-results pricing pricing-report \
@@ -28,7 +28,9 @@ NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=
 # The four suites are independent, so they run at once. Serially this was a
 # minute and a half of mostly-idle waiting. Target names cannot carry the
 # workspace path — make reads a slash as a directory — so each has a short
-# name and cd's itself.
+# name and cd's itself. CI (.github/workflows/ci.yml) gives each suite its
+# own runner instead; here they share the cores, which is why the slowest
+# tests carry deadlines sized for a loaded box.
 test:
 	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts test-schema
 
@@ -124,6 +126,12 @@ vitals-prod:
 	  rc=$$?; PORT=3100 scripts/perf/prod-server.sh stop >/dev/null; exit $$rc
 
 quality-gate: coverage-check
+	@$(MAKE) --no-print-directory quality-budgets
+
+# The two repo-wide budgets alone, against coverage already on disk. The
+# GitHub workflow (.github/workflows/ci.yml) measures each workspace in its
+# own job and runs this once they have all reported.
+quality-budgets:
 	@npx tsx scripts/quality/report-crap.ts --budget $(CRAP_BUDGET)
 	@npx tsx scripts/quality/report-dupes.ts --budget $(DUPE_BUDGET)
 
