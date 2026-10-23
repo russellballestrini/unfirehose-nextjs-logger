@@ -9,13 +9,15 @@ import { harnessSessionStats } from '@unturf/unfirehose/db/harness-stats';
  *
  * Which harnesses this machine has on disk (core's detector, the one Settings
  * and `make doctor` use), how much our database holds, and whether our worker
- * is alive: its ingest heartbeat, and the freshest stamp in the precomputed
- * store. The wizard polls this at the live cadence, so every query here is
+ * is alive. Alive means a fresh ingest heartbeat, nothing else: a route
+ * builds and stores a payload on its first request, so a fresh payload
+ * stamp proves only that a page was opened. The freshest one is reported
+ * beside it, as information. The wizard polls this at the live cadence, so every query here is
  * an index seek or a scan of the small sessions table.
  */
 
-// A worker writes its heartbeat every pass (a minute while active, at most
-// five when quiet) and refreshes the project list every three minutes.
+// A worker writes its heartbeat every pass: a minute while active, at most
+// five when quiet.
 const WORKER_FRESH_MS = 10 * 60_000;
 const PAYLOAD_KEYS = ['project_list', 'dashboard_7d', 'dashboard_24h', 'tokens_7d'];
 
@@ -47,7 +49,7 @@ export async function GET() {
     harnesses,
     sessions, projects, messages,
     lastIngestAt, payloadAt,
-    workerAlive: fresh(lastIngestAt) || fresh(payloadAt),
+    workerAlive: fresh(lastIngestAt),
     checkedAt: new Date(now).toISOString(),
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

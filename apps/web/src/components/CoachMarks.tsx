@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Three hints on a page's first visit, pinned to what they describe.
@@ -68,21 +69,48 @@ export function coachDismissed(page: CoachPage): boolean {
 
 interface Placed extends CoachHint { n: number; top: number; left: number }
 
-/** Where each hint goes: just below its anchor, kept inside the viewport. */
-function place(hints: CoachHint[]): Placed[] {
+/** Room a hint takes: its width, and a height generous enough for three lines. */
+const HINT_W = 288;
+const HINT_H = 120;
+/** An anchor taller than this is a region, not a control: its hint sits inside its top corner. */
+const TALL = 240;
+
+/**
+ * Where each hint goes: below a control, inside the top-right corner of a
+ * tall region, kept inside the viewport, and pushed down past any hint it
+ * would cover.
+ */
+export function placeHints(hints: CoachHint[], rectOf: (anchor: string) => DOMRect | null, vw: number, scroll = { x: 0, y: 0 }): Placed[] {
   const out: Placed[] = [];
-  const vw = globalThis.innerWidth || 1024;
   hints.forEach((h, i) => {
-    const el = document.querySelector(`[data-coach="${h.anchor}"]`);
-    if (!el) return;
-    const r = el.getBoundingClientRect();
+    const r = rectOf(h.anchor);
+    if (!r) return;
+    const tall = r.height > TALL;
+    const left = tall ? r.right - HINT_W - 8 : r.left;
     out.push({
       ...h, n: i + 1,
-      top: r.bottom + globalThis.scrollY + 8,
-      left: Math.max(8, Math.min(r.left + globalThis.scrollX, vw - 296)),
+      top: (tall ? r.top + 8 : r.bottom + 8) + scroll.y,
+      left: Math.max(8, Math.min(left + scroll.x, vw - HINT_W - 8)),
     });
   });
+  const byTop = [...out].sort((a, b) => a.top - b.top);
+  for (let i = 1; i < byTop.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = byTop[j], b = byTop[i];
+      const sideBySide = b.left >= a.left + HINT_W || a.left >= b.left + HINT_W;
+      if (!sideBySide && b.top < a.top + HINT_H) b.top = a.top + HINT_H;
+    }
+  }
   return out;
+}
+
+function place(hints: CoachHint[]): Placed[] {
+  return placeHints(
+    hints,
+    (anchor) => document.querySelector(`[data-coach="${anchor}"]`)?.getBoundingClientRect() ?? null,
+    globalThis.innerWidth || 1024,
+    { x: globalThis.scrollX || 0, y: globalThis.scrollY || 0 },
+  );
 }
 
 export function CoachMarks({ page }: { page: CoachPage }) {
@@ -107,14 +135,17 @@ export function CoachMarks({ page }: { page: CoachPage }) {
   if (!open || placed.length === 0) return null;
   const dismiss = () => { write({ ...read(), [page]: true }); setOpen(false); };
 
-  return (
+  // On document.body: positions are page coordinates, and inside our
+  // content column (offset by the sidebar) they would land a sidebar's
+  // width to the right of what they point at.
+  return createPortal(
     <div data-coach-page={page} aria-label="Hints for this page">
       {placed.map((h) => (
         <div
           key={h.anchor}
           role="note"
           data-coach-hint={h.anchor}
-          className="coach-mark absolute z-40 w-72 rounded border border-[var(--color-accent)] bg-[var(--color-surface)] p-3 text-sm shadow-lg"
+          className="coach-mark absolute z-40 w-[288px] rounded border border-[var(--color-accent)] bg-[var(--color-surface)] p-3 text-sm shadow-lg"
           style={{ top: h.top, left: h.left }}
         >
           <div className="flex items-baseline gap-2">
@@ -129,6 +160,7 @@ export function CoachMarks({ page }: { page: CoachPage }) {
           )}
         </div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

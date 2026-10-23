@@ -292,7 +292,7 @@ Push an extra-usage snapshot; any field left out keeps its last value.
 → `{ ok: true }`
 
 ### GET /api/onboarding
-What a first run needs, all local: each harness root ingest reads (core's detector — the same one Settings and `make doctor` use) with `found`, `readable`, `files` (one project level deep, capped; `truncated` says so), `newestMs`, `doc` (adapter doc under the schema package's docs/), and `sessions` / `lastMessageAt` from our database; our totals; and whether our worker is alive (ingest heartbeat or a stored payload fresher than 10 min). The first-run wizard polls it every 6 s, Settings → Harnesses every 30 s. Takes no parameters.
+What a first run needs, all local: each harness root ingest reads (core's detector — the same one Settings and `make doctor` use) with `found`, `readable`, `files` (one project level deep, capped; `truncated` says so), `newestMs`, `doc` (adapter doc under the schema package's docs/), and `sessions` / `lastMessageAt` from our database; our totals; and whether our worker is alive (an ingest heartbeat within 10 min; `payloadAt`, the freshest stored payload, is reported but proves only that a page was opened). The first-run wizard polls it every 6 s, Settings → Harnesses every 30 s. Takes no parameters.
 → `{ harnesses: [{ id, label, root, doc, start?, found, readable, files, newestMs, truncated, sessions, lastMessageAt }], sessions, projects, messages, lastIngestAt, payloadAt, workerAlive, checkedAt }`
 
 ### GET /api/reports/monthly

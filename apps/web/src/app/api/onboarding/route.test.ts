@@ -32,10 +32,13 @@ describe('GET /api/onboarding', () => {
     expect(body.harnesses[0]).toMatchObject({ sessions: 1, lastMessageAt: '2026-10-22T10:00:00Z' });
   });
 
-  it('calls the worker alive on a recent heartbeat or a fresh stored payload, and not on a stale one', async () => {
+  it('calls the worker alive on a recent heartbeat only: a payload a page built proves nothing', async () => {
     setSetting('last_ingest_at', new Date(Date.now() - 60 * 60_000).toISOString());
-    expect((await (await GET()).json()).workerAlive).toBe(false);
-    setSetting('project_list_at', new Date().toISOString());
+    setSetting('dashboard_7d_at', new Date().toISOString());
+    const stale = await (await GET()).json();
+    expect(stale.workerAlive).toBe(false);
+    expect(stale.payloadAt).not.toBeNull();
+    setSetting('last_ingest_at', new Date().toISOString());
     expect((await (await GET()).json()).workerAlive).toBe(true);
   });
 });

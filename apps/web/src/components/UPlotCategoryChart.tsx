@@ -150,10 +150,16 @@ export function UPlotCategoryChart({
             stroke: perBar ? undefined : (s.color as string),
             fill: asBars ? (perBar ? undefined : (s.color as string)) : s.fill,
             width: asBars ? 0 : 1.5,
-            paths: asBars ? barPaths : undefined,
+            // uPlot colours bars per point through `disp`, and reads it from
+            // the bars path builder's options — set on the series, as it
+            // was, it is ignored and a bar with no fill draws nothing: the
+            // dashboard's Day of Week chart was blank for every range.
+            paths: asBars
+              ? (perBar
+                ? uPlot.paths.bars?.({ size: [0.6, Infinity], align: 0, disp: { fill: { unit: 3, values: () => s.color as string[] } } })
+                : barPaths)
+              : undefined,
             points: { show: false },
-            // uPlot colours bars per point through `disp`, not `fill`.
-            ...(asBars && perBar ? { fill: undefined, disp: { fill: { unit: 3, values: () => s.color as string[] } } } : {}),
           } as uPlot.Series;
         }),
       ],
