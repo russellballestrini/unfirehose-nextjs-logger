@@ -11,6 +11,7 @@ import { GaugeTrack } from '@unturf/unfirehose-ui/Gauge';
 import { KV } from '@unturf/unfirehose-ui/KV';
 import { harnessesFor } from '@/lib/harnesses';
 import { HarnessPicker } from '@/components/HarnessPicker';
+import { NicknameField, useNicknameEditor } from './nickname';
 
 const HARNESSES = harnessesFor('container');
 
@@ -467,33 +468,13 @@ export function ServicesTab(props: TabProps) {
               const id = svc.service_id || svc.id;
               const isLocked = svc.locked || svc.name === 'uncloseai';
               const nick = nicknames[id];
-              const isEditing = editingNick?.sessionId === id;
               return (
                 <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
                       {/* Nickname row */}
                       <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
-                        {isEditing ? (
-                          <input
-                            autoFocus
-                            value={editingNick?.value ?? ''}
-                            onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
-                            onKeyDown={e => {
-                              const v = editingNick?.value ?? '';
-                              if (e.key === 'Enter') saveNickname(id, v, svc.name || '');
-                              if (e.key === 'Escape') setEditingNick(null);
-                            }}
-                            onBlur={() => saveNickname(id, editingNick?.value ?? '', svc.name || '')}
-                            placeholder="nickname…"
-                            className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
-                          />
-                        ) : (
-                          <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
-                            className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
-                            {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
-                          </button>
-                        )}
+                        <NicknameField id={id} nick={nick} serviceName={svc.name || ''} editor={{ editingNick, setEditingNick, saveNickname }} />
                       </div>
                       {/* Service info — clickable to terminal */}
                       <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex items-center gap-3 px-4 pb-3">
@@ -557,34 +538,11 @@ export function SessionsTab(props: TabProps) {
             {sessionList.map((s: any) => {
               const id = s.session_id || s.id;
               const nick = nicknames[id];
-              const isEditing = editingNick?.sessionId === id;
               return (
                 <div key={id} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-violet-500/50 transition-colors">
                   {/* Nickname row */}
                   <div className="px-4 pt-3 pb-1" onClick={e => e.stopPropagation()}>
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        value={editingNick?.value ?? ''}
-                        onChange={e => setEditingNick({ sessionId: id, value: e.target.value })}
-                        onKeyDown={e => {
-                          const v = editingNick?.value ?? '';
-                          if (e.key === 'Enter') saveNickname(id, v, nick?.service_name ?? '');
-                          if (e.key === 'Escape') setEditingNick(null);
-                        }}
-                        onBlur={() => saveNickname(id, editingNick?.value ?? '', nick?.service_name ?? '')}
-                        placeholder="nickname…"
-                        className="w-full text-sm px-2 py-1 rounded border border-violet-500/50 bg-[var(--color-background)] font-bold outline-none"
-                      />
-                    ) : (
-                      <button onClick={() => setEditingNick({ sessionId: id, value: nick?.nickname ?? '' })}
-                        className="w-full text-left text-sm font-bold hover:text-violet-300 transition-colors truncate">
-                        {nick?.nickname || <span className="text-violet-400/40 font-normal text-xs">✎ add nickname</span>}
-                      </button>
-                    )}
-                    {nick?.service_name && !isEditing && (
-                      <p className="text-xs text-violet-400/70 font-mono truncate mt-0.5">⬡ {nick.service_name}</p>
-                    )}
+                    <NicknameField id={id} nick={nick} serviceName={nick?.service_name ?? ''} editor={{ editingNick, setEditingNick, saveNickname }} serviceLine=" mt-0.5" />
                   </div>
                   <div className="px-4 pb-3 flex items-center justify-between">
                     <Link href={`/tmux/${encodeURIComponent(id)}?host=unsandbox`} className="flex-1 min-w-0">
@@ -774,17 +732,7 @@ export default function UnsandboxNodePage() {
 
   const { data: nicknamesData, mutate: mutateNicknames } = useSWR('/api/sessions/nickname', fetcher, { refreshInterval: 30000 });
   const nicknames: Record<string, { nickname: string; service_name: string }> = nicknamesData ?? {};
-  const [editingNick, setEditingNick] = useState<{ sessionId: string; value: string } | null>(null);
-
-  const saveNickname = async (sessionId: string, nickname: string, serviceName = '') => {
-    await fetch('/api/sessions/nickname', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, nickname, host: 'unsandbox', service_name: serviceName }),
-    });
-    setEditingNick(null);
-    mutateNicknames();
-  };
+  const { editingNick, setEditingNick, saveNickname } = useNicknameEditor(mutateNicknames);
 
   const unfirehoseService = serviceList.find((s: any) =>
     (s.name || '').includes('unfirehose') || (s.name || '').includes('firehose')
