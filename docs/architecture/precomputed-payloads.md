@@ -113,6 +113,19 @@ Dashboard and tokens share one table: `DASHBOARD_RANGES` (`dashboard.ts:23`; `TO
 - **Concurrent misses.** No single-flight on our request path: simultaneous first requests each build, last write wins.
 - **Changes that add no message** (project merges, visibility, prices, mesh samples) do not move our watermark; they reach a payload only through its max-quiet bound.
 
+## Pre-aggregated tables: measured energy
+
+Measured, attributed energy (ticket 4004) is too many rows for one JSON value and is read over arbitrary windows, so it lives in two tables instead, built by our **sampler** child (`apps/worker/src/sampler.ts`, every minute), beside the samples it reads, by `refreshEnergyAttribution` (`packages/core/energy-attribution.ts`):
+
+| table | one row per | holds |
+|---|---|---|
+| `node_energy_15m` | node, 15-minute bucket | total Wh (CPU + every GPU, summed), GPU Wh, idle W subtracted, standing (idle) Wh, active Wh, attributed Wh |
+| `energy_attribution_15m` | node, bucket, model, project, harness | messages, tokens, GPU-seconds weight, its share of active Wh, `measured` (0 when the node was unsampled) |
+
+Progress follows our payload convention in `settings`: `energy_attribution_at` (last refresh), `energy_attribution_watermark` (`MAX(messages.id)` read before it) and `energy_attribution_through` (first bucket not yet final; the bucket now filling is redone each tick). A message ingested late is found by id above the watermark and its bucket is rebuilt. A tick spends at most ~2 s; a backfill continues on later ticks.
+
+Readers (`readEnergyAttribution`): the dashboard payload (model Power column, `nodeEnergy`), `GET /api/mesh/history` (`energy`: the fleet page's attribution table, a node page's standing cost) and the monthly cost report's electricity line detail and `electricityByProject`. None joins snapshots to messages.
+
 ## Adding a new precomputed payload
 
 1. In `packages/core/<name>.ts`, write `buildX(...)` — pure read of our database, throws on failure.

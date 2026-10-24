@@ -108,6 +108,8 @@ Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking,
 
 **Reports** (`/reports`, `GET /api/reports/monthly?month=&tz=&format=json|csv|pdf`): one month of spend for an expense claim, in the first `display_currency` at that month's published rate. A closed month is filed on first build and every later download matches it; `rebuild=1` refiles. Builder: `packages/core/cost-report.ts`; ticket 4009.
 
+**Measured energy** (ticket 4004): our sampler child pre-aggregates each node's sampled watts (CPU + every GPU, summed per node) into `node_energy_15m` and splits the draw above idle across the models, projects and harnesses whose endpoint resolved to that node (`energy_attribution_15m`, by GPU-seconds). Idle = p10 of the node's draw over the seven days before each day, shown as its standing cost. Builder and reader: `packages/core/energy-attribution.ts`; read by the dashboard Power column, `/api/mesh/history` (`energy`) and the cost report. Never join snapshots to messages at request time.
+
 ### Running as a service (respawn on crash)
 
 `make dev` runs our worker under tsx watch, which restarts on a file change but not when its child dies. For a box that should stay up, run both as systemd **user** units, no root:

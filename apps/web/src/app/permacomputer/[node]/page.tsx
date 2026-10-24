@@ -484,6 +484,9 @@ export default function NodeDetailPage() {
   // low-priority work INTERRUPT it — React yields the main thread back to
   // input, so our native listener keeps firing and the cursor stays smooth.
   const timeline = meshHistory?.timeline;
+  const nodeEnergy = (meshHistory?.energy?.hosts ?? [])[0] as
+    | { idleWatts: number | null; standingMonthlyUSD: number | null; attributedUSD: number; unattributedUSD: number }
+    | undefined;
   const deferredTimeline = useDeferredValue(timeline);
   // Live (non-deferred) data bounds for pan/zoom decisions. useDeferredValue
   // intentionally lags so the chart renders smoothly during SWR polls, but
@@ -558,6 +561,19 @@ export default function NodeDetailPage() {
             <div className="text-sm text-[var(--color-muted)]">
               {kwhPerMonth.toFixed(1)} kWh/mo &middot; ${elecPerMonth.toFixed(0)} elec &middot; ${ispCost.toFixed(0)} isp
             </div>
+            {/* Measured and attributed by our sampler (ticket 4004): what this
+                node burns switched on, and what its draw above that went to.
+                Absent until it has been sampled; no empty state of its own. */}
+            {nodeEnergy && (
+              <div
+                className="text-sm text-[var(--color-muted)]"
+                data-node-standing
+                title="Idle is the 10th percentile of this node's whole draw over the seven days before each day. Standing cost is that draw held for a month. Above it, our sessions on this node are split by GPU-seconds; the rest is other work."
+              >
+                idle ~{Math.round(nodeEnergy.idleWatts ?? 0)}W &middot; ${(nodeEnergy.standingMonthlyUSD ?? 0).toFixed(0)}/mo standing
+                &middot; this range ${nodeEnergy.attributedUSD.toFixed(2)} our sessions, ${nodeEnergy.unattributedUSD.toFixed(2)} other work
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,8 +1,8 @@
 /**
  * The dashboard payload, built away from the request that shows it.
  *
- * ~1.2s of work per call — a per-model attribution scan, up to 213k mesh
- * snapshot rows integrated into GPU energy, a per-day/hour histogram — and
+ * ~1.2s of work per call — a per-model attribution scan, a per-day/hour
+ * histogram (measured energy now comes pre-aggregated, ticket 4004) — and
  * the route had no cache at all while the page polled every 30 seconds.
  * Node is single-threaded, so that cost was charged to every other request
  * on the server too.
@@ -11,7 +11,8 @@
 import type Database from 'better-sqlite3';
 import { getDb } from './db/schema';
 import { storePayload, readPayload, payloadCurrent, messagesWatermark, storedRanges } from './precomputed';
-import { costForUsageRows, hostForMessage, getKwhRate, CLOUD_PROVIDERS, priceForModel } from './pricing';
+import { costForUsageRows, hostForMessage, CLOUD_PROVIDERS, priceForModel } from './pricing';
+import { readEnergyAttribution } from './energy-attribution';
 import { ensurePricingHydrated } from './pricing-sync';
 import { usageCacheHitRate, cacheHitRate } from './vllm-metrics';
 import { VLLM_BLOCK_TOKENS } from './prefix-reuse';
@@ -169,37 +170,14 @@ export function buildDashboard(range: string): any {
       : 30 * 24 * 60 * 60 * 1000;
     const recencyCutoff = new Date(Date.now() - halfWindowMs).toISOString();
 
-    // Self-hosted attribution: integrate gpu_power_watts from mesh_snapshots
-    // over the window for each known host, then split by tokens-per-host so
-    // multiple models on the same node share the measured energy.
-    // SQLite datetime('now') stores 'YYYY-MM-DD HH:MM:SS' (no T, no Z).
-    const meshSince = minutes > 0
-      ? new Date(Date.now() - minutes * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
-      : '1970-01-01 00:00:00';
-    // Only count active-inference samples — gpu_util > 30% — so idle box
-    // hours don't smear the per-model attribution.
-    const meshRows = db.prepare(`
-      SELECT hostname, timestamp, gpu_power_watts
-      FROM mesh_snapshots
-      WHERE timestamp > ?
-        AND gpu_power_watts IS NOT NULL AND gpu_power_watts > 0
-        AND gpu_util IS NOT NULL AND gpu_util > 30
-      ORDER BY hostname ASC, timestamp ASC
-    `).all(meshSince) as Array<{ hostname: string; timestamp: string; gpu_power_watts: number }>;
-
-    const kwhByHost: Record<string, number> = {};
-    const lastByHost: Record<string, { ts: number; w: number }> = {};
-    for (const r of meshRows) {
-      const tsMs = Date.parse(r.timestamp.replace(' ', 'T') + 'Z');
-      const prev = lastByHost[r.hostname];
-      if (prev) {
-        const dtH = (tsMs - prev.ts) / 3_600_000;
-        if (dtH > 0 && dtH < 5 / 60) {   // ignore gaps > 5 min (node offline)
-          kwhByHost[r.hostname] = (kwhByHost[r.hostname] ?? 0) + (prev.w / 1000) * dtH;
-        }
-      }
-      lastByHost[r.hostname] = { ts: tsMs, w: r.gpu_power_watts };
-    }
+    // Self-hosted energy, measured: what our sampler attributed to each
+    // model from its node's sampled watts, idle subtracted (ticket 4004,
+    // energy-attribution.ts). Pre-aggregated per quarter hour, so this reads
+    // a few rows per node rather than integrating every snapshot here.
+    const measuredEnergy = readEnergyAttribution(db, {
+      from: Date.parse(windowStart), to: Date.now(),
+    });
+    const measuredByModelEnergy = new Map(measuredEnergy.byModel.map((e) => [e.key, e]));
 
     const attrFor = (model: string) => {
       const a = dominantAttr[model];
@@ -214,15 +192,6 @@ export function buildDashboard(range: string): any {
       }
       return { host: hostForMessage(model, endpoint, provider), endpoint, provider };
     };
-
-    // First pass: sum tokens per host so we can split kWh proportionally.
-    const tokensByHost: Record<string, number> = {};
-    for (const m of dbModels) {
-      const { host } = attrFor(m.model);
-      if (!host) continue;
-      const tot = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
-      tokensByHost[host] = (tokensByHost[host] ?? 0) + tot;
-    }
 
     // Measured prefix cache, for the models we serve ourselves.
     //
@@ -296,7 +265,6 @@ export function buildDashboard(range: string): any {
     }>;
     const reuseByModel = new Map(reuseRows.map((r) => [r.model, r]));
 
-    const kwhRate = getKwhRate();
     const modelBreakdown = dbModels.map((m) => {
       const totalTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens;
       const { host, provider, endpoint } = attrFor(m.model);
@@ -314,11 +282,14 @@ export function buildDashboard(range: string): any {
         at: d.day,
         observedUSD: d.observedUSD,
       })));
-      let meshObservedUSD: number | undefined;
-      if (host && kwhByHost[host] != null && tokensByHost[host] > 0) {
-        const hostCost = kwhByHost[host] * kwhRate;
-        meshObservedUSD = hostCost * (totalTokens / tokensByHost[host]);
-      }
+      // Measured where our sampler saw the node; the flat estimate for the
+      // tokens it did not (a node unsampled then, or a self-hosted model on
+      // an endpoint no mesh node answers to), so a gap never reads as free.
+      const me = measuredByModelEnergy.get(m.model);
+      const measuredShare = me && totalTokens > 0 ? Math.min(1, me.measuredTokens / totalTokens) : 0;
+      const energyUSD = me && measuredShare > 0 ? me.usd + c.energy * (1 - measuredShare) : c.energy;
+      const energySource: 'measured' | 'mixed' | 'estimate' | null =
+        measuredShare >= 0.999 ? 'measured' : measuredShare > 0 ? 'mixed' : c.energy > 0 ? 'estimate' : null;
       const measured = measuredByModel.get(m.model);
       const reuse = reuseByModel.get(m.model);
       // Nothing reported a cache for this model all window — the condition
@@ -360,18 +331,26 @@ export function buildDashboard(range: string): any {
         marketUSD: c.market,
         // What we actually spent on power to serve it ourselves. Zero for a
         // row we bought.
-        energyUSD: c.energy,
-        avoidedUSD: c.avoided,
+        energyUSD,
+        avoidedUSD: c.selfHosted ? Math.max(0, c.market - energyUSD) : c.avoided,
+        // Where energyUSD came from: sampled watts, partly, or the flat
+        // watts x GPU-seconds estimate. Null for a row we bought.
+        energySource,
+        measuredEnergyKwh: me?.kwh ?? null,
+        measuredEnergyUSD: me && measuredShare > 0 ? me.usd : null,
+        measuredTokenShare: me ? measuredShare : null,
+        estimatedEnergyUSD: c.energy,
         costSource: c.source,
         pricedAgainst: c.matchedId ?? null,
         // Non-null when a promo was unwound: the figure is list price, not
         // what the provider bills today.
         promo: c.promo ?? null,
         selfHosted: c.selfHosted,
-        host,
+        // The node that served it: from the endpoint map, else the node our
+        // sampler resolved its endpoint to.
+        host: host ?? me?.hosts[0] ?? null,
         provider,
         endpoint,
-        meshObservedUSD,
       };
     })
       .filter((m) => m.totalTokens > 0)
@@ -476,6 +455,9 @@ export function buildDashboard(range: string): any {
         since: firstSession?.first?.split('T')[0] ?? null,
       },
       modelBreakdown,
+      // Every sampled node's draw over the window: standing (idle), serving
+      // our sessions, other work. Empty when no node was sampled.
+      nodeEnergy: measuredEnergy.hosts,
       dailyActivity,
       hourCounts,
       dayOfWeekCounts: dayOfWeekCountsRaw.map((d) => ({

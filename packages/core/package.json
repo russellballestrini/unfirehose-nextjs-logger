@@ -63,6 +63,8 @@
     "./mesh": "./mesh.ts",
     "./hostname-match": "./hostname-match.ts",
     "./mesh-econ": "./mesh-econ.ts",
+    "./energy-attribution": "./energy-attribution.ts",
+    "./gpu-sum": "./gpu-sum.ts",
     "./harness-detect": "./harness-detect.ts",
     "./db/project-roots": "./db/project-roots.ts",
     "./db/harness-stats": "./db/harness-stats.ts",

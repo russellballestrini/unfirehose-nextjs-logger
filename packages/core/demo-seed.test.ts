@@ -156,9 +156,10 @@ describe('buildDemoPayloads', () => {
     // Ranges slide with the wall clock; seed up to it.
     const fresh = db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number };
     if (fresh.n > 0) {
-      for (const t of ['content_blocks', 'usage_minutes', 'messages', 'todos', 'sessions', 'projects', 'alerts', 'mesh_snapshots', 'mesh_node_facts']) {
+      for (const t of ['content_blocks', 'usage_minutes', 'messages', 'todos', 'sessions', 'projects', 'alerts', 'mesh_snapshots', 'mesh_node_facts', 'node_energy_15m', 'energy_attribution_15m']) {
         db.prepare(`DELETE FROM ${t}`).run();
       }
+      db.prepare(`DELETE FROM settings WHERE key LIKE 'energy_attribution%'`).run();
     }
     seedDemo(db);
     await buildDemoPayloads();
@@ -176,6 +177,24 @@ describe('buildDemoPayloads', () => {
     const week = readDashboard('7d', Infinity)!.payload;
     expect(week.summary.sessions).toBe(DEMO_SESSIONS);
     expect(week.modelBreakdown.map((m: any) => m.model).sort()).toEqual([...DEMO_MODELS].sort());
+  });
+
+  it('attributes measured watts on our demo node, idle shown as its standing cost (ticket 4004)', () => {
+    const week = readDashboard('7d', Infinity)!.payload;
+    const node = week.nodeEnergy.find((h: any) => h.hostname === DEMO_NODE);
+    expect(node.idleWatts).toBeGreaterThan(0);
+    expect(node.standingUSD).toBeGreaterThan(0);
+    expect(node.standingMonthlyUSD).toBeGreaterThan(0);
+    expect(node.attributedUSD).toBeGreaterThan(0);
+    expect(node.standingKwh + node.activeKwh).toBeCloseTo(node.totalKwh, 6);
+    // Both demo models are served on the node by some harness, so both carry a measured power bill.
+    for (const m of week.modelBreakdown) {
+      expect(['measured', 'mixed']).toContain(m.energySource);
+      expect(m.energyUSD).toBeGreaterThan(0);
+      expect(m.host).toBe(DEMO_NODE);
+    }
+    const harnesses = db.prepare('SELECT DISTINCT harness FROM energy_attribution_15m ORDER BY harness').all();
+    expect(harnesses).toEqual([{ harness: 'agnt' }, { harness: 'uncloseai' }]);
   });
 
   it('stores a populated tokens payload split by harness', () => {

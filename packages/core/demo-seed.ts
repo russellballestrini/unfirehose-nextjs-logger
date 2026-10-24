@@ -40,6 +40,14 @@ export const DEMO_ONE_SESSION_HARNESSES = ['codex', 'gemini-cli', 'continue', 'a
 type DemoHarness = (typeof DEMO_HARNESSES)[number] | (typeof DEMO_ONE_SESSION_HARNESSES)[number];
 /** The node our mesh samples describe. */
 export const DEMO_NODE = 'demo-node';
+/**
+ * Harnesses whose demo model we serve ourselves on DEMO_NODE, through this
+ * endpoint: their sessions draw GPU watts there, so our measured energy
+ * attribution (ticket 4004) has something to split by model, project and
+ * harness, beside the node's standing (idle) draw.
+ */
+export const DEMO_SELF_HOSTED_HARNESSES: readonly string[] = ['uncloseai', 'agnt'];
+export const DEMO_ENDPOINT = `http://${DEMO_NODE}:8000/v1`;
 export const DEMO_DAYS = 7;
 /** Turns per session; each turn is one user and one assistant message. */
 export const DEMO_TURNS = 6;
@@ -167,6 +175,8 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
     );
     let toolSeq = 0;
     let lastSessionId = 0;
+    // [start, end] of every session served on DEMO_NODE: its GPU is busy then.
+    const gpuBusy: [number, number][] = [];
 
     const seedSession = (harness: DemoHarness, h: number, daysAgo: number) => {
       const projectIdx = (daysAgo + h) % DEMO_PROJECTS.length;
@@ -199,6 +209,8 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
       let parent: string | null = null;
       let pendingTool: { id: string; output: string } | null = null;
       let g = 0;
+      const selfHosted = DEMO_SELF_HOSTED_HARNESSES.includes(harness);
+      const sessionStart = t;
       for (let k = 0; k < DEMO_TURNS; k++) {
         t += gaps[g++];
         const userContent: any[] = pendingTool
@@ -236,6 +248,7 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
         const assistantId = insertMessage(db, sessionId, {
           role: 'assistant', id: assistantUuid, parentId: parent, timestamp: iso(t), model,
           ...(approx ? { tokensApprox: true } : {}),
+          ...(selfHosted ? { endpoint: DEMO_ENDPOINT, provider: 'local' } : {}),
           usage: { inputTokens: input, outputTokens: output, inputTokenDetails: { cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } },
         });
         if (assistantId) {
@@ -245,6 +258,7 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
         }
         parent = assistantUuid;
       }
+      if (selfHosted) gpuBusy.push([sessionStart, t]);
       const last = iso(t);
       closeSession.run(last, last, 'closed', last, sessionId);
       lastSessionId = sessionId;
@@ -285,12 +299,13 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
     ).run(sqlTime(now - 26 * HOUR), DEMO_PROJECTS[0].name, JSON.stringify({ demo: true, note: 'A synthetic spike from our demo seed' }));
     result.alerts++;
 
-    // A week of samples for one node, every five minutes, on a daily cycle.
+    // A week of samples for one node, every five minutes, on a daily cycle;
+    // its one GPU idles near 20 W and draws ~250 W while a session it serves runs.
     const insertSnap = db.prepare(
       `INSERT INTO mesh_snapshots (timestamp, hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
          mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb,
          power_source, claude_processes, agent_processes, harness_counts)
-       VALUES (?, ?, 8, ?, ?, ?, 32, ?, ?, NULL, NULL, NULL, NULL, 'estimate', ?, ?, ?)`,
+       VALUES (?, ?, 8, ?, ?, ?, 32, ?, ?, ?, ?, ?, 24576, 'estimate', ?, ?, ?)`,
     );
     const step = 5 * MINUTE;
     const first = Math.floor((now - DEMO_DAYS * DAY) / step) * step + step;
@@ -300,9 +315,13 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
       const jitter = rng.next();
       const load = +(0.3 + busy * 3.5 + jitter * 0.4).toFixed(2);
       const agents = busy > 0.3 ? 1 + Math.floor(jitter * 2) : 0;
+      const serving = gpuBusy.some(([a, b]) => ts >= a && ts <= b);
       insertSnap.run(
         sqlTime(ts), DEMO_NODE, load, +(load * 0.9).toFixed(2), +(load * 0.8).toFixed(2),
         +(9 + busy * 11 + jitter).toFixed(1), +(38 + busy * 70 + jitter * 6).toFixed(1),
+        serving ? +(230 + jitter * 40).toFixed(1) : +(18 + jitter * 4).toFixed(1),
+        serving ? Math.round(80 + jitter * 15) : 0,
+        serving ? 21_500 : 17_200,
         agents > 0 ? 1 : 0, agents, agents > 0 ? JSON.stringify({ 'claude-code': 1, ...(agents > 1 ? { uncloseai: 1 } : {}) }) : null,
       );
       result.meshSnapshots++;
@@ -328,8 +347,14 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
  * functions, against getDb(). What the worker would leave after its first
  * minute, so a page renders with no worker running.
  */
-export async function buildDemoPayloads(): Promise<void> {
+export async function buildDemoPayloads(opts: { now?: number } = {}): Promise<void> {
+  const { getDb } = await import('./db/schema');
+  const { refreshEnergyAttribution } = await import('./energy-attribution');
   const { refreshDashboard, WARM_RANGES } = await import('./dashboard');
+  // What our sampler child would have folded by now: the measured energy
+  // the dashboard, the fleet page and the cost report read. No time budget,
+  // so the whole week lands in one go.
+  refreshEnergyAttribution(getDb(), { now: opts.now, budgetMs: Infinity, chunkDays: 8 });
   const { refreshTokensPayload, WARM_TOKENS_SHORT_RANGES, WARM_TOKENS_LONG_RANGES } = await import('./tokens');
   const { refreshProjectList } = await import('./projects-list');
   const { refreshScrobblePayload } = await import('./scrobble');

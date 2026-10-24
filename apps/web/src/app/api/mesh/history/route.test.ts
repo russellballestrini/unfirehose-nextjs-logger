@@ -142,6 +142,22 @@ describe('GET /api/mesh/history', () => {
     expect(body.hostnames.sort()).toEqual(['ancient', 'neoblanka']);
   });
 
+  it('carries each node’s attributed energy from the tables our sampler builds (ticket 4004)', async () => {
+    db.prepare('DELETE FROM node_energy_15m').run();
+    const bucket = new Date(Math.floor((Date.now() - 3600_000) / 900_000) * 900_000).toISOString().replace('T', ' ').slice(0, 19);
+    db.prepare(`INSERT INTO node_energy_15m (bucket, hostname, sampled_hours, total_wh, gpu_wh, idle_watts, idle_wh, active_wh, attributed_wh)
+                VALUES (?, 'neoblanka', 0.25, 90, 70, 100, 25, 65, 40)`).run(bucket);
+    seedAt(1, 'neoblanka');
+    const body = await (await get('hours=24')).json();
+    expect(body.energy.hosts).toEqual([expect.objectContaining({
+      hostname: 'neoblanka', idleWatts: 100, totalKwh: 0.09, standingKwh: 0.025, attributedKwh: 0.04,
+      unattributedKwh: expect.closeTo(0.025, 9),
+    })]);
+    // The per-group rows stay server side; the folds above are what a page draws.
+    expect(body.energy.groups).toBeUndefined();
+    expect((await (await get('hours=24&hostname=cammy')).json()).energy.hosts).toEqual([]);
+  });
+
   it('does not pay for the cold tier on an ordinary request', async () => {
     seedAt(1, 'neoblanka');
     const body = await (await get('hours=24')).json();

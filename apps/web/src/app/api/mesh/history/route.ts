@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { insertMeshSnapshots } from '@unturf/unfirehose/db/mesh-snapshots';
+import { readEnergyAttribution } from '@unturf/unfirehose/energy-attribution';
 import { Timing } from '@/lib/timing';
 import { hasAny } from '@/lib/ever';
 import { rollupTimeline, decimatePeaks, distinctHostnames } from '@/lib/mesh-history';
@@ -97,8 +98,19 @@ export async function GET(req: NextRequest) {
   // either tier; the fleet panel's empty state says which.
   const hasAnySnapshots = rows.length > 0 || hasAny(db, 'mesh_snapshots') || hasAny(db, 'mesh_snapshots_15m');
 
+  // Each node's draw over the window, split into its standing (idle) cost,
+  // what our own sessions on it explain, and other work (ticket 4004). Read
+  // from the tables our sampler pre-aggregates, never joined here per row.
+  const energy = readEnergyAttribution(db, {
+    from: sinceDate.getTime(), to: Date.now(),
+    hostname: hostname === 'all' ? undefined : hostname,
+  });
+  // The per-group rows stay here; the folds are what a page draws.
+  const energySummary = { ...energy, groups: undefined };
+  t.mark('energy');
+
   return NextResponse.json(
-    { timeline: series, hostnames, hours, count: rows.length, sampled: series.length, of: timeline.length, hasAnySnapshots },
+    { timeline: series, hostnames, hours, count: rows.length, sampled: series.length, of: timeline.length, hasAnySnapshots, energy: energySummary },
     { headers: { 'Server-Timing': t.header() } },
   );
 }

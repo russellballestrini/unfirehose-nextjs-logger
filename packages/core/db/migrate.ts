@@ -1040,6 +1040,46 @@ export function migrate(db: Database.Database) {
     );
   `);
 
+  // Measured energy, attributed (ticket 4004). Built by our sampler child
+  // (packages/core/energy-attribution.ts) from mesh snapshots and messages,
+  // so no page joins the two per row. One row per node per 15-minute bucket,
+  // aligned with mesh_snapshots_15m: everything the node drew, split into
+  // its standing (idle) draw and what it drew above that, and how much of
+  // the latter our own messages served on it explain. Wh throughout; a
+  // reader prices at the node's $/kWh, so a changed rate needs no rebuild.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS node_energy_15m (
+      bucket        TEXT NOT NULL,     -- bucket start, 'YYYY-MM-DD HH:MM:SS' UTC
+      hostname      TEXT NOT NULL,
+      sampled_hours REAL NOT NULL,     -- how much of the quarter hour we saw
+      total_wh      REAL NOT NULL,     -- CPU + every GPU, summed per node
+      gpu_wh        REAL NOT NULL,     -- the GPU share of total_wh
+      idle_watts    REAL,              -- baseline subtracted (p10, trailing 7 days)
+      idle_wh       REAL NOT NULL,     -- standing cost: min(draw, idle) over time
+      active_wh     REAL NOT NULL,     -- draw above idle
+      attributed_wh REAL NOT NULL,     -- share of active_wh our messages explain
+      PRIMARY KEY (hostname, bucket)
+    );
+    CREATE INDEX IF NOT EXISTS idx_node_energy_15m_bucket ON node_energy_15m(bucket);
+    CREATE TABLE IF NOT EXISTS energy_attribution_15m (
+      bucket        TEXT NOT NULL,
+      hostname      TEXT NOT NULL,
+      model         TEXT NOT NULL,
+      project_id    INTEGER NOT NULL DEFAULT 0,   -- 0: no project
+      harness       TEXT NOT NULL,
+      messages      INTEGER NOT NULL,
+      input_tokens  INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cache_read_tokens  INTEGER NOT NULL,
+      cache_write_tokens INTEGER NOT NULL,
+      weight        REAL NOT NULL,     -- estimated GPU-seconds, the split key
+      active_wh     REAL NOT NULL,     -- this group's share of the bucket's active draw
+      measured      INTEGER NOT NULL,  -- 1 when the node was sampled in this bucket
+      PRIMARY KEY (hostname, bucket, model, project_id, harness)
+    );
+    CREATE INDEX IF NOT EXISTS idx_energy_attribution_15m_bucket ON energy_attribution_15m(bucket);
+  `);
+
   // Alert delivery (ticket 4011 item 7). A rule says which alerts go where;
   // its secrets (Slack/Discord webhook URLs, ntfy tokens, HMAC keys) are NOT
   // here — they live in a 0600 file beside our database (db/alert-delivery).

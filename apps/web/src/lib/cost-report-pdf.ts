@@ -169,6 +169,13 @@ export async function costReportPdf(r: MonthlyCostReport): Promise<Uint8Array> {
     w.y -= 10;
   }
 
+  // Absent from a report filed before ticket 4004, which then renders as it did.
+  if (r.electricityByProject?.length) {
+    w.heading('Electricity our sessions used, by project (inside the electricity lines)');
+    for (const p of r.electricityByProject) w.row(p.project, '', amt(p.usd));
+    w.y -= 10;
+  }
+
   if (r.memo.length) {
     w.heading('Not counted in the total');
     for (const m of r.memo) w.row(m.item, 'memo', amt(m.usd), { sub: m.detail });
