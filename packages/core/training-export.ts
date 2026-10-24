@@ -45,6 +45,7 @@
  */
 import type Database from 'better-sqlite3';
 import { redactForExport } from './pii';
+import { blockTextSql, blockToolInputSql } from './db/block-cold';
 import { isToolCall, isToolResult, isReasoning } from './block-types';
 
 export type ToolErrorPolicy = 'keep' | 'turn' | 'session';
@@ -350,9 +351,11 @@ export function* exportTrainingSet(
       WHERE ${where.join(' AND ')}
       ORDER BY s.id LIMIT ${PAGE}`,
   );
+  // Through the cold reader: with a retention window set, an older block's
+  // text lives in content_blocks_cold and its own columns read NULL.
   const rowsStmt = db.prepare(
-    `SELECT m.id AS message_id, m.type, m.model, cb.block_type, cb.text_content,
-            cb.tool_name, cb.tool_input, cb.tool_use_id, cb.is_error
+    `SELECT m.id AS message_id, m.type, m.model, cb.block_type, ${blockTextSql('cb')} AS text_content,
+            cb.tool_name, ${blockToolInputSql('cb')} AS tool_input, cb.tool_use_id, cb.is_error
        FROM messages m LEFT JOIN content_blocks cb ON cb.message_id = m.id
       WHERE m.session_id = ? AND m.type IN ('user', 'assistant') AND COALESCE(m.is_sidechain, 0) = 0
       ORDER BY m.id, cb.position`,

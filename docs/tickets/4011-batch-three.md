@@ -486,8 +486,9 @@ what was dropped.
   ledger flags them. So upgrading an install with a year of history, or a
   first ingest of an old `~/.claude`, fills `/actions` with flagged history
   and sends nothing. What arrives from then on alerts.
-- Text already moved to the cold store by the retention window is not read
-  by the backfill.
+- ~~Text already moved to the cold store by the retention window is not read
+  by the backfill.~~ Fixed 2026-10-24: the ledger reads through the cold
+  reader (see "Cold readers" below).
 
 **Installs and MCP calls are network.** Already true for `npm i/ci/add`,
 pnpm, yarn, bun, pip, uv, poetry, cargo, go, gem, apt, brew, dnf and docker
@@ -527,3 +528,22 @@ Per fox's decision 2: `CRAP_BUDGET` is now 22115 (GitHub's runner; a local run o
 - **Duplication:** 3680, down to 2002 after folding 23 clones into shared code.
 
 Lint is green (0 errors). From here the two budgets only ratchet down.
+
+## Cold readers (fox's review, 2026-10-24)
+
+Three readers still read `content_blocks.text_content` / `tool_input` directly, so with any retention window set, blocks older than the window read as NULL:
+
+- **Training export** exported those sessions with empty turns, and said nothing.
+- **The session viewer's stored reader** (`db/session-messages.ts`, used for Codex, Gemini CLI, Continue and Aider) showed them blank.
+- **The action ledger** classified their tool calls without input, and never scanned their results for credentials.
+
+All three now go through `blockTextSql` / `blockToolInputSql`. `db/block-cold-readers.test.ts` asks each reader the same question before and after freezing every block, and the answers must match. All three new tests fail on the old code.
+
+The other readers already used the cold reader: logs, active sessions, project full view, rate-limit scan, PII backfill, providence, session naming, and the reasoning and prompt queries. Claude Code's own session viewer streams its JSONL from disk, so retention never touches it.
+
+Also from the same review:
+
+- **Loopback:** `make dev`, `make demo` and the systemd web unit already bind 127.0.0.1, through `apps/web/scripts/serve.mjs`. Rechecked live: `ss` shows `127.0.0.1` only, and the LAN address refuses connections.
+- **Dead export:** `./training` was already removed; `package-exports.test.ts` guards against another.
+- **Budgets:** already 22115 / 2002.
+- **Settings tab strip:** headless Chromium at 320 and 375 px on every tab shows no page-level horizontal scroll; the strip scrolls in place.

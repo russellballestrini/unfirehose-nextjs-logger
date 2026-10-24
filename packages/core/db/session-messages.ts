@@ -9,6 +9,7 @@
  */
 import type { getDb } from './schema';
 import type { UfMessage } from '../session-paths';
+import { blockTextSql, blockToolInputSql } from './block-cold';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,10 +37,13 @@ function block(row: any): any {
 export function storedSessionMessages(db: Db, sessionUuid: string): UfMessage[] {
   const session = db.prepare('SELECT id, harness FROM sessions WHERE session_uuid = ?').get(sessionUuid) as { id: number; harness: string | null } | undefined;
   if (!session) return [];
+  // Block text through the cold reader, so a session past the retention
+  // window reads back whole.
   const rows = db.prepare(
     `SELECT m.id, m.message_uuid, m.parent_uuid, m.type, m.subtype, m.timestamp, m.model, m.is_sidechain,
             m.input_tokens, m.output_tokens, m.cache_read_tokens, m.cache_creation_tokens,
-            cb.block_type, cb.text_content, cb.tool_name, cb.tool_input, cb.tool_use_id, cb.is_error
+            cb.block_type, ${blockTextSql('cb')} AS text_content, cb.tool_name,
+            ${blockToolInputSql('cb')} AS tool_input, cb.tool_use_id, cb.is_error
        FROM messages m LEFT JOIN content_blocks cb ON cb.message_id = m.id
       WHERE m.session_id = ?
       ORDER BY m.timestamp, m.id, cb.position`,

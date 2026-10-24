@@ -11,6 +11,9 @@ const { freezeBatch } = await import('./block-cold');
 const { getThinkingBlocksInWindow, getUserPromptsInWindow, getProjectRecentPrompts } = await import('./ingest-queries');
 const { scanRateLimits } = await import('./rate-limit-scan');
 const { extractProvidenceFromSession } = await import('./ingest-rows');
+const { storedSessionMessages } = await import('./session-messages');
+const { drainLedger, rebuildLedger } = await import('./action-ledger');
+const { exportTrainingSet } = await import('../training-export');
 
 const DAY = 86_400_000;
 const now = Date.now();
@@ -42,6 +45,9 @@ beforeEach(() => {
     block(a, 1, 'text', `Done with module ${i}.`);
     block(a, 2, 'tool_use', null, JSON.stringify({ command: `npm test -- module${i}` }));
   }
+  // A credential a tool printed: the ledger must still see it once cold.
+  const leak = seedMessage(db, sessionId, { type: 'user', uuid: 'leak', timestamp: iso(2 * 3600_000) });
+  block(leak, 0, 'tool_result', 'export KEY=' + 'sk-ant-' + 'api03-' + 'Zq8xW2vB7nM4kL9pR3tY6uE1oA5sD0fG');
   const err = seedMessage(db, sessionId, { type: 'user', uuid: 'err', timestamp: iso(3600_000) });
   block(err, 0, 'tool_result', 'API Error: 529 Overloaded. This is a server-side issue.');
 });
@@ -73,5 +79,37 @@ describe('readers of cold block text', () => {
     extractProvidenceFromSession(db, sessionId, '/test/path', 'claude-code');
     expect(count().n).toBe(before.length);
     expect(answers()).toEqual(before);
+  });
+
+  it('a training export reads the same lines from cold text', () => {
+    // Before 2026-10-24 it read cb.text_content directly: any retention
+    // window exported older sessions with empty turns, and said nothing.
+    const lines = () => [...exportTrainingSet(db, {})].map((e) => JSON.stringify(e));
+    const before = lines();
+    expect(before.length).toBeGreaterThan(0);
+    expect(before.join('')).toContain('refactor module 3');
+    freezeAll();
+    expect(lines()).toEqual(before);
+  });
+
+  it('the session viewer reads a cold session back whole', () => {
+    const before = storedSessionMessages(db, 'sess-1');
+    expect(JSON.stringify(before)).toContain('Done with module 5.');
+    freezeAll();
+    expect(storedSessionMessages(db, 'sess-1')).toEqual(before);
+  });
+
+  it('the action ledger classifies cold tool calls and finds a credential in a cold result', () => {
+    const ledger = () => db.prepare('SELECT block_id, kind, command, flags FROM action_ledger ORDER BY block_id').all();
+    const sightings = () => db.prepare('SELECT block_id, kinds FROM secret_sightings ORDER BY block_id').all();
+    drainLedger(db);
+    const before = { ledger: ledger(), sightings: sightings() };
+    expect(before.ledger.length).toBeGreaterThan(0);
+    expect(before.sightings).toHaveLength(1);
+    freezeAll();
+    db.exec('DELETE FROM secret_sightings');
+    rebuildLedger(db);
+    drainLedger(db);
+    expect({ ledger: ledger(), sightings: sightings() }).toEqual(before);
   });
 });

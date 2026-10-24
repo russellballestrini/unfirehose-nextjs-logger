@@ -25,6 +25,7 @@
 
 import type Database from 'better-sqlite3';
 import { getDb } from './schema';
+import { blockTextSql, blockToolInputSql } from './block-cold';
 import { TOOL_CALL_SQL, TOOL_RESULT_SQL } from '../block-types';
 import { classifyToolCall, secretKindsInInput, LEDGER_RULES_VERSION, ACTION_FLAGS, ACTION_KINDS, type ActionFlag, type ActionKind } from '../action-ledger';
 import { findSecrets, mayHoldSecret } from '../pii';
@@ -117,7 +118,7 @@ function classifyRange(db: Database.Database, lo: number, hi: number, alert: boo
   const out: RangeResult = { scanned: 0, recorded: 0, secrets: 0, alerts: 0 };
   if (hi <= lo) return out;
   const rows = db.prepare(`
-    SELECT ${BLOCK_COLUMNS}, cb.tool_name, cb.tool_input
+    SELECT ${BLOCK_COLUMNS}, cb.tool_name, ${blockToolInputSql('cb')} AS tool_input
       ${BLOCK_JOINS}
      WHERE cb.id > ? AND cb.id <= ?
        AND cb.block_type ${TOOL_CALL_SQL}
@@ -157,14 +158,14 @@ function classifyRange(db: Database.Database, lo: number, hi: number, alert: boo
   // Tool results: streamed, since their text is most of a window's bytes,
   // and only what passes the prefilter is matched in full.
   const results = db.prepare(`
-    SELECT ${BLOCK_COLUMNS}, NULL AS tool_name, NULL AS tool_input, cb.text_content
+    SELECT ${BLOCK_COLUMNS}, NULL AS tool_name, NULL AS tool_input, ${blockTextSql('cb')} AS text_content
       ${BLOCK_JOINS}
      WHERE cb.id > ? AND cb.id <= ?
        AND cb.block_type ${TOOL_RESULT_SQL}
-       AND cb.text_content IS NOT NULL
+       AND (cb.cold = 1 OR cb.text_content IS NOT NULL)
   `);
-  for (const r of results.iterate(lo, hi) as IterableIterator<BlockRow & { text_content: string }>) {
-    if (!mayHoldSecret(r.text_content)) continue;
+  for (const r of results.iterate(lo, hi) as IterableIterator<BlockRow & { text_content: string | null }>) {
+    if (!r.text_content || !mayHoldSecret(r.text_content)) continue;
     const kinds = [...new Set(findSecrets(r.text_content).map((h) => h.kind))];
     if (kinds.length) sightings.push(sightingOf(r, 'result', kinds));
   }
