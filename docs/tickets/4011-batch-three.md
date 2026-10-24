@@ -432,3 +432,89 @@ Decisions to review:
   the main model.
 - `/run` and `/add` stay as prompt text and are not turned into tool calls:
   the person ran them, not the agent, so the action ledger does not count them.
+
+## Outcome: fox's decisions on items 6 and 7 (2026-10-24)
+
+Fox decided: run the secret detectors at ingest and alert; installs and MCP
+calls are network actions ("anything that leaves the box is an action the
+owner should be able to see"); keep dropping over the hourly cap, but show
+what was dropped.
+
+**Credentials seen at ingest raise an alert.**
+- The ledger scanner (`db/action-ledger.ts`) now reads tool results in the
+  same block-id windows as tool calls. `findSecrets` runs on every result
+  behind one case-blind prefilter (`mayHoldSecret`, a superset of every
+  pattern, held to each one by `pii-secrets.test.ts`), so most outputs cost
+  one regex scan. A call flagged `secrets-in-diff` or `secret-in-command`,
+  or a result holding a credential, becomes a row in `secret_sightings`
+  (`db/secret-alerts.ts`).
+- The ledger gains a flag, `secret-in-output`, on the call whose output held
+  one, applied whichever of the two blocks is read first (the backfill walks
+  newest first). A credential handed to a network or MCP tool is now
+  `secret-in-command` ("sends a credential (private_key) to MCP server
+  linear"). `LEDGER_RULES_VERSION` is 2, so history is re-classified.
+- A new sighting raises `alerts` row `alert_type = 'secret_exposed'`
+  (`metric = 'secret'`, `window_minutes = 0`, `actual_value` = times seen in
+  that session, `project_name` = the encoded project). Its `details` name
+  the kinds, call or result and which tool, the session UUID, project and
+  display name, harness and the line's time. Never the value, a fragment of
+  it, the command or the output: a test reads every row we wrote and finds
+  no trace of the fixture key. Ingest adds these to `alertsTriggered`, and
+  the worker delivers at once, as it does for usage alerts; the worker's
+  ledger tick does the same when its head scan raises one.
+- Every destination says it in words (`secret-alert.ts`, shared by delivery,
+  the Usage page and the alert page): "unfirehose: Anthropic key seen in
+  api", with Kind, Where, Project, Session and Seen at fields on Slack and
+  Discord, ntfy priority 5. Delivery rules gain a "Credentials seen" scope
+  (`match.metric = 'secret'`); a project rule now matches an alert by
+  encoded or display name, which also makes the per-project filter useful.
+  The Usage page shows credential alerts in their own banner and list rows;
+  `/usage/alert/<id>` shows kind, where, session, time and links to the tool
+  call and to the session's flagged actions.
+
+**Idempotent, and history does not spam.**
+- `secret_sightings.block_id` is UNIQUE: a re-ingest, a backfill pass or a
+  ledger rebuild meets the same line and records and raises nothing. The
+  table survives a rules bump (only `action_ledger` is emptied).
+- One alert per session and kind. Later sightings of that kind in that
+  session join it and bump its count; delivery sends once. A kind new to the
+  session raises its own. Clearing the alert lets the next sighting raise.
+- Only the head scan (the one at the end of an ingest pass) may raise, and
+  only for lines whose own timestamp is at or after `secret_alerts_since`,
+  a setting written the first time the scanner runs on a database. The
+  backfill never raises; it records sightings with `backfilled = 1` and the
+  ledger flags them. So upgrading an install with a year of history, or a
+  first ingest of an old `~/.claude`, fills `/actions` with flagged history
+  and sends nothing. What arrives from then on alerts.
+- Text already moved to the cold store by the retention window is not read
+  by the backfill.
+
+**Installs and MCP calls are network.** Already true for `npm i/ci/add`,
+pnpm, yarn, bun, pip, uv, poetry, cargo, go, gem, apt, brew, dnf and docker
+pull/push, and for every `mcp__*` tool. Added: `python -m pip install`,
+pipx, uvx, pnpx, conda/mamba/micromamba, composer, bundle, dotnet add/restore,
+deno add/install, `npm exec`/`npx`-style `npm x`, bare `yarn`, and options
+before the subcommand (`npm --prefix web ci`, `pnpm --filter web install`).
+`npm run`, `yarn test`, `cargo test`, `python -m pytest` stay `shell`.
+
+**Dropped over the cap, shown per rule.** Still dropped, never queued.
+`GET /api/alerts/delivery` rules now carry `dropped_24h` and
+`last_dropped_at`, and `failed_24h` no longer counts drops (it used to lump
+them in). Settings → Alerts shows under each rule "3 dropped in the last
+24 h over this rule's 10/hour cap, last 5 minutes ago. Dropped alerts are
+not sent later; raise the cap if these mattered", or "0 dropped …". Why
+24 h rather than "since last success": it sits beside the sent and failed
+counts that already use 24 h, it is long enough to show a cap set too low
+across a busy day, and "since last success" reads as zero right after one
+send even when ten were just dropped. Attempts are kept 30 days, so the
+window could grow without a schema change.
+
+Decisions to review:
+- Secret alerts start from first run, not from ticket date: an install that
+  upgrades a week late alerts from then. A backfill never alerts, even for a
+  post-cutoff line found only by an improved detector after a rules bump.
+- `secret-in-output` treats every credential a tool printed as exposed,
+  since the session went to the model provider. A test fixture key in a
+  repo's own tests will alert once per session; the ledger shows which.
+- No off switch for secret alerts beyond delivery rules (a rule that does
+  not match `secret`). Say if one is wanted.
