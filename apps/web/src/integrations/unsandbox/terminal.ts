@@ -14,6 +14,11 @@ export const unsandboxTerminal: TerminalProvider = {
     post('/api/unsandbox/shell', { session_id: sessionId, keys }).catch(() => {});
   },
 
+  // Known defect, left as is (fox, 2026-10-24): this sends DELETE, but our
+  // proxy only answers GET and POST (kill-session is a POST action), so a
+  // disconnect has never ended the container. Not fixed because unsandbox is
+  // leaving this app; a fix would also start ending paid containers on
+  // every disconnect.
   kill(sessionId) {
     post('/api/unsandbox', { action: 'kill-session', sessionId }, 'DELETE').catch(() => {});
   },

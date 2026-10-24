@@ -71,7 +71,6 @@
     "./action-ledger": "./action-ledger.ts",
     "./db/action-ledger": "./db/action-ledger.ts",
     "./apmonitor-adapter": "./apmonitor-adapter.ts",
-    "./training": "./training.ts",
     "./project-name": "./project-name.ts",
     "./project-rollup": "./project-rollup.ts",
     "./harness-models": "./harness-models.ts",
