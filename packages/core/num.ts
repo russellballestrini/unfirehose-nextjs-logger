@@ -22,3 +22,12 @@ export const int = (v: string | undefined): number => {
   const n = parseInt(v ?? '', 10);
   return Number.isFinite(n) ? n : 0;
 };
+
+/**
+ * The total of one field over a list, a missing value counting as zero —
+ * the `reduce((s, n) => s + (n.x ?? 0), 0)` every fleet and guest summary
+ * wrote out by hand.
+ */
+export function sumOf<T>(items: readonly T[], pick: (item: T) => number | null | undefined): number {
+  return items.reduce((s, item) => s + (pick(item) ?? 0), 0);
+}

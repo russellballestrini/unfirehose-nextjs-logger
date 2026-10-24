@@ -1,4 +1,5 @@
 import { round } from './node-probe-sections';
+import { unescapeMachineName } from './machine-name';
 
 /**
  * Container parsers for our node probe: `docker ps`, `docker inspect`,
@@ -341,21 +342,15 @@ export interface CgroupContainer {
   rootComm: string;
 }
 
+/** Decoded in its own module so our client Containers tab shares it; still exported here for node-probe. */
+export { unescapeMachineName };
+
 /**
  * Containers found in the cgroup filesystem: `runtime|id|pid|comm` per line.
  * docker rows carry a 64-hex id; lxc/LXD and systemd-nspawn carry a human
  * machine name. The older two-field `id|pid|comm` shape (docker only) still
  * parses, read as runtime docker.
  */
-/**
- * systemd escapes a machine unit name -- a hyphen becomes \x2d, so a libvirt
- * guest tracked by machined reads "qemu\x2d1\x2dvm". Decode for display; the
- * raw form stays the cgroup key.
- */
-export function unescapeMachineName(v: string): string {
-  return v.replace(/\\x([0-9a-fA-F]{2})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)));
-}
-
 export function parseDockerCgroup(raw: string): CgroupContainer[] {
   if (!raw || raw === 'none') return [];
   const out: CgroupContainer[] = [];
