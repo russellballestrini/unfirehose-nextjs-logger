@@ -28,47 +28,14 @@ import { createHash } from 'crypto';
 import path from 'path';
 import { witnessHash } from '../provenance';
 import { QUIESCENT_MS, quiescent } from './provenance-ingest';
+import type { RewriteRow, RewriteSummary } from '../rewrite-rows';
 
 /** Longest line body the shadow and a rewrite row keep verbatim. */
 export const SHADOW_TEXT_CAP = 4096;
 /** A shadow whose file has been quiet this long belongs to the witness, and is dropped. */
 export const SHADOW_PRUNE_MS = 60 * 60_000;
 
-export type RewriteKind = 'rewritten' | 'truncated';
-
-export interface RewriteRow {
-  id: number;
-  session_uuid: string;
-  project: string | null;
-  harness: string | null;
-  seq: number;
-  kind: RewriteKind;
-  observed_at: string;
-  file_lines: number;
-  tail_distance: number;
-  before_hash: string;
-  after_hash: string | null;
-  before_text: string;
-  after_text: string | null;
-  before_len: number;
-  after_len: number | null;
-  truncated: boolean;
-  changed_keys: string[];
-  content_changed: boolean;
-  before_type: string | null;
-  after_type: string | null;
-}
-
-export interface RewriteSummary {
-  total: number;
-  sessions: number;
-  byHarness: Record<string, number>;
-  maxTailDistance: number;
-  contentChanged: number;
-  metadataOnly: number;
-  truncations: number;
-  byChangedKey: Record<string, number>;
-}
+export type { RewriteKind, RewriteRow, RewriteSummary } from '../rewrite-rows';
 
 export function ensureRewriteTables(db: Database.Database) {
   db.exec(`

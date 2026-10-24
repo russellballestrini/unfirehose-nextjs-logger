@@ -21,45 +21,16 @@ import Link from 'next/link';
 import { formatTimestamp } from '@unturf/unfirehose/format';
 import { tryPrettyJson } from '@unturf/unfirehose-ui/json-output';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
+import type { RewriteRow, RewriteSummary as CoreSummary } from '@unturf/unfirehose/rewrite-rows';
 
 export const REWRITES_POLL_MS = 10_000;
 /** The API caps `before_text` / `after_text` at this many chars. */
 export const REWRITE_TEXT_CAP = 4096;
 
-export interface RewriteRow {
-  id: number;
-  session_uuid: string;
-  /** Null when the ingester could not tie the journal to a project or harness. */
-  project: string | null;
-  harness: string | null;
-  seq: number;
-  kind: 'rewritten' | 'truncated';
-  observed_at: string;
-  file_lines: number;
-  tail_distance: number;
-  before_hash: string;
-  after_hash: string | null;
-  before_text: string;
-  after_text: string | null;
-  before_len: number;
-  after_len: number | null;
-  truncated: boolean;
-  changed_keys: string[];
-  content_changed: boolean;
-  before_type: string | null;
-  after_type: string | null;
-}
+export type { RewriteRow };
 
-export interface RewriteSummary {
-  total: number;
-  sessions: number;
-  byHarness: Record<string, number>;
-  maxTailDistance: number;
-  contentChanged: number;
-  metadataOnly: number;
-  truncations?: number;
-  byChangedKey: Record<string, number>;
-}
+/** `truncations` is optional: an older server sends a summary without it. */
+export type RewriteSummary = Omit<CoreSummary, 'truncations'> & { truncations?: number };
 
 export interface RewritesResponse {
   summary: RewriteSummary;

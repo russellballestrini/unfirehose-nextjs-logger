@@ -34,6 +34,7 @@
     "./db/session-facts": "./db/session-facts.ts",
     "./db/session-messages": "./db/session-messages.ts",
     "./block-types": "./block-types.ts",
+    "./rewrite-rows": "./rewrite-rows.ts",
     "./db/migrate": "./db/migrate.ts",
     "./db/pragmas": "./db/pragmas.ts",
     "./db/block-cold": "./db/block-cold.ts",
