@@ -42,25 +42,17 @@ export function OverviewTab({ totals, modelBreakdown, cacheHitPct, vllmModels, e
     { name: 'Cache Write', value: totalCacheWriteCost, color: TOKEN_TYPE_COLORS.cacheWrite },
   ];
 
-  // Data for model donut chart (by total tokens)
-  const modelPie = modelBreakdown
-    .filter((m: any) => m.totalTokens > 0)
+  // Data for the model donuts: one by total tokens, one by cost
+  const modelSlices = (key: 'totalTokens' | 'costUSD') => modelBreakdown
+    .filter((m: any) => m[key] > 0)
     .map((m: any) => ({
       name: shortModel(m.model),
       fullName: m.model,
-      value: m.totalTokens,
+      value: m[key],
       color: getModelColor(m.model),
     }));
-
-  // Data for model cost donut
-  const costPie = modelBreakdown
-    .filter((m: any) => m.costUSD > 0)
-    .map((m: any) => ({
-      name: shortModel(m.model),
-      fullName: m.model,
-      value: m.costUSD,
-      color: getModelColor(m.model),
-    }));
+  const modelPie = modelSlices('totalTokens');
+  const costPie = modelSlices('costUSD');
 
   return (
     <>

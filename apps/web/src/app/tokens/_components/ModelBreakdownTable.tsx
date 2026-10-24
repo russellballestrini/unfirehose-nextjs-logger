@@ -1,7 +1,7 @@
 import { getModelColor } from '@unturf/unfirehose-ui/modelColor';
 import { formatTokens } from '@unturf/unfirehose/format';
-import { TOKEN_TYPE_COLORS } from '@unturf/unfirehose-ui/TokenSplit';
 import { shortModel, formatCost } from '../_lib';
+import { SplitHeaders, SplitCells, Swatch } from './SplitCells';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -41,16 +41,8 @@ export function ModelBreakdownTable({ modelBreakdown, totals }: {
             </tr>
             <tr className="text-[var(--color-muted)] text-left border-b border-[var(--color-border)]">
               <th className="pb-2"></th>
-              <th className="pb-2 text-right">Input</th>
-              <th className="pb-2 text-right">Output</th>
-              <th className="pb-2 text-right">Cache Read</th>
-              <th className="pb-2 text-right">Cache Write</th>
-              <th className="pb-2 text-right">Total</th>
-              <th className="pb-2 text-right">Input</th>
-              <th className="pb-2 text-right">Output</th>
-              <th className="pb-2 text-right">Cache Read</th>
-              <th className="pb-2 text-right">Cache Write</th>
-              <th className="pb-2 text-right">Total</th>
+              <SplitHeaders />
+              <SplitHeaders />
             </tr>
           </thead>
           <tbody>
@@ -63,56 +55,22 @@ export function ModelBreakdownTable({ modelBreakdown, totals }: {
                   className="border-b border-[var(--color-border)]"
                 >
                   <td className="py-2 flex items-center gap-2">
-                    <span
-                      className="inline-block w-2 h-2 rounded-full shrink-0"
-                      style={{ background: getModelColor(m.model) }}
-                    />
+                    <Swatch color={getModelColor(m.model)} />
                     {shortModel(m.model)}
                   </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
-                    {formatTokens(m.inputTokens)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
-                    {formatTokens(m.outputTokens)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
-                    {formatTokens(m.cacheReadTokens)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
-                    {formatTokens(m.cacheCreationTokens)}
-                  </td>
-                  <td className="py-2 text-right font-bold">
-                    {formatTokens(m.totalTokens)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.input }}>
-                    {formatCost(m.inputCostUSD ?? 0)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.output }}>
-                    {formatCost(m.outputCostUSD ?? 0)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheRead }}>
-                    {formatCost(m.cacheReadCostUSD ?? 0)}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKEN_TYPE_COLORS.cacheWrite }}>
-                    {formatCost(m.cacheWriteCostUSD ?? 0)}
-                  </td>
-                  <td className="py-2 text-right text-[var(--color-accent)] font-bold">
-                    {formatCost(m.costUSD)}
-                  </td>
+                  <SplitCells row={m} />
+                  <SplitCells row={m} cost />
                 </tr>
               ))}
             {/* Totals row */}
             <tr className="border-t-2 border-[var(--color-border)] font-bold">
               <td className="py-2">Total</td>
-              <td className="py-2 text-right">{formatTokens(totalInput)}</td>
-              <td className="py-2 text-right">{formatTokens(totalOutput)}</td>
-              <td className="py-2 text-right">{formatTokens(totalCacheRead)}</td>
-              <td className="py-2 text-right">{formatTokens(totalCacheWrite)}</td>
-              <td className="py-2 text-right">{formatTokens(totalTokens)}</td>
-              <td className="py-2 text-right">{formatCost(totalInputCost)}</td>
-              <td className="py-2 text-right">{formatCost(totalOutputCost)}</td>
-              <td className="py-2 text-right">{formatCost(totalCacheReadCost)}</td>
-              <td className="py-2 text-right">{formatCost(totalCacheWriteCost)}</td>
+              {[totalInput, totalOutput, totalCacheRead, totalCacheWrite, totalTokens].map((n, i) => (
+                <td key={i} className="py-2 text-right">{formatTokens(n)}</td>
+              ))}
+              {[totalInputCost, totalOutputCost, totalCacheReadCost, totalCacheWriteCost].map((n, i) => (
+                <td key={i} className="py-2 text-right">{formatCost(n)}</td>
+              ))}
               <td className="py-2 text-right text-[var(--color-accent)]">{formatCost(totalCost)}</td>
             </tr>
           </tbody>
