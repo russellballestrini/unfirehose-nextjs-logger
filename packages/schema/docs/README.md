@@ -29,12 +29,12 @@ Native format documentation and field mapping for each harness:
 | [Claude Code](./harnesses/claude-code.md) | Anthropic | Reference impl | Adapter: identity |
 | [Arborist](./harnesses/arborist.md) | Local (Hermes / multi-provider) | Native unfirehose/1.0 | Adapter: none needed |
 | [Fetch](./harnesses/fetch.md) | Anthropic | Supported | Adapter: identity |
-| [Gemini CLI](./harnesses/gemini-cli.md) | Google | Documented | Adapter: planned |
+| [Gemini CLI](./harnesses/gemini-cli.md) | Google | Supported | Adapter: live (`gemini-adapter.ts`) |
 | [uncloseai-cli](./harnesses/uncloseai-cli.md) | Local (Hermes) | Supported | Adapter: live |
-| [OpenAI Codex CLI](./harnesses/openai-codex.md) | OpenAI | Documented | Adapter: planned |
+| [OpenAI Codex CLI](./harnesses/openai-codex.md) | OpenAI | Supported | Adapter: live (`codex-adapter.ts`) |
 | [Aider](./harnesses/aider.md) | Multi-provider | Supported | Adapter: live (`aider-adapter.ts`) |
 | [Cursor](./harnesses/cursor.md) | Multi-provider | Researched | Adapter: planned |
-| [Continue.dev](./harnesses/continue-dev.md) | Multi-provider | Researched | Adapter: planned |
+| [Continue.dev](./harnesses/continue-dev.md) | Multi-provider | Supported | Adapter: live (`continue-adapter.ts`) |
 | [Hermes Agent](./harnesses/hermes-agent.md) | Local (Hermes) | Documented | Adapter: planned |
 | [Open Code](./harnesses/opencode.md) | Multi-provider | Researched | Adapter: planned |
 | [Ollama](./harnesses/ollama.md) | Local | Researched | Adapter: planned |

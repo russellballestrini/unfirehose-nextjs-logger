@@ -68,11 +68,11 @@ The `docs/` directory contains the full spec:
 | [Claude Code](docs/harnesses/claude-code.md) | Anthropic | Reference implementation |
 | [Fetch](docs/harnesses/fetch.md) | Anthropic | Supported |
 | [uncloseai-cli](docs/harnesses/uncloseai-cli.md) | Local (Hermes) | Supported |
-| [Gemini CLI](docs/harnesses/gemini-cli.md) | Google | Documented |
-| [OpenAI Codex](docs/harnesses/openai-codex.md) | OpenAI | Documented |
+| [Gemini CLI](docs/harnesses/gemini-cli.md) | Google | Supported |
+| [OpenAI Codex](docs/harnesses/openai-codex.md) | OpenAI | Supported |
 | [Aider](docs/harnesses/aider.md) | Multi-provider | Supported |
 | [Cursor](docs/harnesses/cursor.md) | Multi-provider | Researched |
-| [Continue.dev](docs/harnesses/continue-dev.md) | Multi-provider | Researched |
+| [Continue.dev](docs/harnesses/continue-dev.md) | Multi-provider | Supported |
 | [Hermes Agent](docs/harnesses/hermes-agent.md) | Local (Hermes) | Documented |
 | [Open Code](docs/harnesses/opencode.md) | Multi-provider | Researched |
 | [Ollama](docs/harnesses/ollama.md) | Local | Researched |
@@ -113,7 +113,7 @@ Three tiers of adoption, one source of truth each:
 |------|----------|---------|-----------------|
 | 1 — Native | Harness writes unfirehose/1.0 as its only format | agnt, uncloseai-cli, arborist, orchestra (Go SDK) | chained + witnessed |
 | 2 — Extension | Extension hooks harness lifecycle, writes unfirehose/1.0 | pi (`extensions/pi-unfirehose.ts`) | chained + witnessed |
-| 3 — Adapter | Unfirehose reads harness native format, transforms on ingest | Claude Code, Cursor, aider | witnessed only, once the file is quiet |
+| 3 — Adapter | Unfirehose reads harness native format, transforms on ingest | Claude Code, Codex, Gemini CLI, Continue, Aider | witnessed only, once the file is quiet |
 
 To adopt unfirehose/1.0 in a new harness:
 
