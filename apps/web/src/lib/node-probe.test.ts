@@ -899,7 +899,7 @@ describe('parseProbeOutput carries the guests', () => {
     ].join(''), 'guile.foxhop.net');
     expect(node.vms).toHaveLength(3);
     expect(node.vms[0]).toMatchObject({ name: '11_buildunturfcom', containerId: 'qemu\\x2d38\\x2d11_buildunturfcom' });
-    expect(node.containers.map((c: any) => c.name)).toContain('qemu-38-11_buildunturfcom');
+    expect(node.containers.map((c) => c.name)).toContain('qemu-38-11_buildunturfcom');
   });
   it('gives an older probe, or a host without guests, an empty list', () => {
     expect(parseProbeOutput(section('HOSTNAME', 'cammy') + section('END', ''), 'cammy').vms).toEqual([]);

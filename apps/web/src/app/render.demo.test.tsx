@@ -48,9 +48,10 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
 }));
 
-let dashboard: any;
-let tokens: any;
-let projects: any[];
+type Payload<F extends (...a: never[]) => { payload: unknown } | null> = NonNullable<ReturnType<F>>['payload'];
+let dashboard: Payload<typeof import('@unturf/unfirehose/dashboard').readDashboard>;
+let tokens: Payload<typeof import('@unturf/unfirehose/tokens').readTokensPayload>;
+let projects: Payload<typeof import('@unturf/unfirehose/projects-list').readProjectList>;
 
 beforeAll(async () => {
   const { seedDemo, buildDemoPayloads } = await import('@unturf/unfirehose/demo-seed');
