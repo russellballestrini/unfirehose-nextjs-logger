@@ -1,5 +1,6 @@
 'use client';
 
+import { postSetting } from '@/lib/settings-write';
 import { useHashTab } from '@/lib/use-hash-tab';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
@@ -441,11 +442,7 @@ export default function NodeDetailPage() {
   }, [settings, host]);
 
   const saveSetting = (key: string, value: string) => {
-    fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key, value }),
-    });
+    postSetting(key, value);
   };
 
   // Find this node in mesh data

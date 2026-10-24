@@ -1,5 +1,6 @@
 'use client';
 
+import { writeSetting } from '@/lib/settings-write';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
 import { useCallback, useMemo, useEffect, useRef } from 'react';
@@ -89,8 +90,7 @@ export default function PermacomputerPage() {
   const saveNodeEcon = useCallback(async (hostname: string, econ: NodeEcon) => {
     const key = nodeEconKey(hostname);
     const value = JSON.stringify(econ);
-    mutateSettings((prev: any) => ({ ...prev, [key]: value }), { revalidate: false });
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key, value }) });
+    await writeSetting(mutateSettings, key, value);
   }, [mutateSettings]);
 
   // Auto-apply GeoIP on first load for nodes without saved econ
@@ -150,8 +150,7 @@ export default function PermacomputerPage() {
     const excluded = parseExcludedHosts(settings);
     excluded.add(hostname);
     const value = JSON.stringify([...excluded]);
-    mutateSettings((prev: any) => ({ ...prev, [EXCLUDED_HOSTS_KEY]: value }), { revalidate: false });
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: EXCLUDED_HOSTS_KEY, value }) });
+    await writeSetting(mutateSettings, EXCLUDED_HOSTS_KEY, value);
   }, [settings, mutateSettings]);
 
   const geoipNodes: any[] = useMemo(() => geoipData?.nodes ?? [], [geoipData]);

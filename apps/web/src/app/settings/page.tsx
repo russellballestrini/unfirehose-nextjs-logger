@@ -1,5 +1,6 @@
 'use client';
 
+import { writeSetting } from '@/lib/settings-write';
 import { useHashTab } from '@/lib/use-hash-tab';
 import { HarnessHealth } from './HarnessHealth';
 import { AlertDelivery } from './AlertDelivery';
@@ -51,12 +52,7 @@ export default function SettingsPage() {
     async (key: string, value: string) => {
       setSaving(true);
       // Optimistic update — merge into SWR cache without refetch to avoid resetting inputs
-      mutate((prev: Record<string, string> | undefined) => ({ ...prev, [key]: value }), { revalidate: false });
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set', key, value }),
-      });
+      await writeSetting(mutate, key, value);
       setSaving(false);
       showToast('Saved');
     },

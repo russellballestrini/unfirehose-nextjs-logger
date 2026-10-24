@@ -5,6 +5,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { writeSetting } from '@/lib/settings-write';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -13,6 +14,26 @@ const SETTINGS_KEYS = {
   unsandboxSecretKey: 'unsandbox_secret_key',
   unsandboxEnabled: 'unsandbox_enabled',
 };
+
+/**
+ * One of our two key fields. Saves, trimmed, on blur or Enter when changed,
+ * and tells password managers to keep out of it.
+ */
+function KeyInput({ type, value, placeholder, width, onSave }: {
+  type: string;
+  value: string;
+  placeholder: string;
+  width: string;
+  onSave: (value: string) => void;
+}) {
+  return (
+    <input type={type} defaultValue={value} placeholder={placeholder}
+      className={`${width} bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono`}
+      autoComplete="off" data-1p-ignore data-lpignore="true" data-form-type="other"
+      onBlur={(e) => { if (e.target.value !== value) onSave(e.target.value.trim()); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+  );
+}
 
 // ============================================================
 // Unsandbox Panel
@@ -36,8 +57,7 @@ export function UnsandboxPanel() {
   const enabled = settings?.[SETTINGS_KEYS.unsandboxEnabled] === 'true';
 
   const saveSetting = async (key: string, value: string) => {
-    mutateSettings((prev: Record<string, string> | undefined) => ({ ...prev, [key]: value }), { revalidate: false });
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key, value }) });
+    await writeSetting(mutateSettings, key, value);
     mutateStatus();
   };
 
@@ -89,20 +109,14 @@ export function UnsandboxPanel() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-base text-[var(--color-muted)] block mb-1">Public Key</label>
-          <input type="text" defaultValue={publicKey} placeholder="unsb-pk-xxxx-xxxx-xxxx-xxxx"
-            className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
-            autoComplete="off" data-1p-ignore data-lpignore="true" data-form-type="other"
-            onBlur={(e) => { if (e.target.value !== publicKey) saveSetting(SETTINGS_KEYS.unsandboxPublicKey, e.target.value.trim()); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+          <KeyInput type="text" value={publicKey} placeholder="unsb-pk-xxxx-xxxx-xxxx-xxxx" width="w-full"
+            onSave={(v) => saveSetting(SETTINGS_KEYS.unsandboxPublicKey, v)} />
         </div>
         <div>
           <label className="text-base text-[var(--color-muted)] block mb-1">Secret Key</label>
           <div className="flex gap-2">
-            <input type={showSecret ? 'text' : 'password'} defaultValue={secretKey} placeholder="unsb-sk-xxxx-xxxx-xxxx-xxxx"
-              className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base font-mono"
-              autoComplete="off" data-1p-ignore data-lpignore="true" data-form-type="other"
-              onBlur={(e) => { if (e.target.value !== secretKey) saveSetting(SETTINGS_KEYS.unsandboxSecretKey, e.target.value.trim()); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+            <KeyInput type={showSecret ? 'text' : 'password'} value={secretKey} placeholder="unsb-sk-xxxx-xxxx-xxxx-xxxx" width="flex-1"
+              onSave={(v) => saveSetting(SETTINGS_KEYS.unsandboxSecretKey, v)} />
             <button onClick={() => setShowSecret(!showSecret)}
               className="px-2 text-base text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors cursor-pointer">
               {showSecret ? 'hide' : 'show'}
