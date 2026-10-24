@@ -101,8 +101,14 @@ FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d
 # coreutils first — the reason this file is not plain busybox. See the header.
 RUN apk add --no-cache coreutils bash openssh-client git curl ca-certificates tmux docker-cli procps lsblk
 
+# 0.0.0.0 inside the container, or the host could not reach it; who else can
+# is the port mapping's call (compose publishes 127.0.0.1:3000:3000).
+# UNFIREHOSE_BOUND_HOST and UNFIREHOSE_CONTAINER tell Settings → Phone so,
+# instead of drawing a QR for an address only the container has.
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
+    UNFIREHOSE_BOUND_HOST=0.0.0.0 \
+    UNFIREHOSE_CONTAINER=1 \
     PORT=3000 \
     NODE_OPTIONS=--enable-source-maps
 

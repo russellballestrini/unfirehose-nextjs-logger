@@ -122,7 +122,7 @@ vitals:
 vitals-prod:
 	@cd apps/web && npx next build >/dev/null
 	@PORT=3100 scripts/perf/prod-server.sh start
-	@node scripts/perf/vitals.mjs --base http://localhost:3100 --runs 5 --pick min --wait-load 600 --json reports/vitals-prod.json $(ARGS); \
+	@node scripts/perf/vitals.mjs --base http://127.0.0.1:3100 --runs 5 --pick min --wait-load 600 --json reports/vitals-prod.json $(ARGS); \
 	  rc=$$?; PORT=3100 scripts/perf/prod-server.sh stop >/dev/null; exit $$rc
 
 quality-gate: coverage-check
@@ -251,6 +251,9 @@ vacuum:
 
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
+# Listens on 127.0.0.1 only: apps/web's `npm run dev` goes through
+# scripts/serve.mjs, which adds `-H`. Settings → Phone (or UNFIREHOSE_HOST)
+# opens it to the network from the next start.
 dev:
 	@systemctl --user is-active --quiet unfirehose-worker 2>/dev/null && { \
 	  echo "unfirehose-worker.service is active; two workers would double-ingest. make service-stop first."; exit 1; } || true
@@ -260,7 +263,8 @@ dev:
 # nothing of ours touched: scripts/demo.ts seeds ~/.unfirehose-demo fresh
 # (two projects, three harnesses, todos, an alert, one mesh node; every
 # model synthetic, so every cost reads $0), then our web app serves it on
-# :3010, beside a real stack on :3000 if one is running. No worker: the
+# 127.0.0.1:3010, beside a real stack on :3000 if one is running (its Phone
+# opt-in is the demo dir's own web-bind.json). No worker: the
 # payloads it would build are built by the seed. HOME points at an empty
 # home inside the demo dir and UNFIREHOSE_HARNESSES=none, so even an
 # on-demand ingest (the usage page asks for one) reads no real ~/.claude.
@@ -268,9 +272,9 @@ dev:
 demo:
 	UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo npx tsx scripts/demo.ts
 	@echo ""
-	@echo "unfirehose demo: http://localhost:3010   (data: $(HOME)/.unfirehose-demo, Ctrl-C to stop)"
+	@echo "unfirehose demo: http://127.0.0.1:3010   (data: $(HOME)/.unfirehose-demo, Ctrl-C to stop)"
 	@echo ""
-	cd apps/web && HOME=$(HOME)/.unfirehose-demo/home UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo UNFIREHOSE_DB_PATH=$(HOME)/.unfirehose-demo/unfirehose.db UNFIREHOSE_HARNESSES=none NODE_OPTIONS=--max-old-space-size=4096 npx next dev -p 3010
+	cd apps/web && HOME=$(HOME)/.unfirehose-demo/home UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo UNFIREHOSE_DB_PATH=$(HOME)/.unfirehose-demo/unfirehose.db UNFIREHOSE_HARNESSES=none NODE_OPTIONS=--max-old-space-size=4096 node scripts/serve.mjs dev -p 3010
 
 # ---------------------------------------------------------------------------
 # Run as systemd USER units — respawn on crash, no root.
@@ -280,6 +284,8 @@ demo:
 # These units run `npm run start` (no watch) under Restart=always with
 # stepped backoff. Services and `make dev` are mutually exclusive — two
 # workers double-ingest and two webs fight for :3000 — and both sides check.
+# The web unit listens on 127.0.0.1:3000 (npm run start -> scripts/serve.mjs);
+# Settings → Phone opens it to the network, then make service-restart.
 #
 #   make service-install          render deploy/systemd/*.service.in -> ~/.config/systemd/user
 #   make build && make service-start   enable --now both units
@@ -365,7 +371,7 @@ docker-run:
 # says which journals it mounts and why; edit the mounts there, once.
 compose-up:
 	docker compose up -d --build
-	@echo "open http://localhost:3000"
+	@echo "open http://127.0.0.1:3000   (this machine only: compose publishes 127.0.0.1:3000)"
 
 compose-down:
 	docker compose down

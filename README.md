@@ -13,7 +13,8 @@ npm install
 make dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On a fresh install our
+Open [http://localhost:3000](http://localhost:3000) (it listens on 127.0.0.1, this
+machine only; see [On a phone](#on-a-phone-same-network)). On a fresh install our
 first-run wizard takes it from there: it shows which harness directories it
 found on this machine, counts rows as ingest moves, and hands off to the
 dashboard once your first session lands.
@@ -60,18 +61,29 @@ while the other runs, so `make service-stop` before `make dev`.
 
 ### On a phone, same network
 
-Settings → Phone lists this machine's LAN addresses and draws a QR code for
-`http://<address>:<port>/`; point a phone's camera at it. Nothing goes
-through a cloud. It works because `next dev` and `next start` (so `make dev`,
-`make demo` and the systemd unit) listen on every interface, 0.0.0.0, by
-default; the tab probes each address and says whether our server answers
-there. To keep the dashboard to this machine, start it with
-`-H 127.0.0.1` (for example `cd apps/web && npx next start -H 127.0.0.1`);
-`HOSTNAME=0.0.0.0` matters only to the standalone server in our Docker
-image, where compose publishes `127.0.0.1:3000:3000` (change it to
-`3000:3000` for the LAN). **There is no login**: anyone on the network who
-opens the address sees every session and cost and can use every action, so
-use it on a network you trust.
+Our dashboard has no login, and it can push commits and type into tmux, so
+it listens on **127.0.0.1**, this machine only, unless you opt in.
+`npm run dev` and `npm run start` in apps/web (so `make dev`, `make demo` and
+the systemd unit) start `next` through `apps/web/scripts/serve.mjs`, which
+adds `-H 127.0.0.1`.
+
+To open it on a phone, Settings → Phone: tick that you understand what it
+exposes (**anyone on the same network can read every session, push commits,
+and type into tmux; there is no login**), save, and restart: `make dev`
+again, or `make service-restart` for the units. It is then bound to
+0.0.0.0, and the tab lists this machine's LAN addresses and draws a QR code
+for `http://<address>:<port>/`; point a phone's camera at it. Nothing goes
+through a cloud. The QR appears only once our server actually answers on a
+LAN address. Use it on a network you control, never café or conference
+Wi-Fi.
+
+The choice is saved in `$UNFIREHOSE_DIR/web-bind.json`. `UNFIREHOSE_HOST`
+overrides it either way and then decides alone, for example
+`UNFIREHOSE_HOST=0.0.0.0 make dev` for one run, or
+`Environment=UNFIREHOSE_HOST=127.0.0.1` in the unit to pin it; an explicit
+`-H` on the command line wins over both. In Docker the image binds 0.0.0.0
+inside the container and compose publishes `127.0.0.1:3000:3000`; change it
+to `3000:3000` to open it.
 
 ## Docker
 

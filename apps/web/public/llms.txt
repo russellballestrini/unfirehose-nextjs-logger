@@ -604,8 +604,14 @@ Delete one setting.
 → `{ ok: true }`
 
 ### GET /api/lan
-This machine's IPv4 addresses a phone on the same network could open, for the QR in Settings → Phone. From `os.networkInterfaces()`, skipping loopback, link-local (169.254/16), IPv6, and container or VM bridges (`docker0`, `br-*`, `veth*`, `virbr*`, …); each kept address is `lan` (a private range), `vpn` (a tunnel interface or 100.64/10) or `public`, in that order. `url` uses the port this request arrived on; `listening` is a local TCP probe of `address:port` (true when our server binds 0.0.0.0, the default for `next dev` and `next start`; false under `-H 127.0.0.1`). The probe never leaves this machine and cannot see a firewall in front of the phone. Takes no parameters. There is no login on this dashboard: anyone who can open the URL sees everything.
-→ `{ hostname, port, addresses: [{ address, iface, kind, url, listening }], skipped: [{ address, iface, reason }], checkedAt }`
+This machine's IPv4 addresses a phone on the same network could open, for the QR in Settings → Phone. From `os.networkInterfaces()`, skipping loopback, link-local (169.254/16), IPv6, and container or VM bridges (`docker0`, `br-*`, `veth*`, `virbr*`, …); each kept address is `lan` (a private range), `vpn` (a tunnel interface or 100.64/10) or `public`, in that order. `url` uses the port this request arrived on; `listening` is a local TCP probe of `address:port`. The probe never leaves this machine and cannot see a firewall in front of the phone. Takes no parameters.
+`bind` says where our server listens. It listens on 127.0.0.1 unless opted in: `npm run dev` / `npm run start` (so `make dev`, `make demo`, the systemd unit) go through `apps/web/scripts/serve.mjs`, which passes `next -H` from, in order, `UNFIREHOSE_HOST` (decides alone; `override`), `$UNFIREHOSE_DIR/web-bind.json` `{"lan": true}` → `0.0.0.0` (`saved`, written by POST below), else `127.0.0.1`. `running` is the host this server was started on (null when started some other way), `next` what a restart would pick, `restartNeeded` when they differ, `container` inside our Docker image (where compose's port mapping decides). There is no login on this dashboard: anyone who can open the URL sees everything.
+→ `{ hostname, port, addresses: [{ address, iface, kind, url, listening }], skipped: [{ address, iface, reason }], bind: { running, runningLan, saved: { lan, setAt }, next: { host, lan, source: "env"|"settings"|"default" }, override, file, restartNeeded, container }, checkedAt }`
+
+### POST /api/lan
+Save whether our dashboard listens on the network from its next start (the bind is fixed when the server starts: `make dev` again, or `make service-restart`). Writes `$UNFIREHOSE_DIR/web-bind.json` (0600). Opening needs `understood: true`: anyone on the network can read every session, push commits and type into tmux, with no login. Refused cross-site (`Sec-Fetch-Site` other than same-origin, or a foreign `Origin`) with 403; with 409 while `UNFIREHOSE_HOST` is set or inside a container.
+← `{ lan: true, understood: true }` or `{ lan: false }`
+→ `{ ok: true, bind: { …as GET } }`
 
 ### GET /api/llm/providers
 Discover available LLM providers (auto-detected + mesh).

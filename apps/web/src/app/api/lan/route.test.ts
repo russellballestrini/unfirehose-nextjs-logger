@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import net from 'net';
+import fs from 'fs';
+import path from 'path';
+import { tmpdir } from 'os';
 import type { NetworkInterfaceInfo } from 'os';
 
 /**
@@ -29,8 +32,23 @@ vi.mock('@/lib/lan', async (orig) => {
   return { ...real, listensOn: vi.fn(async (a: string) => listening.has(a)) };
 });
 
-const { GET } = await import('./route');
+const { GET, POST } = await import('./route');
 const { lanAddresses, portOf, isPrivateV4, isCgnatV4 } = await import('@/lib/lan');
+
+// Our bind choice lives in $UNFIREHOSE_DIR; each test gets an empty one, and
+// none of the environment that decides it leaks in from the machine.
+let dataDir = '';
+const ENV_KEYS = ['UNFIREHOSE_DIR', 'UNFIREHOSE_HOST', 'UNFIREHOSE_BOUND_HOST', 'UNFIREHOSE_CONTAINER'] as const;
+const savedEnv: Record<string, string | undefined> = {};
+beforeEach(() => {
+  for (const k of ENV_KEYS) { savedEnv[k] = process.env[k]; delete process.env[k]; }
+  dataDir = fs.mkdtempSync(path.join(tmpdir(), 'uf-lan-'));
+  process.env.UNFIREHOSE_DIR = dataDir;
+});
+afterEach(() => {
+  for (const k of ENV_KEYS) { if (savedEnv[k] === undefined) delete process.env[k]; else process.env[k] = savedEnv[k]; }
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   listening.clear();
@@ -77,6 +95,89 @@ describe('GET /api/lan', () => {
     const res = await GET(new Request('http://localhost:3000/api/lan'));
     expect(res.status).toBe(200);
     expect((await res.json()).addresses).toEqual([]);
+  });
+});
+
+const post = (body: unknown, headers: Record<string, string> = {}) =>
+  POST(new Request('http://localhost:3000/api/lan', {
+    method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body),
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', ...headers },
+  }));
+
+describe('bind state', () => {
+  it('reports how this server was started and that nothing is saved', async () => {
+    process.env.UNFIREHOSE_BOUND_HOST = '127.0.0.1';
+    const { bind } = await (await GET(new Request('http://localhost:3000/api/lan'))).json();
+    expect(bind).toMatchObject({
+      running: '127.0.0.1', runningLan: false, saved: { lan: false }, override: null, restartNeeded: false,
+      next: { host: '127.0.0.1', lan: false, source: 'default' }, file: path.join(dataDir, 'web-bind.json'),
+    });
+  });
+
+  it('says a restart is needed once the saved choice differs from the running bind', async () => {
+    process.env.UNFIREHOSE_BOUND_HOST = '127.0.0.1';
+    const res = await post({ lan: true, understood: true });
+    expect(res.status).toBe(200);
+    const { bind } = await res.json();
+    expect(bind).toMatchObject({ saved: { lan: true }, next: { host: '0.0.0.0', source: 'settings' }, restartNeeded: true });
+    expect(fs.statSync(path.join(dataDir, 'web-bind.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('does not know the running bind when started without our launcher', async () => {
+    const { bind } = await (await GET(new Request('http://localhost:3000/api/lan'))).json();
+    expect(bind.running).toBeNull();
+    expect(bind.runningLan).toBeNull();
+    expect(bind.restartNeeded).toBe(false);
+  });
+});
+
+describe('POST /api/lan', () => {
+  it('opens to the network only with understood: true', async () => {
+    const res = await post({ lan: true });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('no login');
+    expect(fs.existsSync(path.join(dataDir, 'web-bind.json'))).toBe(false);
+  });
+
+  it('keeps to this machine with lan: false', async () => {
+    await post({ lan: true, understood: true });
+    const { bind } = await (await post({ lan: false })).json();
+    expect(bind.saved.lan).toBe(false);
+    expect(bind.next.host).toBe('127.0.0.1');
+  });
+
+  it('refuses a cross-site request, whichever header says so', async () => {
+    expect((await post({ lan: true, understood: true }, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await post({ lan: true, understood: true }, { 'sec-fetch-site': 'same-site' })).status).toBe(403);
+    const oldBrowser = await POST(new Request('http://localhost:3000/api/lan', {
+      method: 'POST', body: JSON.stringify({ lan: true, understood: true }), headers: { origin: 'http://evil.example', host: 'localhost:3000' },
+    }));
+    expect(oldBrowser.status).toBe(403);
+    expect(fs.existsSync(path.join(dataDir, 'web-bind.json'))).toBe(false);
+  });
+
+  it('accepts curl on this machine: no Origin, no Sec-Fetch-Site', async () => {
+    const res = await POST(new Request('http://localhost:3000/api/lan', { method: 'POST', body: '{"lan":false}' }));
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a body that is not a choice', async () => {
+    expect((await post('nope')).status).toBe(400);
+    expect((await post({ lan: 'yes' })).status).toBe(400);
+  });
+
+  it('leaves the choice to UNFIREHOSE_HOST when it is set', async () => {
+    process.env.UNFIREHOSE_HOST = '127.0.0.1';
+    const res = await post({ lan: true, understood: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('UNFIREHOSE_HOST=127.0.0.1');
+  });
+
+  it('in a container, points at the port mapping instead', async () => {
+    process.env.UNFIREHOSE_CONTAINER = '1';
+    const res = await post({ lan: true, understood: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('ports:');
   });
 });
 

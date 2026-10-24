@@ -25,11 +25,11 @@ stop() {
 
 start() {
   stop >/dev/null
-  ( cd "$ROOT/apps/web" && nohup npx next start -p "$PORT" >"$LOG" 2>&1 & )
+  ( cd "$ROOT/apps/web" && nohup node scripts/serve.mjs start -p "$PORT" >"$LOG" 2>&1 & )
   for _ in $(seq 1 120); do
     sleep 0.5
     local pid; pid="$(owner || true)"
-    if [ -n "$pid" ] && curl -sf -o /dev/null "http://localhost:${PORT}/"; then
+    if [ -n "$pid" ] && curl -sf -o /dev/null "http://127.0.0.1:${PORT}/"; then
       echo "up: pid ${pid} on :${PORT} (log ${LOG})"; return 0
     fi
     if grep -q "EADDRINUSE\|Error:" "$LOG" 2>/dev/null; then

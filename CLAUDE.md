@@ -43,7 +43,7 @@ Two pipelines run our same checks. `.gitlab-ci.yml` (GitLab, test + publish on `
 
 ## Architecture
 
-Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `localhost:3000`.
+Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `127.0.0.1:3000`, this machine only (see Listening address).
 
 ### npm Packages (published under `@unturf` org on npmjs.com, account `fxhp`)
 
@@ -120,6 +120,16 @@ sudo loginctl enable-linger fox    # once, by hand: units outlive logout
 ```
 
 Services and `make dev` are mutually exclusive: two workers double-ingest, two webs fight for :3000. Both sides refuse to start while the other runs. After a code change on a service box: `make build && make service-restart`. Units run `npm run start` (no watch) under `Restart=always` with stepped backoff.
+
+### Listening address (this machine only by default)
+
+Our dashboard has no login and can push commits, boot agents and type into tmux, so it listens on **127.0.0.1** unless someone opts in. `next dev`/`next start` bind every interface without `-H`, so apps/web's `npm run dev` and `npm run start` (and through them `make dev`, `make demo`, the systemd web unit, `scripts/perf/prod-server.sh`) run `apps/web/scripts/serve.mjs`, which adds `-H` by these rules (`apps/web/src/lib/bind-host.mjs`):
+
+1. `UNFIREHOSE_HOST` set: decides alone (an invalid value falls back to 127.0.0.1); Settings cannot change it.
+2. `$UNFIREHOSE_DIR/web-bind.json` `{"lan": true}` (written 0600 by Settings → Phone, `POST /api/lan`): `0.0.0.0`.
+3. Otherwise `127.0.0.1`. A `-H` given on the command line passes through untouched.
+
+The bind is fixed at start: after an opt-in, `make dev` again or `make service-restart`. Settings → Phone offers its QR code only once our server answers on a LAN address, and otherwise explains the opt-in, its warning and the restart. Docker: the image binds 0.0.0.0 inside the container and compose publishes `127.0.0.1:3000:3000`; change the mapping to open it. Our worker opens no ports.
 
 ### Website
 
