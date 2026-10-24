@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { jsonError } from '@/lib/json-error';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { resolveSessionFile } from '@unturf/unfirehose/session-paths';
 import { appendFileSync, existsSync } from 'fs';
@@ -26,7 +27,7 @@ export async function POST(
     const { todos } = body;
 
     if (!todos || !Array.isArray(todos) || todos.length === 0) {
-      return NextResponse.json({ error: 'todos array required' }, { status: 400 });
+      return jsonError('todos array required', 400);
     }
 
     // Find session in DB to get project name
@@ -38,17 +39,17 @@ export async function POST(
     `).get(sessionId) as any;
 
     if (!session) {
-      return NextResponse.json({ error: 'session not found' }, { status: 404 });
+      return jsonError('session not found', 404);
     }
 
     // Construct JSONL file path
     // A harness in a format of its own has no session file we may append to.
     let filePath: string;
     try { filePath = resolveSessionFile(session.project_name, sessionId); } catch {
-      return NextResponse.json({ error: 'this harness keeps no session file to inject into' }, { status: 409 });
+      return jsonError('this harness keeps no session file to inject into', 409);
     }
     if (!existsSync(filePath)) {
-      return NextResponse.json({ error: 'session file not found on disk' }, { status: 404 });
+      return jsonError('session file not found on disk', 404);
     }
 
     // Build a TodoWrite tool_use + tool_result JSONL entry pair
@@ -61,7 +62,7 @@ export async function POST(
     })).filter((t: any) => t.content);
 
     if (todoItems.length === 0) {
-      return NextResponse.json({ error: 'no valid todos' }, { status: 400 });
+      return jsonError('no valid todos', 400);
     }
 
     // Assistant message with tool_use block (TodoWrite)
@@ -120,6 +121,6 @@ export async function POST(
       file: filePath,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
