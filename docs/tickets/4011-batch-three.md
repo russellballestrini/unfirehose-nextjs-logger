@@ -518,3 +518,12 @@ Decisions to review:
   repo's own tests will alert once per session; the ledger shows which.
 - No off switch for secret alerts beyond delivery rules (a rule that does
   not match `secret`). Say if one is wanted.
+
+## Budgets set to today's reading (2026-10-24)
+
+Per fox's decision 2: `CRAP_BUDGET` is now 22097 and `DUPE_BUDGET` is 2002, each measured on this branch with every suite's coverage regenerated.
+
+- **CRAP:** 20728, then 18634 after this batch's tests, then 22097 once the new Aider, energy-attribution and secret-alert code landed.
+- **Duplication:** 3680, down to 2002 after folding 23 clones into shared code.
+
+Lint is green (0 errors). From here the two budgets only ratchet down.

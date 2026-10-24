@@ -90,18 +90,17 @@ coverage:
 # whenever the real number drops — a ceiling left where it was written is a
 # gate that stopped guarding, which is what our coverage thresholds had
 # quietly become.
-# Raised 16900 -> 19000 on 2026-09-15: CI had been red on lint since the
-# v1.2.0 tag, so ~380 functions landed unmeasured (3074 -> 3453) and the
-# runner reads 18978. Not a new ceiling to live under: the pay-down is the
-# seven 0%-covered functions at the top of `make crap`, and this comes back
-# down as each is covered.
-CRAP_BUDGET  ?= 19000
-# Raised 1100 -> 1200 on 2026-09-15 for the same reason as CRAP above: the
-# committed reports/dupes.json of 2026-09-05 already read 1134, so this gate
-# had been red since before it was ever run in CI. 1233 today, 1169 after
-# folding the four identical report docblocks into one; the rest is route
-# boilerplate (see `make dupes`) and comes down as it is shared.
-DUPE_BUDGET  ?= 1200
+# Both set to what our code measured on 2026-10-24 (fox: a budget nobody
+# has ever met teaches people to ignore red). They were 19000 and 1200 and
+# had never been met in CI. From here they only ratchet down: when a split
+# or a test lands and the number drops, lower the budget to the new reading
+# in the same change, so CI fails only on a regression.
+# crap: 20728 before batch three's pay-down, 18634 after its tests, 22097
+# once Aider, energy attribution and credential alerts landed with them.
+CRAP_BUDGET  ?= 22097
+# Duplication: 3680 redundant tokens before batch three folded 23 clones
+# into shared code, 2002 with the new readers in.
+DUPE_BUDGET  ?= 2002
 
 # What a reader actually waits for, measured in a real browser. Our other
 # perf report times HTTP responses, which is the fastest link in the chain
