@@ -337,3 +337,30 @@ Decisions for fox:
 11. **4010 follow-ups.** All three accepted as shipped.
 12. **npm publishing.** CI is the only publisher. 3970's blocker is closed as moot, and no local token is minted. `make publish` now bumps, commits and tags; pushing the tag publishes. One publishing path, one place a token lives.
 13. **Monetization.** Nothing, for now. Fund it from the products that are products and keep unfirehose a gift. Revisit only if someone asks to pay for hosting or support, the two honest things to sell. Reach first, which is exactly what batch three is.
+
+## Outcome: LAN exposure (fox's decision) (2026-10-24)
+
+Decision: our dashboard listens on 127.0.0.1 by default everywhere; the LAN is an opt-in. This answers item 9 in the list above.
+
+- **Launcher.** apps/web's `npm run dev` and `npm run start` run `apps/web/scripts/serve.mjs`, which spawns `next dev|start -H <host>` and forwards signals. Everything that starts the web app goes through it: `make dev` (via turbo), `make demo`, the systemd web unit (`npm run start`) and `scripts/perf/prod-server.sh`. A `-H` given on the command line is passed through untouched. The launcher prints where it listens and, when that is not loopback, what it exposes. It passes `UNFIREHOSE_BOUND_HOST` to the server so the server knows its own bind.
+- **Rule** (`apps/web/src/lib/bind-host.mjs`, plain ESM so bare node runs it, shared with the route). The first match wins:
+  1. `UNFIREHOSE_HOST`, which decides alone. A value that is not an address or host name falls back to 127.0.0.1 with a warning.
+  2. `$UNFIREHOSE_DIR/web-bind.json` containing `{"lan": true}`, which binds `0.0.0.0`.
+  3. Otherwise 127.0.0.1.
+
+  A missing, unreadable or malformed file reads as local.
+- **Settings → Phone.** `GET /api/lan` now carries `bind`: running host, saved choice, what a restart picks, `restartNeeded`, override, container. `POST /api/lan` saves the choice; the file is written 0600 via a temp file and rename. Opening needs `understood: true`. The POST is refused cross-site (403, by `Sec-Fetch-Site` or a foreign `Origin`), and also while `UNFIREHOSE_HOST` is set or inside a container (409).
+  - The tab offers a QR only for addresses where our server answers, and never while it was started on loopback.
+  - Otherwise it explains the opt-in, warns in plain words ("Anyone on the same network can read every session, push commits, and type into tmux. There is no login."), and gates the button behind an "I understand" checkbox.
+  - After saving it says a restart is needed and how: `make dev` again, or `make service-restart`.
+  - Opted in, it offers "Keep it to this machine on next start".
+- **Docker.** The image binds 0.0.0.0 inside the container, which the host needs to reach it at all. Compose already published `127.0.0.1:3000:3000`, and `make docker-run` is compose now. The web image sets `UNFIREHOSE_CONTAINER=1`, so the tab points at the port mapping instead of drawing a QR for the container's own address.
+- **Other listeners.** Our worker and router open no ports. `make doctor`'s port check binds for a moment to test whether the port is free and closes at once; it was left as is.
+- **Mutual exclusion is unchanged.** `make service-start` still looks for `tsx watch.*worker/src/main` or `turbo dev`, and `make dev` still checks the worker unit.
+- **Verified.** `npm run dev -- -p 3999` → `ss -ltnp`: `127.0.0.1:3999` only, and the eth0 address refused. After `POST {lan:true, understood:true}` and a restart: `0.0.0.0:3999`, with the tab's probe answering. SIGTERM to the launcher took `next-server` down with it.
+
+Decisions for fox:
+- The opt-in binds `0.0.0.0` (IPv4 only), not `::`. The QR is IPv4 anyway.
+- There is no origin check on any other mutating route. Only `POST /api/lan` has one. A page on another site can still POST to `localhost:3000` (git push, tmux keystrokes) from the browser on this machine. That is a wider defect than LAN exposure and worth its own ticket.
+- The unsandbox bootstrap script (`integrations/unsandbox/NodePage.tsx`) still runs a bare `npx next start` inside the remote container, where the unsandbox port mapping decides. It was left as is.
+- `next dev` warns about cross-origin HMR when opened by a LAN address once opted in (`allowedDevOrigins`), as noted under item 9.
