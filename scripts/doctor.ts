@@ -16,6 +16,7 @@ import { createRequire } from 'module';
 import net from 'net';
 import path from 'path';
 import { detectHarnesses } from '@unturf/unfirehose/harness-detect';
+import { knownProjectRoots } from '@unturf/unfirehose/db/project-roots';
 import { UNFIREHOSE_DIR } from '@unturf/unfirehose/db/data-dir';
 import {
   type Check, type PortOwner, type ProcessInfo,
@@ -74,6 +75,21 @@ function sqliteCheck(): Check {
   } catch (e) {
     return checkSqlite({ ok: false, error: e instanceof Error ? e.message : String(e) });
   }
+}
+
+/**
+ * The roots of the projects our database already holds, read through a
+ * read-only handle of our own: where Aider's per-repo log is looked for, as
+ * ingest looks for it. No database yet, or one we cannot open: none.
+ */
+function projectRoots(dbPath: string): string[] {
+  if (!existsSync(dbPath)) return [];
+  try {
+    const req = createRequire(path.join(repoRoot, 'packages/core/package.json'));
+    const Database = req('better-sqlite3');
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try { return knownProjectRoots(db); } finally { db.close(); }
+  } catch { return []; }
 }
 
 function canAccess(p: string, mode: number): boolean {
@@ -181,7 +197,7 @@ async function main() {
   checks.push(...dirChecks, diskCheck(dbPath));
   checks.push(classifyPort(PORT, await portInUse(PORT), portOwners(PORT)));
   checks.push(workerCheck());
-  checks.push(...checkHarnesses(detectHarnesses(), Date.now()));
+  checks.push(...checkHarnesses(detectHarnesses({ projectRoots: projectRoots(dbPath) }), Date.now()));
 
   const color = process.stdout.isTTY && !process.env.NO_COLOR;
   console.log(formatReport(checks, { color }));

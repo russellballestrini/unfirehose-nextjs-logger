@@ -70,7 +70,7 @@ The `docs/` directory contains the full spec:
 | [uncloseai-cli](docs/harnesses/uncloseai-cli.md) | Local (Hermes) | Supported |
 | [Gemini CLI](docs/harnesses/gemini-cli.md) | Google | Documented |
 | [OpenAI Codex](docs/harnesses/openai-codex.md) | OpenAI | Documented |
-| [Aider](docs/harnesses/aider.md) | Multi-provider | Documented |
+| [Aider](docs/harnesses/aider.md) | Multi-provider | Supported |
 | [Cursor](docs/harnesses/cursor.md) | Multi-provider | Researched |
 | [Continue.dev](docs/harnesses/continue-dev.md) | Multi-provider | Researched |
 | [Hermes Agent](docs/harnesses/hermes-agent.md) | Local (Hermes) | Documented |

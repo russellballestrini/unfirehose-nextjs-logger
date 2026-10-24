@@ -17,7 +17,7 @@ This document describes the schema used by [unfirehose](https://github.com/russe
 | Aborist | `~/.aborist/unfirehose/{slug}/{session}.jsonl` | Native (`unfirehose/1.0`) | Auto-discovered (`discoverNativeHarnesses`) |
 | uncloseai | `~/.uncloseai/sessions/{slug}/{session}.jsonl` | Custom events | `uncloseai-adapter.ts` |
 | Codex (OpenAI) | `~/.codex/sessions/` | OpenAI-format | Planned |
-| Aider | `.aider.chat.history.md` + `.aider.input.history` | Markdown | Planned |
+| Aider | `{project root}/.aider.chat.history.md` + `.aider.input.history` | Markdown | `aider-adapter.ts` (roots of projects already ingested) |
 | Continue.dev | `~/.continue/sessions/` | Custom JSON | Planned |
 | Cursor | Internal SQLite | Proprietary | Planned |
 
@@ -489,14 +489,16 @@ Expected differences:
 - No thinking blocks (no extended thinking equivalent)
 - Different token usage fields
 
-### Aider — Planned
+### Aider
 
-**Location**: `.aider.chat.history.md` (per-project)
+**Location**: `.aider.chat.history.md` in a repo's git root, looked for only
+in the roots of projects already in our database.
 
-Aider uses markdown-based chat history. Adapter would parse:
-- `/ask`, `/code`, `/architect` command blocks
-- Code fence blocks as tool results
-- Git commit references
+`aider-adapter.ts` reads Aider's markdown log: `# aider chat started at` opens
+a session, `#### ` lines are prompts, `> ` lines are Aider's output (model,
+rounded `Tokens:` counts, commits), anything else is the reply, with
+SEARCH/REPLACE edits as `Edit` tool calls. See
+`packages/schema/docs/harnesses/aider.md`.
 
 ### Continue.dev — Planned
 

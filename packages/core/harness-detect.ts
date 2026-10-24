@@ -9,6 +9,9 @@
  * miss one it does.
  *
  * Pure filesystem, no database: the doctor runs it before there is one.
+ * A harness that writes inside each repository (Aider, `repoFile`) has no
+ * root to look at, so callers that know our projects pass their roots
+ * (db/project-roots.ts); without them it reads as not found.
  */
 import { readdirSync, statSync, accessSync, constants } from 'fs';
 import { homedir } from 'os';
@@ -31,6 +34,8 @@ export interface HarnessLocation {
   start?: string;
   /** How its session files are laid out; absent for a native `~/.<name>/unfirehose` writer. */
   format?: HarnessFormat;
+  /** For a harness that writes inside each repository: the file it writes there. `root` then describes, not names, a path. */
+  repoFile?: string;
 }
 
 export interface HarnessDetection extends HarnessLocation {
@@ -48,7 +53,9 @@ export interface HarnessDetection extends HarnessLocation {
 /** Every harness root ingest reads, in the order a person would look for them. */
 export function harnessLocations(home = homedir()): HarnessLocation[] {
   const fixed: HarnessLocation[] = ingestedHarnesses().map((h) => ({
-    id: h.id, label: h.label, root: HARNESS_ROOTS[h.id](), doc: h.doc, format: h.format,
+    id: h.id, label: h.label, doc: h.doc, format: h.format,
+    root: h.repoFile ? `<each project's root>/${h.repoFile}` : HARNESS_ROOTS[h.id](),
+    ...(h.repoFile ? { repoFile: h.repoFile } : {}),
     ...(h.start ? { start: h.start } : {}),
   }));
   const seen = new Set(fixed.map((h) => h.root));
@@ -109,9 +116,33 @@ function survey(root: string, maxFiles: number, format?: HarnessFormat): { files
   return { files, newestMs, truncated: false };
 }
 
-export function detectHarnesses(opts: { home?: string; maxFiles?: number } = {}): HarnessDetection[] {
+/**
+ * A `repoFile` harness: its file in each of our projects' roots. Found when
+ * any root holds one; readable when every one found can be read.
+ */
+function surveyRepos(loc: HarnessLocation, roots: string[], maxFiles: number): HarnessDetection {
+  const files = roots.flatMap((r) => foreignSessionFiles(loc.format!, r) ?? []);
+  let newestMs: number | null = null;
+  let unreadable: string | null = null;
+  for (const f of files.slice(0, maxFiles)) {
+    try { accessSync(f, constants.R_OK); } catch { unreadable ??= f; continue; }
+    try {
+      const m = statSync(f).mtimeMs;
+      if (newestMs === null || m > newestMs) newestMs = m;
+    } catch { /* gone between listing and stat */ }
+  }
+  const counted = Math.min(files.length, maxFiles);
+  const where = files.length === 1 ? files[0] : `${loc.repoFile} in ${files.length} of our ${roots.length} project roots`;
+  return {
+    ...loc, root: files.length ? (unreadable ?? where) : loc.root, found: files.length > 0, readable: !unreadable,
+    files: counted, newestMs, truncated: files.length > maxFiles,
+  };
+}
+
+export function detectHarnesses(opts: { home?: string; maxFiles?: number; projectRoots?: string[] } = {}): HarnessDetection[] {
   const maxFiles = opts.maxFiles ?? 20_000;
   return harnessLocations(opts.home).map((loc) => {
+    if (loc.repoFile) return surveyRepos(loc, opts.projectRoots ?? [], maxFiles);
     if (!isDir(loc.root)) return { ...loc, found: false, readable: false, files: 0, newestMs: null, truncated: false };
     let readable = true;
     try { accessSync(loc.root, constants.R_OK | constants.X_OK); } catch { readable = false; }

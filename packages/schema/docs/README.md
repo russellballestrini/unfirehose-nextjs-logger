@@ -32,7 +32,7 @@ Native format documentation and field mapping for each harness:
 | [Gemini CLI](./harnesses/gemini-cli.md) | Google | Documented | Adapter: planned |
 | [uncloseai-cli](./harnesses/uncloseai-cli.md) | Local (Hermes) | Supported | Adapter: live |
 | [OpenAI Codex CLI](./harnesses/openai-codex.md) | OpenAI | Documented | Adapter: planned |
-| [Aider](./harnesses/aider.md) | Multi-provider | Documented | Adapter: planned |
+| [Aider](./harnesses/aider.md) | Multi-provider | Supported | Adapter: live (`aider-adapter.ts`) |
 | [Cursor](./harnesses/cursor.md) | Multi-provider | Researched | Adapter: planned |
 | [Continue.dev](./harnesses/continue-dev.md) | Multi-provider | Researched | Adapter: planned |
 | [Hermes Agent](./harnesses/hermes-agent.md) | Local (Hermes) | Documented | Adapter: planned |

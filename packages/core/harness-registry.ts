@@ -32,7 +32,9 @@ export type HarnessFormat =
   /** Gemini CLI chat recordings: ~/.gemini/tmp/<project>/chats/session-*.jsonl (or legacy .json) (gemini-adapter.ts). */
   | 'gemini-chat'
   /** Continue sessions: ~/.continue/sessions/<id>.json, rewritten whole (continue-adapter.ts). */
-  | 'continue-session';
+  | 'continue-session'
+  /** Aider's markdown chat log, <repo root>/.aider.chat.history.md, appended (aider-adapter.ts). */
+  | 'aider-history';
 
 /**
  * Formats that are not `{root}/{slug}/{session}.jsonl` of message lines.
@@ -40,7 +42,7 @@ export type HarnessFormat =
  * viewer reads its sessions back from our database rather than the disk.
  */
 export const FOREIGN_FORMATS: ReadonlySet<HarnessFormat> = new Set<HarnessFormat>([
-  'codex-rollout', 'gemini-chat', 'continue-session',
+  'codex-rollout', 'gemini-chat', 'continue-session', 'aider-history',
 ]);
 
 export interface HarnessDef {
@@ -50,11 +52,19 @@ export interface HarnessDef {
   doc: string;
   /**
    * Present exactly when we ingest it: how its lines read. Where it writes
-   * is `HARNESS_ROOTS[id]` in harness-roots.ts.
+   * is `HARNESS_ROOTS[id]` in harness-roots.ts, or, for a harness with a
+   * `repoFile`, that file in each of our projects' roots.
    */
   format?: HarnessFormat;
   /** Where the tool keeps its own data, relative to home, for one documented but not ingested yet. */
   nativeDir?: string;
+  /**
+   * The file it writes inside each repository it runs in, for a harness
+   * with no directory of its own to read (Aider). Such a harness has no
+   * entry in HARNESS_ROOTS: ingest and detection look for this file in the
+   * roots of projects we already ingest, and nowhere else (db/project-roots.ts).
+   */
+  repoFile?: string;
   /** The command that starts it writing, for a first run. */
   start?: string;
   /** The boot panel's launcher entry; `rank` keeps its existing order. */
@@ -108,6 +118,9 @@ export const HARNESS_REGISTRY: readonly HarnessDef[] = [
   },
   {
     id: 'aider', label: 'Aider', doc: 'harnesses/aider.md',
+    // Aider keeps no home directory: it appends to a markdown log in the
+    // repository root it runs in.
+    format: 'aider-history', repoFile: '.aider.chat.history.md', start: 'cd ~/your/repo && aider',
     launch: { key: 'aider', cmd: 'aider', rank: 5, modelFlag: '--model' }, procNames: ['aider'],
   },
   {
@@ -141,6 +154,11 @@ export function harnessById(id: string): HarnessDef | undefined {
 /** The harnesses ingest reads, in registry order. */
 export function ingestedHarnesses(): HarnessDef[] {
   return HARNESS_REGISTRY.filter((h) => h.format);
+}
+
+/** Ingested harnesses that write inside each repository rather than under one root of their own. */
+export function repoFileHarnesses(): HarnessDef[] {
+  return ingestedHarnesses().filter((h) => h.repoFile);
 }
 
 /**

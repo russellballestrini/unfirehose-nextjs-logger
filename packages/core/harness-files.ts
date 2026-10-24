@@ -13,6 +13,7 @@
 import { readdirSync, statSync } from 'fs';
 import path from 'path';
 import type { HarnessFormat } from './harness-registry';
+import { AIDER_HISTORY_FILE } from './aider-adapter';
 
 interface Listing { mtimeMs: number; files: string[]; dirs: string[] }
 const _cache = new Map<string, Listing>();
@@ -71,10 +72,21 @@ function continueFiles(root: string): string[] {
   return list(root).files.filter((f) => f.endsWith('.json') && f !== 'sessions.json').map((f) => path.join(root, f));
 }
 
+/**
+ * Aider: `<repo root>/.aider.chat.history.md`. Its "root" is one project's
+ * directory (db/project-roots.ts names them), so this is a stat, never a
+ * listing: a repo's other files are none of our business.
+ */
+function aiderFiles(root: string): string[] {
+  const file = path.join(root, AIDER_HISTORY_FILE);
+  try { return statSync(file).isFile() ? [file] : []; } catch { return []; }
+}
+
 const LISTERS: Partial<Record<HarnessFormat, (root: string) => string[]>> = {
   'codex-rollout': codexFiles,
   'gemini-chat': geminiFiles,
   'continue-session': continueFiles,
+  'aider-history': aiderFiles,
 };
 
 /** Every session file of a foreign format under `root`, or null for a format laid out as `{root}/{slug}/{id}.jsonl`. */

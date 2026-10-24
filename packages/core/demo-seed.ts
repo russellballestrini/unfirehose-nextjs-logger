@@ -4,7 +4,7 @@
  *
  * Two projects, three harnesses (claude-code, uncloseai, agnt) with a week of
  * sessions ending at `now`, one session each for the harnesses with readers
- * of their own (codex, gemini-cli, continue), a few todos, one alert and a week of samples for
+ * of their own (codex, gemini-cli, continue, aider), a few todos, one alert and a week of samples for
  * one mesh node. Every assistant message is booked against a model in
  * SYNTHETIC_MODELS, so every cost reads $0 and the pricing sync never asks
  * an oracle about it.
@@ -36,7 +36,7 @@ export const DEMO_HARNESSES = ['claude-code', 'uncloseai', 'agnt'] as const;
  * each, so their badges, token rows and session viewer have something to
  * show. A test holds this to the registry's foreign formats.
  */
-export const DEMO_ONE_SESSION_HARNESSES = ['codex', 'gemini-cli', 'continue'] as const;
+export const DEMO_ONE_SESSION_HARNESSES = ['codex', 'gemini-cli', 'continue', 'aider'] as const;
 type DemoHarness = (typeof DEMO_HARNESSES)[number] | (typeof DEMO_ONE_SESSION_HARNESSES)[number];
 /** The node our mesh samples describe. */
 export const DEMO_NODE = 'demo-node';
@@ -80,6 +80,7 @@ const HARNESS_MODEL: Record<DemoHarness, string> = {
   codex: DEMO_MODELS[1],
   'gemini-cli': DEMO_MODELS[1],
   continue: DEMO_MODELS[0],
+  aider: DEMO_MODELS[1],
 };
 
 const TOOLS = [
@@ -223,14 +224,18 @@ export function seedDemo(db: Database.Database, opts: { now?: number } = {}): De
         } else {
           assistantContent.push({ type: 'text', text: 'Done. Tests pass and the change is ready for review.' });
         }
-        const input = rng.int(800, 4000);
-        const output = rng.int(100, 1200);
+        // Aider prints its counts rounded ("2.4k sent"), and its reader keeps them so, marked approximate.
+        const approx = harness === 'aider';
+        const rounded = (n: number) => (approx && n >= 1000 ? Math.round(n / 100) * 100 : n);
+        const input = rounded(rng.int(800, 4000));
+        const output = rounded(rng.int(100, 1200));
         // Claude Code reads most of its prompt from cache; the others report none.
         const cacheRead = harness === 'claude-code' ? rng.int(10_000, 60_000) : 0;
         const cacheWrite = harness === 'claude-code' ? rng.int(0, 3000) : 0;
         const assistantUuid = rng.uuid();
         const assistantId = insertMessage(db, sessionId, {
           role: 'assistant', id: assistantUuid, parentId: parent, timestamp: iso(t), model,
+          ...(approx ? { tokensApprox: true } : {}),
           usage: { inputTokens: input, outputTokens: output, inputTokenDetails: { cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } },
         });
         if (assistantId) {

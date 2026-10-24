@@ -66,6 +66,7 @@ describe('seedDemo', () => {
     const harnesses = db.prepare('SELECT harness, COUNT(*) AS n FROM sessions GROUP BY harness ORDER BY harness').all();
     expect(harnesses).toEqual([
       { harness: 'agnt', n: DEMO_DAYS },
+      { harness: 'aider', n: 1 },
       { harness: 'claude-code', n: DEMO_DAYS },
       { harness: 'codex', n: 1 },
       { harness: 'continue', n: 1 },

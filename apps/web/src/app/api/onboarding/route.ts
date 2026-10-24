@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getSetting, INGEST_HEARTBEAT_KEY } from '@unturf/unfirehose/db/ingest';
 import { detectHarnesses } from '@unturf/unfirehose/harness-detect';
+import { knownProjectRoots } from '@unturf/unfirehose/db/project-roots';
 import { harnessSessionStats } from '@unturf/unfirehose/db/harness-stats';
 import { dbDiskSpace, diskLevel, LOW_DISK_BYTES } from '@unturf/unfirehose/db/maintenance';
 
@@ -40,7 +41,9 @@ export async function GET() {
   const fresh = (iso: string | null) => !!iso && now - Date.parse(iso) < WORKER_FRESH_MS;
 
   const stats = new Map(harnessSessionStats(db).map((s) => [s.harness, s]));
-  const harnesses = detectHarnesses().map((h) => ({
+  // Aider writes inside each repo: it is looked for in the roots of the
+  // projects we already hold, as ingest looks for it, and nowhere else.
+  const harnesses = detectHarnesses({ projectRoots: knownProjectRoots(db) }).map((h) => ({
     ...h,
     sessions: stats.get(h.id)?.sessions ?? 0,
     lastMessageAt: stats.get(h.id)?.lastMessageAt ?? null,

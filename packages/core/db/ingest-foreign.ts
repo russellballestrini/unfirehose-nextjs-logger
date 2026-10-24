@@ -1,6 +1,6 @@
 // Harnesses whose sessions are not `{root}/{slug}/{uuid}.jsonl` of message
 // lines: Codex's dated rollout tree, Gemini CLI's chat recordings, Continue's
-// rewritten-whole session files. Each format has a reader here that turns a
+// rewritten-whole session files, Aider's markdown log in each repo root. Each format has a reader here that turns a
 // file into unfirehose/1.0 messages, and every reader lands them through the
 // same rows Claude Code's do (getOrCreateProject, getOrCreateSession,
 // insertMessage, insertContentBlocks, updateUsageMinutes).
@@ -8,10 +8,12 @@
 // Reads only. Never writes, renames or locks a harness's files.
 //
 // Two disciplines, as the formats demand:
-//   append  (Codex)   resume from the stored byte offset; a partial last line
-//                     waits for next pass; the reader's folded state (session,
-//                     model, cumulative token counters) is stored beside the
-//                     offset, so no line is read twice.
+//   append  (Codex, Aider)  resume from the stored byte offset; a partial
+//                     last line waits for next pass; the reader's folded state
+//                     (session, model, cumulative token counters) is stored
+//                     beside the offset, so no line is read twice. Aider's
+//                     newest turn waits too while the file moved within
+//                     SETTLE_MS, so its usage line lands with its reply.
 //   whole   (Gemini, Continue)  a file is skipped while its size and mtime
 //                     match what we stored; a changed file is folded whole and
 //                     its messages inserted by id (INSERT OR IGNORE dedupes).
@@ -38,6 +40,11 @@ import type { UfMessage } from '../session-paths';
 import { normalizeCodexEntry, type CodexState } from '../codex-adapter';
 import { foldGeminiRecording, geminiRecordToMessages } from '../gemini-adapter';
 import { continueSessionToMessages } from '../continue-adapter';
+import {
+  AIDER_INPUT_HISTORY_FILE, aiderItemToMessages, aiderLocalTime, aiderUserText, parseAiderInputHistory, splitAiderLines,
+  type AiderItem, type AiderSessionState,
+} from '../aider-adapter';
+import { knownProjectRoots } from './project-roots';
 import { foreignSessionFiles } from '../harness-files';
 import { FOREIGN_FORMATS, ingestedHarnesses, type HarnessFormat } from '../harness-registry';
 import { HARNESS_ROOTS } from '../harness-roots';
@@ -312,17 +319,109 @@ function ingestContinueFile(db: Db, file: string, created: () => Map<string, str
   if (settledAll) storeOffset(db, file, st.size, st.mtimeMs, undefined);
 }
 
+/** A stable session id for one Aider run: the file and where and when its header was written. */
+function aiderSessionId(file: string, headerOffset: number, startedAt: string): string {
+  const h = createHash('sha256').update(`${file}\0${headerOffset}\0${startedAt}`).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/**
+ * One repo's `.aider.chat.history.md`, appended to by every run of Aider
+ * there. Each `# aider chat started at` header is a session; the session's
+ * project is the repo root the file sits in. Resumes at a stored offset that
+ * is always the first line of an item, with the open run's state beside it.
+ */
+function ingestAiderFile(db: Db, file: string, counts: Counts, now: number): void {
+  const st = statSyncSafe(file);
+  if (!st) return;
+  const row = offsetRow(db, file);
+  let start = row?.byte_offset ?? 0;
+  let state: AiderSessionState | null = start > 0 && row?.reader_state ? JSON.parse(row.reader_state) : null;
+  // Shorter than where we stopped: the log was cleared or replaced. Ids
+  // carry each run's header time, so its new runs do not collide with old ones.
+  if (st.size < start) { start = 0; state = null; }
+  if (st.size <= start) return;
+  counts.filesScanned++;
+  const cwd = path.dirname(file);
+  const { lines, end } = readCompleteLines(file, start, st.size);
+  const items = splitAiderLines(lines);
+  // Land everything once the file has sat still and was read to its end.
+  // Otherwise the newest turn (its prompt onward) waits: Aider writes the
+  // reply whole, then its usage line and edit results after it.
+  let cut = items.length;
+  if (now - st.mtimeMs < SETTLE_MS || end < st.size) {
+    let lastUser = -1;
+    items.forEach((it, i) => { if (it.kind === 'user') lastUser = i; });
+    cut = lastUser >= 0 ? lastUser : items.length - (items[items.length - 1]?.kind === 'output' ? 1 : 0);
+    // A single item larger than our read budget would never land otherwise.
+    if (cut === 0 && end < st.size) cut = items.length;
+  }
+  const landing = items.slice(0, cut);
+  const resumeAt = cut < items.length ? items[cut].offset : end;
+
+  let inputs: Array<{ ms: number; text: string }> | null = null;
+  const inputHistory = () => {
+    if (inputs) return inputs;
+    try { inputs = parseAiderInputHistory(readFileSync(path.join(cwd, AIDER_INPUT_HISTORY_FILE), 'utf8')); } catch { inputs = []; }
+    return inputs;
+  };
+
+  let messages: UfMessage[] = [];
+  const land = () => {
+    if (state && messages.length) {
+      const firstPrompt = messages.find((m) => m.role === 'user' && m.content[0]?.type === 'text')?.content[0]?.text ?? null;
+      const sessionId = landSession(db, 'aider', {
+        sessionUuid: state.sessionId, cwd, createdAt: new Date(state.startedMs).toISOString(), firstPrompt,
+        cliVersion: state.version ? `aider ${state.version}` : 'aider',
+      }, messages, counts);
+      // A run's startup lines can land a pass before its first prompt does.
+      if (firstPrompt) db.prepare('UPDATE sessions SET first_prompt = ? WHERE id = ? AND first_prompt IS NULL').run(firstPrompt, sessionId);
+    }
+    messages = [];
+  };
+  const opened = (item: AiderItem): AiderSessionState | null => {
+    const ms = aiderLocalTime(item.startedAt!);
+    if (Number.isNaN(ms)) return null;
+    return {
+      sessionId: aiderSessionId(file, item.offset, item.startedAt!), startedMs: ms, headerOffset: item.offset,
+      model: null, version: null, clockMs: ms, inputMs: 0,
+    };
+  };
+  for (const item of landing) {
+    if (item.kind === 'header') {
+      land();
+      state = opened(item);
+      continue;
+    }
+    // Aider writes a header before anything else on every run (io.py), so
+    // lines before the first one are not a run of its.
+    if (!state) continue;
+    const needsInputs = item.kind === 'user' && !!aiderUserText(item);
+    messages.push(...aiderItemToMessages(item, state, {
+      cwd, inputs: needsInputs ? inputHistory() : [], previous: messages[messages.length - 1] ?? null,
+    }));
+  }
+  land();
+  storeOffset(db, file, resumeAt, st.mtimeMs, state ?? undefined);
+}
+
 export interface ForeignSource {
   harness: string;
   format: HarnessFormat;
+  /** Where its files live; empty for a harness that writes inside each repository (`repoFile`). */
   root: string;
+  /**
+   * For a `repoFile` harness: the repository roots to look in. Absent, the
+   * roots of the projects already in our database (db/project-roots.ts).
+   */
+  roots?: string[];
 }
 
 /** The registry's ingested harnesses that need a reader of their own. */
 export function foreignSources(): ForeignSource[] {
   return ingestedHarnesses()
     .filter((h) => FOREIGN_FORMATS.has(h.format!))
-    .map((h) => ({ harness: h.id, format: h.format!, root: HARNESS_ROOTS[h.id]() }));
+    .map((h) => ({ harness: h.id, format: h.format!, root: h.repoFile ? '' : HARNESS_ROOTS[h.id]() }));
 }
 
 /**
@@ -332,9 +431,18 @@ export function foreignSources(): ForeignSource[] {
  */
 export function ingestForeignSource(db: Db, source: ForeignSource, opts: { now?: number } = {}): Counts {
   const counts = emptyCounts();
+  const now = opts.now ?? Date.now();
+  if (source.format === 'aider-history') {
+    // No root of its own: one log per repository we already know.
+    for (const root of source.roots ?? knownProjectRoots(db)) {
+      for (const f of foreignSessionFiles(source.format, root) ?? []) {
+        try { ingestAiderFile(db, f, counts, now); } catch (err) { console.error(`[ingest] aider ${f}:`, err); }
+      }
+    }
+    return counts;
+  }
   if (!source.root || !existsSync(source.root)) return counts;
   const files = foreignSessionFiles(source.format, source.root) ?? [];
-  const now = opts.now ?? Date.now();
   switch (source.format) {
     case 'codex-rollout':
       for (const f of files) {

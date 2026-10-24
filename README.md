@@ -586,7 +586,7 @@ make demo        # seed ~/.unfirehose-demo, then open http://localhost:3010
 ```
 
 Two projects, three harnesses (claude-code, uncloseai, agnt) with a session a
-day each, one session each for codex, gemini-cli and continue (24 sessions) with
+day each, one session each for codex, gemini-cli, continue and aider (25 sessions) with
 tool calls and reasoning, a few todos, one alert and a week of samples for a
 `demo-node` on Permacomputer. Every message is booked against a synthetic model
 (`demo-model`, `demo-model-small`), so every cost reads $0 and our pricing book

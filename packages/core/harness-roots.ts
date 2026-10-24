@@ -4,7 +4,10 @@
  * The registry (harness-registry.ts) stays free of node modules so client
  * components can read it; the paths live here, each from the module ingest
  * itself reads it from, so detection and ingest cannot disagree. A test
- * holds this map and the registry's ingested set to the same ids.
+ * holds this map and the registry's ingested set to the same ids, less the
+ * harnesses with a `repoFile` (Aider): those have no root of their own to
+ * name here, and are looked for in our projects' roots instead
+ * (db/project-roots.ts).
  */
 import path from 'path';
 import { homedir } from 'os';

@@ -39,7 +39,7 @@ afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
 describe('detectHarnesses', () => {
   it('finds nothing on a machine with no harness, and still names every one ingest reads', () => {
     const d = detectHarnesses();
-    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'codex', 'gemini-cli', 'continue']);
+    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'codex', 'gemini-cli', 'aider', 'continue']);
     expect(d.every((h) => !h.found && h.files === 0 && h.newestMs === null)).toBe(true);
     expect(d[0]).toMatchObject({ root: path.join(home, '.claude', 'projects'), doc: 'harnesses/claude-code.md', start: 'cd ~/your/repo && claude' });
   });
@@ -76,7 +76,7 @@ describe('detectHarnesses', () => {
     write('.orcestra/unfirehose/proj/s.jsonl');
     write('.uncloseai/unfirehose/proj/s.jsonl');
     const d = detectHarnesses();
-    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'codex', 'gemini-cli', 'continue', 'orcestra']);
+    expect(d.map((h) => h.id)).toEqual(['claude-code', 'fetch', 'uncloseai', 'agnt', 'codex', 'gemini-cli', 'aider', 'continue', 'orcestra']);
     expect(d.find((h) => h.id === 'orcestra')).toMatchObject({ found: true, files: 1, doc: 'jsonl-format.md' });
     expect(d.find((h) => h.id === 'uncloseai')).toMatchObject({ found: true, files: 1 });
   });
@@ -103,6 +103,21 @@ describe('detectHarnesses', () => {
   });
 
   it('lists locations without touching the files', () => {
-    expect(harnessLocations().length).toBe(7);
+    expect(harnessLocations().length).toBe(8);
+  });
+
+  it('looks for Aider only in the project roots it is given', () => {
+    write('git/demo-api/.aider.chat.history.md', Date.parse('2026-10-20T09:20:00Z'));
+    write('git/demo-web/.aider.chat.history.md');
+    write('git/elsewhere/.aider.chat.history.md');
+    // No roots (no database yet): not found, and nothing under home is walked.
+    expect(detectHarnesses().find((h) => h.id === 'aider')).toMatchObject({ found: false, files: 0, root: "<each project's root>/.aider.chat.history.md" });
+    const one = detectHarnesses({ projectRoots: [path.join(home, 'git', 'demo-api'), path.join(home, 'git', 'demo-cli')] }).find((h) => h.id === 'aider');
+    expect(one).toMatchObject({
+      found: true, readable: true, files: 1, newestMs: Date.parse('2026-10-20T09:20:00Z'),
+      root: path.join(home, 'git', 'demo-api', '.aider.chat.history.md'),
+    });
+    const two = detectHarnesses({ projectRoots: [path.join(home, 'git', 'demo-api'), path.join(home, 'git', 'demo-web'), path.join(home, 'git', 'demo-cli')] }).find((h) => h.id === 'aider');
+    expect(two).toMatchObject({ found: true, files: 2, root: '.aider.chat.history.md in 2 of our 3 project roots' });
   });
 });

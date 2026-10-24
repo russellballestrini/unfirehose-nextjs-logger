@@ -87,8 +87,8 @@ export function insertMessage(
       `INSERT OR IGNORE INTO messages (
         session_id, message_uuid, parent_uuid, type, subtype, timestamp,
         model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-        duration_ms, is_sidechain, endpoint, provider, observed_cost_usd
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        duration_ms, is_sidechain, endpoint, provider, observed_cost_usd, tokens_approx
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       sessionId,
@@ -109,7 +109,10 @@ export function insertMessage(
       // The gateway's own price for this call, when it quoted one. Undefined
       // stays NULL: unpriced is not free, and a computed estimate fills in
       // downstream rather than being frozen here as if it were an invoice.
-      usage?.costUSD ?? null
+      usage?.costUSD ?? null,
+      // 1 when the counts came off a rounded display (Aider's "2.4k"); NULL
+      // means they are what the harness reported.
+      entry.tokensApprox ? 1 : null
     );
 
   // changes === 0 means the row was ignored (duplicate uuid)

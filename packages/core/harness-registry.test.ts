@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, existsSync } from 'fs';
 import path from 'path';
-import { HARNESS_REGISTRY, FOREIGN_FORMATS, ingestedHarnesses, harnessById } from './harness-registry';
+import { HARNESS_REGISTRY, FOREIGN_FORMATS, ingestedHarnesses, harnessById, repoFileHarnesses } from './harness-registry';
 import { foreignSessionFiles } from './harness-files';
 import { HARNESS_ROOTS } from './harness-roots';
 import { HARNESSES, HARNESS_MODEL_FLAGS } from './harness-models';
@@ -33,7 +33,15 @@ describe('HARNESS_REGISTRY', () => {
   });
 
   it('knows where every harness it ingests writes, and nothing else', () => {
-    expect(ingestedHarnesses().map((h) => h.id).sort()).toEqual(Object.keys(HARNESS_ROOTS).sort());
+    // Two kinds of "where": a root of the harness's own (HARNESS_ROOTS), or,
+    // for a harness that writes inside each repository it runs in (Aider's
+    // .aider.chat.history.md), the file it writes there, looked for in our
+    // projects' roots. Every ingested harness has exactly one of the two.
+    const inRepo = repoFileHarnesses().map((h) => h.id).sort();
+    expect(inRepo).toEqual(['aider']);
+    for (const id of inRepo) expect(HARNESS_ROOTS[id], id).toBeUndefined();
+    expect(ingestedHarnesses().map((h) => h.id).filter((id) => !inRepo.includes(id)).sort()).toEqual(Object.keys(HARNESS_ROOTS).sort());
+    for (const h of HARNESS_REGISTRY.filter((x) => x.repoFile)) expect(h.format, h.id).toBeTruthy();
   });
 
   it('gives the session viewer a reader for every ingested harness and its older ids', () => {
@@ -44,7 +52,7 @@ describe('HARNESS_REGISTRY', () => {
 
   it('gives every foreign format a file lister, and reads its sessions back from our database', () => {
     const foreign = ingestedHarnesses().filter((h) => FOREIGN_FORMATS.has(h.format!));
-    expect(foreign.map((h) => h.id).sort()).toEqual(['codex', 'continue', 'gemini-cli']);
+    expect(foreign.map((h) => h.id).sort()).toEqual(['aider', 'codex', 'continue', 'gemini-cli']);
     for (const h of foreign) {
       expect(foreignSessionFiles(h.format!, '/nonexistent'), h.id).toEqual([]);
       expect(harnessFor(`${h.id}:slug`).adapter.stored, h.id).toBe(true);

@@ -5,7 +5,10 @@ const db = createTestDb();
 vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 // The machine running the tests is not the machine being onboarded.
 let found: Array<Record<string, unknown>> = [];
-vi.mock('@unturf/unfirehose/harness-detect', () => ({ detectHarnesses: () => found }));
+let asked: { projectRoots?: string[] } | undefined;
+vi.mock('@unturf/unfirehose/harness-detect', () => ({
+  detectHarnesses: (opts?: { projectRoots?: string[] }) => { asked = opts; return found; },
+}));
 // Nor is its disk the one being checked.
 const GiB = 1024 ** 3;
 let space: { path: string; freeBytes: number; totalBytes: number } | null = { path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB };
@@ -27,6 +30,13 @@ describe('GET /api/onboarding', () => {
     const body = await (await GET()).json();
     expect(body).toMatchObject({ sessions: 0, projects: 0, messages: 0, workerAlive: false, lastIngestAt: null });
     expect(body.harnesses[0]).toMatchObject({ id: 'claude-code', found: true, sessions: 0, lastMessageAt: null });
+  });
+
+  it('asks the detector to look for Aider in the roots of our projects, only those that exist', async () => {
+    seedProject(db, '-tmp', 'tmp');
+    db.prepare("UPDATE projects SET path = '/tmp', last_cwd_seen = '/nonexistent/unfirehose-test'").run();
+    await GET();
+    expect(asked?.projectRoots).toEqual(['/tmp']);
   });
 
   it('counts what has landed and joins each harness to its sessions', async () => {

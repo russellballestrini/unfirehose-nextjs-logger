@@ -48,6 +48,12 @@ export interface UfMessage {
   content: any[];
   model?: string | null;
   usage?: any;
+  /**
+   * Our own mark, not unfirehose/1.0: the usage counts were read off a
+   * harness's rounded display (Aider's "2.4k sent"), not reported exactly.
+   * Stored as messages.tokens_approx.
+   */
+  tokensApprox?: boolean;
   subtype?: string | null;
   durationMs?: number | null;
   sidechain?: boolean;
@@ -140,6 +146,7 @@ const NORMALIZE: Record<HarnessFormat, (raw: any) => UfMessage | null> = {
   'codex-rollout': stored,
   'gemini-chat': stored,
   'continue-session': stored,
+  'aider-history': stored,
 };
 
 function adapterFor(id: string, format: HarnessFormat): HarnessAdapter {

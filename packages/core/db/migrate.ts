@@ -515,6 +515,10 @@ export function migrate(db: Database.Database) {
   // free — an aggregator that quotes its own price is the only source that
   // cannot disagree with it.
   addColumn('messages', 'observed_cost_usd', 'REAL');
+  // 1 when a reader took the token counts off a harness's rounded display
+  // (Aider prints "2.4k sent", nothing finer), so a sum over them is an
+  // estimate to that precision. NULL: the counts are what was reported.
+  addColumn('messages', 'tokens_approx', 'INTEGER');
   // Lane provenance: the line hash a chained writer stamped on this row
   // (unfirehose-chain-v1), so a message on screen joins to the leaf its
   // session root commits to. NULL for an unchained writer.
