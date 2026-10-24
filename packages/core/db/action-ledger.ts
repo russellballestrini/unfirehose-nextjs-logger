@@ -16,11 +16,19 @@
 // keyed on block_id, so overlap is harmless. When LEDGER_RULES_VERSION
 // changes the table is emptied and both cursors restart: a better rule
 // re-classifies history instead of only what arrives next.
+//
+// The same walk reads tool results for credentials (findSecrets, behind one
+// cheap prefilter) and hands every call or result that carried one to
+// db/secret-alerts.ts, which keeps the sighting and, for what the head scan
+// finds after the feature first ran, raises an alert. The backfill never
+// raises: history is flagged, not announced.
 
 import type Database from 'better-sqlite3';
 import { getDb } from './schema';
-import { TOOL_CALL_SQL } from '../block-types';
-import { classifyToolCall, LEDGER_RULES_VERSION, ACTION_FLAGS, ACTION_KINDS, type ActionFlag, type ActionKind } from '../action-ledger';
+import { TOOL_CALL_SQL, TOOL_RESULT_SQL } from '../block-types';
+import { classifyToolCall, secretKindsInInput, LEDGER_RULES_VERSION, ACTION_FLAGS, ACTION_KINDS, type ActionFlag, type ActionKind } from '../action-ledger';
+import { findSecrets, mayHoldSecret } from '../pii';
+import { outputKindsFor, outputReason, recordSightings, sightingStatus, type Sighting, type SightingStatus } from './secret-alerts';
 
 const HEAD_KEY = 'action_ledger_head';
 const BELOW_KEY = 'action_ledger_below';
@@ -73,22 +81,47 @@ interface BlockRow {
   project_id: number | null;
   harness: string | null;
   timestamp: string;
+  session_uuid: string | null;
+  project_name: string | null;
+  project_display_name: string | null;
 }
 
-/** Classify the tool calls with lo < id <= hi. Returns tool calls read and rows written. */
-function classifyRange(db: Database.Database, lo: number, hi: number): { scanned: number; recorded: number } {
-  if (hi <= lo) return { scanned: 0, recorded: 0 };
-  const rows = db.prepare(`
-    SELECT cb.id AS block_id, cb.message_id, cb.tool_name, cb.tool_input, cb.tool_use_id,
-           m.session_id, s.project_id, s.harness,
-           COALESCE(m.timestamp, replace(m.ingested_at, ' ', 'T') || 'Z') AS timestamp
+const BLOCK_COLUMNS = `
+    cb.id AS block_id, cb.message_id, cb.tool_use_id,
+    m.session_id, s.project_id, s.harness, s.session_uuid,
+    p.name AS project_name, p.display_name AS project_display_name,
+    COALESCE(m.timestamp, replace(m.ingested_at, ' ', 'T') || 'Z') AS timestamp`;
+const BLOCK_JOINS = `
       FROM content_blocks cb
       JOIN messages m ON m.id = cb.message_id
       LEFT JOIN sessions s ON s.id = m.session_id
+      LEFT JOIN projects p ON p.id = s.project_id`;
+
+function sightingOf(r: BlockRow, location: 'call' | 'result', kinds: string[]): Sighting {
+  return {
+    blockId: r.block_id, messageId: r.message_id, sessionId: r.session_id, projectId: r.project_id,
+    timestamp: r.timestamp, location, toolName: r.tool_name, toolUseId: r.tool_use_id, kinds,
+    sessionUuid: r.session_uuid, projectName: r.project_name, projectDisplayName: r.project_display_name,
+    harness: r.harness,
+  };
+}
+
+interface RangeResult { scanned: number; recorded: number; secrets: number; alerts: number }
+
+/**
+ * Classify the tool calls with lo < id <= hi and read the tool results in
+ * the same range for credentials. `alert` says whether a new sighting may
+ * raise an alert (head scan) or is only kept (history).
+ */
+function classifyRange(db: Database.Database, lo: number, hi: number, alert: boolean, now?: Date): RangeResult {
+  const out: RangeResult = { scanned: 0, recorded: 0, secrets: 0, alerts: 0 };
+  if (hi <= lo) return out;
+  const rows = db.prepare(`
+    SELECT ${BLOCK_COLUMNS}, cb.tool_name, cb.tool_input
+      ${BLOCK_JOINS}
      WHERE cb.id > ? AND cb.id <= ?
        AND cb.block_type ${TOOL_CALL_SQL}
   `).all(lo, hi) as BlockRow[];
-  if (rows.length === 0) return { scanned: 0, recorded: 0 };
 
   const insert = db.prepare(`
     INSERT INTO action_ledger
@@ -97,25 +130,60 @@ function classifyRange(db: Database.Database, lo: number, hi: number): { scanned
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(block_id) DO NOTHING
   `);
-  let recorded = 0;
+  const sightings: Sighting[] = [];
   db.transaction(() => {
     for (const r of rows) {
       let a;
       try { a = classifyToolCall(r.tool_name, r.tool_input); } catch { a = null; }
       if (!a) continue;
+      if (a.flags.includes('secrets-in-diff') || a.flags.includes('secret-in-command')) {
+        let kinds: string[] = [];
+        try { kinds = secretKindsInInput(r.tool_input); } catch { kinds = []; }
+        sightings.push(sightingOf(r, 'call', kinds));
+      }
+      // Its output may have been read first: the backfill walks newest first.
+      const seen = outputKindsFor(db, r.tool_use_id, r.session_id);
+      const flags = seen.length ? [...a.flags, 'secret-in-output'] : a.flags;
+      const reasons = seen.length ? [...a.reasons, outputReason(seen)] : a.reasons;
       const res = insert.run(
         r.block_id, r.message_id, r.session_id, r.project_id, r.harness, r.timestamp, r.tool_name, r.tool_use_id,
-        a.kind, a.paths.join('\n'), a.command, a.flags.join(' '), a.flags.length > 0 ? 1 : 0, a.reasons.join('; '),
+        a.kind, a.paths.join('\n'), a.command, flags.join(' '), flags.length > 0 ? 1 : 0, reasons.join('; '),
       );
-      recorded += res.changes;
+      out.recorded += res.changes;
     }
   })();
-  return { scanned: rows.length, recorded };
+  out.scanned = rows.length;
+
+  // Tool results: streamed, since their text is most of a window's bytes,
+  // and only what passes the prefilter is matched in full.
+  const results = db.prepare(`
+    SELECT ${BLOCK_COLUMNS}, NULL AS tool_name, NULL AS tool_input, cb.text_content
+      ${BLOCK_JOINS}
+     WHERE cb.id > ? AND cb.id <= ?
+       AND cb.block_type ${TOOL_RESULT_SQL}
+       AND cb.text_content IS NOT NULL
+  `);
+  for (const r of results.iterate(lo, hi) as IterableIterator<BlockRow & { text_content: string }>) {
+    if (!mayHoldSecret(r.text_content)) continue;
+    const kinds = [...new Set(findSecrets(r.text_content).map((h) => h.kind))];
+    if (kinds.length) sightings.push(sightingOf(r, 'result', kinds));
+  }
+
+  if (sightings.length) {
+    const s = recordSightings(db, sightings, { alert, now });
+    out.secrets = s.recorded;
+    out.alerts = s.alerts;
+  }
+  return out;
 }
 
 export interface LedgerScanResult {
   scanned: number;
   recorded: number;
+  /** Credential sightings new to secret_sightings. */
+  secrets: number;
+  /** secret_exposed alerts raised. Zero from the backfill, always. */
+  alerts: number;
 }
 
 /**
@@ -124,18 +192,20 @@ export interface LedgerScanResult {
  */
 export function scanLedgerHead(
   db: Database.Database = getDb(),
-  opts: { window?: number; maxPasses?: number } = {},
+  opts: { window?: number; maxPasses?: number; now?: Date } = {},
 ): LedgerScanResult & { head: number } {
   const window = opts.window ?? LEDGER_WINDOW;
   const maxPasses = opts.maxPasses ?? 4;
   let { head } = ledgerCursors(db);
   const max = maxBlockId(db);
-  const out = { scanned: 0, recorded: 0, head };
+  const out = { scanned: 0, recorded: 0, secrets: 0, alerts: 0, head };
   for (let i = 0; i < maxPasses && head < max; i++) {
     const hi = Math.min(head + window, max);
-    const r = classifyRange(db, head, hi);
+    const r = classifyRange(db, head, hi, true, opts.now);
     out.scanned += r.scanned;
     out.recorded += r.recorded;
+    out.secrets += r.secrets;
+    out.alerts += r.alerts;
     head = hi;
     setSetting(db, HEAD_KEY, head);
   }
@@ -153,21 +223,21 @@ export function backfillLedger(
 ): LedgerScanResult & { remaining: number; done: boolean } {
   const window = opts.window ?? LEDGER_WINDOW;
   const { below } = ledgerCursors(db);
-  if (below <= 1) return { scanned: 0, recorded: 0, remaining: 0, done: true };
+  if (below <= 1) return { scanned: 0, recorded: 0, secrets: 0, alerts: 0, remaining: 0, done: true };
   const lo = Math.max(0, below - 1 - window);
-  const r = classifyRange(db, lo, below - 1);
+  const r = classifyRange(db, lo, below - 1, false);
   setSetting(db, BELOW_KEY, lo + 1);
   return { ...r, remaining: lo, done: lo === 0 };
 }
 
 /** Head and history both, to the end. For `make demo`, tests and a manual rebuild. */
-export function drainLedger(db: Database.Database = getDb(), opts: { window?: number } = {}): LedgerScanResult {
-  const out = { scanned: 0, recorded: 0 };
+export function drainLedger(db: Database.Database = getDb(), opts: { window?: number; now?: Date } = {}): LedgerScanResult {
+  const out = { scanned: 0, recorded: 0, secrets: 0, alerts: 0 };
   for (;;) {
-    const h = scanLedgerHead(db, { window: opts.window, maxPasses: 1000 });
-    out.scanned += h.scanned; out.recorded += h.recorded;
+    const h = scanLedgerHead(db, { window: opts.window, maxPasses: 1000, now: opts.now });
+    out.scanned += h.scanned; out.recorded += h.recorded; out.secrets += h.secrets; out.alerts += h.alerts;
     const b = backfillLedger(db, opts);
-    out.scanned += b.scanned; out.recorded += b.recorded;
+    out.scanned += b.scanned; out.recorded += b.recorded; out.secrets += b.secrets;
     if (b.done) break;
   }
   return out;
@@ -186,12 +256,14 @@ export interface LedgerStatus {
   /** Block ids past our head cursor, waiting on the next ingest. */
   headLag: number;
   rulesVersion: number;
+  /** Credentials seen in tool calls and results (secret_sightings). */
+  secrets: SightingStatus;
 }
 
 export function ledgerStatus(db: Database.Database = getDb()): LedgerStatus {
   const { head, below } = ledgerCursors(db);
   const rows = (db.prepare('SELECT COUNT(*) AS n FROM action_ledger').get() as { n: number }).n;
-  return { rows, backfillRemaining: Math.max(0, below - 1), headLag: Math.max(0, maxBlockId(db) - head), rulesVersion: LEDGER_RULES_VERSION };
+  return { rows, backfillRemaining: Math.max(0, below - 1), headLag: Math.max(0, maxBlockId(db) - head), rulesVersion: LEDGER_RULES_VERSION, secrets: sightingStatus(db) };
 }
 
 // ── Query ────────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@
  */
 import { createHmac } from 'crypto';
 import { formatTokens } from './format';
+import { describeSecretAlert, isSecretAlert, parseSecretDetails } from './secret-alert';
 
 export const DESTINATIONS = ['webhook', 'ntfy', 'slack', 'discord'] as const;
 export type Destination = (typeof DESTINATIONS)[number];
@@ -102,6 +103,11 @@ function amount(metric: string, n: number): string {
 
 /** One alert in words, shared by every destination so they all say the same thing. */
 export function summarizeAlert(a: AlertLike): AlertSummary {
+  if (isSecretAlert(a)) {
+    // A credential seen in a session: its kind and where, never its value.
+    const w = describeSecretAlert(a);
+    return { title: w.title, message: w.message, severity: 'urgent', ratio: null, path: `/usage/alert/${a.id}`, test: false };
+  }
   const label = METRIC_LABEL[a.metric] ?? a.metric.replace(/_/g, ' ');
   const ratio = a.threshold_value > 0 ? a.actual_value / a.threshold_value : null;
   const severity: Severity = ratio === null ? 'normal' : ratio >= 3 ? 'urgent' : ratio >= 1.5 ? 'high' : 'normal';
@@ -150,13 +156,13 @@ export function formatWebhook(a: AlertLike, sentAt: Date) {
 /** Slack incoming webhook: `text` is the notification fallback, blocks the card. */
 export function formatSlack(a: AlertLike) {
   const s = summarizeAlert(a);
-  const fields = [
+  const fields = isSecretAlert(a) ? secretFields(a).map(([k, v]) => ({ type: 'mrkdwn', text: `*${k}*\n${slackEscape(v)}` })) : [
     { type: 'mrkdwn', text: `*Metric*\n${METRIC_LABEL[a.metric] ?? a.metric}` },
     { type: 'mrkdwn', text: `*Window*\n${windowLabel(a.window_minutes)}` },
     { type: 'mrkdwn', text: `*Actual*\n${amount(a.metric, a.actual_value)}` },
     { type: 'mrkdwn', text: `*Threshold*\n${amount(a.metric, a.threshold_value)}` },
   ];
-  if (a.project_name) fields.push({ type: 'mrkdwn', text: `*Project*\n${slackEscape(a.project_name)}` });
+  if (a.project_name && !isSecretAlert(a)) fields.push({ type: 'mrkdwn', text: `*Project*\n${slackEscape(a.project_name)}` });
   return {
     text: `${s.title}: ${s.message}`,
     blocks: [
@@ -166,6 +172,19 @@ export function formatSlack(a: AlertLike) {
       { type: 'context', elements: [{ type: 'mrkdwn', text: `alert #${a.id} · ${a.triggered_at} · severity ${s.severity}` }] },
     ],
   };
+}
+
+/** Card fields for a credential alert: kind, where, project, session, time. No value. */
+function secretFields(a: AlertLike): Array<[string, string]> {
+  const d = parseSecretDetails(a)!;
+  const w = describeSecretAlert(a);
+  return [
+    ['Kind', w.kinds],
+    ['Where', w.where],
+    ['Project', d.projectDisplay || d.project || 'unknown'],
+    ['Session', d.session ?? 'unknown'],
+    ['Seen at', d.seenAt || a.triggered_at],
+  ];
 }
 
 /** Slack treats <, > and & as markup; a project name must not become a link or a mention. */
@@ -178,12 +197,12 @@ const DISCORD_COLOR: Record<Severity, number> = { normal: 0xf5a623, high: 0xe859
 /** Discord webhook: one embed, and no mention a project name could smuggle in. */
 export function formatDiscord(a: AlertLike) {
   const s = summarizeAlert(a);
-  const fields = [
+  const fields = isSecretAlert(a) ? secretFields(a).map(([name, value]) => ({ name, value: value.slice(0, 1024), inline: true })) : [
     { name: 'Actual', value: amount(a.metric, a.actual_value), inline: true },
     { name: 'Threshold', value: amount(a.metric, a.threshold_value), inline: true },
     { name: 'Window', value: windowLabel(a.window_minutes), inline: true },
   ];
-  if (a.project_name) fields.push({ name: 'Project', value: a.project_name.slice(0, 1024), inline: true });
+  if (a.project_name && !isSecretAlert(a)) fields.push({ name: 'Project', value: a.project_name.slice(0, 1024), inline: true });
   return {
     username: 'unfirehose',
     content: s.title.slice(0, 2000),
@@ -222,7 +241,7 @@ export function formatNtfy(a: AlertLike) {
     headers: {
       Title: encodeHeader(s.title),
       Priority: NTFY_PRIORITY[s.severity],
-      Tags: s.test ? 'test_tube' : s.severity === 'normal' ? 'warning' : 'rotating_light',
+      Tags: s.test ? 'test_tube' : isSecretAlert(a) ? 'key,rotating_light' : s.severity === 'normal' ? 'warning' : 'rotating_light',
     } as Record<string, string>,
   };
 }

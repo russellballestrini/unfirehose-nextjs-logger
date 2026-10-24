@@ -10,6 +10,7 @@ import {
 } from '@unturf/unfirehose/db/ingest';
 import { costForUsage, costForUsageRows } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
+import { isSecretAlert, parseSecretDetails, describeSecretAlert } from '@unturf/unfirehose/secret-alert';
 
 // Cost comes from costForUsage — the single entry point in @unturf/unfirehose/pricing.
 // An alert window is minutes long, so every row books at the price in force
@@ -32,6 +33,11 @@ export async function GET(
     const alert = getAlertById(id);
     if (!alert) {
       return NextResponse.json({ error: 'Alert not found' }, { status: 404 });
+    }
+
+    // A credential alert has no usage window: say what was seen and where.
+    if (isSecretAlert(alert)) {
+      return NextResponse.json({ alert, secret: parseSecretDetails(alert), words: describeSecretAlert(alert) });
     }
 
     // Compute window boundaries

@@ -29,7 +29,12 @@ import { findSecrets, redactSecrets } from './pii';
 import { splitTopLevel, type ShellPiece } from './shell-pretty';
 
 /** Bump when a rule changes; the scanner then rebuilds the ledger from blocks. */
-export const LEDGER_RULES_VERSION = 1;
+// 2: more installers count as network (python -m pip, pipx, uvx, conda,
+//    composer, bundle, dotnet, deno, npm exec, bare yarn, options before the
+//    subcommand); a credential sent by a network or MCP tool is flagged; a
+//    credential in a tool's output is flagged (secret-in-output, set by the
+//    scanner, which reads results).
+export const LEDGER_RULES_VERSION = 2;
 
 export const ACTION_KINDS = ['fs-read', 'fs-write', 'git', 'network', 'shell'] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
@@ -42,6 +47,9 @@ export const ACTION_FLAGS = [
   'secret-in-command',
   'sudo',
   'curl-pipe-shell',
+  // Set by the scanner (db/action-ledger.ts), not here: the result block a
+  // credential appeared in arrives after the call that produced it.
+  'secret-in-output',
 ] as const;
 export type ActionFlag = (typeof ACTION_FLAGS)[number];
 
@@ -296,21 +304,43 @@ function program(words: string[]): { prog: string; args: string[]; sudo: boolean
 }
 
 const isOpt = (a: string) => a.startsWith('-') && a !== '-';
+
+/** Options a package manager takes before its subcommand that eat the next word. */
+const INSTALLER_VALUE_OPTS = new Set(['--prefix', '-C', '--dir', '--cwd', '--filter', '-F', '-w', '--workspace', '--registry', '--manifest-path', '--userconfig', '-p', '--project']);
+
+/** A package manager's subcommand, past any options before it: `npm --prefix web ci` → ci. */
+function installerSub(args: string[]): string | null {
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    if (INSTALLER_VALUE_OPTS.has(a)) { k++; continue; }
+    if (isOpt(a)) continue;
+    return a;
+  }
+  return null;
+}
 /** Short-option letters a word carries: "-rf" → "rf", "--force" → "". */
 const shortOpts = (args: string[]) => args.filter((a) => /^-[A-Za-z]+$/.test(a)).map((a) => a.slice(1)).join('');
 
 const NETWORK_PROGS = new Set([
   'curl', 'wget', 'ssh', 'scp', 'sftp', 'mosh', 'nc', 'ncat', 'netcat', 'telnet', 'ftp', 'lftp', 'http', 'https',
   'xh', 'aria2c', 'ping', 'dig', 'nslookup', 'host', 'whois', 'traceroute', 'mtr', 'gh', 'glab', 'npx', 'bunx',
-  'twine', 'websocat', 'grpcurl',
+  'twine', 'websocat', 'grpcurl', 'uvx', 'pnpx',
 ]);
 const INSTALLERS: Record<string, Set<string>> = {
-  npm: new Set(['install', 'i', 'ci', 'add', 'update', 'publish', 'unpublish', 'login', 'view', 'info', 'outdated', 'audit']),
-  pnpm: new Set(['install', 'i', 'add', 'update', 'publish', 'dlx']),
+  npm: new Set(['install', 'i', 'ci', 'add', 'update', 'publish', 'unpublish', 'login', 'view', 'info', 'outdated', 'audit', 'exec', 'x', 'install-test', 'it']),
+  pnpm: new Set(['install', 'i', 'add', 'update', 'up', 'publish', 'dlx', 'fetch']),
   yarn: new Set(['install', 'add', 'upgrade', 'publish', 'dlx']),
   bun: new Set(['install', 'i', 'add', 'update', 'publish']),
   pip: new Set(['install', 'download']),
   pip3: new Set(['install', 'download']),
+  pipx: new Set(['install', 'run', 'inject', 'upgrade', 'upgrade-all']),
+  conda: new Set(['install', 'create', 'update', 'upgrade']),
+  mamba: new Set(['install', 'create', 'update', 'upgrade']),
+  micromamba: new Set(['install', 'create', 'update']),
+  composer: new Set(['install', 'require', 'update', 'create-project']),
+  bundle: new Set(['install', 'update', 'add']),
+  dotnet: new Set(['add', 'restore', 'tool']),
+  deno: new Set(['install', 'add', 'cache']),
   uv: new Set(['add', 'sync', 'pip', 'tool']),
   poetry: new Set(['add', 'install', 'update', 'publish']),
   cargo: new Set(['install', 'add', 'publish', 'update', 'fetch']),
@@ -489,7 +519,12 @@ function analyzeStatement(piece: ShellPiece, next: ShellPiece | undefined, r: Sh
       const why = dangerousDeleteTarget(operands[operands.length - 1]);
       if (why) add(r, 'destructive', `rsync --delete into ${why}`);
     }
-  } else if (INSTALLERS[prog] && operands[0] && INSTALLERS[prog].has(operands[0])) {
+  } else if (INSTALLERS[prog] && installerSub(args) !== null && INSTALLERS[prog].has(installerSub(args)!)) {
+    bump(r, 'network');
+  } else if (prog === 'yarn' && installerSub(args) === null) {
+    // Bare `yarn` is `yarn install`.
+    bump(r, 'network');
+  } else if (/^python(?:3(?:\.\d+)?)?$/.test(prog) && args[0] === '-m' && /^pip3?$/.test(args[1] ?? '') && INSTALLERS.pip.has(installerSub(args.slice(2)) ?? '')) {
     bump(r, 'network');
   } else if (prog === 'pacman' && args.some((a) => /^-S/.test(a))) {
     bump(r, 'network');
@@ -651,6 +686,26 @@ function filePaths(input: Input): string[] {
   return [...new Set(out)].slice(0, MAX_PATHS);
 }
 
+/** Every string inside a tool input, depth-first, for a credential scan. */
+function inputStrings(v: unknown, out: string[], depth = 0): string[] {
+  if (depth > 6 || out.length > 500) return out;
+  if (typeof v === 'string') out.push(v);
+  else if (Array.isArray(v)) for (const x of v) inputStrings(x, out, depth + 1);
+  else if (v && typeof v === 'object') for (const x of Object.values(v)) inputStrings(x, out, depth + 1);
+  return out;
+}
+
+/**
+ * The kinds of credential a tool input carries (anthropic_key, private_key,
+ * …), read from its decoded strings so JSON escaping cannot hide one.
+ * Kinds only: no value or span leaves here.
+ */
+export function secretKindsInInput(rawInput: unknown): string[] {
+  const input = typeof rawInput === 'object' && rawInput !== null && !Array.isArray(rawInput) ? rawInput : parseToolInput(rawInput);
+  const text = inputStrings(input, []).join('\n');
+  return [...new Set(findSecrets(text).map((h) => h.kind))];
+}
+
 /**
  * Classify one tool call, or null when it touched none of filesystem, git
  * or network (a todo list, a subagent, a question to the person).
@@ -683,7 +738,15 @@ export function classifyToolCall(toolName: string | null | undefined, rawInput: 
     if (!url && query) for (const m of query.matchAll(/https?:\/\/[^\s"')]+/g)) paths.push(m[0]);
     const server = toolName.startsWith('mcp__') ? toolName.split('__')[1] : null;
     if (server) paths.push(`mcp:${server}`);
-    return done('network', paths, url ?? query ?? (server ? toolName : null), new Set(), []);
+    // Whatever a network or MCP tool was handed leaves the box with it.
+    const flags = new Set<ActionFlag>();
+    const reasons: string[] = [];
+    const sent = secretKindsInInput(input);
+    if (sent.length) {
+      flags.add('secret-in-command');
+      reasons.push(`sends a credential (${sent.join(', ')}) ${server ? `to MCP server ${server}` : 'over the network'}`);
+    }
+    return done('network', paths, url ?? query ?? (server ? toolName : null), flags, reasons);
   }
 
   if (WRITE_TOOLS.has(key)) {

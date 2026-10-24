@@ -191,9 +191,22 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
 ];
 
+/**
+ * One cheap pass that every pattern above needs to pass first: a vendor
+ * prefix or a credential-shaped word, case-blind. Ingest runs findSecrets
+ * over every tool result, most of which hold none of these, so most texts
+ * cost one scan instead of thirteen. Keep it a superset of SECRET_PATTERNS:
+ * pii.test.ts holds every pattern's example to it.
+ */
+const MAY_HOLD_SECRET = /PRIVATE KEY|AKIA|ASIA|gh[pousr]_|github_pat_|glpat-|sk-|unsb-sk-|xox[abposr]-|_live_|AIza|npm_|Bearer|passw|secret|api_?key|access_?token|auth_?token|private_?key/i;
+
+export function mayHoldSecret(text: string): boolean {
+  return Boolean(text) && MAY_HOLD_SECRET.test(text);
+}
+
 /** Every credential in `text`, by kind and span. Spans never overlap. */
 export function findSecrets(text: string): SecretMatch[] {
-  if (!text) return [];
+  if (!text || !MAY_HOLD_SECRET.test(text)) return [];
   const found: SecretMatch[] = [];
   for (const p of SECRET_PATTERNS) {
     const regex = new RegExp(p.regex.source, p.regex.flags);

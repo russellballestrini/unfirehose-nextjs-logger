@@ -95,7 +95,8 @@ export function fileSecretStore(file: string = alertSecretsPath()): SecretStore 
 
 // ── Rules ────────────────────────────────────────────────────────────────
 
-export const MATCH_METRICS = ['input_tokens', 'output_tokens', 'total_tokens', 'cost_usd'] as const;
+/** 'secret' picks out credential alerts (secret_exposed), which carry it as their metric. */
+export const MATCH_METRICS = ['input_tokens', 'output_tokens', 'total_tokens', 'cost_usd', 'secret'] as const;
 
 interface RuleRow {
   id: number;
@@ -127,7 +128,15 @@ export interface PublicRule {
   updated_at: string;
   last: { status: string; http_status: number | null; error: string | null; at: string; is_test: boolean } | null;
   sent_24h: number;
+  /** Gave up: a status that will not change, or out of retries. */
   failed_24h: number;
+  /**
+   * Not sent because the rule was over its per-hour limit in the last 24 h.
+   * Dropped, not queued: the cap is a flood guard and a late alert is noise.
+   */
+  dropped_24h: number;
+  /** When the most recent of those was dropped, or null. */
+  last_dropped_at: string | null;
 }
 
 export interface RuleInput {
@@ -206,9 +215,11 @@ function toPublic(db: Db, store: SecretStore, r: RuleRow, now: Date): PublicRule
   const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
   const counts = db.prepare(
     `SELECT SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
-            SUM(CASE WHEN status IN ('failed', 'rate_limited') THEN 1 ELSE 0 END) AS failed
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+            SUM(CASE WHEN status = 'rate_limited' THEN 1 ELSE 0 END) AS dropped,
+            MAX(CASE WHEN status = 'rate_limited' THEN updated_at END) AS last_dropped_at
      FROM alert_deliveries WHERE rule_id = ? AND is_test = 0 AND updated_at >= ?`,
-  ).get(r.id, since) as { sent: number | null; failed: number | null };
+  ).get(r.id, since) as { sent: number | null; failed: number | null; dropped: number | null; last_dropped_at: string | null };
   let config: DestinationConfig = {};
   try { config = JSON.parse(r.config); } catch { /* keep empty */ }
   return {
@@ -225,6 +236,8 @@ function toPublic(db: Db, store: SecretStore, r: RuleRow, now: Date): PublicRule
     last: last ? { ...last, is_test: last.is_test === 1 } : null,
     sent_24h: counts.sent ?? 0,
     failed_24h: counts.failed ?? 0,
+    dropped_24h: counts.dropped ?? 0,
+    last_dropped_at: counts.last_dropped_at ?? null,
   };
 }
 
@@ -464,7 +477,8 @@ export async function deliverDue(
      WHERE a.id > @since
        AND (@metric IS NULL OR a.metric = @metric)
        AND (@window IS NULL OR a.window_minutes = @window)
-       AND (@project IS NULL OR a.project_name = @project)`,
+       AND (@project IS NULL OR a.project_name = @project
+            OR a.project_name IN (SELECT name FROM projects WHERE display_name = @project))`,
   );
   const due = db.prepare(
     `SELECT d.id AS delivery_id, d.attempts, a.* FROM alert_deliveries d JOIN alerts a ON a.id = d.alert_id

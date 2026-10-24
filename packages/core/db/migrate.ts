@@ -96,7 +96,7 @@ export function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
-      alert_type TEXT NOT NULL,           -- rate_spike, threshold_breach, sustained_high
+      alert_type TEXT NOT NULL,           -- rate_spike, threshold_breach, sustained_high, secret_exposed
       window_minutes INTEGER NOT NULL,    -- 1, 5, 15, 60
       metric TEXT NOT NULL,               -- input_tokens, output_tokens, total_tokens, cost_usd
       threshold_value REAL NOT NULL,
@@ -879,6 +879,35 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_action_ledger_kind    ON action_ledger(kind, timestamp);
     CREATE INDEX IF NOT EXISTS idx_action_ledger_harness ON action_ledger(harness, timestamp);
     CREATE INDEX IF NOT EXISTS idx_action_ledger_flagged ON action_ledger(timestamp) WHERE flagged = 1;
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_tool_use ON action_ledger(tool_use_id);
+  `);
+
+  // Credentials seen in a tool call or a tool result, one row per block,
+  // found by the ledger scanner (db/action-ledger.ts, db/secret-alerts.ts).
+  // block_id UNIQUE is the idempotent key: re-ingest, a backfill or a ledger
+  // rebuild sees the same block again and raises nothing twice. Kinds only
+  // (anthropic_key, private_key, …), never a value or an offset into one.
+  // alert_id: the secret_exposed alert this raised or joined; NULL for a
+  // sighting from history (backfilled = 1, or older than secret_alerts_since).
+  // Not derived like action_ledger: a rules bump empties the ledger, never this.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS secret_sightings (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      block_id     INTEGER NOT NULL UNIQUE,  -- content_blocks.id
+      message_id   INTEGER NOT NULL,
+      session_id   INTEGER,
+      project_id   INTEGER,
+      timestamp    TEXT NOT NULL,            -- the line's own time
+      location     TEXT NOT NULL,            -- call | result
+      tool_name    TEXT,
+      tool_use_id  TEXT,
+      kinds        TEXT NOT NULL,            -- space-joined kinds, never a value
+      alert_id     INTEGER,
+      backfilled   INTEGER NOT NULL DEFAULT 0,
+      recorded_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_secret_sightings_session  ON secret_sightings(session_id, alert_id);
+    CREATE INDEX IF NOT EXISTS idx_secret_sightings_tool_use ON secret_sightings(tool_use_id);
   `);
 
   // Vendor status pages, polled by the worker (see status-pages.ts). Raw

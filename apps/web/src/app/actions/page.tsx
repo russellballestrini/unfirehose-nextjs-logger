@@ -62,9 +62,10 @@ const FLAG_HELP: Record<string, string> = {
   'force-push': 'git push --force overwrote a remote branch',
   'force-with-lease': 'git push --force-with-lease: a force push that checks the remote first',
   'secrets-in-diff': 'wrote a credential into a file',
-  'secret-in-command': 'carried a credential on a command line',
+  'secret-in-command': 'carried a credential on a command line, or sent one to a network or MCP tool',
   sudo: 'ran as root',
   'curl-pipe-shell': 'piped a download straight into a shell',
+  'secret-in-output': 'its output held a credential, which then went to the model with the rest of the session',
 };
 
 const KIND_COLOR: Record<string, string> = {

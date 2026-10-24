@@ -6,18 +6,24 @@ import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 import { human as humanAgo } from '@unturf/unfirehose/ago';
 
 /**
- * Settings → Alerts: where our usage alerts go.
+ * Settings → Alerts: where our usage and credential alerts go.
  *
- * A rule picks alerts (all, one threshold, one project) and a destination:
+ * A rule picks alerts (all, one threshold, credentials seen, one project)
+ * and a destination:
  * a webhook, ntfy, Slack or Discord. Our worker sends; this panel saves
  * rules, shows each one's last result, and sends a test. Secrets typed
  * here go to our server once and only ever come back masked; a blank
  * secret field on an edit keeps what is stored. Nothing is sent until a
  * rule exists.
+ *
+ * Each rule shows its last 24 h: sent, failed, and dropped over its hourly
+ * cap. Dropped alerts are not queued (a late alert about an old spike is
+ * noise), so the count is the only trace of them; 24 h matches the sent and
+ * failed counts beside it and is long enough to show a cap set too low.
  */
 
 type Destination = 'webhook' | 'ntfy' | 'slack' | 'discord';
-type Scope = 'all' | 'threshold' | 'project';
+type Scope = 'all' | 'threshold' | 'secrets' | 'project';
 
 interface Rule {
   id: number;
@@ -31,6 +37,8 @@ interface Rule {
   last: { status: string; http_status: number | null; error: string | null; at: string; is_test: boolean } | null;
   sent_24h: number;
   failed_24h: number;
+  dropped_24h: number;
+  last_dropped_at: string | null;
 }
 
 interface Threshold { id: number; window_minutes: number; metric: string; enabled: number }
@@ -57,6 +65,7 @@ const SECRET_FIELDS: Record<Destination, string[]> = {
 
 const METRIC_LABEL: Record<string, string> = {
   input_tokens: 'input tokens', output_tokens: 'output tokens', total_tokens: 'total tokens', cost_usd: 'cost',
+  secret: 'credentials seen',
 };
 
 const inputCls = 'w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-3 py-2 text-base';
@@ -83,7 +92,9 @@ const emptyForm = (): Form => ({
 });
 
 function formFromRule(r: Rule): Form {
-  const scope: Scope = r.match.project ? 'project' : r.match.metric || r.match.window ? 'threshold' : 'all';
+  const scope: Scope = r.match.project ? 'project'
+    : r.match.metric === 'secret' && !r.match.window ? 'secrets'
+    : r.match.metric || r.match.window ? 'threshold' : 'all';
   return {
     id: r.id, name: r.name, destination: r.destination,
     url: r.config.url ?? '', server: r.config.server ?? 'https://ntfy.sh', topic: r.config.topic ?? '',
@@ -95,6 +106,7 @@ function formFromRule(r: Rule): Form {
 
 export function describeMatch(m: Rule['match']): string {
   if (m.project) return `project ${m.project}`;
+  if (m.metric === 'secret' && !m.window) return 'credentials seen';
   if (m.metric || m.window) {
     const w = m.window ? `${m.window} min` : 'any window';
     return `${w} · ${m.metric ? METRIC_LABEL[m.metric] ?? m.metric : 'any metric'}`;
@@ -135,6 +147,7 @@ export function AlertDelivery() {
       config: form.destination === 'webhook' ? { url: form.url } : form.destination === 'ntfy' ? { server: form.server, topic: form.topic } : {},
       secrets: form.secrets,
       match: form.scope === 'threshold' && form.threshold ? { window: Number(win), metric }
+        : form.scope === 'secrets' ? { metric: 'secret' }
         : form.scope === 'project' ? { project: form.project } : {},
       rate_limit_per_hour: Number(form.rate),
     };
@@ -213,7 +226,12 @@ export function AlertDelivery() {
                 ? <>Last {r.last.is_test ? 'test' : 'send'}: <span className={r.last.status === 'sent' ? 'text-[var(--color-accent)]' : 'text-[var(--color-error)]'}>{r.last.status}</span>
                     {r.last.http_status ? ` (HTTP ${r.last.http_status})` : ''}{r.last.error ? `: ${r.last.error}` : ''} · {humanAgo(r.last.at)}</>
                 : 'Nothing sent yet.'}
-              {' '}· 24h: {r.sent_24h} sent, {r.failed_24h} not delivered
+              {' '}· 24h: {r.sent_24h} sent, {r.failed_24h} failed
+            </p>
+            <p className={`text-sm ${r.dropped_24h > 0 ? 'text-[var(--color-error)]' : 'text-[var(--color-muted)]'}`} data-dropped={r.dropped_24h}>
+              {r.dropped_24h > 0
+                ? <>{r.dropped_24h} dropped in the last 24 h over this rule&apos;s {r.rate_limit_per_hour}/hour cap{r.last_dropped_at ? `, last ${humanAgo(r.last_dropped_at)}` : ''}. Dropped alerts are not sent later; raise the cap if these mattered.</>
+                : <>0 dropped in the last 24 h over the {r.rate_limit_per_hour}/hour cap.</>}
             </p>
             <div className="flex flex-wrap gap-2 items-center">
               <button className={btnCls} onClick={() => sendTest(r)}>Send test</button>
@@ -284,6 +302,7 @@ export function AlertDelivery() {
               <select id="ad-scope" className={inputCls} value={form.scope} onChange={(e) => set('scope', e.target.value as Scope)}>
                 <option value="all">All alerts</option>
                 <option value="threshold">One threshold</option>
+                <option value="secrets">Credentials seen</option>
                 <option value="project">One project</option>
               </select>
               {fieldError('match')}

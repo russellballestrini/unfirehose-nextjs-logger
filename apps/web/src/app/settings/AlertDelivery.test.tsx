@@ -11,7 +11,7 @@ const rule = (over: Record<string, unknown> = {}) => ({
   id: 1, name: 'phone', enabled: true, destination: 'slack', config: {},
   match: { metric: null, window: null, project: null }, rate_limit_per_hour: 10,
   secrets: { webhookUrl: 'https://hooks.slack.com/••••abcd' },
-  last: null, sent_24h: 0, failed_24h: 0, ...over,
+  last: null, sent_24h: 0, failed_24h: 0, dropped_24h: 0, last_dropped_at: null, ...over,
 });
 
 afterEach(() => {
@@ -40,6 +40,35 @@ describe('AlertDelivery', () => {
     expect(one.textContent).toContain('https://hooks.slack.com/••••abcd');
     expect(one.querySelector('[data-last]')!.textContent).toContain('failed (HTTP 404): HTTP 404: no_service');
     expect(container.querySelector('[data-rule="2"]')!.textContent).toContain('15 min · output tokens → http://ntfy.lan/fox');
+  });
+
+  it('shows how many alerts each rule dropped over its hourly cap', () => {
+    answers['/api/alerts/delivery'] = {
+      rules: [
+        rule({ sent_24h: 10, dropped_24h: 3, last_dropped_at: new Date(Date.now() - 5 * 60_000).toISOString() }),
+        rule({ id: 2, name: 'quiet' }),
+      ],
+    };
+    const { container } = render(<AlertDelivery />);
+    const dropped = container.querySelector('[data-rule="1"] [data-dropped]')!;
+    expect(dropped.getAttribute('data-dropped')).toBe('3');
+    expect(dropped.textContent).toMatch(/3 dropped in the last 24 h over this rule's 10\/hour cap, last 5 minutes/);
+    expect(dropped.textContent).toContain('not sent later');
+    expect(container.querySelector('[data-rule="1"] [data-last]')!.textContent).toContain('24h: 10 sent, 0 failed');
+    expect(container.querySelector('[data-rule="2"] [data-dropped]')!.textContent).toBe('0 dropped in the last 24 h over the 10/hour cap.');
+  });
+
+  it('creates a rule for credential alerts only', async () => {
+    answers['/api/alerts/delivery'] = { rules: [] };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { getByText, getByLabelText } = render(<AlertDelivery />);
+    fireEvent.click(getByText('Add rule'));
+    fireEvent.change(getByLabelText('URL'), { target: { value: 'https://example.com/hook' } });
+    fireEvent.change(getByLabelText('Which alerts'), { target: { value: 'secrets' } });
+    fireEvent.click(getByText('Save rule'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).match).toEqual({ metric: 'secret' });
   });
 
   it('sends a test and shows what came back', async () => {
@@ -105,5 +134,6 @@ describe('describeMatch', () => {
     expect(describeMatch({ metric: null, window: null, project: null })).toBe('all alerts');
     expect(describeMatch({ metric: 'output_tokens', window: 60, project: null })).toBe('60 min · output tokens');
     expect(describeMatch({ metric: null, window: null, project: 'unfirehose' })).toBe('project unfirehose');
+    expect(describeMatch({ metric: 'secret', window: null, project: null })).toBe('credentials seen');
   });
 });

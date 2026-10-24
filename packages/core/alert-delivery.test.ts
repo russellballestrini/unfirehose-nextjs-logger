@@ -184,3 +184,34 @@ describe('retry policy', () => {
     expect([400, 401, 403, 404, 410].map(isRetryable)).toEqual([false, false, false, false, false]);
   });
 });
+
+describe('a credential alert', () => {
+  const secret = alert({
+    alert_type: 'secret_exposed', window_minutes: 0, metric: 'secret', threshold_value: 0, actual_value: 1,
+    project_name: '-home-fox-git-api',
+    details: JSON.stringify({
+      kinds: ['anthropic_key', 'private_key'], location: 'result', tool: 'Bash', session: 'sess-a',
+      project: '-home-fox-git-api', projectDisplay: 'api', harness: 'claude-code',
+      seenAt: '2026-10-24T10:00:00Z', blockId: 9, toolUseId: 'toolu_1',
+    }),
+  });
+
+  it('names kind, where, session, project and time, and says the value is not in it', () => {
+    const s = summarizeAlert(secret);
+    expect(s).toMatchObject({ title: 'unfirehose: Anthropic key, private key seen in api', severity: 'urgent', test: false, path: '/usage/alert/42' });
+    expect(s.message).toBe(
+      'A credential (Anthropic key, private key) appeared in a tool result of Bash in session sess-a of api, at 2026-10-24T10:00:00Z. '
+      + 'Everything in a session goes to its model provider, so treat it as exposed and rotate it. The value is not in this alert.',
+    );
+    expect(summarizeAlert({ ...secret, actual_value: 3 }).message).toContain('Seen 3 times in this session so far.');
+  });
+
+  it('fills each destination with those fields, not usage numbers', () => {
+    const discord = formatDiscord(secret);
+    expect(discord.embeds[0].fields.map((f) => f.name)).toEqual(['Kind', 'Where', 'Project', 'Session', 'Seen at']);
+    expect(discord.embeds[0].color).toBe(0xd40000);
+    expect(formatNtfy(secret).headers).toMatchObject({ Priority: '5', Tags: 'key,rotating_light' });
+    const hook = formatWebhook(secret, NOW);
+    expect(hook.alert).toMatchObject({ alert_type: 'secret_exposed', metric: 'secret', details: { kinds: ['anthropic_key', 'private_key'], session: 'sess-a' } });
+  });
+});

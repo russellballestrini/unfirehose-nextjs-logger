@@ -188,11 +188,14 @@ export function housekeepingDue(
  * first ingest of a large history leaves the rest to the worker's backfill.
  * Derived data: a failure here never fails ingest.
  */
-function ledgerAfterIngest(db: ReturnType<typeof getDb>): void {
+function ledgerAfterIngest(db: ReturnType<typeof getDb>): number {
   try {
-    scanLedgerHead(db);
+    // Returns the secret_exposed alerts it raised (db/secret-alerts.ts), so
+    // they count in alertsTriggered and the worker delivers them now.
+    return scanLedgerHead(db).alerts;
   } catch (err) {
     console.error('[ingest] action ledger scan failed:', err);
+    return 0;
   }
 }
 
@@ -549,8 +552,8 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
   // the pass that also swept the whole filesystem.
   if (result.filesScanned > 0) _ingestActivityAt = Date.now();
   if (only) {
-    ledgerAfterIngest(db);
-    result.alertsTriggered = checkThresholds(db);
+    const secretAlerts = ledgerAfterIngest(db);
+    result.alertsTriggered = checkThresholds(db) + secretAlerts;
     if (uneofProjects.size > 0) cullUneofDeployments(db, uneofProjects);
     setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
     return result;
@@ -686,10 +689,10 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
   }
 
   // The tool calls this pass brought in, into our action ledger.
-  ledgerAfterIngest(db);
+  const secretAlerts = ledgerAfterIngest(db);
 
   // Check alert thresholds
-  result.alertsTriggered = checkThresholds(db);
+  result.alertsTriggered = checkThresholds(db) + secretAlerts;
 
   // Fire UNEOF cull for any projects where agent signalled completion
   if (uneofProjects.size > 0) {

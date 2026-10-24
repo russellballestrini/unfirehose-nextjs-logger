@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findSecrets, redactSecrets } from './pii';
+import { findSecrets, mayHoldSecret, redactSecrets } from './pii';
 
 /**
  * Credentials, as the action ledger looks for them. Fixtures are assembled
@@ -31,6 +31,37 @@ describe('findSecrets', () => {
   it('never reports two overlapping spans', () => {
     const hits = findSecrets(`ANTHROPIC_API_KEY=${ant} and OPENAI_API_KEY=${ant}`);
     for (let i = 1; i < hits.length; i++) expect(hits[i].start).toBeGreaterThanOrEqual(hits[i - 1].end);
+  });
+});
+
+describe('mayHoldSecret', () => {
+  // One example per kind findSecrets knows; the prefilter must pass each,
+  // or findSecrets would never look at it.
+  const r = 'Zq8xW2vB7nM4kL9pR3tY6uE1oA5sD0fGh2Jk';
+  const examples: Record<string, string> = {
+    private_key: pem,
+    aws_access_key: 'AKIA' + 'IOSFODNN7EXAMPLE',
+    github_token: gh,
+    gitlab_token: 'glpat' + '-' + r.slice(0, 24),
+    anthropic_key: ant,
+    openai_key: 'sk' + '-proj-' + r,
+    unsandbox_key: 'unsb' + '-sk-' + r.slice(0, 20),
+    slack_token: 'xox' + 'b-' + r.slice(0, 20),
+    stripe_key: 'sk' + '_live_' + r.slice(0, 24),
+    google_api_key: 'AIza' + r.slice(0, 35).padEnd(35, 'x'),
+    npm_token: 'npm' + '_' + (r + r).slice(0, 36),
+    bearer_token: 'Authorization: Bearer ' + r,
+    assigned_secret: 'DB_PASSWORD=Hk38dPq0zLm2Wv9x',
+  };
+
+  it.each(Object.entries(examples))('passes every %s findSecrets would report', (kind, text) => {
+    expect(findSecrets(text).map((s) => s.kind)).toContain(kind);
+    expect(mayHoldSecret(text)).toBe(true);
+  });
+
+  it('turns away ordinary tool output in one scan', () => {
+    expect(mayHoldSecret('total 48\ndrwxr-xr-x  5 fox fox 4096 Oct 24 README.md\n')).toBe(false);
+    expect(mayHoldSecret('')).toBe(false);
   });
 });
 

@@ -143,7 +143,8 @@ async function main() {
     if (ingestInFlight) return;
     try {
       const db = getDb();
-      scanLedgerHead(db);
+      // A credential the head scan just found raised an alert: send it now.
+      if (scanLedgerHead(db).alerts > 0) void deliverAlerts();
       // Cheap once history is done (two settings reads), and it resumes on
       // its own after a rebuild from /api/actions.
       const t0 = Date.now();

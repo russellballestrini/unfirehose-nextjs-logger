@@ -621,7 +621,7 @@ Discover available LLM providers (auto-detected + mesh).
 ## Alerts
 
 ### GET /api/alerts
-Usage alerts.
+Usage alerts, and credential alerts: `alert_type: "secret_exposed"` (`metric: "secret"`, `window_minutes: 0`, `actual_value` = times seen in that session) is raised at ingest when a tool call or tool result in a session newer than `secret_alerts_since` carries a credential. Its `details` name the kinds, where (`call` | `result`, tool), session, project and line time; never the value.
 - `?limit=20&offset=0` — recent alerts (max 200) → array
 - `?paginate=1` — wrap as `{ alerts: [...], total, limit, offset }`
 - `?filter=unacknowledged` — open alerts only
@@ -637,9 +637,9 @@ Manage alerts and thresholds.
 → `{ ok: true, ... }`
 
 ### GET /api/alerts/delivery
-Alert delivery rules (Settings → Alerts): which alerts go to a webhook, ntfy, Slack or Discord. Our worker sends each new alert once per rule, retries with backoff (30 s, 2 min, 8 min, 32 min; 5 attempts; 4xx other than 408/425/429 fails at once) and holds each rule to `rate_limit_per_hour` (over it: `rate_limited`, not sent). Secrets come back masked, never whole.
+Alert delivery rules (Settings → Alerts): which alerts go to a webhook, ntfy, Slack or Discord. `match.metric: "secret"` picks credential alerts only; `match.project` matches a project's encoded or display name. Counts are the last 24 h of real (non-test) attempts: `failed_24h` gave up, `dropped_24h` went over the hourly cap. Our worker sends each new alert once per rule, retries with backoff (30 s, 2 min, 8 min, 32 min; 5 attempts; 4xx other than 408/425/429 fails at once) and holds each rule to `rate_limit_per_hour` (over it: `rate_limited`, not sent). Secrets come back masked, never whole.
 - `?limit=50` — recent delivery attempts (max 500)
-→ `{ rules: [{ id, name, enabled, destination, config, match: { metric, window, project }, rate_limit_per_hour, secrets: { field: "••••abcd" | null }, last, sent_24h, failed_24h }], deliveries: [{ alert_id, rule_id, is_test, status, http_status, error, attempts, next_retry_at, delivered_at }], destinations, secretFields, metrics }`
+→ `{ rules: [{ id, name, enabled, destination, config, match: { metric, window, project }, rate_limit_per_hour, secrets: { field: "••••abcd" | null }, last, sent_24h, failed_24h, dropped_24h, last_dropped_at }], deliveries: [{ alert_id, rule_id, is_test, status, http_status, error, attempts, next_retry_at, delivered_at }], destinations, secretFields, metrics }`
 
 ### POST /api/alerts/delivery
 Create a rule. It delivers alerts raised from now on, never the backlog.
@@ -667,6 +667,7 @@ Send one synthetic alert through the same build, sign and send path, once, no re
 
 ### GET /api/alerts/{id}
 One alert with what happened inside its window: per-project and per-model usage and cost, active sessions, reasoning blocks, timeline, user prompts.
+A credential alert answers `{ alert, secret: { kinds, location, tool, session, project, projectDisplay, harness, seenAt, blockId, toolUseId }, words: { title, message, where, kinds, sessionPath } }` instead.
 → `{ alert, window: { start, end, duration_minutes }, projectBreakdown, modelBreakdown, activeSessions, reasoningBlocks, timeline, userPrompts, totals, stats }`
 
 ### GET /api/rate-limits
@@ -697,14 +698,15 @@ Agent action ledger — every tool call that touched the filesystem, git or the 
 - `?project=<encoded name or alias>` · `?session=<uuid>` · `?harness=claude-code` · `?tool=Bash`
 - `?from=2026-10-01&to=2026-10-23` — ISO instants or dates, both inclusive
 - `?kind=fs-read|fs-write|git|network|shell`
-- `?flag=any|destructive|force-push|force-with-lease|secrets-in-diff|secret-in-command|sudo|curl-pipe-shell`
+- `?flag=any|destructive|force-push|force-with-lease|secrets-in-diff|secret-in-command|sudo|curl-pipe-shell|secret-in-output`
+- network: curl, ssh and the like; package installs (npm i/ci/exec, pnpm, yarn, bun, pip, python -m pip, pipx, uv/uvx, poetry, conda, cargo, go get, gem, bundle, composer, dotnet, deno, apt, brew…); every MCP tool (`mcp__*`). A credential handed to a network or MCP tool is `secret-in-command`; one in a tool's output is `secret-in-output`.
 - `?path=<substring>` (paths, URLs, hosts) · `?command=<substring>`
 - `?limit=100` (max 500) · `?cursor=<nextCursor>` keyset paging · `?format=csv` downloads up to 10 000 matching rows
-→ `{ rows: [{ id, timestamp, kind, tool, harness, paths, command, flags, reasons, projectName, projectDisplayName, sessionUuid, toolUseId }], nextCursor, total, kinds, flags, flaggedRows, status: { rows, backfillRemaining, headLag, rulesVersion } }`
+→ `{ rows: [{ id, timestamp, kind, tool, harness, paths, command, flags, reasons, projectName, projectDisplayName, sessionUuid, toolUseId }], nextCursor, total, kinds, flags, flaggedRows, status: { rows, backfillRemaining, headLag, rulesVersion, secrets: { sightings, alerted, since } } }`
 
 ### POST /api/actions
 ← `{ rebuild: true }` empties our ledger and re-classifies from content blocks (one window now, our worker fills history in the background); `{}` runs one window of catch-up
-→ `{ ok, rebuilt, rows, backfillRemaining, headLag, rulesVersion, done }`
+→ `{ ok, rebuilt, rows, backfillRemaining, headLag, rulesVersion, secrets, done }`
 
 
 ## Triage

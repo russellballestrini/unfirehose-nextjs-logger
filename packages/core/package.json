@@ -44,6 +44,8 @@
     "./db/watcher": "./db/watcher.ts",
     "./db/triage": "./db/triage.ts",
     "./pricing": "./pricing.ts",
+    "./secret-alert": "./secret-alert.ts",
+    "./db/secret-alerts": "./db/secret-alerts.ts",
     "./prefix-reuse": "./prefix-reuse.ts",
     "./pricing-sync": "./pricing-sync.ts",
     "./claude-paths": "./claude-paths.ts",

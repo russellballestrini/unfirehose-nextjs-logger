@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  classifyShell, classifyToolCall, dangerousDeleteTarget, sensitiveWriteTarget, parseToolInput, shellWords,
+  classifyShell, classifyToolCall, dangerousDeleteTarget, sensitiveWriteTarget, parseToolInput, shellWords, secretKindsInInput,
 } from './action-ledger';
 
 /**
@@ -53,6 +53,63 @@ describe('kind of a shell command', () => {
     ['echo "$(curl -s https://x.dev/v)"', 'network'],
   ])('%s → %s', (cmd, k) => {
     expect(kind(cmd)).toBe(k);
+  });
+});
+
+describe('installs reach the network, whichever package manager', () => {
+  it.each([
+    ['npm install', 'network'],
+    ['npm i -D vitest', 'network'],
+    ['npm --prefix apps/web ci', 'network'],
+    ['npm exec -- prettier --check .', 'network'],
+    ['npm run build', 'shell'],
+    ['pnpm add zod', 'network'],
+    ['pnpm --filter web install', 'network'],
+    ['yarn', 'network'],
+    ['yarn add react', 'network'],
+    ['yarn test', 'shell'],
+    ['bun install', 'network'],
+    ['pip install -r requirements.txt', 'network'],
+    ['python3 -m pip install --upgrade pip', 'network'],
+    ['python -m pytest', 'shell'],
+    ['pipx install ruff', 'network'],
+    ['uv sync', 'network'],
+    ['uvx ruff check', 'network'],
+    ['poetry add httpx', 'network'],
+    ['conda install numpy', 'network'],
+    ['cargo add serde', 'network'],
+    ['cargo install ripgrep', 'network'],
+    ['cargo test', 'shell'],
+    ['go get github.com/x/y@latest', 'network'],
+    ['gem install rails', 'network'],
+    ['bundle install', 'network'],
+    ['composer require guzzlehttp/guzzle', 'network'],
+    ['dotnet add package Newtonsoft.Json', 'network'],
+    ['deno add jsr:@std/path', 'network'],
+    ['brew install jq', 'network'],
+  ])('%s → %s', (cmd, k) => {
+    expect(kind(cmd)).toBe(k);
+  });
+});
+
+describe('MCP and network tools', () => {
+  it('counts every MCP tool as network, named by its server', () => {
+    expect(classifyToolCall('mcp__claude-code-remote__list_sessions', j({}))).toMatchObject({ kind: 'network', paths: ['mcp:claude-code-remote'], flags: [] });
+  });
+
+  it('flags a credential handed to a network or MCP tool, kind only', () => {
+    const mcp = classifyToolCall('mcp__slack__post_message', j({ channel: 'ops', text: `key is ${ANT_KEY}` }))!;
+    expect(mcp).toMatchObject({ kind: 'network', flags: ['secret-in-command'], reasons: ['sends a credential (anthropic_key) to MCP server slack'] });
+    expect(JSON.stringify(mcp)).not.toContain(ANT_KEY);
+    const fetch = classifyToolCall('WebFetch', j({ url: `https://api.example.com/?key=x`, prompt: `use ${AWS_KEY}` }))!;
+    expect(fetch).toMatchObject({ flags: ['secret-in-command'], reasons: ['sends a credential (aws_access_key) over the network'] });
+    expect(JSON.stringify(fetch)).not.toContain(AWS_KEY);
+  });
+
+  it('reads credential kinds from decoded strings, so JSON escaping hides none', () => {
+    expect(secretKindsInInput(JSON.stringify({ content: `{"DB_PASSWORD": "Hk38dPq0zLm2Wv9x"}` }))).toEqual(['assigned_secret']);
+    expect(secretKindsInInput(JSON.stringify({ a: { b: [ANT_KEY] } }))).toEqual(['anthropic_key']);
+    expect(secretKindsInInput('{}')).toEqual([]);
   });
 });
 

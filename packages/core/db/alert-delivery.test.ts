@@ -184,6 +184,20 @@ describe('deliverDue', () => {
     expect(await deliverDue(db, store, f.send, at(3600_000 + 2000))).toMatchObject({ sent: 1 });
   });
 
+  it('counts what each rule dropped over its cap in the last 24 h, apart from what failed', async () => {
+    createRule(db, store, webhook({ rate_limit_per_hour: 2 }), T0);
+    for (let i = 0; i < 5; i++) seedAlert(db);
+    await deliverDue(db, store, fakeSender().send, at(1000));
+    expect(listRules(db, store, at(2000))[0]).toMatchObject({
+      sent_24h: 2, failed_24h: 0, dropped_24h: 3, last_dropped_at: at(1000).toISOString(),
+    });
+    seedAlert(db);
+    await deliverDue(db, store, fakeSender([404]).send, at(3600_000 + 2000));
+    expect(listRules(db, store, at(3600_000 + 3000))[0]).toMatchObject({ sent_24h: 2, failed_24h: 1, dropped_24h: 3 });
+    // A day on, the drops have aged out of the count.
+    expect(listRules(db, store, at(25 * 3600_000))[0]).toMatchObject({ dropped_24h: 0, last_dropped_at: null });
+  });
+
   it('closes a pending attempt whose alert was cleared', async () => {
     createRule(db, store, webhook(), T0);
     seedAlert(db);
