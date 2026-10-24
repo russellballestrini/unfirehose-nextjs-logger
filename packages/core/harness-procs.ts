@@ -13,26 +13,18 @@
 // has to be: basename of the executable, and when that executable is an
 // interpreter, basename of the script it was handed.
 
+import { HARNESS_REGISTRY } from './harness-registry';
+
 /** Interpreters that run a harness as a script rather than as a binary. */
 export const INTERPRETERS = /^(python[0-9.]*|node|nodejs|ruby|perl|deno|bun)$/;
 
 /**
  * Executable (or script) names that mean "an agent harness is running here",
- * mapped to the harness key used everywhere else — see HARNESSES.
+ * mapped to the boot panel's harness key — from the registry.
  */
-export const HARNESS_PROC_NAMES: Record<string, string> = {
-  'claude':        'claude',
-  'unclose':       'uncloseai',
-  'uncloseai-cli': 'uncloseai',
-  'uncloseai_cli.py': 'uncloseai',
-  'gemini':        'gemini',
-  'codex':         'codex',
-  'opencode':      'open-code',
-  'aider':         'aider',
-  'agnt':          'agnt',
-  'cursor':        'cursor',
-  'crossbench':    'uncloseai',
-};
+export const HARNESS_PROC_NAMES: Record<string, string> = Object.fromEntries(
+  HARNESS_REGISTRY.flatMap((h) => (h.procNames ?? []).map((n) => [n, h.launch?.key ?? h.id])),
+);
 
 function basename(p: string): string {
   if (!p) return '';

@@ -22,6 +22,9 @@ const HARNESS_COLORS: Record<string, string> = {
   'fetch': '#fbbf24',
   'arborist': '#fb7185',
   'aborist': '#fb7185',
+  'codex': '#22d3ee',
+  'gemini-cli': '#f97316',
+  'continue': '#e879f9',
 };
 
 function harnessColor(h: string): string {
@@ -57,6 +60,13 @@ interface ViewerBlock {
   type?: string;
   text?: string;
   thinking?: string;
+  toolCallId?: string;
+}
+
+/** Tool call ids an entry carries, for `#tool-<id>` links from our action ledger. */
+function toolIds(entry: ViewerEntry): string | undefined {
+  const ids = (entry.content ?? []).filter((b) => b.type === 'tool-call' && b.toolCallId).map((b) => b.toolCallId);
+  return ids.length ? ids.join(' ') : undefined;
 }
 
 interface ViewerEntry {
@@ -157,6 +167,20 @@ export default function SessionViewerPage({
     if (reasoningOnly) return !!reasoningInfo(e);
     return true;
   });
+
+  // `#tool-<id>` (a link from /actions): scroll to that tool call once it
+  // has loaded, and mark it so the eye lands on it.
+  const hashTool = typeof window !== 'undefined' && window.location.hash.startsWith('#tool-')
+    ? decodeURIComponent(window.location.hash.slice('#tool-'.length))
+    : null;
+  useEffect(() => {
+    if (!hashTool || !scrollRef.current) return;
+    const el = [...scrollRef.current.querySelectorAll<HTMLElement>('[data-tool-ids]')]
+      .find((n) => (n.dataset.toolIds ?? '').split(' ').includes(hashTool));
+    if (!el) return;
+    el.scrollIntoView?.({ block: 'center' });
+    el.style.outline = '2px solid var(--color-accent)';
+  }, [hashTool, filteredEntries.length]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -300,13 +324,14 @@ export default function SessionViewerPage({
         className="flex-1 overflow-auto space-y-2"
       >
         {filteredEntries.map((entry, i) => (
-          <MessageBlock
-            key={('uuid' in entry ? String(entry.uuid) : '') || i}
-            entry={entry}
-            showThinking={showThinking}
-            showTools={showTools}
-            prettyShell={prettyShell}
-          />
+          <div key={('uuid' in entry ? String(entry.uuid) : '') || i} data-tool-ids={toolIds(entry)}>
+            <MessageBlock
+              entry={entry}
+              showThinking={showThinking}
+              showTools={showTools}
+              prettyShell={prettyShell}
+            />
+          </div>
         ))}
         {!loading && filteredEntries.length === 0 && (entries.length > 0 ? (
           <EmptyState

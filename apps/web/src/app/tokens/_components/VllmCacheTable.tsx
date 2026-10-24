@@ -20,47 +20,49 @@ export function VllmCacheTable({ vllmModels }: { vllmModels: any[] }) {
           above is computed from billed usage fields, which self-hosted models
           do not report — this is what actually happened.
         </p>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-[var(--color-muted)] text-left">
-              <th className="pb-2">Node</th>
-              <th className="pb-2">Model</th>
-              <th className="pb-2 text-right" title="Over the last 24h of samples — whether caching is working now.">24h</th>
-              <th className="pb-2 text-right" title="Since the engine started. Answers a different question: has it ever.">Lifetime</th>
-              <th className="pb-2 text-right" title="Prompt tokens looked up in the cache, lifetime.">Queries</th>
-              <th className="pb-2 text-right" title="KV cache utilization at the last sample — a gauge, not a rate.">KV</th>
-            </tr>
-          </thead>
-          <tbody>
-            {vllmModels.map((m: any, i: number) => (
-              <tr key={i} className="border-t border-[var(--color-border)]">
-                <td className="py-1.5 font-mono text-[var(--color-muted)]">{m.hostname}</td>
-                <td className="py-1.5 font-mono">
-                  {m.model}
-                  {m.prefixCachingEnabled === false && (
-                    <span className="ml-2 text-[var(--color-error)]" title="vLLM reports prefix caching is disabled on this engine.">
-                      caching off
-                    </span>
-                  )}
-                </td>
-                <td className="py-1.5 text-right font-bold">
-                  {m.windowHitRate == null
-                    ? <span className="text-[var(--color-muted)]" title="No prompt tokens queried in this window.">idle</span>
-                    : `${(m.windowHitRate * 100).toFixed(1)}%`}
-                </td>
-                <td className="py-1.5 text-right text-[var(--color-muted)]">
-                  {m.lifetimeHitRate == null ? '—' : `${(m.lifetimeHitRate * 100).toFixed(1)}%`}
-                </td>
-                <td className="py-1.5 text-right text-[var(--color-muted)]">
-                  {formatTokens(m.lifetimeQueries)}
-                </td>
-                <td className="py-1.5 text-right text-[var(--color-muted)]">
-                  {m.kvUsage == null ? '—' : `${(m.kvUsage * 100).toFixed(0)}%`}
-                </td>
+        <div className="overflow-x-auto" data-scroll-x>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[var(--color-muted)] text-left">
+                <th className="pb-2">Node</th>
+                <th className="pb-2">Model</th>
+                <th className="pb-2 text-right" title="Over the last 24h of samples — whether caching is working now.">24h</th>
+                <th className="pb-2 text-right" title="Since the engine started. Answers a different question: has it ever.">Lifetime</th>
+                <th className="pb-2 text-right" title="Prompt tokens looked up in the cache, lifetime.">Queries</th>
+                <th className="pb-2 text-right" title="KV cache utilization at the last sample — a gauge, not a rate.">KV</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {vllmModels.map((m: any, i: number) => (
+                <tr key={i} className="border-t border-[var(--color-border)]">
+                  <td className="py-1.5 font-mono text-[var(--color-muted)]">{m.hostname}</td>
+                  <td className="py-1.5 font-mono">
+                    {m.model}
+                    {m.prefixCachingEnabled === false && (
+                      <span className="ml-2 text-[var(--color-error)]" title="vLLM reports prefix caching is disabled on this engine.">
+                        caching off
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1.5 text-right font-bold">
+                    {m.windowHitRate == null
+                      ? <span className="text-[var(--color-muted)]" title="No prompt tokens queried in this window.">idle</span>
+                      : `${(m.windowHitRate * 100).toFixed(1)}%`}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {m.lifetimeHitRate == null ? '—' : `${(m.lifetimeHitRate * 100).toFixed(1)}%`}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {formatTokens(m.lifetimeQueries)}
+                  </td>
+                  <td className="py-1.5 text-right text-[var(--color-muted)]">
+                    {m.kvUsage == null ? '—' : `${(m.kvUsage * 100).toFixed(0)}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
   );
 }

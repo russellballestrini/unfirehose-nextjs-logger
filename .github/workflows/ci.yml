@@ -1,0 +1,232 @@
+# GitHub runs what GitLab's test stage runs (.gitlab-ci.yml), so a pull
+# request merged here is checked before it lands rather than after a mirror
+# push. Publishing stays on GitLab, which holds NPM_TOKEN; nothing here
+# needs a secret.
+#
+#   typecheck ─┬─ test core ─┐
+#              ├─ test ui   ─┼─ test scripts ── quality budgets
+#              ├─ test web  ─┘
+#              ├─ test schema
+#              └─ build (next build)
+#   lint (on its own)
+#
+# Each vitest suite is its own job on its own runner. Run together on one
+# box, as `make test -j4` does, they compete for the same cores and the
+# slowest tests in each time out against the others; apart, none starves
+# another, and a red job names the suite that failed.
+#
+# Every action is pinned to a full commit SHA, version in the comment
+# beside it: a tag can be moved, a commit cannot.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to a pull request makes the run for its previous commit moot,
+# so that one is cancelled. Pushes to main each finish: every commit on
+# main gets an answer.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Same release as .gitlab-ci.yml's NODE_VERSION; bump the two together.
+  NODE_VERSION: 22.23.4
+  # Turbo's anonymous usage report is a network call home; ours make none.
+  TURBO_TELEMETRY_DISABLED: 1
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # tsc over core, ui, router, worker and web, tests included: vitest
+      # strips types without checking them.
+      - run: make typecheck
+
+  # GitLab's `npm run lint` (turbo: tsc in core, ui and worker, eslint in
+  # web). Its own check, gating nothing: on 2026-10-23 eslint read 16
+  # errors in apps/web on this branch, and a red lint should say so without
+  # hiding whether the types and suites hold.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+
+  # core, ui and web run under coverage, so each also enforces the floor its
+  # own vitest.config sets (GitLab's `make coverage-check`), and hands the
+  # measurement to the scripts job, whose reports read it.
+  test:
+    name: test ${{ matrix.suite }}
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: core
+            dir: packages/core
+          - suite: ui
+            dir: packages/ui
+          - suite: web
+            dir: apps/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: vitest under coverage (make test-${{ matrix.suite }}, thresholds on)
+        working-directory: ${{ matrix.dir }}
+        run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=json
+      # coverage-final.json records absolute paths. Every job checks out to
+      # the same $GITHUB_WORKSPACE, so the scripts job reads them as its own.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ matrix.suite }}
+          path: ${{ matrix.dir }}/coverage/coverage-final.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # packages/schema has no coverage (its source is JSON): the unfirehose/1.0
+  # conformance suite runs on its own, as it does on GitLab.
+  schema:
+    name: test schema
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: make test-schema
+
+  # Our reporting tools measure the rest of the repo, and half their suite
+  # (scripts/quality/reports.test.ts) reads the coverage the jobs above
+  # wrote. On a fresh clone those tests skip and say so; here they must run,
+  # so UNFIREHOSE_REQUIRE_COVERAGE turns a missing measurement into a
+  # failure.
+  scripts:
+    name: test scripts
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-core
+          path: packages/core/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-ui
+          path: packages/ui/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-web
+          path: apps/web/coverage
+      - name: vitest under coverage (make test-scripts, thresholds on)
+        working-directory: scripts
+        env:
+          UNFIREHOSE_REQUIRE_COVERAGE: '1'
+        run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-scripts
+          path: scripts/coverage/coverage-final.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # GitLab's quality-gate budgets, crap and duplication across the repo,
+  # against all four workspaces' coverage. Its own job, so its answer is its
+  # own check: on 2026-10-23 both read over budget on this branch (crap
+  # 20747 of 19000, duplication 3134 of 1200), which says nothing about
+  # whether the suites pass and should not be read as if it did.
+  budgets:
+    name: quality budgets (crap, duplication)
+    needs: scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-core
+          path: packages/core/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-ui
+          path: packages/ui/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-web
+          path: apps/web/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-scripts
+          path: scripts/coverage
+      - run: make quality-budgets
+
+  build:
+    name: build (next build)
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: make build

@@ -80,6 +80,21 @@ describe('FirstRunWizard', () => {
     expect(render(<FirstRunWizard />).container.textContent).toContain('found, but this process cannot read it');
   });
 
+  it('warns when the disk under our database has under 10 GB free, louder under 1 GB, and says nothing otherwise', () => {
+    const GiB = 1024 ** 3;
+    const disk = (freeBytes: number, level: string) => ({ path: '/home/fox', freeBytes, totalBytes: 500 * GiB, level, lowBytes: 10 * GiB });
+    answer = state({ disk: disk(200 * GiB, 'ok') });
+    expect(render(<FirstRunWizard />).container.querySelector('[data-disk]')).toBeNull();
+    cleanup();
+    answer = state({ disk: disk(6 * GiB, 'low') });
+    const low = render(<FirstRunWizard />).container.querySelector('[data-disk="low"]')!;
+    expect(low.textContent).toContain('6.0 GB free under our database at /home/fox');
+    expect(low.textContent).toContain('Settings → Database');
+    cleanup();
+    answer = state({ disk: disk(0.5 * GiB, 'critical') });
+    expect(render(<FirstRunWizard />).container.querySelector('[data-disk="critical"]')!.textContent).toContain('SQLite fails writes');
+  });
+
   it('classifies an answer without rendering', () => {
     expect(wizardStage(undefined)).toBe('loading');
     expect(wizardStage(state({ sessions: 3 }))).toBe('done');

@@ -2,26 +2,22 @@ import { startWatcher, stopWatcher } from '@unturf/unfirehose/db/watcher';
 import { ingestAll, getDbStats, ingestActivityAt, type IngestResult } from '@unturf/unfirehose/db/ingest';
 import { POLL_INTERVAL_MS, nextPollDelayMs } from './poll-cadence';
 import { getDb } from '@unturf/unfirehose/db/schema';
-import { checkpointTruncate, freelistBytes } from '@unturf/unfirehose/db/pragmas';
+import { checkpointTruncate } from '@unturf/unfirehose/db/pragmas';
+import { maintenanceTick, describeTick, MAINTENANCE_TICK_MS } from './maintenance';
 import { rollupDrain } from './mesh-rollup';
 import { startSampler, startPayloadBuilder } from './sampler-supervisor';
 import { syncPricing, syncPricingIfStale, hydratePricing, syncIfUnpriced } from '@unturf/unfirehose/pricing-sync';
 import { scanRateLimits } from '@unturf/unfirehose/db/rate-limit-scan';
+import { scanLedgerHead, backfillLedger } from '@unturf/unfirehose/db/action-ledger';
 import { pollAllStatusTargets, rollupStatusPolls } from '@unturf/unfirehose/status-pages';
+import { fileSecretStore } from '@unturf/unfirehose/db/alert-delivery';
+import { createAlertTicker, ALERT_DELIVERY_TICK_MS } from './alert-tick';
 
 // Cold-tier rollup tick — one minute is plenty since each 15s sample only
 // ages past the 28-day boundary once. With multiple hosts the per-tick drain
 // (capped at 16) catches up quickly without locking the DB for long.
 const ROLLUP_TICK_MS = 60_000;
-// Daily VACUUM to reclaim pages freed by the snake-eats-tail delete after a
-// run of rollups. Locks briefly and rewrites our whole database — schedule at
-// off-hours by offsetting our first run, and gate it on our freelist so it only
-// runs when there is something to reclaim.
-const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
-// Below this much reclaimable space a VACUUM costs far more than it returns:
-// it rewrites every page through our WAL, so a no-op VACUUM on a 3.6G database
-// buys ~0 bytes and leaves a 3.6G WAL behind.
-const VACUUM_MIN_FREELIST_BYTES = 256 * 1024 * 1024;
+// Daily VACUUM, size snapshot and retention moves: see ./maintenance.ts.
 // Hourly WAL checkpoint so `journal_size_limit` is actually applied — SQLite
 // truncates our -wal on checkpoint, never on write.
 const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000;
@@ -39,6 +35,10 @@ const PRICE_SYNC_INTERVAL_MS = (() => {
 // time between the syncs that check triggers.
 const UNPRICED_CHECK_INTERVAL_MS = 5 * 60_000;
 const UNPRICED_SYNC_MIN_INTERVAL_MS = 60 * 60_000;
+// Action ledger history: one window of block ids per tick, only while no
+// ingest is running. 2.35 M blocks is ~47 windows, so a large history fills
+// in about twelve minutes without ever holding the write lock for long.
+const LEDGER_BACKFILL_TICK_MS = 15_000;
 const STATUS_POLL_INTERVAL_MS = 60_000;      // vendor status feeds — once a minute is polite
 const STATUS_ROLLUP_INTERVAL_MS = 60 * 60_000;
 // Watchdog cadence + thresholds. The worker is meant to run for days; if the
@@ -67,6 +67,9 @@ process.on('unhandledRejection', (reason) => {
 let lastIngestAt = Date.now();
 let ingestInFlight = false;
 
+// Alert delivery (see alert-tick.ts): a no-op until a user creates a rule.
+const deliverAlerts = createAlertTicker({ db: getDb, store: () => fileSecretStore() });
+
 async function runIngestOnce(reason: string): Promise<IngestResult | null> {
   if (ingestInFlight) return null;
   ingestInFlight = true;
@@ -78,6 +81,8 @@ async function runIngestOnce(reason: string): Promise<IngestResult | null> {
     // 2026-09-17 and nobody could see it, because this line said only what
     // the database held afterwards.
     console.log(`[worker] ingest (${reason}): ${s.projects}p ${s.sessions}s ${s.messages}m · +${r.messagesAdded}m from ${r.filesScanned} file(s) in ${Date.now() - t0}ms`);
+    // A fresh alert goes out now, not on the next delivery tick.
+    if (r.alertsTriggered > 0) void deliverAlerts();
     return r;
   } catch (err) {
     console.error(`[worker] ingest (${reason}) failed:`, err);
@@ -128,6 +133,36 @@ async function main() {
       console.error('[worker] rate limit scan failed:', err);
     }
   }, POLL_INTERVAL_MS);
+
+  // Agent action ledger. New tool calls are classified at the end of every
+  // ingest pass; this catches up anything a bounded pass left, then walks
+  // history newest first. Skipped while ingest holds the database.
+  let ledgerBackfillDone = false;
+  let ledgerLogged = 0;
+  const ledgerInterval = setInterval(() => {
+    if (ingestInFlight) return;
+    try {
+      const db = getDb();
+      // A credential the head scan just found raised an alert: send it now.
+      if (scanLedgerHead(db).alerts > 0) void deliverAlerts();
+      // Cheap once history is done (two settings reads), and it resumes on
+      // its own after a rebuild from /api/actions.
+      const t0 = Date.now();
+      const r = backfillLedger(db);
+      ledgerLogged += r.recorded;
+      if (r.done) {
+        if (!ledgerBackfillDone) console.log(`[worker] action ledger: history classified (${ledgerLogged} action(s) this run)`);
+        ledgerBackfillDone = true;
+        return;
+      }
+      ledgerBackfillDone = false;
+      if (r.recorded > 0) {
+        console.log(`[worker] action ledger: +${r.recorded} from ${r.scanned} tool call(s) in ${Date.now() - t0}ms, ${r.remaining} block id(s) to go`);
+      }
+    } catch (err) {
+      console.error('[worker] action ledger failed:', err);
+    }
+  }, LEDGER_BACKFILL_TICK_MS);
 
   // Watchdog: if no ingest has completed within INGEST_STALL_MS the loop is
   // wedged — force a recovery run instead of waiting for a restart. A run that
@@ -180,6 +215,9 @@ async function main() {
       console.error('[worker] vendor status rollup failed:', err);
     }
   }, STATUS_ROLLUP_INTERVAL_MS);
+
+  // Alert delivery: rules in Settings → Alerts, attempts in alert_deliveries.
+  const alertDeliveryInterval = setInterval(() => { void deliverAlerts(); }, ALERT_DELIVERY_TICK_MS);
 
   // Headless mesh sampler — keeps GPU watts / utilization rolling without a
   // browser tab being open — and the vLLM cache sampler, as one small child
@@ -272,38 +310,26 @@ async function main() {
       .catch((err) => console.error('[worker] unpriced price sync failed:', err));
   }, UNPRICED_CHECK_INTERVAL_MS);
 
-  // VACUUM only when there is something to reclaim. This ran unconditionally
-  // every day and was our reason our WAL reached 3.6G: VACUUM rewrites every
-  // page of our database, and in WAL mode those pages all land in our WAL, so
-  // one run sizes our WAL to match our whole database. Measured 2026-08-14 it
-  // recovered 9MB from a 3.6G database — it was paying our entire database size
-  // in WAL growth to reclaim a rounding error. Our freelist tells us what a
-  // VACUUM would genuinely return, so we only pay when it is worth paying.
-  // Offset our first run by 1 hour so a fresh worker doesn't VACUUM the moment
-  // ingest is busiest.
-  const vacuumKickoff = setTimeout(() => {
-    const runVacuum = () => {
-      try {
-        const db = getDb();
-        const reclaimable = freelistBytes(db);
-        if (reclaimable < VACUUM_MIN_FREELIST_BYTES) {
-          console.log(`[worker] VACUUM skipped — freelist ${(reclaimable / 1048576).toFixed(1)}MB below ${(VACUUM_MIN_FREELIST_BYTES / 1048576).toFixed(0)}MB threshold`);
-          return;
-        }
-        const t0 = Date.now();
-        db.exec('VACUUM');
-        console.log(`[worker] VACUUM reclaimed ${(reclaimable / 1048576).toFixed(1)}MB in ${Date.now() - t0}ms`);
-        // VACUUM just pushed our whole database through our WAL. Fold it back
-        // immediately rather than leaving our file at its new high-water mark
-        // until our next hourly tick.
-        checkpointTruncate(db);
-      } catch (err) {
-        console.error('[worker] VACUUM failed:', err);
-      }
-    };
-    runVacuum();
-    setInterval(runVacuum, VACUUM_INTERVAL_MS);
-  }, 60 * 60 * 1000);
+  // Upkeep while ingest is idle (./maintenance.ts, rules in core's
+  // db/maintenance): today's size snapshot for Settings → Database, the
+  // retention window's move of old block text into cold storage, and the
+  // daily VACUUM. VACUUM runs only when our freelist makes it worth a full
+  // rewrite (it once sized our WAL to the whole 3.6G database to reclaim
+  // 9MB) and only after fifteen quiet minutes; a busy day defers it to the
+  // next quiet tick rather than skipping it.
+  const bootAt = Date.now();
+  let vacuumDeferral = '';
+  const maintenanceInterval = setInterval(() => {
+    try {
+      const r = maintenanceTick(getDb(), { inFlight: ingestInFlight, lastActivityAt: ingestActivityAt() }, { bootAt });
+      for (const line of describeTick(r)) console.log(`[worker] ${line}`);
+      const deferred = r.skipped.find((s) => s.startsWith('vacuum:'));
+      if (deferred && !vacuumDeferral) console.log(`[worker] VACUUM due, deferred until ingest is quiet (${deferred.slice(8)})`);
+      vacuumDeferral = r.vacuum ? '' : deferred ?? vacuumDeferral;
+    } catch (err) {
+      console.error('[worker] maintenance failed:', err);
+    }
+  }, MAINTENANCE_TICK_MS);
 
   // Graceful shutdown
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -313,13 +339,15 @@ async function main() {
       clearInterval(watchdog);
       clearInterval(rollupInterval);
       clearInterval(rateLimitInterval);
+      clearInterval(ledgerInterval);
       clearTimeout(statusKickoff);
       clearInterval(statusInterval);
       clearInterval(statusRollup);
       clearInterval(checkpointInterval);
-      clearTimeout(vacuumKickoff);
+      clearInterval(maintenanceInterval);
       clearTimeout(priceKickoff);
       clearInterval(unpricedInterval);
+      clearInterval(alertDeliveryInterval);
       sampler.stop();
       payloads.stop();
       stopWatcher();

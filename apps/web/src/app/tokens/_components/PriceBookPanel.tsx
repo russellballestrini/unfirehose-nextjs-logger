@@ -38,24 +38,26 @@ export function PriceBookPanel({ book }: { book: any }) {
         <a href="/api/pricing" className="text-base text-[var(--color-muted)] hover:underline">full ledger →</a>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Books */}
         <div>
           <div className="text-base text-[var(--color-muted)] mb-1">Books</div>
-          <table className="w-full text-base">
-            <tbody>
-              {oracles.map((o) => (
-                <tr key={o.source}>
-                  <td className="py-0.5 pr-2 font-mono">{o.source}</td>
-                  <td className="py-0.5 pr-2 text-[var(--color-muted)]">{o.listPrice ? 'list' : 'resale'}</td>
-                  <td className="py-0.5 pr-2 text-right">{o.models.toLocaleString()}</td>
-                  <td className={`py-0.5 text-right ${stale(o.ageSeconds) ? 'text-red-400' : 'text-[var(--color-muted)]'}`}>
-                    {age(o.ageSeconds)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto" data-scroll-x>
+            <table className="w-full text-base">
+              <tbody>
+                {oracles.map((o) => (
+                  <tr key={o.source}>
+                    <td className="py-0.5 pr-2 font-mono">{o.source}</td>
+                    <td className="py-0.5 pr-2 text-[var(--color-muted)]">{o.listPrice ? 'list' : 'resale'}</td>
+                    <td className="py-0.5 pr-2 text-right">{o.models.toLocaleString()}</td>
+                    <td className={`py-0.5 text-right ${stale(o.ageSeconds) ? 'text-red-400' : 'text-[var(--color-muted)]'}`}>
+                      {age(o.ageSeconds)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {lastRun && (
             <div className="mt-2 text-base text-[var(--color-muted)]">
               last sync {when(lastRun.started_at)} via <span className="font-mono">{lastRun.trigger}</span>
@@ -75,21 +77,23 @@ export function PriceBookPanel({ book }: { book: any }) {
             </span>
           </div>
           {changes.length > 0 && (
-            <table className="w-full text-base">
-              <tbody>
-                {changes.slice(0, 6).map((c, i) => (
-                  <tr key={i}>
-                    <td className="py-0.5 pr-2 text-[var(--color-muted)]">{when(c.effective_from).slice(5, 10)}</td>
-                    <td className="py-0.5 pr-2 font-mono truncate max-w-[14rem]" title={`${c.source} ${c.model_id}`}>{c.model_id}</td>
-                    <td className="py-0.5 text-right whitespace-nowrap">
-                      <span className="text-[var(--color-muted)]">{money(c.prev_input)}/{money(c.prev_output)}</span>
-                      {' → '}
-                      <span className={c.input > c.prev_input ? 'text-red-400' : 'text-green-400'}>{money(c.input)}/{money(c.output)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto" data-scroll-x>
+              <table className="w-full text-base">
+                <tbody>
+                  {changes.slice(0, 6).map((c, i) => (
+                    <tr key={i}>
+                      <td className="py-0.5 pr-2 text-[var(--color-muted)]">{when(c.effective_from).slice(5, 10)}</td>
+                      <td className="py-0.5 pr-2 font-mono truncate max-w-[14rem]" title={`${c.source} ${c.model_id}`}>{c.model_id}</td>
+                      <td className="py-0.5 text-right whitespace-nowrap">
+                        <span className="text-[var(--color-muted)]">{money(c.prev_input)}/{money(c.prev_output)}</span>
+                        {' → '}
+                        <span className={c.input > c.prev_input ? 'text-red-400' : 'text-green-400'}>{money(c.input)}/{money(c.output)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

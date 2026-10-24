@@ -49,7 +49,7 @@ const THROTTLE_KINDS = ['rate_limit', 'concurrency', 'quota', 'overloaded'];
 
 const TARGET_HELP: Record<string, string> = {
   inference: 'an LLM provider refused the call — this is the one that shapes cost and routing',
-  service:   'our own infrastructure (unsandbox concurrency, Matrix)',
+  service:   'infrastructure we run (container concurrency, Matrix)',
   web:       'a site we crawled answered 429 — real, but says nothing about our API budget',
 };
 

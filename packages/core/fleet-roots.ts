@@ -25,6 +25,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
+import { NOT_NATIVE_DIRS } from './harness-registry';
 
 export interface FleetHarness {
   name: string;
@@ -32,7 +33,8 @@ export interface FleetHarness {
   home: string;
 }
 
-const EXCLUDED = new Set(['unfirehose', 'claude', 'fetch']);
+// Ours, or harnesses with their own reader: one list, in the registry.
+const EXCLUDED = NOT_NATIVE_DIRS;
 
 function isDir(p: string): boolean {
   try { return statSync(p).isDirectory(); } catch { return false; }

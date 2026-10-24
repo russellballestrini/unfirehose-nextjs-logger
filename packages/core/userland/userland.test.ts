@@ -24,7 +24,17 @@ import {
  */
 
 const script = buildProbeScript();
-const sh = (name: string, args: string[], input: string) => spawnSync(name, args, { input, encoding: 'utf-8', timeout: 20000 });
+// What each run does is fixed now; how long it takes is not. A run is ~0.1 s
+// on an idle box and was 11 s at load 11 on four cores, so every test that
+// spawns the shell gets a deadline sized for a busy CI runner. Raised from
+// 30 s on 2026-10-23: with every suite at once beside 24 busy processes on
+// two cores, "runs to END on this machine" took 19.1 s, against a spawn
+// timeout of 20 s that would have killed the shell and read as a broken
+// script. The spawn now gives up a little before the test does, so a hung
+// shell fails with its own stderr rather than a bare timeout.
+const SHELL_DEADLINE_MS = 60_000;
+const sh = (name: string, args: string[], input: string) =>
+  spawnSync(name, args, { input, encoding: 'utf-8', timeout: SHELL_DEADLINE_MS - 5_000 });
 const shells = ['dash', 'busybox', 'bash', 'sh'].filter(s => spawnSync('which', [s]).status === 0);
 
 /**
@@ -43,10 +53,6 @@ for (const tool of ['awk', 'basename', 'cat', 'cut', 'expr', 'grep', 'head', 'se
 afterAll(() => rmSync(bare, { recursive: true, force: true }));
 const bareScript = script.replace(/^PATH=.*$/m, `PATH=${bare}`);
 const shBin = spawnSync('which', ['sh'], { encoding: 'utf-8' }).stdout.trim();
-// What each run does is fixed now; how long it takes is not. A run is ~0.1 s
-// on an idle box and was 11 s at load 11 on four cores, so every test that
-// spawns the shell gets a deadline sized for a busy CI runner.
-const SHELL_DEADLINE_MS = 30_000;
 const onBareBox = (sysname: string) => spawnSync(shBin, [], {
   input: bareScript, encoding: 'utf-8', env: { PATH: bare, UF_SYSNAME: sysname },
 });
@@ -68,7 +74,7 @@ describe('buildProbeScript', () => {
       const r = s === 'busybox' ? sh('busybox', ['sh', '-n'], script) : sh(s, ['-n'], script);
       expect(r.status, `${s} -n: ${r.stderr}`).toBe(0);
     }
-  });
+  }, SHELL_DEADLINE_MS);
 
   it('runs to END on this machine and names its userland', () => {
     const r = sh('sh', [], script);
@@ -102,7 +108,7 @@ describe('buildProbeScript', () => {
     for (const tool of ['ps', 'sysctl', 'df', 'uptime', 'hostname', 'nvidia-smi']) {
       expect(spawnSync(shBin, ['-c', `PATH=${bare}; ${tool} 2>/dev/null`]).status, tool).toBe(127);
     }
-  });
+  }, SHELL_DEADLINE_MS);
 
   it('routes each uname -s to the plugin that speaks its userland', () => {
     const pick = (name: string) => readWire(onBareBox(name).stdout).kv.userland;

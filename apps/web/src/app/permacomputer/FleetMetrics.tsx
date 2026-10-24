@@ -221,6 +221,71 @@ export function FleetMetricsChart({ blendedKwhRate }: { blendedKwhRate: number }
         )}
 
       </div>
+      <FleetEnergyTable energy={data?.energy} />
+    </div>
+  );
+}
+
+const usd = (v: number) => (v < 10 ? `$${v.toFixed(2)}` : `$${v.toFixed(0)}`);
+
+/**
+ * Each node's draw over the chart's window, attributed (ticket 4004): its
+ * standing cost (the idle draw it burns switched on, p10 of its trailing
+ * week), what our own sessions on it explain, and other work. Built by our
+ * sampler, read from /api/mesh/history. Renders nothing until a node has
+ * been sampled, so it adds no empty state of its own.
+ */
+export function FleetEnergyTable({ energy }: { energy?: { hosts?: any[]; byProject?: any[]; byHarness?: any[]; byModel?: any[] } | null }) {
+  const hosts = energy?.hosts ?? [];
+  if (!hosts.length) return null;
+  const top = (list: any[] | undefined) =>
+    (list ?? []).filter((x) => x.usd > 0).slice(0, 5).map((x) => `${x.key} ${usd(x.usd)}`).join(' · ');
+  const lines: [string, string][] = [
+    ['By project', top(energy?.byProject)],
+    ['By harness', top(energy?.byHarness)],
+    ['By model', top(energy?.byModel)],
+  ];
+  return (
+    <div className="bg-[var(--color-background)] rounded border border-[var(--color-border)] p-3" data-fleet-energy>
+      <h5 className="text-xs font-bold mb-2 text-[var(--color-muted)]">
+        Power, attributed{' '}
+        <span className="font-normal ml-1" title="Idle is the 10th percentile of a node's whole draw over the seven days before each day: what it burns with nothing to do. Draw above that is split across our sessions on the node by GPU-seconds; what none of ours explains is other work.">
+          standing = idle draw · above it, split by GPU-seconds
+        </span>
+      </h5>
+      <div className="overflow-x-auto" data-scroll-x>
+        <table className="w-full text-sm [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap">
+          <thead>
+            <tr className="text-[var(--color-muted)] text-left">
+              <th className="pb-1">Node</th>
+              <th className="pb-1 text-right">Idle</th>
+              <th className="pb-1 text-right" title="The idle draw held for a month at the node's $/kWh: what it costs to keep on.">Standing /mo</th>
+              <th className="pb-1 text-right">Standing</th>
+              <th className="pb-1 text-right">Our sessions</th>
+              <th className="pb-1 text-right">Other work</th>
+              <th className="pb-1 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hosts.map((h) => (
+              <tr key={h.hostname} className="border-t border-[var(--color-border)]">
+                <td className="py-1">{h.hostname}</td>
+                <td className="py-1 text-right">{h.idleWatts != null ? `${Math.round(h.idleWatts)} W` : '—'}</td>
+                <td className="py-1 text-right">{h.standingMonthlyUSD != null ? usd(h.standingMonthlyUSD) : '—'}</td>
+                <td className="py-1 text-right">{usd(h.standingUSD)}</td>
+                <td className="py-1 text-right">{usd(h.attributedUSD)}</td>
+                <td className="py-1 text-right">{usd(h.unattributedUSD)}</td>
+                <td className="py-1 text-right" title={`${h.totalKwh.toFixed(2)} kWh at $${h.rateKwh.toFixed(3)}/kWh`}>{usd(h.totalUSD)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {lines.filter(([, v]) => v).map(([k, v]) => (
+        <p key={k} className="text-xs text-[var(--color-muted)] mt-1">
+          <span className="font-bold">{k}:</span> {v}
+        </p>
+      ))}
     </div>
   );
 }

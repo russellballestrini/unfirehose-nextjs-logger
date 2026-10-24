@@ -8,6 +8,7 @@ import { probeRemote } from '@unturf/unfirehose/mesh-remote';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { MESH_FACT_FIELDS, readMeshFacts, type StoredMeshFacts } from '@unturf/unfirehose/db/mesh-snapshots';
 import { human } from '@unturf/unfirehose/ago';
+import { sumOf } from '@unturf/unfirehose/num';
 import { findSameBox } from '@unturf/unfirehose/hostname-match';
 import { Timing } from '@/lib/timing';
 import { getLocalStats } from '@/lib/local-stats';
@@ -87,7 +88,7 @@ function localHostname(): string | undefined {
 
 function summarize(results: MeshNode[], totalNodes: number) {
   const reachable = results.filter(n => n.reachable);
-  const totalClaudes = reachable.reduce((s, n) => s + (n.claudeProcesses ?? 0), 0);
+  const totalClaudes = sumOf(reachable, (n) => n.claudeProcesses);
   // Fleet-wide per-harness totals. totalClaudes stays claude-only so existing
   // callers keep their meaning; totalAgents is what the pages should show.
   const totalHarnessCounts: Record<string, number> = {};
@@ -97,10 +98,10 @@ function summarize(results: MeshNode[], totalNodes: number) {
     }
   }
   const totalAgents = Object.values(totalHarnessCounts).reduce((a, b) => a + b, 0) || totalClaudes;
-  const totalCores = reachable.reduce((s, n) => s + (n.cpuCores ?? 0), 0);
-  const totalMemGB = reachable.reduce((s, n) => s + (n.memTotalGB ?? 0), 0);
-  const totalMemUsedGB = reachable.reduce((s, n) => s + (n.memUsedGB ?? 0), 0);
-  const totalPowerWatts = reachable.reduce((s, n) => s + (n.powerWatts ?? 0) + (n.gpuPowerWatts ?? 0), 0);
+  const totalCores = sumOf(reachable, (n) => n.cpuCores);
+  const totalMemGB = sumOf(reachable, (n) => n.memTotalGB);
+  const totalMemUsedGB = sumOf(reachable, (n) => n.memUsedGB);
+  const totalPowerWatts = sumOf(reachable, (n) => (n.powerWatts ?? 0) + (n.gpuPowerWatts ?? 0));
   return {
     totalNodes,
     reachableNodes: reachable.length,

@@ -1,0 +1,13 @@
+
+# 2026-10-20 09:15:20.100000
++/add src/routes.ts
+
+# 2026-10-20 09:15:31.250000
++Add pagination to the /orders endpoint
++Use limit and offset.
+
+# 2026-10-20 09:16:40.000000
++/ask what is the default page size?
+
+# 2026-10-21 08:00:09.000000
++thanks

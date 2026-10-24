@@ -15,8 +15,13 @@ export interface HarnessPickerProps {
   setCustomCmd?: (v: string) => void;
   model: string;
   setModel: (v: string) => void;
-  /** Node the work will run on. 'localhost' and 'unsandbox' probe locally. */
+  /** Node the work will run on. 'localhost' probes locally. */
   target?: string;
+  /**
+   * The target is not a machine we ssh to (a cloud container an integration
+   * provides), so its models are probed here rather than over ssh.
+   */
+  probeLocally?: boolean;
   /** Stack vertically with labels above, for panel layouts. */
   layout?: 'inline' | 'stacked';
   className?: string;
@@ -39,13 +44,14 @@ export function HarnessPicker({
   customCmd, setCustomCmd,
   model, setModel,
   target = 'localhost',
+  probeLocally = false,
   layout = 'inline',
   className = '',
 }: HarnessPickerProps) {
   // A model id only means something for the harness and node it came from.
   useEffect(() => { setModel(''); }, [harness, target, setModel]);
 
-  const remote = target && target !== 'localhost' && target !== 'unsandbox';
+  const remote = target && target !== 'localhost' && !probeLocally;
   const { data } = useSWR<any>(
     `/api/harness/models?harness=${encodeURIComponent(harness)}${remote ? `&host=${encodeURIComponent(target)}` : ''}`,
     fetcher,

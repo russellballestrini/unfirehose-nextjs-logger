@@ -6,6 +6,7 @@ import { resolveProjectPath } from '@unturf/unfirehose/project-name';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import type { SessionsIndex } from '@unturf/unfirehose/types';
+import { storedProjectSessions } from '@unturf/unfirehose/db/session-messages';
 
 export async function GET(
   request: NextRequest,
@@ -17,7 +18,14 @@ export async function GET(
 
   try {
     let index: SessionsIndex;
-    try {
+    if (adapter.stored) {
+      // A harness in a format of its own (Codex, Gemini CLI, Continue) has
+      // no directory of session files; its sessions are the rows ingest stored.
+      index = {
+        originalPath: (await resolveProjectPath(project)) ?? undefined,
+        entries: storedProjectSessions(getDb(), project),
+      } as SessionsIndex;
+    } else try {
       // Only claude-code maintains a sessions-index.json file; skip for native harnesses.
       if (!isClaude) throw new Error('no index for native harnesses');
       const raw = await readFile(claudePaths.sessionsIndex(project), 'utf-8');

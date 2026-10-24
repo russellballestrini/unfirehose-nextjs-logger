@@ -8,6 +8,8 @@
  * against fixture input instead of whatever box the tests happen to run on.
  */
 
+import { CRITICAL_DISK_BYTES, LOW_DISK_BYTES } from '@unturf/unfirehose/db/maintenance';
+
 export type Level = 'green' | 'yellow' | 'red' | 'skip';
 
 export interface Check {
@@ -112,8 +114,11 @@ export function checkDataDir(f: DataDirFacts): Check[] {
 // ---------------------------------------------------------------- disk
 
 export const GiB = 1024 ** 3;
-export const DISK_RED_BYTES = 1 * GiB;
-export const DISK_YELLOW_BYTES = 5 * GiB;
+// Core's thresholds, shared with the first-run wizard and Settings →
+// Database: red under 1 GiB (SQLite is close to failing writes), yellow
+// under 10 GiB (a few months of growth, and a VACUUM wants room for a copy).
+export const DISK_RED_BYTES = CRITICAL_DISK_BYTES;
+export const DISK_YELLOW_BYTES = LOW_DISK_BYTES;
 
 export function checkDisk(path: string, freeBytes: number | null): Check {
   if (freeBytes === null) return { name: 'disk', level: 'yellow', detail: `could not read free space at ${path}` };
@@ -122,7 +127,7 @@ export function checkDisk(path: string, freeBytes: number | null): Check {
     return { name: 'disk', level: 'red', detail: `${gb} GiB free at ${path}`, fix: 'free space, or move UNFIREHOSE_DIR to a bigger disk; SQLite fails writes when full' };
   }
   if (freeBytes < DISK_YELLOW_BYTES) {
-    return { name: 'disk', level: 'yellow', detail: `${gb} GiB free at ${path}`, fix: 'our database grows with every session; consider freeing space' };
+    return { name: 'disk', level: 'yellow', detail: `${gb} GiB free at ${path}, under ${(DISK_YELLOW_BYTES / GiB).toFixed(0)} GiB`, fix: 'our database grows with every session: free space, or set a retention window in Settings → Database and run make vacuum' };
   }
   return { name: 'disk', level: 'green', detail: `${gb} GiB free at ${path}` };
 }

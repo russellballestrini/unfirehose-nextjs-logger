@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePII } from './pii';
+import { sanitizePII, redactForExport } from './pii';
+
+describe('redactForExport', () => {
+  it('leaves plain text alone', () => {
+    expect(redactForExport('Tests 148 passed, see src/routes.ts:42')).toEqual({ text: 'Tests 148 passed, see src/routes.ts:42', counts: {} });
+    expect(redactForExport('')).toEqual({ text: '', counts: {} });
+  });
+
+  it('gives one value one token within a text, and counts every occurrence', () => {
+    const { text, counts } = redactForExport('/home/fox/a and /home/fox/b and /Users/kit/c');
+    expect(text).toBe('/home/__HOME_PATH_1__/a and /home/__HOME_PATH_1__/b and /Users/__HOME_PATH_2__/c');
+    expect(counts).toEqual({ home_path: 3 });
+  });
+
+  it('keeps a URL host when it takes the password, and does not read the token as an email', () => {
+    const { text, counts } = redactForExport('postgres://app:' + 's3cr3t-pass' + '@db.example.com:5432/x');
+    expect(text).toBe('postgres://app:__URL_CREDENTIALS_1__@db.example.com:5432/x');
+    expect(counts).toEqual({ url_credentials: 1 });
+  });
+
+  it('does not take ordinary words that start like a key', () => {
+    const text = 'the task-runner-for-our-nightly-builds and risk-assessment-documentation-pages';
+    expect(redactForExport(text).text).toBe(text);
+  });
+
+  it('is idempotent: a redacted text redacts to itself', () => {
+    const once = redactForExport('key ' + 'sk-ant-' + 'a'.repeat(30) + ' mail a@b.example token=' + 'abcdefgh1234').text;
+    expect(redactForExport(once)).toEqual({ text: once, counts: {} });
+  });
+});
 
 describe('sanitizePII', () => {
   it('returns unchanged text when no PII present', () => {

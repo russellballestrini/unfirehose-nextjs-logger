@@ -303,6 +303,23 @@ One calendar month of spend, itemised for an expense claim. Each line names its 
 - `rebuild=1` — build and file a closed month again
 → `{ month, timeZone, periodStart, periodEnd, closed, generatedAt, currency: { code, rate, rateDate, source, fallbackReason? }, lines: [{ category, item, detail, basis, usd }], memo: [{ item, detail, usd }], byCategory, byProject, byModel, totalUSD, notes }`; 400 on a bad month, zone or format, or a month not yet begun
 
+### GET /api/training-export
+Our sessions as supervised fine-tuning data: NDJSON, one line per session in our chat SFT shape `{"messages":[{"role":"user","content":…},{"role":"assistant","content":…,"tool_calls"?:[{"id","type":"function","function":{"name","arguments"}}],"reasoning_content"?},{"role":"tool","tool_call_id","content"}]}` (OpenAI fine-tuning / TRL), as a download (`Content-Disposition: attachment`). Every string is redacted for secrets (API keys, tokens, JWTs, private keys, URL passwords, `password=`-style assignments), the username in home paths, and PII (emails, phones, cards, SSNs, public IPs): replaced by a `__TYPE_N__` token, never dropped. Calls and results are paired within a turn; system and sidechain lines are left out. Rendering rules and our JSON Schema for a line (`SFT_EXAMPLE_JSON_SCHEMA`): `packages/core/training-export.ts`.
+- `project` — encoded project name or an alias of it (404 when neither)
+- `model` — sessions with an assistant message on this model
+- `harness` — `sessions.harness` (none means `claude-code`)
+- `from`, `to` — session start, ISO date or instant; a bare `to` date covers that whole day
+- `toolErrors` — `turn` (default: drop a turn whose tool result errored), `session` (drop its session) or `keep`
+- `minTurns`, `maxTurns` — turns kept after tool-error filtering; a session outside is skipped
+- `reasoning=1` — include reasoning as `reasoning_content` (off by default)
+- `tools=0` — drop tool calls and results, keep the prose
+- `metadata=1` — add `metadata: { session, project (display name), harness, models, startedAt, turns }`
+- `toolResultMaxChars` — cut tool output past N characters with a `…[truncated N chars]` marker
+- `limit` — stop after N examples
+- `dryRun=1` — answer JSON instead of the file: `{ filters, stats: { sessionsScanned, examples, turns, messages, toolCalls, toolResults, turnsDroppedForToolErrors, skipped: { toolErrors, tooFewTurns, tooManyTurns, empty }, redactions: { <type>: n }, redactionsTotal }, sample, bytes }`
+- `facets=1` — answer `{ harnesses, models }` seen in `project` (or everywhere), for a filter form
+→ `application/x-ndjson` file `unfirehose-training-<project>-<date>.jsonl`; 400 on a filter that cannot mean anything
+
 ### GET /api/stats
 Claude Code's own `~/.claude/stats-cache.json`, passed through. Takes no parameters.
 → Aggregate stats object
@@ -341,6 +358,34 @@ Record one web-vitals sample.
 ### GET /api/db/meta
 Our SQLite database's size and shape: pragmas, page and file sizes, and per-table and per-index byte counts, largest first.
 → `{ pageSize, pageCount, freelistCount, cacheSize, journalMode, walCheckpoint, totalBytes, usedBytes, freeBytes, fileSize, totalBytesHuman, usedBytesHuman, freeBytesHuman, fileSizeHuman, tables: [...], indexes: [...] }`
+
+### GET /api/db/health
+What Settings → Database shows. Cheap: pragmas, one stat, and our worker's
+newest daily size snapshot (`db_size_snapshots`); never a dbstat scan.
+`growthPerWeekBytes` is the slope of live bytes (freelist left out) over up
+to 28 days of snapshots, null until two days exist. `diskLevel` is `low`
+under 10 GB free on the filesystem under our database, `critical` under 1 GB.
+→ `{ path, pageSize, dbBytes, freelistBytes, walBytes, disk: { path, freeBytes, totalBytes } | null, diskLevel: "ok" | "low" | "critical" | "unknown", lowDiskBytes, dbstat, snapshot: { day, takenAt, dbBytes, freelistBytes, walBytes, method: "dbstat" | "pages", tables: [{ name, bytes, indexBytes, rows }] } | null, history: [{ day, dbBytes, liveBytes }], growthPerWeekBytes, cold: { blocks, rawBytes, storedBytes }, retention: { days, choices, minDays } }`
+
+### POST /api/db/health
+Take today's size snapshot now instead of waiting for our worker. Reads
+every page through dbstat, so seconds on a large database.
+← `{ action: "measure" }`
+→ the GET body plus `measuredMs`
+
+### GET /api/db/retention
+Our retention window for content-block text. `days: null` (our default)
+keeps every block's text hot. With a window, our worker moves text of
+blocks older than it, compressed (brotli), into `content_blocks_cold`
+while ingest is quiet; every reader gets it back byte for byte, and token,
+cost and message counts never change (they live on `messages`).
+→ `{ days, choices: [30, 90, 180, 365], minDays: 30, cold: { blocks, rawBytes, storedBytes } }`
+
+### POST /api/db/retention
+- `{ action: "estimate", days }` — dry run, changes nothing → `{ days, cutoff, blocks, rawBytes, estimatedColdBytes, estimatedSavedBytes, ratio, sampled, measuredMs }`
+- `{ action: "set", days }` — save the window; `null` or `"off"` keeps everything → `{ days, cold }`
+- `{ action: "thaw", days? }` — put one batch (5,000 blocks) of cold text back hot; with `days`, only blocks inside that window → `{ blocks, done, cold }`
+- 400 for a window under 30 days or an unknown action
 
 
 ## Mesh / Permacomputer
@@ -392,8 +437,101 @@ Prefix-cache hit rate vLLM measured on each node and model over a window — wha
 Sample every mesh node's vLLM metrics now.
 → `{ nodes: [...] }`
 
+
+## Boot & Harness Management
+
+### POST /api/boot
+Boot a harness session (Claude Code by default) in tmux on localhost or a mesh node, or in a container an integration that is on provides (see Integrations).
+← `{ projectPath, host?: "localhost" | "<mesh node>" | "<integration host>", sessionId?, yolo?, prompt?, parentSessionUuid?, todoIds?: [...], projectName?, harness?: "claude", harnessKey?, model?, preferMultiplexer?: "tmux" | "screen", bootstrap?, sudoPassword?, repoUrl? }`
+→ `{ success, tmuxSession, tmuxWindow, multiplexer, host, command }`
+
+### POST /api/boot/finished
+Called by an agent when it is done: sends `/exit` to its tmux window and marks the deployment completed.
+← `{ tmuxSession, tmuxWindow? }` or `{ projectName }` or `{ todoId }`
+→ `{ ok: true, exited: [...] }`
+
+### GET /api/boot/mega
+Status of every running deployment, checked against live tmux sessions.
+→ `{ active, dead, allDone, deployments: [...] }`
+
+### POST /api/boot/mega
+Mega-boot: spawn one agent per project with open todos.
+← `{ maxAgents?: 10 }`
+→ `{ launched, total, results: [...] }`
+
+### DELETE /api/boot/mega
+Cull deployments whose todos are all done, and record dead ones.
+→ `{ culled, dead, culledProjects, deadProjects }`
+
+### GET /api/harness/models
+Models a harness can run on a target, so dispatch picks a model rather than a harness default.
+- `?harness=uncloseai` — required
+- `?host=4090-ai.foxhop.net` — default localhost
+- `?refresh=1` — skip our cache
+→ `{ harness, host, models: [...], selectable, source: static|none|cache|local|ssh|error, error? }`
+
+### POST /api/harness/verify
+Install (optional) and verify a harness on localhost or a remote node.
+← `{ host?, install?: "npm i -g ...", verify: "claude --version" }` — shell commands; `verify` is required
+→ `{ success, version, steps: [{ step, ok, output }] }`
+
+### GET /api/tmux/stream
+SSE stream of tmux terminal output.
+- no `session` — list sessions → `{ sessions, deployments }`
+- `?session=mysession` — stream that session
+- `?window=2` — one window
+- `?windows=true` — list a session's windows → `{ windows }`
+- `?host=cammy` — a mesh node over SSH
+
+### POST /api/tmux/stream
+Send keystrokes to a tmux session.
+← `{ session, keys: "ls -la", host?, window? }` · `{ session, special: "Enter" }` (named keys: Enter, Escape, Tab, C-c, arrows, …) · `{ session, action: "resize", cols, rows }`
+→ `{ ok: true, content? }`
+
+### POST /api/tmux/new
+Create a detached tmux session.
+← `{ name, host?, command?: "zsh || bash", cwd? }`
+→ `{ ok: true, name, host }`; 409 when the name exists
+
+### POST /api/tmux/upload
+Upload a file into a session's machine. `multipart/form-data` with `file`, `session` and optional `host` (a host an integration owns writes to `/tmp/input/` in its container; max 50 MB either way).
+→ `{ ok: true, path, name }`
+
+### GET /api/sessions/nickname
+Every session nickname.
+→ `{ [session_id]: { nickname, host, service_name, updated_at } }`
+
+### POST /api/sessions/nickname
+Upsert a nickname; fields left out keep their value.
+← `{ session_id, nickname?, host?, service_name? }`
+→ `{ ok: true }`
+
+### DELETE /api/sessions/nickname
+← `{ session_id }`
+→ `{ ok: true }`
+
+
+## Integrations
+
+Optional products this dashboard can talk to, each off by default. While an integration is off it makes no requests, adds nothing to any page, and every route it owns answers 404 `{ error: "Not found", integration, detail }`; a `host` it owns on `/api/boot` or `/api/tmux/upload` gets the same 404.
+
+Turn one on in Settings → Integrations, with `POST /api/integrations`, or for the whole process with `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` in the environment (when set, the environment decides and the toggle is locked; `none` turns all off). The setting behind the toggle is `integration_<id>` = `"true"`.
+
+| id | adds | routes |
+| --- | --- | --- |
+| `unsandbox` | unsandbox.com cloud containers: a node card and keys panel on /permacomputer, the /permacomputer/unsandbox page, container sessions under /tmux, a boot target on project pages (host `unsandbox`) | `/api/unsandbox`, `/api/unsandbox/shell`, `/api/unsandbox/sync` |
+
+### GET /api/integrations
+Every integration, and whether it is on.
+→ `{ env: "UNFIREHOSE_INTEGRATIONS", integrations: [{ id, name, summary, hosts, href, enabled, source: "env" | "setting" | "default" }] }`
+
+### POST /api/integrations
+Turn one on or off.
+← `{ id, enabled: true | false }`
+→ `{ ok: true, id, enabled, source }`; 400 for an unknown id, 409 while `UNFIREHOSE_INTEGRATIONS` decides
+
 ### GET /api/unsandbox
-unsandbox.com cloud platform integration (HMAC-signed with our stored keys).
+Our unsandbox.com proxy (HMAC-signed with our stored keys).
 - no `action` — key status → `{ connected, tier, rateLimit, maxSessions, expiresAt, expiresAtHuman, burst }`
 - `?action=sessions` → `{ sessions: [...] }`
 - `?action=services` → `{ services: [...] }`
@@ -465,6 +603,16 @@ Delete one setting.
 ← `{ key: "theme_accent_color" }`
 → `{ ok: true }`
 
+### GET /api/lan
+This machine's IPv4 addresses a phone on the same network could open, for the QR in Settings → Phone. From `os.networkInterfaces()`, skipping loopback, link-local (169.254/16), IPv6, and container or VM bridges (`docker0`, `br-*`, `veth*`, `virbr*`, …); each kept address is `lan` (a private range), `vpn` (a tunnel interface or 100.64/10) or `public`, in that order. `url` uses the port this request arrived on; `listening` is a local TCP probe of `address:port`. The probe never leaves this machine and cannot see a firewall in front of the phone. Takes no parameters.
+`bind` says where our server listens. It listens on 127.0.0.1 unless opted in: `npm run dev` / `npm run start` (so `make dev`, `make demo`, the systemd unit) go through `apps/web/scripts/serve.mjs`, which passes `next -H` from, in order, `UNFIREHOSE_HOST` (decides alone; `override`), `$UNFIREHOSE_DIR/web-bind.json` `{"lan": true}` → `0.0.0.0` (`saved`, written by POST below), else `127.0.0.1`. `running` is the host this server was started on (null when started some other way), `next` what a restart would pick, `restartNeeded` when they differ, `container` inside our Docker image (where compose's port mapping decides). There is no login on this dashboard: anyone who can open the URL sees everything.
+→ `{ hostname, port, addresses: [{ address, iface, kind, url, listening }], skipped: [{ address, iface, reason }], bind: { running, runningLan, saved: { lan, setAt }, next: { host, lan, source: "env"|"settings"|"default" }, override, file, restartNeeded, container }, checkedAt }`
+
+### POST /api/lan
+Save whether our dashboard listens on the network from its next start (the bind is fixed when the server starts: `make dev` again, or `make service-restart`). Writes `$UNFIREHOSE_DIR/web-bind.json` (0600). Opening needs `understood: true`: anyone on the network can read every session, push commits and type into tmux, with no login. Refused cross-site (`Sec-Fetch-Site` other than same-origin, or a foreign `Origin`) with 403; with 409 while `UNFIREHOSE_HOST` is set or inside a container.
+← `{ lan: true, understood: true }` or `{ lan: false }`
+→ `{ ok: true, bind: { …as GET } }`
+
 ### GET /api/llm/providers
 Discover available LLM providers (auto-detected + mesh).
 → `{ providers: [{ id, name, source, type, model, ready, detail }] }`
@@ -473,7 +621,7 @@ Discover available LLM providers (auto-detected + mesh).
 ## Alerts
 
 ### GET /api/alerts
-Usage alerts.
+Usage alerts, and credential alerts: `alert_type: "secret_exposed"` (`metric: "secret"`, `window_minutes: 0`, `actual_value` = times seen in that session) is raised at ingest when a tool call or tool result in a session newer than `secret_alerts_since` carries a credential. Its `details` name the kinds, where (`call` | `result`, tool), session, project and line time; never the value.
 - `?limit=20&offset=0` — recent alerts (max 200) → array
 - `?paginate=1` — wrap as `{ alerts: [...], total, limit, offset }`
 - `?filter=unacknowledged` — open alerts only
@@ -488,8 +636,38 @@ Manage alerts and thresholds.
 ← `{ action: "calibrate", days?: 7, factor?: 1.5 }` — reset thresholds from recent usage
 → `{ ok: true, ... }`
 
+### GET /api/alerts/delivery
+Alert delivery rules (Settings → Alerts): which alerts go to a webhook, ntfy, Slack or Discord. `match.metric: "secret"` picks credential alerts only; `match.project` matches a project's encoded or display name. Counts are the last 24 h of real (non-test) attempts: `failed_24h` gave up, `dropped_24h` went over the hourly cap. Our worker sends each new alert once per rule, retries with backoff (30 s, 2 min, 8 min, 32 min; 5 attempts; 4xx other than 408/425/429 fails at once) and holds each rule to `rate_limit_per_hour` (over it: `rate_limited`, not sent). Secrets come back masked, never whole.
+- `?limit=50` — recent delivery attempts (max 500)
+→ `{ rules: [{ id, name, enabled, destination, config, match: { metric, window, project }, rate_limit_per_hour, secrets: { field: "••••abcd" | null }, last, sent_24h, failed_24h, dropped_24h, last_dropped_at }], deliveries: [{ alert_id, rule_id, is_test, status, http_status, error, attempts, next_retry_at, delivered_at }], destinations, secretFields, metrics }`
+
+### POST /api/alerts/delivery
+Create a rule. It delivers alerts raised from now on, never the backlog.
+← `{ name?, destination: "webhook" | "ntfy" | "slack" | "discord", enabled?: true, config?, secrets?, match?: { metric?, window?, project? }, rate_limit_per_hour?: 10 }`
+- webhook: `config: { url }` (http or https; localhost and LAN allowed), `secrets: { hmacSecret? }` → POST JSON `{ event: "alert.triggered" | "alert.test", version: 1, title, message, severity, path, alert }` with `X-Unfirehose-Timestamp` and, when a secret is set, `X-Unfirehose-Signature: sha256=HMAC_SHA256(secret, timestamp + "." + body)`
+- ntfy: `config: { server: "https://ntfy.sh", topic }`, `secrets: { token? }` → body is the message; `Title`, `Priority` (3/4/5), `Tags` headers
+- slack, discord: `secrets: { webhookUrl }` (https)
+→ 201 `{ ok: true, rule }` · 400 `{ error, errors: { field: reason } }`
+
+### GET /api/alerts/delivery/{id}
+One rule (secrets masked) and its last 50 attempts.
+→ `{ rule, deliveries }`
+
+### PATCH /api/alerts/delivery/{id}
+Change a rule. Any field of POST but `destination`. A secret left out or `""` keeps what is stored; `null` clears it. Re-enabling starts from now.
+→ `{ ok: true, rule }` · 400 `{ errors }` · 404
+
+### DELETE /api/alerts/delivery/{id}
+Remove a rule, its attempts and its stored secrets.
+→ `{ ok: true }` · 404
+
+### POST /api/alerts/delivery/{id}/test
+Send one synthetic alert through the same build, sign and send path, once, no retry. Works on a disabled rule; recorded as a test attempt; never counts against the rate limit.
+→ `{ ok, status: 204 | null, error: string | null }`
+
 ### GET /api/alerts/{id}
 One alert with what happened inside its window: per-project and per-model usage and cost, active sessions, reasoning blocks, timeline, user prompts.
+A credential alert answers `{ alert, secret: { kinds, location, tool, session, project, projectDisplay, harness, seenAt, blockId, toolUseId }, words: { title, message, where, kinds, sessionPath } }` instead.
 → `{ alert, window: { start, end, duration_minutes }, projectBreakdown, modelBreakdown, activeSessions, reasoningBlocks, timeline, userPrompts, totals, stats }`
 
 ### GET /api/rate-limits
@@ -511,6 +689,24 @@ Vendor status pages as our worker last polled them (language-model vendors only;
 ### POST /api/rate-limits/status
 ← `{ action: "add", target: { id: "mistral", name: "Mistral", feed: "https://status.mistral.ai/history.atom" } }` · a vendor with no status page: `{ action: "add", target: { id, name, kind: "http-probe", feed: "https://api.example/v1/models", expect: [200] } }`
 ← `{ action: "remove", id: "x-ai" }` · `{ action: "poll" }` polls every target now
+
+
+## Actions
+
+### GET /api/actions
+Agent action ledger — every tool call that touched the filesystem, git or the network, newest first, classified from ingested content blocks for every harness (Claude Code, Codex, Gemini CLI, OpenCode, pi, hermes tool names). Secrets are redacted from what it returns.
+- `?project=<encoded name or alias>` · `?session=<uuid>` · `?harness=claude-code` · `?tool=Bash`
+- `?from=2026-10-01&to=2026-10-23` — ISO instants or dates, both inclusive
+- `?kind=fs-read|fs-write|git|network|shell`
+- `?flag=any|destructive|force-push|force-with-lease|secrets-in-diff|secret-in-command|sudo|curl-pipe-shell|secret-in-output`
+- network: curl, ssh and the like; package installs (npm i/ci/exec, pnpm, yarn, bun, pip, python -m pip, pipx, uv/uvx, poetry, conda, cargo, go get, gem, bundle, composer, dotnet, deno, apt, brew…); every MCP tool (`mcp__*`). A credential handed to a network or MCP tool is `secret-in-command`; one in a tool's output is `secret-in-output`.
+- `?path=<substring>` (paths, URLs, hosts) · `?command=<substring>`
+- `?limit=100` (max 500) · `?cursor=<nextCursor>` keyset paging · `?format=csv` downloads up to 10 000 matching rows
+→ `{ rows: [{ id, timestamp, kind, tool, harness, paths, command, flags, reasons, projectName, projectDisplayName, sessionUuid, toolUseId }], nextCursor, total, kinds, flags, flaggedRows, status: { rows, backfillRemaining, headLag, rulesVersion, secrets: { sightings, alerted, since } } }`
+
+### POST /api/actions
+← `{ rebuild: true }` empties our ledger and re-classifies from content blocks (one window now, our worker fills history in the background); `{}` runs one window of catch-up
+→ `{ ok, rebuilt, rows, backfillRemaining, headLag, rulesVersion, secrets, done }`
 
 
 ## Triage
@@ -575,80 +771,6 @@ Database row counts.
 ### POST /api/ingest
 Start an on-demand ingest pass over every harness log, in a detached worker process. Answers 202 at once; one pass at a time.
 → `{ started: true, pid, startedAt }` or `{ started: false, alreadyRunning: true, pid, startedAt }`
-
-
-## Boot & Harness Management
-
-### POST /api/boot
-Boot a harness session (Claude Code by default) in tmux on localhost, a mesh node, or unsandbox.
-← `{ projectPath, host?: "localhost" | "<mesh node>" | "unsandbox", sessionId?, yolo?, prompt?, parentSessionUuid?, todoIds?: [...], projectName?, harness?: "claude", harnessKey?, model?, preferMultiplexer?: "tmux" | "screen", bootstrap?, sudoPassword?, repoUrl? }`
-→ `{ success, tmuxSession, tmuxWindow, multiplexer, host, command }`
-
-### POST /api/boot/finished
-Called by an agent when it is done: sends `/exit` to its tmux window and marks the deployment completed.
-← `{ tmuxSession, tmuxWindow? }` or `{ projectName }` or `{ todoId }`
-→ `{ ok: true, exited: [...] }`
-
-### GET /api/boot/mega
-Status of every running deployment, checked against live tmux sessions.
-→ `{ active, dead, allDone, deployments: [...] }`
-
-### POST /api/boot/mega
-Mega-boot: spawn one agent per project with open todos.
-← `{ maxAgents?: 10 }`
-→ `{ launched, total, results: [...] }`
-
-### DELETE /api/boot/mega
-Cull deployments whose todos are all done, and record dead ones.
-→ `{ culled, dead, culledProjects, deadProjects }`
-
-### GET /api/harness/models
-Models a harness can run on a target, so dispatch picks a model rather than a harness default.
-- `?harness=uncloseai` — required
-- `?host=4090-ai.foxhop.net` — default localhost
-- `?refresh=1` — skip our cache
-→ `{ harness, host, models: [...], selectable, source: static|none|cache|local|ssh|error, error? }`
-
-### POST /api/harness/verify
-Install (optional) and verify a harness on localhost or a remote node.
-← `{ host?, install?: "npm i -g ...", verify: "claude --version" }` — shell commands; `verify` is required
-→ `{ success, version, steps: [{ step, ok, output }] }`
-
-### GET /api/tmux/stream
-SSE stream of tmux terminal output.
-- no `session` — list sessions → `{ sessions, deployments }`
-- `?session=mysession` — stream that session
-- `?window=2` — one window
-- `?windows=true` — list a session's windows → `{ windows }`
-- `?host=cammy` — a mesh node over SSH
-
-### POST /api/tmux/stream
-Send keystrokes to a tmux session.
-← `{ session, keys: "ls -la", host?, window? }` · `{ session, special: "Enter" }` (named keys: Enter, Escape, Tab, C-c, arrows, …) · `{ session, action: "resize", cols, rows }`
-→ `{ ok: true, content? }`
-
-### POST /api/tmux/new
-Create a detached tmux session.
-← `{ name, host?, command?: "zsh || bash", cwd? }`
-→ `{ ok: true, name, host }`; 409 when the name exists
-
-### POST /api/tmux/upload
-Upload a file into a session's machine. `multipart/form-data` with `file`, `session` and optional `host` (`unsandbox` writes to `/tmp/input/` in the container, max 4 MB; otherwise max 50 MB).
-→ `{ ok: true, path, name }`
-
-### GET /api/sessions/nickname
-Every session nickname.
-→ `{ [session_id]: { nickname, host, service_name, updated_at } }`
-
-### POST /api/sessions/nickname
-Upsert a nickname; fields left out keep their value.
-← `{ session_id, nickname?, host?, service_name? }`
-→ `{ ok: true }`
-
-### DELETE /api/sessions/nickname
-← `{ session_id }`
-→ `{ ok: true }`
-
 
 ## Maintenance
 

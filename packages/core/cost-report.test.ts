@@ -11,6 +11,8 @@ const {
   buildMonthlyCostReport, monthBounds, previousMonth, costReportCsv, isValidMonth, isValidTimeZone,
 } = await import('./cost-report');
 const { nodeEconKey } = await import('./mesh-econ');
+const { refreshEnergyAttribution } = await import('./energy-attribution');
+const { costReportKey, fileReport, readFiledReport } = await import('./cost-report');
 
 // $5 / $25 per million in and out: a million of each is $30.
 setPriceCatalog('openrouter', [
@@ -38,7 +40,8 @@ function sample(host: string, ts: string, watts: number, gpu = 0) {
 }
 
 beforeEach(() => {
-  for (const t of ['messages', 'sessions', 'projects', 'mesh_snapshots', 'mesh_snapshots_15m']) db.prepare(`DELETE FROM ${t}`).run();
+  for (const t of ['messages', 'sessions', 'projects', 'mesh_snapshots', 'mesh_snapshots_15m', 'node_energy_15m', 'energy_attribution_15m']) db.prepare(`DELETE FROM ${t}`).run();
+  db.prepare(`DELETE FROM settings WHERE key LIKE 'energy_attribution%' OR key LIKE 'cost_report%'`).run();
 });
 
 describe('months', () => {
@@ -141,6 +144,47 @@ describe('the fleet', () => {
       item: 'home · New London, CT · Comcast', usd: 110, detail: 'monthly bill shared by cammy, ken',
     })]);
     expect(r.notes[0]).toMatch(/^1 node\(s\) have no economics configured/);
+  });
+});
+
+describe('the fleet, attributed (ticket 4004)', () => {
+  /** A day at 100 W idle, then an hour at 400 W, a quarter of it one project's session on our node. */
+  function seedAttributed() {
+    const day = Date.parse('2026-10-09T00:00:00Z');
+    for (let t = day; t < day + 26 * 3_600_000; t += 60_000) {
+      const busy = t >= day + 25 * 3_600_000;
+      sample('cammy', new Date(t).toISOString(), 60, busy ? 340 : 40);
+    }
+    const s = session('-home-fox-git-acme', 'uncloseai');
+    const id = seedMessage(db, s, { timestamp: '2026-10-10T01:05:00.000Z', model: 'hermes-3-8b', inputTokens: 0, outputTokens: 2000 });
+    db.prepare(`UPDATE messages SET endpoint = 'http://cammy:8000/v1', provider = 'local' WHERE id = ?`).run(id);
+    refreshEnergyAttribution(db, { now: NOW, budgetMs: Infinity, chunkDays: 40 });
+  }
+  const settings = { [nodeEconKey('cammy')]: JSON.stringify({ electricityCostKwh: 0.5, ispCostMonthly: 0 }) };
+
+  it('says how a node\'s kWh divide, without moving the line or the total', () => {
+    seedAttributed();
+    const r = buildMonthlyCostReport(db, { ...base, settings });
+    const line = r.lines.find((l) => l.category === 'electricity')!;
+    // The line is the same integral it always was: 25 h at 100 W plus 1 h at 400 W.
+    expect(line.usd).toBeCloseTo(((25 * 100 + 400) / 1000) * 0.5, 2);
+    expect(r.totalUSD).toBe(line.usd);
+    expect(line.detail).toMatch(/standing \(idle ~100 W\)/);
+    expect(line.detail).toMatch(/serving our sessions/);
+    // The session's quarter hour above idle, booked to its project: 300 W for 0.25 h.
+    expect(r.electricityByProject).toEqual([{ project: 'acme', usd: expect.closeTo(0.3 * 0.25 * 0.5, 3) }]);
+    // It explains part of the electricity line; it is not added to model spend.
+    expect(r.byProject).toEqual([]);
+  });
+
+  it('a filed month reads back as filed, whatever the attribution tables learn later', () => {
+    for (let i = 0; i <= 240; i++) sample('cammy', new Date(Date.parse('2026-10-10T00:00:00Z') + i * 15_000).toISOString(), 800, 200);
+    const before = buildMonthlyCostReport(db, { ...base, settings });
+    const key = costReportKey('2026-10', 'UTC', 'USD');
+    fileReport(key, before);
+    seedAttributed();
+    expect(readFiledReport(key)).toEqual(JSON.parse(JSON.stringify(before)));
+    expect(readFiledReport(key)!.electricityByProject).toEqual([]);
   });
 });
 

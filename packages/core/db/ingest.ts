@@ -19,6 +19,7 @@ import { generateSessionName } from '../session-name';
 import { uuidv7 } from '../uuidv7';
 import type { SessionsIndex } from '../types';
 import { TOOL_CALL_SQL } from '../block-types';
+import { blockTextSql } from './block-cold';
 
 // ingest.ts is the public entry point (`@unturf/unfirehose/db/ingest`): the
 // pass itself lives here, and everything else it was once a single file of
@@ -42,12 +43,15 @@ import {
   refreshNativeHarnesses,
 } from './ingest-harness';
 import type { IngestResult } from './ingest-harness';
+import { foreignSources, ingestForeignSource } from './ingest-foreign';
 import { checkThresholds } from './ingest-alerts';
+import { scanLedgerHead } from './action-ledger';
 import { getSetting, setSetting } from './ingest-settings';
 
 export { gitConfigPath, readGitRemotes, mergeProjects, autoMergeIdenticalProjects } from './ingest-projects';
 export { archiveToolResultsForSession } from './ingest-claude-code';
 export { ingestJsonlSource, nativeHarnesses } from './ingest-harness';
+export { ingestForeignSource, foreignSources } from './ingest-foreign';
 export type { IngestResult, NativeHarness } from './ingest-harness';
 export {
   getRecentAlerts,
@@ -177,6 +181,22 @@ export function housekeepingDue(
 ): boolean {
   return result.filesScanned > 0 || result.projectsAdded > 0 || result.sessionsAdded > 0 || result.messagesAdded > 0
     || now - lastAt >= HOUSEKEEPING_INTERVAL_MS;
+}
+
+/**
+ * Classify the tool calls that just landed (action-ledger.ts). Bounded, so a
+ * first ingest of a large history leaves the rest to the worker's backfill.
+ * Derived data: a failure here never fails ingest.
+ */
+function ledgerAfterIngest(db: ReturnType<typeof getDb>): number {
+  try {
+    // Returns the secret_exposed alerts it raised (db/secret-alerts.ts), so
+    // they count in alertsTriggered and the worker delivers them now.
+    return scanLedgerHead(db).alerts;
+  } catch (err) {
+    console.error('[ingest] action ledger scan failed:', err);
+    return 0;
+  }
 }
 
 export async function ingestAll(opts: IngestOptions = {}): Promise<IngestResult> {
@@ -488,7 +508,7 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     result.providenceAdded += fetchResult.providenceAdded;
   }
 
-  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, codex, etc.),
+  // Ingest all native unfirehose/1.0 harnesses (agnt, orcestra, etc.),
   // then the same harnesses under every fleet worker's private HOME
   // (fleet-roots.ts) — found each pass, never fs-watched.
   const fleet = (!enabled || enabled.includes('fleet')) ? fleetHarnesses() : [];
@@ -509,13 +529,31 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     result.providenceAdded += hResult.providenceAdded;
   }
 
+  // Harnesses with a layout of their own (Codex's dated rollouts, Gemini
+  // CLI's chat recordings, Continue's session files), one reader per format,
+  // driven by the registry. Not fs-watched: a targeted pass leaves them to
+  // the next full one, a minute away at most.
+  if (!only) {
+    for (const source of foreignSources()) {
+      if (enabled && !enabled.includes(source.harness)) continue;
+      const fResult = ingestForeignSource(db, source);
+      result.projectsAdded += fResult.projectsAdded;
+      result.sessionsAdded += fResult.sessionsAdded;
+      result.messagesAdded += fResult.messagesAdded;
+      result.blocksAdded += fResult.blocksAdded;
+      result.filesScanned += fResult.filesScanned;
+      result.providenceAdded += fResult.providenceAdded;
+    }
+  }
+
   // A targeted pass ends here: the rows it read are in, an alert that
   // crossed a threshold fires now, and the heartbeat says a read happened.
   // Everything below is a sweep over the whole database, and belongs to
   // the pass that also swept the whole filesystem.
   if (result.filesScanned > 0) _ingestActivityAt = Date.now();
   if (only) {
-    result.alertsTriggered = checkThresholds(db);
+    const secretAlerts = ledgerAfterIngest(db);
+    result.alertsTriggered = checkThresholds(db) + secretAlerts;
     if (uneofProjects.size > 0) cullUneofDeployments(db, uneofProjects);
     setSetting(INGEST_HEARTBEAT_KEY, new Date().toISOString());
     return result;
@@ -537,14 +575,16 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
     if (needsName.length > 0) {
       const updateName = db.prepare('UPDATE sessions SET display_name = ? WHERE id = ?');
       // Try to find a real user prompt if first_prompt is a preamble
+      // A session's opening prompt may be older than a retention window.
+      const CBT = blockTextSql('cb');
       const findRealPrompt = db.prepare(`
-        SELECT cb.text_content FROM messages m
+        SELECT ${CBT} AS text_content FROM messages m
         JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
         WHERE m.session_id = ? AND m.type = 'user'
-          AND cb.text_content NOT LIKE '%blackops%'
-          AND cb.text_content NOT LIKE '%Request interrupted%'
-          AND cb.text_content NOT LIKE '%shadow clone%'
-          AND LENGTH(cb.text_content) > 15
+          AND ${CBT} NOT LIKE '%blackops%'
+          AND ${CBT} NOT LIKE '%Request interrupted%'
+          AND ${CBT} NOT LIKE '%shadow clone%'
+          AND LENGTH(${CBT}) > 15
         ORDER BY m.timestamp
         LIMIT 1
       `);
@@ -648,8 +688,11 @@ async function ingestAllPass(opts: IngestOptions = {}): Promise<IngestResult> {
 
   }
 
+  // The tool calls this pass brought in, into our action ledger.
+  const secretAlerts = ledgerAfterIngest(db);
+
   // Check alert thresholds
-  result.alertsTriggered = checkThresholds(db);
+  result.alertsTriggered = checkThresholds(db) + secretAlerts;
 
   // Fire UNEOF cull for any projects where agent signalled completion
   if (uneofProjects.size > 0) {

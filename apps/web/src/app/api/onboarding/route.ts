@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { getSetting, INGEST_HEARTBEAT_KEY } from '@unturf/unfirehose/db/ingest';
 import { detectHarnesses } from '@unturf/unfirehose/harness-detect';
+import { knownProjectRoots } from '@unturf/unfirehose/db/project-roots';
 import { harnessSessionStats } from '@unturf/unfirehose/db/harness-stats';
+import { dbDiskSpace, diskLevel, LOW_DISK_BYTES } from '@unturf/unfirehose/db/maintenance';
 
 /**
  * GET /api/onboarding — what a first run needs to know, all of it local.
  *
  * Which harnesses this machine has on disk (core's detector, the one Settings
  * and `make doctor` use), how much our database holds, and whether our worker
- * is alive. Alive means a fresh ingest heartbeat, nothing else: a route
+ * is alive, and how much disk is free under it. Alive means a fresh ingest heartbeat, nothing else: a route
  * builds and stores a payload on its first request, so a fresh payload
  * stamp proves only that a page was opened. The freshest one is reported
  * beside it, as information. The wizard polls this at the live cadence, so every query here is
@@ -39,14 +41,28 @@ export async function GET() {
   const fresh = (iso: string | null) => !!iso && now - Date.parse(iso) < WORKER_FRESH_MS;
 
   const stats = new Map(harnessSessionStats(db).map((s) => [s.harness, s]));
-  const harnesses = detectHarnesses().map((h) => ({
+  // Aider writes inside each repo: it is looked for in the roots of the
+  // projects we already hold, as ingest looks for it, and nowhere else.
+  const harnesses = detectHarnesses({ projectRoots: knownProjectRoots(db) }).map((h) => ({
     ...h,
     sessions: stats.get(h.id)?.sessions ?? 0,
     lastMessageAt: stats.get(h.id)?.lastMessageAt ?? null,
   }));
 
+  // The filesystem under our database: a first run on a nearly full disk
+  // should hear it before months of sessions land. One statfs.
+  const space = dbDiskSpace(db);
+  const disk = {
+    path: space?.path ?? null,
+    freeBytes: space?.freeBytes ?? null,
+    totalBytes: space?.totalBytes ?? null,
+    level: diskLevel(space?.freeBytes),
+    lowBytes: LOW_DISK_BYTES,
+  };
+
   return NextResponse.json({
     harnesses,
+    disk,
     sessions, projects, messages,
     lastIngestAt, payloadAt,
     workerAlive: fresh(lastIngestAt),

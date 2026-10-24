@@ -2,6 +2,11 @@
 // Extracted from ingest.ts.
 import { getDb } from './schema';
 import { REASONING_SQL } from '../block-types';
+import { blockTextSql } from './block-cold';
+
+// Block text may be cold (db/block-cold.ts): read it through blockTextSql.
+const CB_TEXT = blockTextSql('cb');
+const CB2_TEXT = blockTextSql('cb2');
 
 /**
  * The start of a rolling window, as a `usage_minutes.minute` key.
@@ -171,11 +176,11 @@ export function getProjectRecentPrompts(projectName: string, limit = 5) {
   const db = getDb();
   return db.prepare(`
     SELECT
-      cb.text_content as prompt,
+      ${CB_TEXT} as prompt,
       m.timestamp,
       s.session_uuid,
       (
-        SELECT cb2.text_content
+        SELECT ${CB2_TEXT}
         FROM messages m2
         JOIN content_blocks cb2 ON cb2.message_id = m2.id
         WHERE m2.session_id = m.session_id
@@ -187,7 +192,7 @@ export function getProjectRecentPrompts(projectName: string, limit = 5) {
               AND m3.id > m.id
           )
           AND cb2.block_type = 'text'
-          AND cb2.text_content IS NOT NULL
+          AND ${CB2_TEXT} IS NOT NULL
         ORDER BY cb2.position ASC
         LIMIT 1
       ) as response
@@ -198,23 +203,23 @@ export function getProjectRecentPrompts(projectName: string, limit = 5) {
     WHERE p.name = ?
       AND m.type = 'user'
       AND cb.block_type = 'text'
-      AND cb.text_content IS NOT NULL
-      AND LENGTH(cb.text_content) > 20
-      AND cb.text_content NOT LIKE '%[Request interrupted%'
-      AND cb.text_content NOT LIKE '%<system%'
-      AND cb.text_content NOT LIKE '{"type"%'
-      AND cb.text_content NOT LIKE '[Image:%'
-      AND cb.text_content NOT LIKE 'Continue from where you left off%'
-      AND cb.text_content NOT LIKE '%Shadow Clone Activation%'
-      AND cb.text_content NOT LIKE '%Agent Blackops%'
-      AND cb.text_content NOT LIKE '%blackops%'
-      AND cb.text_content NOT LIKE '%You operate as agent%'
-      AND cb.text_content NOT LIKE '%DEFINES your identity%'
-      AND cb.text_content NOT LIKE '%<local-command-%'
-      AND cb.text_content NOT LIKE '%<command-name>%'
-      AND cb.text_content NOT LIKE '%Caveat:%The messages below%'
-      AND cb.text_content NOT LIKE '%DO NOT respond to these messages%'
-      AND cb.text_content NOT LIKE '%<available-deferred-tools>%'
+      AND ${CB_TEXT} IS NOT NULL
+      AND LENGTH(${CB_TEXT}) > 20
+      AND ${CB_TEXT} NOT LIKE '%[Request interrupted%'
+      AND ${CB_TEXT} NOT LIKE '%<system%'
+      AND ${CB_TEXT} NOT LIKE '{"type"%'
+      AND ${CB_TEXT} NOT LIKE '[Image:%'
+      AND ${CB_TEXT} NOT LIKE 'Continue from where you left off%'
+      AND ${CB_TEXT} NOT LIKE '%Shadow Clone Activation%'
+      AND ${CB_TEXT} NOT LIKE '%Agent Blackops%'
+      AND ${CB_TEXT} NOT LIKE '%blackops%'
+      AND ${CB_TEXT} NOT LIKE '%You operate as agent%'
+      AND ${CB_TEXT} NOT LIKE '%DEFINES your identity%'
+      AND ${CB_TEXT} NOT LIKE '%<local-command-%'
+      AND ${CB_TEXT} NOT LIKE '%<command-name>%'
+      AND ${CB_TEXT} NOT LIKE '%Caveat:%The messages below%'
+      AND ${CB_TEXT} NOT LIKE '%DO NOT respond to these messages%'
+      AND ${CB_TEXT} NOT LIKE '%<available-deferred-tools>%'
       AND m.timestamp > datetime('now', '-30 days')
     ORDER BY m.timestamp DESC
     LIMIT ?
@@ -349,7 +354,7 @@ export function getActiveSessionsInWindow(windowStart: string, windowEnd: string
 export function getThinkingBlocksInWindow(windowStart: string, windowEnd: string) {
   const db = getDb();
   return db.prepare(`
-    SELECT cb.text_content, LENGTH(cb.text_content) as char_count,
+    SELECT ${CB_TEXT} AS text_content, LENGTH(${CB_TEXT}) as char_count,
            m.id as message_id, m.timestamp, m.model,
            s.session_uuid, p.name as project_name, p.display_name
     FROM content_blocks cb
@@ -397,7 +402,7 @@ export function getTimelineInWindow(windowStart: string, windowEnd: string) {
 export function getUserPromptsInWindow(windowStart: string, windowEnd: string) {
   const db = getDb();
   return db.prepare(`
-    SELECT cb.text_content as prompt,
+    SELECT ${CB_TEXT} as prompt,
            m.timestamp,
            s.session_uuid,
            p.name as project_name,
@@ -408,10 +413,10 @@ export function getUserPromptsInWindow(windowStart: string, windowEnd: string) {
     JOIN projects p ON s.project_id = p.id
     WHERE m.type = 'user'
       AND cb.block_type = 'text'
-      AND cb.text_content IS NOT NULL
-      AND LENGTH(cb.text_content) > 10
-      AND cb.text_content NOT LIKE '%<system%'
-      AND cb.text_content NOT LIKE '{"type"%'
+      AND ${CB_TEXT} IS NOT NULL
+      AND LENGTH(${CB_TEXT}) > 10
+      AND ${CB_TEXT} NOT LIKE '%<system%'
+      AND ${CB_TEXT} NOT LIKE '{"type"%'
       AND m.timestamp >= ? AND m.timestamp <= ?
     ORDER BY m.timestamp DESC
   `).all(windowStart, windowEnd) as Array<{

@@ -1,8 +1,8 @@
 # Continue.dev — Harness Format
 
 **Provider**: Multi-provider (OpenAI, Anthropic, Ollama, etc.)
-**Status**: Researched (adapter planned)
-**Adapter**: planned
+**Status**: Supported: ingested from `~/.continue/sessions`
+**Adapter**: `packages/core/continue-adapter.ts`, read by `packages/core/db/ingest-foreign.ts`
 
 ## Overview
 
@@ -90,32 +90,46 @@ Continue supports structured data export via config:
 
 Exports `autocomplete`, `chatInteraction`, and other event types in JSONL with schema versioning (0.1.0, 0.2.0).
 
-## Field Mapping → Unfirehose
+## Mapping as ingested
 
-| Continue.dev | Unfirehose | Transform |
-|---|---|---|
-| `history[].message.role` | `role` | direct |
-| `history[].message.content` | `content: [{type: "text", text}]` | wrap in block |
-| `history[].contextItems` | not mapped | context, not messages |
-| `history[].edits[].filepath` | `content[].toolName: "Edit"` | extract as tool-call |
-| `sessionId` | `sessionId` | direct |
-| `dateCreated` | `createdAt` | rename |
+Read from `core/index.d.ts`, `core/util/history.ts` and `core/util/paths.ts`
+(continuedev/continue main, 2026-10-23). `CONTINUE_GLOBAL_DIR` moves
+`~/.continue`, and we follow it. `sessions/sessions.json` is the index
+(`dateCreated` is epoch milliseconds as a string); every other
+`sessions/<sessionId>.json` is one `Session`.
 
-## Adapter Challenges
+| Continue | Unfirehose |
+|---|---|
+| `role: "user"` | `role: "user"`, text blocks |
+| `role: "assistant"` | `role: "assistant"`: `item.reasoning.text` as `reasoning`, content as `text`, `toolCalls[]` as `tool-call` (arguments parsed as JSON when they are) |
+| `role: "thinking"` | `role: "assistant"`, `reasoning` blocks |
+| `role: "tool"` | `role: "user"`, a `tool-result` for `toolCallId` |
+| `toolCallStates[].output` | a `tool-result`, only when no `tool` message carries that call |
+| `role: "system"` | `role: "system"` |
+| `message.usage.promptTokens - promptTokensDetails.cachedTokens` | `usage.inputTokens` |
+| `message.usage.completionTokens` | `usage.outputTokens` |
+| `promptTokensDetails.cachedTokens` / `cacheWriteTokens` | `cacheReadTokens` / `cacheWriteTokens` |
+| `promptLogs[-1].modelTitle`, else `chatModelTitle` | `model` (Continue names models by their configured title) |
+| `workspaceDirectory` (a `file://` URI) | the project's cwd; projects are `continue:<encoded cwd>` |
+| `history[i]` | message id `continue:<sessionId>:<i>` |
+| `contextItems` | not mapped: context, not messages |
 
-1. **JSON not JSONL**: Sessions are full JSON documents, not append-only streams
-2. **Context items**: Rich context (file contents, codebase search) attached to messages but not tool calls
-3. **Edits inline**: File edits are part of the assistant message, not separate tool calls
-4. **No token tracking**: Usage not logged in session files
-5. **No timestamps per message**: Only session creation time
+A session file is rewritten whole, so it is skipped while its size and mtime
+are unchanged and refolded when they move; messages insert by id, so a reread
+adds only new turns. The newest turn of a file written in the last 30 seconds
+waits a pass, since it may still be streaming. Messages carry no timestamps:
+each is stamped with its item's reasoning times when it has them, otherwise
+the session's creation time, never earlier than the message before it. A turn
+a person edits in place keeps its index, so the stored row is the version we
+first saw.
 
 ## Key Differences from Claude Code
 
 | Aspect | Claude Code | Continue.dev |
 |--------|------------|-------------|
 | Format | JSONL (append-only) | JSON (full document) |
-| Tool calls | Named function calls | Inline edits |
+| Tool calls | Named function calls | `toolCalls[]` and a `tool` message (older versions: inline edits) |
 | Context | Implicit (model sees files) | Explicit `contextItems` |
-| Token tracking | Full | None in logs |
+| Token tracking | Full | Per assistant message, when the provider reports it (`message.usage`) |
 | Open source | Yes (CLI) | Yes (extension) |
 | IDE | Terminal | VS Code / JetBrains |

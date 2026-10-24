@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { ensureProvenanceTables } from './provenance-ingest';
 import { ensureRewriteTables } from './rewrite-watch';
+import { registerColdFunctions } from './block-cold';
 
 /**
  * The schema. One definition, applied everywhere a database is created:
@@ -13,6 +14,9 @@ import { ensureRewriteTables } from './rewrite-watch';
  * where nothing has a reason to mock it.
  */
 export function migrate(db: Database.Database) {
+  // unfirehose_unz(): every reader of block text may meet a cold row, so
+  // every connection gets the function before anything queries.
+  registerColdFunctions(db);
   db.exec(`
     -- Projects: one row per unique project directory
     CREATE TABLE IF NOT EXISTS projects (
@@ -92,7 +96,7 @@ export function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
-      alert_type TEXT NOT NULL,           -- rate_spike, threshold_breach, sustained_high
+      alert_type TEXT NOT NULL,           -- rate_spike, threshold_breach, sustained_high, secret_exposed
       window_minutes INTEGER NOT NULL,    -- 1, 5, 15, 60
       metric TEXT NOT NULL,               -- input_tokens, output_tokens, total_tokens, cost_usd
       threshold_value REAL NOT NULL,
@@ -511,12 +515,50 @@ export function migrate(db: Database.Database) {
   // free — an aggregator that quotes its own price is the only source that
   // cannot disagree with it.
   addColumn('messages', 'observed_cost_usd', 'REAL');
+  // 1 when a reader took the token counts off a harness's rounded display
+  // (Aider prints "2.4k sent", nothing finer), so a sum over them is an
+  // estimate to that precision. NULL: the counts are what was reported.
+  addColumn('messages', 'tokens_approx', 'INTEGER');
   // Lane provenance: the line hash a chained writer stamped on this row
   // (unfirehose-chain-v1), so a message on screen joins to the leaf its
   // session root commits to. NULL for an unchained writer.
   addColumn('messages', 'row_hash', 'TEXT');
+  // Foreign-format readers (db/ingest-foreign.ts). A file rewritten whole
+  // (Gemini's legacy .json, Continue) is unchanged when its size AND mtime
+  // are; a reader that folds lines into state (Codex's cumulative token
+  // counters, its session and model) resumes from the state it stopped at.
+  addColumn('ingest_offsets', 'mtime_ms', 'REAL');
+  addColumn('ingest_offsets', 'reader_state', 'TEXT');
   ensureProvenanceTables(db);
   ensureRewriteTables(db);
+  // Retention for block text (db/block-cold.ts). cold = 1 means text_content
+  // and tool_input moved, compressed, into content_blocks_cold under the
+  // same id; NULL on the hot row. ADD COLUMN with a constant default is
+  // instant on SQLite, whatever the table's size.
+  addColumn('content_blocks', 'cold', 'INTEGER NOT NULL DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS content_blocks_cold (
+      block_id     INTEGER PRIMARY KEY,      -- content_blocks.id
+      codec        TEXT NOT NULL DEFAULT 'br',
+      text_z       BLOB,                     -- NULL when text_content was NULL
+      tool_input_z BLOB,                     -- NULL when tool_input was NULL
+      raw_bytes    INTEGER NOT NULL,         -- UTF-8 bytes of both fields before packing
+      moved_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- One row per UTC day, written by our worker (db/db-health.ts). Size by
+    -- table comes from dbstat, which reads the whole file, so it is measured
+    -- once a day rather than on every Settings page load.
+    CREATE TABLE IF NOT EXISTS db_size_snapshots (
+      day            TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
+      taken_at       TEXT NOT NULL,
+      db_bytes       INTEGER NOT NULL,       -- page_count * page_size
+      freelist_bytes INTEGER NOT NULL,
+      wal_bytes      INTEGER NOT NULL,
+      method         TEXT NOT NULL,          -- dbstat | pages
+      tables_json    TEXT                    -- [{ name, bytes, indexBytes, rows }]
+    );
+  `);
   // One-time backfill: harness tells us provider with high confidence even when
   // the message row pre-dates endpoint/provider ingestion.
   //
@@ -803,6 +845,71 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rle_session   ON rate_limit_events(session_id);
   `);
 
+  // Agent action ledger: every tool call that touched the filesystem, git or
+  // the network, classified once by action-ledger.ts and kept here so a
+  // search reads a few hundred thousand narrow rows instead of classifying
+  // 2.35 M content blocks per request. Derived, never a source: the scanner
+  // (db/action-ledger-scan.ts) rebuilds it from content_blocks whenever its
+  // rules change. Not `agent_actions`, which is our dispatch queue.
+  //
+  // `paths` is newline-joined and `flags` space-joined, so a substring
+  // search is one LIKE; `flagged` carries a partial index because flagged
+  // rows are the few a person opens this page to find.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS action_ledger (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      block_id     INTEGER NOT NULL UNIQUE,  -- content_blocks.id
+      message_id   INTEGER NOT NULL,
+      session_id   INTEGER,
+      project_id   INTEGER,
+      harness      TEXT,
+      timestamp    TEXT NOT NULL,
+      tool_name    TEXT NOT NULL,
+      tool_use_id  TEXT,
+      kind         TEXT NOT NULL,            -- fs-read | fs-write | git | network | shell
+      paths        TEXT NOT NULL DEFAULT '', -- newline-joined, secrets redacted
+      command      TEXT,                     -- secrets redacted, capped at 4000 chars
+      flags        TEXT NOT NULL DEFAULT '', -- space-joined: destructive force-push sudo …
+      flagged      INTEGER NOT NULL DEFAULT 0,
+      reasons      TEXT NOT NULL DEFAULT ''  -- why each flag fired, '; '-joined
+    );
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_ts      ON action_ledger(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_session ON action_ledger(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_project ON action_ledger(project_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_kind    ON action_ledger(kind, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_harness ON action_ledger(harness, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_flagged ON action_ledger(timestamp) WHERE flagged = 1;
+    CREATE INDEX IF NOT EXISTS idx_action_ledger_tool_use ON action_ledger(tool_use_id);
+  `);
+
+  // Credentials seen in a tool call or a tool result, one row per block,
+  // found by the ledger scanner (db/action-ledger.ts, db/secret-alerts.ts).
+  // block_id UNIQUE is the idempotent key: re-ingest, a backfill or a ledger
+  // rebuild sees the same block again and raises nothing twice. Kinds only
+  // (anthropic_key, private_key, …), never a value or an offset into one.
+  // alert_id: the secret_exposed alert this raised or joined; NULL for a
+  // sighting from history (backfilled = 1, or older than secret_alerts_since).
+  // Not derived like action_ledger: a rules bump empties the ledger, never this.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS secret_sightings (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      block_id     INTEGER NOT NULL UNIQUE,  -- content_blocks.id
+      message_id   INTEGER NOT NULL,
+      session_id   INTEGER,
+      project_id   INTEGER,
+      timestamp    TEXT NOT NULL,            -- the line's own time
+      location     TEXT NOT NULL,            -- call | result
+      tool_name    TEXT,
+      tool_use_id  TEXT,
+      kinds        TEXT NOT NULL,            -- space-joined kinds, never a value
+      alert_id     INTEGER,
+      backfilled   INTEGER NOT NULL DEFAULT 0,
+      recorded_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_secret_sightings_session  ON secret_sightings(session_id, alert_id);
+    CREATE INDEX IF NOT EXISTS idx_secret_sightings_tool_use ON secret_sightings(tool_use_id);
+  `);
+
   // Vendor status pages, polled by the worker (see status-pages.ts). Raw
   // polls for 28 days, then one row per hour carrying the worst light.
   db.exec(`
@@ -931,6 +1038,90 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_session_usage ON messages(
       session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
     );
+  `);
+
+  // Measured energy, attributed (ticket 4004). Built by our sampler child
+  // (packages/core/energy-attribution.ts) from mesh snapshots and messages,
+  // so no page joins the two per row. One row per node per 15-minute bucket,
+  // aligned with mesh_snapshots_15m: everything the node drew, split into
+  // its standing (idle) draw and what it drew above that, and how much of
+  // the latter our own messages served on it explain. Wh throughout; a
+  // reader prices at the node's $/kWh, so a changed rate needs no rebuild.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS node_energy_15m (
+      bucket        TEXT NOT NULL,     -- bucket start, 'YYYY-MM-DD HH:MM:SS' UTC
+      hostname      TEXT NOT NULL,
+      sampled_hours REAL NOT NULL,     -- how much of the quarter hour we saw
+      total_wh      REAL NOT NULL,     -- CPU + every GPU, summed per node
+      gpu_wh        REAL NOT NULL,     -- the GPU share of total_wh
+      idle_watts    REAL,              -- baseline subtracted (p10, trailing 7 days)
+      idle_wh       REAL NOT NULL,     -- standing cost: min(draw, idle) over time
+      active_wh     REAL NOT NULL,     -- draw above idle
+      attributed_wh REAL NOT NULL,     -- share of active_wh our messages explain
+      PRIMARY KEY (hostname, bucket)
+    );
+    CREATE INDEX IF NOT EXISTS idx_node_energy_15m_bucket ON node_energy_15m(bucket);
+    CREATE TABLE IF NOT EXISTS energy_attribution_15m (
+      bucket        TEXT NOT NULL,
+      hostname      TEXT NOT NULL,
+      model         TEXT NOT NULL,
+      project_id    INTEGER NOT NULL DEFAULT 0,   -- 0: no project
+      harness       TEXT NOT NULL,
+      messages      INTEGER NOT NULL,
+      input_tokens  INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cache_read_tokens  INTEGER NOT NULL,
+      cache_write_tokens INTEGER NOT NULL,
+      weight        REAL NOT NULL,     -- estimated GPU-seconds, the split key
+      active_wh     REAL NOT NULL,     -- this group's share of the bucket's active draw
+      measured      INTEGER NOT NULL,  -- 1 when the node was sampled in this bucket
+      PRIMARY KEY (hostname, bucket, model, project_id, harness)
+    );
+    CREATE INDEX IF NOT EXISTS idx_energy_attribution_15m_bucket ON energy_attribution_15m(bucket);
+  `);
+
+  // Alert delivery (ticket 4011 item 7). A rule says which alerts go where;
+  // its secrets (Slack/Discord webhook URLs, ntfy tokens, HMAC keys) are NOT
+  // here — they live in a 0600 file beside our database (db/alert-delivery).
+  // match_* NULL = any. since_alert_id: a new or re-enabled rule delivers
+  // what fires from then on, never the backlog.
+  // alert_deliveries: one row per (alert, rule), which is the dedupe; a
+  // test send has alert_id NULL and is_test 1.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS alert_delivery_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      destination TEXT NOT NULL,           -- webhook | ntfy | slack | discord
+      config TEXT NOT NULL DEFAULT '{}',   -- JSON, non-secret: url, server, topic
+      match_metric TEXT,
+      match_window INTEGER,
+      match_project TEXT,
+      rate_limit_per_hour INTEGER NOT NULL DEFAULT 10,
+      since_alert_id INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS alert_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alert_id INTEGER,
+      rule_id INTEGER NOT NULL,
+      is_test INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending', -- pending | sent | failed | rate_limited
+      http_status INTEGER,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      delivered_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_once
+      ON alert_deliveries(alert_id, rule_id) WHERE alert_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_alert_deliveries_due
+      ON alert_deliveries(status, next_retry_at);
+    CREATE INDEX IF NOT EXISTS idx_alert_deliveries_rule
+      ON alert_deliveries(rule_id, delivered_at);
   `);
 
 }

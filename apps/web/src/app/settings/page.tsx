@@ -1,7 +1,13 @@
 'use client';
 
+import { writeSetting } from '@/lib/settings-write';
 import { useHashTab } from '@/lib/use-hash-tab';
 import { HarnessHealth } from './HarnessHealth';
+import { AlertDelivery } from './AlertDelivery';
+import { DatabaseHealth } from './DatabaseHealth';
+import { IntegrationsSettings } from '@/integrations/SettingsSection';
+import { PROVIDERS } from '@/lib/mesh-score';
+import { PhoneAccess } from './PhoneAccess';
 import { resetCoachMarks } from '@/components/CoachMarks';
 import { fetcher } from '@unturf/unfirehose-ui/fetcher';
 
@@ -46,12 +52,7 @@ export default function SettingsPage() {
     async (key: string, value: string) => {
       setSaving(true);
       // Optimistic update — merge into SWR cache without refetch to avoid resetting inputs
-      mutate((prev: Record<string, string> | undefined) => ({ ...prev, [key]: value }), { revalidate: false });
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set', key, value }),
-      });
+      await writeSetting(mutate, key, value);
       setSaving(false);
       showToast('Saved');
     },
@@ -108,7 +109,7 @@ export default function SettingsPage() {
   const meshCurrencyOracle = settings?.[SETTINGS_KEYS.meshCurrencyOracle] !== 'false';
   const meshGeoipAuto = settings?.[SETTINGS_KEYS.meshGeoipAuto] !== 'false';
 
-  const TABS = ['General', 'Harnesses', 'Appearance', 'Mesh', 'Connection', 'API Keys'] as const;
+  const TABS = ['General', 'Harnesses', 'Database', 'Appearance', 'Mesh', 'Connection', 'Alerts', 'API Keys', 'Phone', 'Integrations'] as const;
   type SettingsTab = (typeof TABS)[number];
   const [activeTab, setActiveTab] = useHashTab<SettingsTab>(TABS, 'General');
   const vault = useVault();
@@ -132,7 +133,8 @@ export default function SettingsPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-[var(--color-border)]">
+      {/* Ten tabs: on a phone the strip scrolls in place, not the page. */}
+      <div className="flex gap-1 border-b border-[var(--color-border)] overflow-x-auto">
         {TABS.map(tab => (
           <button
             key={tab}
@@ -149,6 +151,11 @@ export default function SettingsPage() {
       </div>
 
       {activeTab === 'Harnesses' && <HarnessHealth />}
+      {activeTab === 'Alerts' && <AlertDelivery />}
+      {activeTab === 'Database' && <DatabaseHealth />}
+
+      {activeTab === 'Integrations' && <IntegrationsSettings />}
+      {activeTab === 'Phone' && <PhoneAccess />}
 
       {/* ===== GENERAL TAB ===== */}
       {activeTab === 'General' && (
@@ -516,22 +523,7 @@ function HoseToggle({
   );
 }
 
-const MESH_PROVIDERS = [
-  { value: 'home', label: 'Home ISP' },
-  { value: 'colo', label: 'Colocation' },
-  { value: 'aws', label: 'AWS' },
-  { value: 'gcp', label: 'Google Cloud' },
-  { value: 'azure', label: 'Azure' },
-  { value: 'hetzner', label: 'Hetzner' },
-  { value: 'ovh', label: 'OVH' },
-  { value: 'digitalocean', label: 'DigitalOcean' },
-  { value: 'vultr', label: 'Vultr' },
-  { value: 'linode', label: 'Linode/Akamai' },
-  { value: 'oracle', label: 'Oracle Cloud' },
-  { value: 'scaleway', label: 'Scaleway' },
-  { value: 'unsandbox', label: 'unsandbox.com' },
-  { value: 'other', label: 'Other' },
-];
+const MESH_PROVIDERS = PROVIDERS;
 
 const DEFAULT_REGIONS = [
   { key: 'us-east', label: 'US East', electricityKwh: '0.31' },

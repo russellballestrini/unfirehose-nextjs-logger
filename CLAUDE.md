@@ -37,9 +37,13 @@ Then ask fox what our mission is.
 
 `git.unturf.com` is GitLab. GitHub is a secondary remote — not all repos have it.
 
+### CI
+
+Two pipelines run our same checks. `.gitlab-ci.yml` (GitLab, test + publish on `v*` tags) and `.github/workflows/ci.yml` (GitHub, pull requests and pushes to main, no secrets): `make typecheck` (and `npm run lint` as its own check), then core, ui and web each under coverage in their own job, `make test-schema`, `make build`, then the scripts suite against the coverage those jobs uploaded, and `make quality-budgets` (crap, duplication) as its own check. Locally `make test` runs the suites at once; on a fresh clone `scripts/quality/reports.test.ts` skips its coverage-reading tests by name until `make coverage` has run (`UNFIREHOSE_REQUIRE_COVERAGE=1` makes that a failure, as CI sets it).
+
 ## Architecture
 
-Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `localhost:3000`.
+Turborepo monorepo. TypeScript + Tailwind v4 + better-sqlite3. Reads JSONL from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`, ingests into SQLite at `~/.unfirehose/unfirehose.db`. Dashboard at `127.0.0.1:3000`, this machine only (see Listening address).
 
 ### npm Packages (published under `@unturf` org on npmjs.com, account `fxhp`)
 
@@ -89,18 +93,22 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ### Publishing
 
-npm token stored at `~/.npmrc` (600 perms, outside repo). All four packages release together at one version, bumped in git:
+CI is our only publisher: GitLab's publish job holds `NPM_TOKEN` and runs on a pushed `v*` tag. No npm token lives on a workstation. All four packages release together at one version, bumped in git:
 ```bash
 make publish-dry-run          # pack at the next patch, change nothing
-make publish                  # bump, commit "release: vX.Y.Z", tag, publish, wait for npm
+make publish                  # bump, commit "release: vX.Y.Z", tag (publishes nothing)
 make publish BUMP=minor       # or major, or an exact X.Y.Z
-git push origin HEAD --follow-tags
+git push origin HEAD --follow-tags   # this publishes: CI's job, which waits until npm answers
 ```
-`scripts/publish.sh` counts up from whichever is higher, git's version or npm's. A pushed `v*` tag also runs the CI publish job, which tolerates a version already on npm.
+`scripts/publish.sh` counts up from whichever is higher, git's version or npm's. The CI job tolerates a version already on npm and fails if the registry never answers for one.
 
-Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Reports, Scrobble, Schema, Settings, Permacomputer.
+Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Reports, Actions, Scrobble, Schema, Settings, Permacomputer.
+
+**Actions** (`/actions`, `GET /api/actions`): our agent action ledger, every tool call that touched files, git or the network, flagged when destructive, a force push, a credential, sudo or curl | sh. Classifier: `packages/core/action-ledger.ts`; table `action_ledger`, filled at ingest and backfilled by our worker (`packages/core/db/action-ledger.ts`); ticket 4011 item 6.
 
 **Reports** (`/reports`, `GET /api/reports/monthly?month=&tz=&format=json|csv|pdf`): one month of spend for an expense claim, in the first `display_currency` at that month's published rate. A closed month is filed on first build and every later download matches it; `rebuild=1` refiles. Builder: `packages/core/cost-report.ts`; ticket 4009.
+
+**Measured energy** (ticket 4004): our sampler child pre-aggregates each node's sampled watts (CPU + every GPU, summed per node) into `node_energy_15m` and splits the draw above idle across the models, projects and harnesses whose endpoint resolved to that node (`energy_attribution_15m`, by GPU-seconds). Idle = p10 of the node's draw over the seven days before each day, shown as its standing cost. Builder and reader: `packages/core/energy-attribution.ts`; read by the dashboard Power column, `/api/mesh/history` (`energy`) and the cost report. Never join snapshots to messages at request time.
 
 ### Running as a service (respawn on crash)
 
@@ -115,6 +123,16 @@ sudo loginctl enable-linger fox    # once, by hand: units outlive logout
 
 Services and `make dev` are mutually exclusive: two workers double-ingest, two webs fight for :3000. Both sides refuse to start while the other runs. After a code change on a service box: `make build && make service-restart`. Units run `npm run start` (no watch) under `Restart=always` with stepped backoff.
 
+### Listening address (this machine only by default)
+
+Our dashboard has no login and can push commits, boot agents and type into tmux, so it listens on **127.0.0.1** unless someone opts in. `next dev`/`next start` bind every interface without `-H`, so apps/web's `npm run dev` and `npm run start` (and through them `make dev`, `make demo`, the systemd web unit, `scripts/perf/prod-server.sh`) run `apps/web/scripts/serve.mjs`, which adds `-H` by these rules (`apps/web/src/lib/bind-host.mjs`):
+
+1. `UNFIREHOSE_HOST` set: decides alone (an invalid value falls back to 127.0.0.1); Settings cannot change it.
+2. `$UNFIREHOSE_DIR/web-bind.json` `{"lan": true}` (written 0600 by Settings → Phone, `POST /api/lan`): `0.0.0.0`.
+3. Otherwise `127.0.0.1`. A `-H` given on the command line passes through untouched.
+
+The bind is fixed at start: after an opt-in, `make dev` again or `make service-restart`. Settings → Phone offers its QR code only once our server answers on a LAN address, and otherwise explains the opt-in, its warning and the restart. Docker: the image binds 0.0.0.0 inside the container and compose publishes `127.0.0.1:3000:3000`; change the mapping to open it. Our worker opens no ports.
+
 ### Website
 
 unfirehose.com is served from `~/git/unsandbox.com` (our portal repo). Blog posts and landing pages live there, not in this repo.
@@ -125,31 +143,14 @@ Our Permacomputer page (`/permacomputer`) manages a mesh of compute nodes. Nodes
 
 Key files:
 - `apps/web/src/app/permacomputer/page.tsx` — main mesh overview with node cards, economics, bootstrap panel
-- `apps/web/src/app/permacomputer/unsandbox/page.tsx` — unsandbox.com cloud node page
 - `apps/web/src/app/permacomputer/[node]/page.tsx` + `tabs.tsx` — per-node detail (Overview/Harnesses/Processes/Containers/Bootstrap/Settings tabs)
 - `apps/web/src/app/api/mesh/route.ts` — mesh summary (local + SSH probes, RAPL power, GPU via nvidia-smi)
 - `apps/web/src/app/api/mesh/node/route.ts` — detailed single-node probe via SSH
 - `apps/web/src/app/api/mesh/history/route.ts` — time-series from `mesh_snapshots` table
-- `apps/web/src/app/api/unsandbox/route.ts` — unsandbox.com API proxy (HMAC-signed)
 - `apps/web/src/app/api/boot/route.ts` — bootstrap harnesses on nodes (tmux, SCP credentials, sudo)
 - `apps/web/src/app/api/tmux/stream/route.ts` — SSE tmux capture + interactive keystroke POST
 - `apps/web/src/app/tmux/[session]/page.tsx` — full-screen tmux viewer (local + remote via `?host=`)
 - `packages/core/mesh.ts` — `discoverNodes()` from SSH config
-
-### Unsandbox Integration
-
-API at `api.unsandbox.com`. Auth: HMAC-SHA256 signing with `${timestamp}:${method}:${path}:${body}`.
-
-Key endpoints used:
-- `GET /keys/self` — key status (returns `tier`, `rate_per_minute`/`rate_limit`, `concurrency`, `burst`)
-- `POST /execute` — one-shot code execution (`{ language, code, network }`)
-- `GET /sessions` — list active sessions
-- `DELETE /sessions/:id` — kill session
-- `POST /services` — create persistent service (`{ name, ports, bootstrap, network }`)
-- `GET /services` — list services
-- `DELETE /services/:id` — destroy service
-
-Network modes: `zerotrust` (no network) or `semitrusted` (egress proxy). Our TypeScript SDK lives at `~/git/unsandbox.com/cli/un-inception/clients/typescript/sync/src/un.ts`.
 
 ### Node Harnesses
 
@@ -175,16 +176,38 @@ Our bootstrap panel (`/permacomputer`) deploys harnesses on SSH nodes:
 - Optional sudo password for privileged setup (piped via `sudo -S` stdin)
 - Creates tmux session with harness command
 
-### Unsandbox Claude bootstrap
+## Integrations
 
-Bootstrap installs claude via `curl -fsSL https://claude.ai/install.sh | bash` if not already present, persists `~/.local/bin` in PATH via bashrc and `/etc/profile.d/claude.sh`. Auth credentials (`~/.claude/.credentials.json`, settings) are base64-encoded server-side and injected into our bootstrap script, written with `umask 077`, `chmod 600` on files, `chmod 700` on `~/.claude/`.
+Optional products the dashboard talks to, each **off by default** and each one removable directory under `apps/web/src/integrations/<id>/`. Off means no requests, no UI, and every route it owns answers 404.
+
+- **Switch:** Settings → Integrations (settings key `integration_<id>` = `true`), or `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` in the environment, which when set decides alone (`none` = all off) and locks the toggle. `GET`/`POST /api/integrations` reads and flips it.
+- **Layout:** `integrations/catalog.ts` (what exists, the flag logic; plain data), `integrations/index.tsx` (what pages may render: mesh nodes/cards/panels, boot targets, terminal sessions, an integration's own page), `integrations/server.ts` (`gated()` route wrapper, `hostIntegration()` for `/api/boot` and `/api/tmux/upload`), `integrations/SettingsSection.tsx`.
+- **Rule:** nothing outside `src/integrations/` imports `src/integrations/<id>/` except its thin wrappers `app/api/<id>/**/route.ts` (`export const GET = gated(id, handler.GET)`); the directory imports nothing from `src/app/` outside its tests. `integrations/boundary.test.ts` enforces both.
+- **Removing one:** delete its directory, its `app/api/<id>/` wrappers and page wrapper, its row in `catalog.ts`, and its line in the `CLIENT`/`SERVER` maps.
+
+### unsandbox (`integrations/unsandbox/`)
+
+Cloud containers as a mesh node. Handlers: `api/proxy.ts`, `api/shell.ts`, `api/sync.ts` (behind `/api/unsandbox`, `/api/unsandbox/shell`, `/api/unsandbox/sync`); `boot.ts` and `upload.ts` (host `unsandbox` on `/api/boot` and `/api/tmux/upload`); `auth.ts` (HMAC signing); `NodePage.tsx` (`/permacomputer/unsandbox`), `NodeCard.tsx`, `MeshPanel.tsx` (keys), `Terminals.tsx` + `terminal.ts` + `XtermPane.tsx` (`/tmux`).
+
+API at `api.unsandbox.com`. Auth: HMAC-SHA256 signing with `${timestamp}:${method}:${path}:${body}`.
+
+Key endpoints used:
+- `GET /keys/self` — key status (returns `tier`, `rate_per_minute`/`rate_limit`, `concurrency`, `burst`)
+- `POST /execute` — one-shot code execution (`{ language, code, network }`)
+- `GET /sessions` — list active sessions
+- `DELETE /sessions/:id` — kill session
+- `POST /services` — create persistent service (`{ name, ports, bootstrap, network }`)
+- `GET /services` — list services
+- `DELETE /services/:id` — destroy service
+
+Network modes: `zerotrust` (no network) or `semitrusted` (egress proxy). Our TypeScript SDK lives at `~/git/unsandbox.com/cli/un-inception/clients/typescript/sync/src/un.ts`.
+
+**Bootstrap.** Bootstrap installs claude via `curl -fsSL https://claude.ai/install.sh | bash` if not already present, persists `~/.local/bin` in PATH via bashrc and `/etc/profile.d/claude.sh`. Auth credentials (`~/.claude/.credentials.json`, settings) are base64-encoded server-side and injected into our bootstrap script, written with `umask 077`, `chmod 600` on files, `chmod 700` on `~/.claude/`.
 
 - On terminal connect: auto-send `tmux attach -t claude` to land in claude's UI
 - `IS_SANDBOX=1` env var set when running claude in unsandbox containers
 
-### Unsandbox threat model
-
-**Assume an untrusted user has bash-level access on all unsandbox containers.** Credential files must never be world-readable. Permacomputer nodes run tripwire processes that monitor for public file permissions on sensitive paths — any credential file created with lax permissions will trigger an alert. All credential writes must use `umask 077` before `mkdir`/file creation, followed by explicit `chmod 600` (files) and `chmod 700` (directories) as belt-and-suspenders.
+**Threat model.** **Assume an untrusted user has bash-level access on all unsandbox containers.** Credential files must never be world-readable. Permacomputer nodes run tripwire processes that monitor for public file permissions on sensitive paths — any credential file created with lax permissions will trigger an alert. All credential writes must use `umask 077` before `mkdir`/file creation, followed by explicit `chmod 600` (files) and `chmod 700` (directories) as belt-and-suspenders.
 
 ## Todo System
 

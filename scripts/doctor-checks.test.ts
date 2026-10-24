@@ -74,11 +74,15 @@ describe('data dir', () => {
 });
 
 describe('disk', () => {
-  it('red under 1 GiB, yellow under 5 GiB', () => {
+  it('red under 1 GiB, yellow under 10 GiB', () => {
     expect(checkDisk('/', 0.5 * GiB).level).toBe('red');
     expect(checkDisk('/', 0.5 * GiB).fix).toBeTruthy();
     expect(checkDisk('/', 3 * GiB).level).toBe('yellow');
-    expect(checkDisk('/', 5 * GiB).level).toBe('green');
+    // Under 10 GiB warns: a few months of growth, and room for a VACUUM's copy.
+    expect(checkDisk('/', 9.5 * GiB).level).toBe('yellow');
+    expect(checkDisk('/', 9.5 * GiB).fix).toContain('make vacuum');
+    expect(checkDisk('/', 10 * GiB).level).toBe('green');
+    expect(checkDisk('/', 50 * GiB).level).toBe('green');
     expect(checkDisk('/', null).level).toBe('yellow');
   });
 });

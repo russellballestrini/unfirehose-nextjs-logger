@@ -63,25 +63,25 @@ export function serveBlob(
 }
 
 /**
- * A route that serves one blob, given how to look it up.
+ * A route that serves one blob, given the query that finds its row.
  *
  * Both callers had shrunk to the same twenty-two lines — await the params,
  * read one row, 404, hand off — so the shape of the route is now stated once
- * and each route keeps only the query that is actually its own.
+ * and each route keeps only the query that is actually its own. `sql` takes
+ * the hash as its one parameter and selects `mime_type` and `filename`; a
+ * stored path is fine as the filename, serveBlob reduces it to a basename.
  */
-export function blobRoute(
-  lookup: (db: ReturnType<typeof getDb>, hash: string) =>
-    { mimeType?: string | null; filename?: string | null } | undefined,
-) {
+export function blobRoute(sql: string) {
   return async function GET(
     _request: NextRequest,
     { params }: { params: Promise<{ hash: string }> },
   ) {
     try {
       const { hash } = await params;
-      const found = lookup(getDb(), hash);
-      if (!found) return new Response('Not found', { status: 404 });
-      return serveBlob(hash, found);
+      const row = getDb().prepare(sql).get(hash) as
+        { mime_type: string | null; filename: string | null } | undefined;
+      if (!row) return new Response('Not found', { status: 404 });
+      return serveBlob(hash, { mimeType: row.mime_type, filename: row.filename });
     } catch (err) {
       return new Response(String(err), { status: 500 });
     }

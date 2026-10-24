@@ -49,7 +49,7 @@ export function ToolsTab({ toolCalls, totalToolCalls, toolsByModel, blockTypes, 
               if (grouped[r.harness].length < 5) grouped[r.harness].push(r);
             }
             return (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {Object.entries(grouped).map(([harness, tools]) => (
                   <div key={harness}>
                     <div className="flex items-center gap-2 mb-2">
@@ -74,7 +74,7 @@ export function ToolsTab({ toolCalls, totalToolCalls, toolsByModel, blockTypes, 
       )}
 
       {/* Row: Tool calls pie + Tool calls bar */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Tool calls pie */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">
@@ -100,7 +100,7 @@ export function ToolsTab({ toolCalls, totalToolCalls, toolsByModel, blockTypes, 
       </div>
 
       {/* Row: Tool calls by model + Content block types */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Tools by model */}
         <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
           <h3 className="text-base font-bold mb-2 text-[var(--color-muted)]">

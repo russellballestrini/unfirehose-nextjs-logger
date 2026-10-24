@@ -159,7 +159,7 @@ export default function TokensPage() {
                   window.history.replaceState(null, '', u.toString());
                 }
               }}
-              className="px-2 py-0.5 rounded border border-[var(--color-accent)] text-sm text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 flex items-center gap-1"
+              className="px-2 py-0.5 min-h-10 max-w-full rounded border border-[var(--color-accent)] text-sm text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 flex items-center gap-1 truncate"
               title="Remove project filter"
             >
               project: {projectFilter} <span className="opacity-60">×</span>
@@ -171,7 +171,7 @@ export default function TokensPage() {
       <CoachMarks page="tokens" />
 
       {/* Tabs */}
-      <div data-coach="tokens-tabs" className="flex items-center gap-0.5 border-b border-[var(--color-border)]">
+      <div data-coach="tokens-tabs" className="flex items-center gap-0.5 border-b border-[var(--color-border)] overflow-x-auto" data-scroll-x>
         {([
           { id: 'overview' as const, label: 'Overview', icon: '¤' },
           { id: 'harness' as const, label: 'Harness', icon: '◈' },
@@ -181,7 +181,7 @@ export default function TokensPage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-base rounded-t border-b-2 transition-colors cursor-pointer ${
+            className={`shrink-0 whitespace-nowrap min-h-10 px-3 sm:px-4 py-2 text-base rounded-t border-b-2 transition-colors cursor-pointer ${
               activeTab === tab.id
                 ? 'border-[var(--color-accent)] text-[var(--color-foreground)] font-bold'
                 : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'

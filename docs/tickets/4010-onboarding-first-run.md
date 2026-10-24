@@ -36,6 +36,11 @@ Decisions taken that fox may want to revisit:
 - demo: a demo web server with an empty price book still bootstraps it from
   the public price feeds on first cost, as any fresh install does.
 
+fox, 2026-10-24: all three accepted as shipped. The demo's one price-feed
+fetch is what every fresh install does and fetches public prices, nothing of
+ours. (The Dockerfile worker stage and compose-backed `make docker-run`
+landed in ticket 4011 item 10.)
+
 Not ours, seen once: uPlot builds an `Intl.NumberFormat(navigator.language)`
 at module load, which throws for a POSIX-suffixed browser locale
 (`en-US@posix`, a `LANG=C` headless chromium).

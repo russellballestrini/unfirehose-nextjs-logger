@@ -8,7 +8,12 @@ function validateSession(name: string): void {
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) throw new Error('Invalid session name');
 }
 function validateHost(host: string): void {
-  if (!/^[a-zA-Z0-9._-]+$/.test(host)) throw new Error('Invalid hostname');
+  // No leading '-': ssh would read it as an option.
+  if (!/^[a-zA-Z0-9._][a-zA-Z0-9._-]*$/.test(host)) throw new Error('Invalid hostname');
+}
+/** One word for the remote shell, whatever it holds. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 export async function POST(request: NextRequest) {
@@ -21,8 +26,9 @@ export async function POST(request: NextRequest) {
     const isRemote = host && host !== 'localhost';
     if (isRemote) validateHost(host);
 
-    // Validate cwd — only allow absolute paths with safe chars
-    const safeCwd = (cwd && typeof cwd === 'string' && /^\/[^\0;|&`$<>]*$/.test(cwd))
+    // Validate cwd — only allow absolute paths with safe chars (no newlines:
+    // a path is one line). The remote form is shell-quoted below as well.
+    const safeCwd = (cwd && typeof cwd === 'string' && /^\/[^\0\r\n;|&`$<>]*$/.test(cwd))
       ? cwd.trim() : null;
 
     // Default shell — prefer zsh, fall back to bash
@@ -34,11 +40,11 @@ export async function POST(request: NextRequest) {
     const tmuxArgs = ['new-session', '-d', '-s', name, ...cwdArgs, '-x', '220', '-y', '50', cmd];
 
     if (isRemote) {
-      const cwdPart = safeCwd ? `-c '${safeCwd}'` : '';
+      const cwdPart = safeCwd ? `-c ${shellQuote(safeCwd)}` : '';
       await execFileAsync('ssh', [
         '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10',
         host,
-        `tmux new-session -d -s ${name} ${cwdPart} -x 220 -y 50 '${cmd.replace(/'/g, "'\\''")}'`,
+        `tmux new-session -d -s ${name} ${cwdPart} -x 220 -y 50 ${shellQuote(cmd)}`,
       ], { timeout: 15000 });
     } else {
       await execFileAsync('tmux', tmuxArgs, { timeout: 5000 });

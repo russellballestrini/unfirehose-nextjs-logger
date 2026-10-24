@@ -17,8 +17,8 @@ const DashboardCharts = dynamic(() => import('./DashboardCharts').then((m) => m.
   ssr: false,
   loading: () => (
     <>
-      <div className="grid grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
-      <div className="grid grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><ChartSkeleton h={260} /><ChartSkeleton h={260} /></div>
     </>
   ),
 });
@@ -30,8 +30,8 @@ import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
-import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
+import { TOKEN_TYPE_COLORS, TokenSplitStats } from '@unturf/unfirehose-ui/TokenSplit';
+import { StatStrip, Stat, StatDivider } from '@unturf/unfirehose-ui/StatStrip';
 import { FirstRunWizard, WIZARD_POLL_MS } from '@/components/FirstRunWizard';
 import { CoachMarks } from '@/components/CoachMarks';
 
@@ -51,24 +51,36 @@ function shortModel(model: string): string {
  * cache rate, power, and what running it ourselves saved against buying the
  * same tokens. None of it reachable without rendering the whole dashboard.
  */
+/** Where a row's power figure came from, for its hover. */
+export function energyTitle(m: any): string {
+  if (m.energySource === 'measured') {
+    return `Measured: ${m.measuredEnergyKwh != null ? `${m.measuredEnergyKwh.toFixed(2)} kWh, ` : ''}our sampled watts on ${m.host ?? 'its node'} above that node's idle draw, this model's share by GPU-seconds. The idle draw is the node's standing cost, on the Permacomputer page.`;
+  }
+  if (m.energySource === 'mixed') {
+    return `Partly measured: sampled watts above idle where ${m.host ?? 'its node'} was sampled, the watts × GPU-seconds estimate for the ${Math.round((1 - (m.measuredTokenShare ?? 0)) * 100)}% of tokens it was not.`;
+  }
+  return 'Estimated: watts × GPU-seconds × $/kWh. Replaced by measured watts once our sampler sees the node that served it.';
+}
+
 export function ModelRow({ m }: { m: any }) {
   return (
                 <tr className="border-t border-[var(--color-border)]">
-                  <td className="py-1.5 flex items-center gap-2">
+                  <td className="py-1.5 flex items-center gap-2 whitespace-nowrap">
                     <span
                       className="inline-block w-2 h-2 rounded-full"
                       style={{ background: getModelColor(m.fullName) }}
                     />
                     <span>{m.name}</span>
-                    {m.selfHosted && (
+                    {(m.selfHosted || m.energySource === 'measured' || m.energySource === 'mixed') && (
                       <span
                         className="text-xs text-[var(--color-muted)] opacity-70"
                         title={
-                          m.host && m.meshObservedUSD != null
-                            ? `self-hosted on ${m.host}. cost = watts × GPU-seconds × $/kWh, prefill and decode billed at their own rates. mesh-observed during window: $${m.meshObservedUSD.toFixed(4)} (sparse polling under-counts)`
+                          m.host && (m.energySource === 'measured' || m.energySource === 'mixed')
+                            ? `self-hosted on ${m.host}. Power is measured: ${m.host}'s sampled watts above its idle draw, split across what ran on it by GPU-seconds` +
+                              (m.energySource === 'mixed' ? `; ${Math.round((1 - (m.measuredTokenShare ?? 0)) * 100)}% of these tokens ran while it was unsampled and use the watts × GPU-seconds estimate.` : '.')
                             : m.host
-                              ? `self-hosted on ${m.host}. cost from peak-watt estimate.`
-                              : `self-hosted, node unknown — no endpoint URL logged. Cost from peak-watt estimate.`
+                              ? `self-hosted on ${m.host}. Not sampled in this window: power from the watts × GPU-seconds estimate.`
+                              : `self-hosted, node unknown — no endpoint URL logged. Power from the watts × GPU-seconds estimate.`
                         }
                       >
                         ⚡{m.host ?? 'local'}
@@ -156,7 +168,7 @@ export function ModelRow({ m }: { m: any }) {
                         adds is the power bill — the money that actually
                         left the account. */}
                     {m.energy > 0
-                      ? <span title="Electricity: watts × GPU-seconds × $/kWh. What serving this ourselves actually cost.">${m.energy.toFixed(2)}</span>
+                      ? <span title={energyTitle(m)}>${m.energy.toFixed(2)}</span>
                       : <span title="Bought from a provider — no power bill of ours.">—</span>}
                   </td>
                   <td className="py-1.5 text-right">
@@ -258,7 +270,9 @@ export default function DashboardPage() {
     selfHosted: !!m.selfHosted,
     host: m.host ?? null,
     provider: m.provider ?? null,
-    meshObservedUSD: m.meshObservedUSD,
+    energySource: m.energySource ?? null,
+    measuredTokenShare: m.measuredTokenShare ?? null,
+    measuredEnergyKwh: m.measuredEnergyKwh ?? null,
   }));
 
   const avoidedTotal = modelData.reduce((s: number, m: any) => s + (m.avoided ?? 0), 0);
@@ -308,7 +322,7 @@ export default function DashboardPage() {
       <IngestLag minutes={data.ingestLagMinutes} />
 
       {/* Header with time range dropdown */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-bold">Dashboard</h2>
         <div data-coach="dashboard-range"><TimeRangeSelect value={range} onChange={setRange} /></div>
       </div>
@@ -329,29 +343,12 @@ export default function DashboardPage() {
 
         <StatDivider />
 
-        <Stat
-          label="Tokens"
-          value={formatTokens(totalOf(splitTokens))}
-          sub={`$${data.summary.totalCost.toLocaleString()}`}
-          title="Input + output + cache read + cache write, priced at API rates. Cache is billed at its own rate — not free, and not folded into input."
-        />
-        <Stat
-          label="Input"
-          value={formatTokens(splitTokens.input)}
-          sub={costSub(data.summary.costSplit?.input)}
-          color={TOKEN_TYPE_COLORS.input}
-        />
-        <Stat
-          label="Cache"
-          value={formatTokens(cacheOf(splitTokens))}
-          sub={`${costSub(cacheCostOf(data.summary.costSplit))}${cacheShare != null ? ` · ${Math.round(cacheShare * 100)}% of tokens` : ''}`}
-          color={TOKEN_TYPE_COLORS.cacheRead}
-        />
-        <Stat
-          label="Output"
-          value={formatTokens(splitTokens.output)}
-          sub={costSub(data.summary.costSplit?.output)}
-          color={TOKEN_TYPE_COLORS.output}
+        <TokenSplitStats
+          tokens={splitTokens}
+          costs={data.summary.costSplit}
+          totalSub={`$${data.summary.totalCost.toLocaleString()}`}
+          totalTitle="Input + output + cache read + cache write, priced at API rates. Cache is billed at its own rate — not free, and not folded into input."
+          cacheShare={cacheShare}
         />
       </StatStrip>
       </div>
@@ -373,9 +370,11 @@ export default function DashboardPage() {
             action="No message in range named its model. Widen our range above to see earlier replies."
           />
         ) : (
-        <div className="flex items-start gap-8">
+        <div className="flex flex-col md:flex-row items-stretch md:items-start gap-4 md:gap-8">
           <ModelUsagePie modelData={modelData} />
-          <div className="flex-1">
+          {/* On a phone eight columns cannot fit; the table scrolls inside
+              its own box so our page never scrolls sideways. */}
+          <div className="flex-1 min-w-0 overflow-x-auto" data-scroll-x>
             <table className="w-full text-base [&_th]:px-2 [&_td]:px-2 [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="text-[var(--color-muted)] text-left">
@@ -410,8 +409,75 @@ export default function DashboardPage() {
           </div>
         </div>
         )}
+        <NodeEnergyLine hosts={data.nodeEnergy ?? []} />
+        {modelData.length > 0 && <ModelColumnsKey />}
       </div>
     </div>
+  );
+}
+
+/**
+ * What our own nodes drew over the range, in three parts (ticket 4004): the
+ * standing cost of keeping them on (their idle draw), what our sessions on
+ * them explain, and other work. Nothing renders until a node was sampled.
+ */
+export function NodeEnergyLine({ hosts }: { hosts: any[] }) {
+  if (!hosts.length) return null;
+  const sum = (k: string) => hosts.reduce((a, h) => a + (h[k] ?? 0), 0);
+  const standing = sum('standingUSD');
+  const attributed = sum('attributedUSD');
+  const other = sum('unattributedUSD');
+  const monthly = sum('standingMonthlyUSD');
+  const usd = (v: number) => `$${v < 10 ? v.toFixed(2) : v.toFixed(0)}`;
+  return (
+    <p
+      className="mt-3 text-sm text-[var(--color-muted)]"
+      data-node-energy
+      title={hosts.map((h) => `${h.hostname}: idle ~${Math.round(h.idleWatts ?? 0)} W at $${h.rateKwh.toFixed(3)}/kWh, ${h.totalKwh.toFixed(2)} kWh this range`).join('\n')}
+    >
+      Our {hosts.length === 1 ? 'node' : `${hosts.length} nodes`} drew {usd(standing + attributed + other)} of power this range:{' '}
+      <span className="text-[var(--color-foreground)]">{usd(standing)}</span> standing (idle, ~{usd(monthly)}/mo),{' '}
+      <span className="text-[var(--color-foreground)]">{usd(attributed)}</span> serving our sessions,{' '}
+      <span className="text-[var(--color-foreground)]">{usd(other)}</span> other work.
+    </p>
+  );
+}
+
+/**
+ * What each column and badge in our model table means, for a reader without
+ * a mouse. The same sentences ride on `title` for hover; a phone has no
+ * hover, so here they are one tap away.
+ */
+const MODEL_COLUMN_NOTES: [string, string][] = [
+  ['Input', 'Fresh prompt tokens the provider read for the first time.'],
+  ['Cache', 'Cache read + cache write. A model we serve ourselves reports no cache tokens, so its cell shows what vLLM measured, marked ~. A dash means the provider told us nothing: unknown, not zero.'],
+  ['Output', 'Tokens the model generated.'],
+  ['Tokens', 'Input + output + cache read + cache write.'],
+  ['Cost', 'What these tokens cost to buy: the invoice for a provider row, and for one we serve ourselves, what the same tokens would have cost from OpenRouter. A dash is unknown, not free.'],
+  ['Power', 'Electricity we actually spent serving this on our own hardware: measured, as the node\'s sampled watts above its idle draw, once our sampler sees that node; estimated as watts \u00d7 GPU-seconds until then. Dashed for anything we bought.'],
+  ['Saved', 'Buy price minus our power bill: what running it ourselves saved.'],
+  ['\u26a1host', 'Self-hosted on that node; cost is watts \u00d7 GPU-seconds \u00d7 $/kWh.'],
+  ['billed', 'Billed figure quoted by the gateway, not tokens times list price.'],
+  ['list', 'List price while a temporary provider discount runs.'],
+  ['\u2248model', 'No own price; shadow-priced against the named model.'],
+  ['test', 'Test fixture, not a real model. $0 by construction.'],
+];
+
+function ModelColumnsKey() {
+  return (
+    <details className="mt-3 text-sm text-[var(--color-muted)]" data-columns-key>
+      <summary className="cursor-pointer select-none min-h-10 py-2 hover:text-[var(--color-foreground)]">
+        What the columns mean
+      </summary>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 mt-1">
+        {MODEL_COLUMN_NOTES.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="font-bold text-[var(--color-foreground)] whitespace-nowrap">{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 

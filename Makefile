@@ -1,10 +1,10 @@
-.PHONY: all clean test userland-plugins coverage coverage-check coverage-report cc crap dupes orphans report \
+.PHONY: all clean test userland-plugins coverage coverage-check coverage-report quality-gate quality-budgets cc crap dupes orphans report \
         test-core test-ui test-web test-scripts test-schema \
         cov-core cov-ui cov-web cov-scripts \
         dev demo fix-watches persist-watches rescue-tool-results pricing pricing-report \
         build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
         service-install service-start service-stop service-restart service-status service-logs service-uninstall \
-        doctor
+        doctor vacuum
 
 # Everything a change should pass before it is pushed.
 all: test
@@ -28,7 +28,9 @@ NO_THRESHOLDS := --coverage.thresholds.lines=0 --coverage.thresholds.statements=
 # The four suites are independent, so they run at once. Serially this was a
 # minute and a half of mostly-idle waiting. Target names cannot carry the
 # workspace path — make reads a slash as a directory — so each has a short
-# name and cd's itself.
+# name and cd's itself. CI (.github/workflows/ci.yml) gives each suite its
+# own runner instead; here they share the cores, which is why the slowest
+# tests carry deadlines sized for a loaded box.
 test:
 	@$(MAKE) -j4 --no-print-directory test-core test-ui test-web test-scripts test-schema
 
@@ -88,18 +90,19 @@ coverage:
 # whenever the real number drops — a ceiling left where it was written is a
 # gate that stopped guarding, which is what our coverage thresholds had
 # quietly become.
-# Raised 16900 -> 19000 on 2026-09-15: CI had been red on lint since the
-# v1.2.0 tag, so ~380 functions landed unmeasured (3074 -> 3453) and the
-# runner reads 18978. Not a new ceiling to live under: the pay-down is the
-# seven 0%-covered functions at the top of `make crap`, and this comes back
-# down as each is covered.
-CRAP_BUDGET  ?= 19000
-# Raised 1100 -> 1200 on 2026-09-15 for the same reason as CRAP above: the
-# committed reports/dupes.json of 2026-09-05 already read 1134, so this gate
-# had been red since before it was ever run in CI. 1233 today, 1169 after
-# folding the four identical report docblocks into one; the rest is route
-# boilerplate (see `make dupes`) and comes down as it is shared.
-DUPE_BUDGET  ?= 1200
+# Both set to what our code measured on 2026-10-24 (fox: a budget nobody
+# has ever met teaches people to ignore red). They were 19000 and 1200 and
+# had never been met in CI. From here they only ratchet down: when a split
+# or a test lands and the number drops, lower the budget to the new reading
+# in the same change, so CI fails only on a regression.
+# crap: 20728 before batch three's pay-down, 18634 after its tests, 22097
+# once Aider, energy attribution and credential alerts landed with them.
+# CI's runner is the reading that counts: 22115 there, 18 above a local run
+# of the same commit (coverage of a few timing-dependent paths differs).
+CRAP_BUDGET  ?= 22115
+# Duplication: 3680 redundant tokens before batch three folded 23 clones
+# into shared code, 2002 with the new readers in.
+DUPE_BUDGET  ?= 2002
 
 # What a reader actually waits for, measured in a real browser. Our other
 # perf report times HTTP responses, which is the fastest link in the chain
@@ -120,10 +123,16 @@ vitals:
 vitals-prod:
 	@cd apps/web && npx next build >/dev/null
 	@PORT=3100 scripts/perf/prod-server.sh start
-	@node scripts/perf/vitals.mjs --base http://localhost:3100 --runs 5 --pick min --wait-load 600 --json reports/vitals-prod.json $(ARGS); \
+	@node scripts/perf/vitals.mjs --base http://127.0.0.1:3100 --runs 5 --pick min --wait-load 600 --json reports/vitals-prod.json $(ARGS); \
 	  rc=$$?; PORT=3100 scripts/perf/prod-server.sh stop >/dev/null; exit $$rc
 
 quality-gate: coverage-check
+	@$(MAKE) --no-print-directory quality-budgets
+
+# The two repo-wide budgets alone, against coverage already on disk. The
+# GitHub workflow (.github/workflows/ci.yml) measures each workspace in its
+# own job and runs this once they have all reported.
+quality-budgets:
 	@npx tsx scripts/quality/report-crap.ts --budget $(CRAP_BUDGET)
 	@npx tsx scripts/quality/report-dupes.ts --budget $(DUPE_BUDGET)
 
@@ -230,8 +239,22 @@ doctor:
 	@test -x node_modules/.bin/tsx || { echo "[FAIL] deps  node_modules missing (no tsx)"; echo "       fix: npm ci --no-audit --no-fund"; exit 1; }
 	@node_modules/.bin/tsx scripts/doctor.ts
 
+# Checkpoint, VACUUM, checkpoint: give our freelist back to the disk. Same
+# rules as our worker's daily run (packages/core/db/maintenance.ts), and it
+# refuses while another process (worker, make dev, web) has our database
+# open, since a VACUUM beside them leaves a WAL as big as our database.
+# Run it after a retention window has moved old block text cold.
+#   make vacuum
+#   make vacuum MIN_MB=256     only if at least 256 MB would come back
+#   make vacuum FORCE=1        beside a running stack, knowingly
+vacuum:
+	@MIN_MB=$(MIN_MB) FORCE=$(FORCE) node_modules/.bin/tsx scripts/vacuum.ts
+
 # 4GB Node heap — the prior 1GB cap was OOM-killing next dev on this monorepo,
 # which presented as random "dev server crashed, hard restart" symptoms.
+# Listens on 127.0.0.1 only: apps/web's `npm run dev` goes through
+# scripts/serve.mjs, which adds `-H`. Settings → Phone (or UNFIREHOSE_HOST)
+# opens it to the network from the next start.
 dev:
 	@systemctl --user is-active --quiet unfirehose-worker 2>/dev/null && { \
 	  echo "unfirehose-worker.service is active; two workers would double-ingest. make service-stop first."; exit 1; } || true
@@ -241,7 +264,8 @@ dev:
 # nothing of ours touched: scripts/demo.ts seeds ~/.unfirehose-demo fresh
 # (two projects, three harnesses, todos, an alert, one mesh node; every
 # model synthetic, so every cost reads $0), then our web app serves it on
-# :3010, beside a real stack on :3000 if one is running. No worker: the
+# 127.0.0.1:3010, beside a real stack on :3000 if one is running (its Phone
+# opt-in is the demo dir's own web-bind.json). No worker: the
 # payloads it would build are built by the seed. HOME points at an empty
 # home inside the demo dir and UNFIREHOSE_HARNESSES=none, so even an
 # on-demand ingest (the usage page asks for one) reads no real ~/.claude.
@@ -249,9 +273,9 @@ dev:
 demo:
 	UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo npx tsx scripts/demo.ts
 	@echo ""
-	@echo "unfirehose demo: http://localhost:3010   (data: $(HOME)/.unfirehose-demo, Ctrl-C to stop)"
+	@echo "unfirehose demo: http://127.0.0.1:3010   (data: $(HOME)/.unfirehose-demo, Ctrl-C to stop)"
 	@echo ""
-	cd apps/web && HOME=$(HOME)/.unfirehose-demo/home UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo UNFIREHOSE_DB_PATH=$(HOME)/.unfirehose-demo/unfirehose.db UNFIREHOSE_HARNESSES=none NODE_OPTIONS=--max-old-space-size=4096 npx next dev -p 3010
+	cd apps/web && HOME=$(HOME)/.unfirehose-demo/home UNFIREHOSE_DIR=$(HOME)/.unfirehose-demo UNFIREHOSE_DB_PATH=$(HOME)/.unfirehose-demo/unfirehose.db UNFIREHOSE_HARNESSES=none NODE_OPTIONS=--max-old-space-size=4096 node scripts/serve.mjs dev -p 3010
 
 # ---------------------------------------------------------------------------
 # Run as systemd USER units — respawn on crash, no root.
@@ -261,6 +285,8 @@ demo:
 # These units run `npm run start` (no watch) under Restart=always with
 # stepped backoff. Services and `make dev` are mutually exclusive — two
 # workers double-ingest and two webs fight for :3000 — and both sides check.
+# The web unit listens on 127.0.0.1:3000 (npm run start -> scripts/serve.mjs);
+# Settings → Phone opens it to the network, then make service-restart.
 #
 #   make service-install          render deploy/systemd/*.service.in -> ~/.config/systemd/user
 #   make build && make service-start   enable --now both units
@@ -330,26 +356,23 @@ IMAGE ?= unfirehose:latest
 build:
 	@cd apps/web && npx next build
 
-# The Alpine image. See Dockerfile for the coreutils/timeout tuning.
+# The Alpine images: the dashboard (the Dockerfile's last stage) and the
+# worker that ingests for it. See Dockerfile for the coreutils/timeout tuning.
 docker:
-	@docker build -t $(IMAGE) .
+	@docker build --target web -t $(IMAGE) .
+	@docker build --target worker -t unfirehose-worker:latest .
 
-# Run it, wired to the operator's world: the mesh (~/.ssh), the harness
-# journals it ingests, the docker socket for the Containers tab, and a named
-# volume for its SQLite. Read-only mounts where it only reads.
+# Web and worker in the foreground, Ctrl-C stops both. This is compose, not
+# a second hand-kept `docker run`: the same mounts (docker-compose.yml,
+# edited there once), the same loopback-only port, the same data volume.
 docker-run:
-	@docker run --rm -p 3000:3000 \
-	  -v $(HOME)/.ssh:/home/node/.ssh:ro \
-	  -v $(HOME)/.claude:/home/node/.claude:ro \
-	  -v /var/run/docker.sock:/var/run/docker.sock \
-	  -v unfirehose-data:/home/node/.unfirehose \
-	  $(IMAGE)
+	docker compose up --build
 
 # Web and worker together, for a machine without node. docker-compose.yml
 # says which journals it mounts and why; edit the mounts there, once.
 compose-up:
 	docker compose up -d --build
-	@echo "open http://localhost:3000"
+	@echo "open http://127.0.0.1:3000   (this machine only: compose publishes 127.0.0.1:3000)"
 
 compose-down:
 	docker compose down
@@ -358,9 +381,9 @@ compose-logs:
 	docker compose logs -f --tail 100
 
 # --- npm release -----------------------------------------------------
-# Bump all four packages to one version, commit, tag, publish, and wait
-# for the registry to answer for each. The bump lands in git, so git and
-# npm agree. Token from ~/.npmrc. Pushing stays yours to do.
+# Bump all four packages to one version, commit and tag. The bump lands in
+# git, so git and npm agree. Pushing the tag publishes: CI is our only
+# publisher, and the only place an npm token lives.
 #   make publish-dry-run              pack at the next patch, change nothing
 #   make publish                      next patch
 #   make publish BUMP=minor           or major, or an exact X.Y.Z

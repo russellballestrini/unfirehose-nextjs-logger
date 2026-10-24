@@ -63,7 +63,7 @@ export function PlanTab({ planData, extraData, extra, mutateExtra }: {
 
               {extraSpent !== null ? (
                 <>
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <StatCard label="Spent" value={`$${extraSpent.toFixed(2)}`} color="#ef4444" sub="charged to card" />
                     <StatCard label="Monthly Limit" value={extraLimit !== null ? `$${extraLimit}` : '—'} sub="extra usage cap" />
                     <StatCard label="Balance" value={extraBalance !== null ? `$${extraBalance.toFixed(2)}` : '—'} sub="remaining credits" />
@@ -129,7 +129,7 @@ export function PlanTab({ planData, extraData, extra, mutateExtra }: {
             </div>
 
             {/* Plan identity */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard
                 label="Plan"
                 value={planLabel(rateLimitTier)}
@@ -210,7 +210,7 @@ export function PlanTab({ planData, extraData, extra, mutateExtra }: {
               )}
 
               {/* Big numbers */}
-              <div className="grid grid-cols-4 gap-4 pt-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
                 <div>
                   <div className="text-base text-[var(--color-muted)]">Included (plan value)</div>
                   <div className="text-2xl font-bold text-[#10b981]">

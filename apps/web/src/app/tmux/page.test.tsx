@@ -5,16 +5,16 @@ import { render, cleanup, act, fireEvent, waitFor } from '@testing-library/react
 /**
  * Every terminal we have open, and starting a new one.
  *
- * Two kinds of session live on this page and they are not interchangeable:
- * a tmux session on a machine we can ssh to, and an unsandbox container
- * that costs money and disappears. Creating either sends someone straight
- * into it, so where they land has to match what was made — a viewer opened
- * without the host it lives on attaches to a session of the same name on
- * this machine, or to nothing.
+ * A tmux session on a machine we can ssh to. Creating one sends someone
+ * straight into it, so where they land has to match what was made — a
+ * viewer opened without the host it lives on attaches to a session of the
+ * same name on this machine, or to nothing.
+ *
+ * Every integration is off here; one that adds its own kind of session
+ * (a cloud container) is tested with it on in its own directory.
  */
 
 let sessions: unknown;
-let unsandbox: unknown;
 let nicknames: unknown;
 let projects: unknown;
 const pushed: string[] = [];
@@ -22,7 +22,7 @@ const pushed: string[] = [];
 vi.mock('swr', () => ({
   default: (key: string) => ({
     data: String(key).startsWith('/api/tmux/stream') ? sessions
-      : String(key).startsWith('/api/unsandbox') ? unsandbox
+      : String(key) === '/api/integrations' ? { integrations: [] }
       : String(key).startsWith('/api/sessions/nickname') ? nicknames
       : String(key).startsWith('/api/projects') ? projects
       : undefined,
@@ -49,11 +49,10 @@ beforeAll(() => {
   window.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as never;
 });
 beforeEach(() => {
-  pushed.length = 0; ok = true; answer = { ok: true, session_id: 'unsb-abc' };
+  pushed.length = 0; ok = true; answer = { ok: true };
   sessions = { sessions: ['demo', 'agnt'], deployments: {
     demo: { todos: [{ id: 11, uuid: 'todo-uuid' }], status: 'running', startedAt: '2026-09-04T12:00:00Z' },
   } };
-  unsandbox = { sessions: [{ session_id: 'unsb-1', status: 'running', image: 'ubuntu:24.04' }] };
   nicknames = { demo: { nickname: 'the ingest work', host: 'localhost', service_name: '' } };
   projects = [{ name: '-home-fox-git-demo', displayName: 'demo', path: '/home/fox/git/demo' }];
   global.fetch = vi.fn(async () => ({ ok, status: ok ? 200 : 500, json: async () => answer })) as never;
@@ -77,10 +76,19 @@ const tab = async (name: string) => {
 };
 
 describe('the session list', () => {
-  it('lists both kinds of session', async () => {
+  it('lists our tmux sessions, and nothing an integration that is off would add', async () => {
     const { container } = await show();
     expect(container.textContent).toContain('demo');
-    expect(container.textContent).toContain('unsb-1');
+    expect(container.textContent).not.toMatch(/unsandbox/i);
+    // Nothing reaches for an integration's endpoints while it is off.
+    expect((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .some(([u]) => String(u).startsWith('/api/unsandbox'))).toBe(false);
+  });
+
+  it('offers only tmux on the New tab', async () => {
+    await show();
+    await tab('New');
+    expect(document.body.textContent).not.toMatch(/unsandbox/i);
   });
 
   it('shows a nickname where one was given, since a tmux name is not a description', async () => {
@@ -94,7 +102,6 @@ describe('the session list', () => {
 
   it('draws an empty list rather than nothing at all', async () => {
     sessions = { sessions: [], deployments: {} };
-    unsandbox = { sessions: [] };
     const { container } = await show();
     expect(container.textContent!.length).toBeGreaterThan(50);
   });

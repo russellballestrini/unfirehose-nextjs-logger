@@ -48,9 +48,10 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
 }));
 
-let dashboard: any;
-let tokens: any;
-let projects: any[];
+type Payload<F extends (...a: never[]) => { payload: unknown } | null> = NonNullable<ReturnType<F>>['payload'];
+let dashboard: Payload<typeof import('@unturf/unfirehose/dashboard').readDashboard>;
+let tokens: Payload<typeof import('@unturf/unfirehose/tokens').readTokensPayload>;
+let projects: Payload<typeof import('@unturf/unfirehose/projects-list').readProjectList>;
 
 beforeAll(async () => {
   const { seedDemo, buildDemoPayloads } = await import('@unturf/unfirehose/demo-seed');
@@ -73,6 +74,12 @@ beforeAll(async () => {
 
 afterEach(cleanup);
 
+// The first page rendered here pays for compiling its module graph: 1.0 s
+// for the dashboard on an idle four-core box, 16 s of this config's 30 s
+// with every suite at once beside 32 busy processes (2026-10-23). Sized for
+// a busy box with room to spare; one that hangs still fails.
+const RENDER_DEADLINE_MS = 180_000;
+
 describe('the demo seed builds payloads a page can show', () => {
   it('builds non-empty dashboard, tokens and projects payloads', () => {
     expect(dashboard.summary.sessions).toBeGreaterThan(0);
@@ -86,18 +93,18 @@ describe('the demo seed builds payloads a page can show', () => {
     const { default: Page } = await import('./page');
     const { container } = render(<Page />);
     expect(container.textContent).toContain('demo-model');
-  });
+  }, RENDER_DEADLINE_MS);
 
   it('renders the tokens page with the demo models in it', async () => {
     const { default: Page } = await import('./tokens/page');
     const { container } = render(<Page />);
     expect(container.textContent).toContain('demo-model');
-  });
+  }, RENDER_DEADLINE_MS);
 
   it('renders both demo projects', async () => {
     const { default: Page } = await import('./projects/page');
     const { container } = render(<Page />);
     expect(container.textContent).toContain('demo-api');
     expect(container.textContent).toContain('demo-web');
-  });
+  }, RENDER_DEADLINE_MS);
 });

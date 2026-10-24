@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { withModelArg, withPromptArg, HARNESS_INVOCATION } from '@unturf/unfirehose/harness-models';
 import { stat } from 'fs/promises';
-import { writeFile, readFile, unlink } from 'fs/promises';
+import { writeFile, unlink } from 'fs/promises';
 import path from 'path';
 import { tmpdir, platform, homedir } from 'os';
-import { createHmac } from 'crypto';
 import { getSetting } from '@unturf/unfirehose/db/ingest';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { discoverNodes } from '@unturf/unfirehose/mesh';
 import { execAsync as exec } from '@unturf/unfirehose/git-exec';
+import { hostIntegration, integrationOff } from '@/integrations/server';
 
 const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const IS_WINDOWS = platform() === 'win32';
@@ -66,13 +66,17 @@ export async function POST(request: NextRequest) {
   }
 
   const host = resolveBootHost(requestedHost);
-  const isUnsandbox = host === 'unsandbox';
-  const isRemote = host !== 'localhost' && !isUnsandbox;
-
-  // Unsandbox boot — route through unsandbox API
-  if (isUnsandbox) {
-    return bootUnsandbox(body, projectPath, repoUrl);
+  // A host an integration owns (a cloud container, not a machine we ssh to)
+  // boots through that integration, or answers 404 while it is off.
+  const hosted = hostIntegration(host);
+  if (hosted) {
+    if (!hosted.enabled || !hosted.server.boot) return integrationOff(hosted.id);
+    return hosted.server.boot(body, projectPath, repoUrl, {
+      agentSystemPrompt: AGENT_SYSTEM_PROMPT,
+      localGitRemote: getLocalGitRemote,
+    });
   }
+  const isRemote = host !== 'localhost';
 
   // Validate path exists (local only — remote paths are trusted)
   // In bootstrap mode, create the directory if it doesn't exist
@@ -673,201 +677,4 @@ async function bootWindows(opts: BootOpts) {
     host: 'localhost',
     command: `Window: ${opts.sessionName}`,
   });
-}
-
-// ---- Unsandbox boot ----
-
-const UNSANDBOX_API_BASE = 'https://api.unsandbox.com';
-
-function unsandboxSign(secretKey: string, method: string, apiPath: string, body: string): { timestamp: string; signature: string } {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const message = `${timestamp}:${method}:${apiPath}:${body}`;
-  const signature = createHmac('sha256', secretKey).update(message).digest('hex');
-  return { timestamp, signature };
-}
-
-function unsandboxHeaders(publicKey: string, secretKey: string, method: string, apiPath: string, body: string = ''): Record<string, string> {
-  const { timestamp, signature } = unsandboxSign(secretKey, method, apiPath, body);
-  return {
-    'Authorization': `Bearer ${publicKey}`,
-    'X-Timestamp': timestamp,
-    'X-Signature': signature,
-    'Content-Type': 'application/json',
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function bootUnsandbox(body: any, projectPath: string, passedRepoUrl?: string) {
-  const publicKey = getSetting('unsandbox_public_key');
-  const secretKey = getSetting('unsandbox_secret_key');
-  if (!publicKey || !secretKey) {
-    return NextResponse.json({ error: 'No unsandbox API keys configured', detail: 'Add keys in Permacomputer settings.' }, { status: 400 });
-  }
-
-  const { prompt, yolo, harness: harnessName, projectName } = body;
-
-  // Get the git remote URL — prefer passed URL, fall back to local project
-  let repoUrl: string | null = passedRepoUrl || null;
-  if (!repoUrl) {
-    try {
-      repoUrl = await getLocalGitRemote(projectPath);
-    } catch { /* no git remote */ }
-  }
-
-  // 1. Create a session on unsandbox
-  const sessionPath = '/sessions';
-  const sessionPayload = JSON.stringify({
-    image: 'ubuntu:24.04',
-    network_mode: 'semitrusted',
-  });
-  const sessionHeaders = unsandboxHeaders(publicKey, secretKey, 'POST', sessionPath, sessionPayload);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let session: any;
-  try {
-    const res = await fetch(`${UNSANDBOX_API_BASE}${sessionPath}`, {
-      method: 'POST', headers: sessionHeaders, body: sessionPayload,
-      signal: AbortSignal.timeout(30000),
-    });
-    session = await res.json();
-    if (!res.ok) {
-      return NextResponse.json({ error: session.error || 'Failed to create unsandbox session' }, { status: 500 });
-    }
-  } catch (err) {
-    return NextResponse.json({ error: `Unsandbox session creation failed: ${err}` }, { status: 500 });
-  }
-
-  const sessionId = session.session_id || session.id;
-
-  // 2. Bootstrap the session: install tools, clone repo, run harness
-  const repoName = path.basename(projectPath);
-  const workDir = `/workspace/${repoName}`;
-  const resolvedHarness = harnessName || 'claude';
-
-  const setupParts = [
-    '#!/bin/bash',
-    'set -e',
-    // Golden image has batteries included — no apt-get needed
-  ];
-
-  // Sync Claude auth credentials into the container
-  // Read local credential files, base64 encode, decode inside container
-  const credFile = path.join(homedir(), '.claude', '.credentials.json');
-  const settingsFile = path.join(homedir(), '.claude', 'settings.json');
-  const settingsLocalFile = path.join(homedir(), '.claude', 'settings.local.json');
-
-  try {
-    const credData = await readFile(credFile);
-    const credB64 = credData.toString('base64');
-    setupParts.push(
-      'umask 077 && mkdir -p ~/.claude',
-      `echo '${credB64}' | base64 -d > ~/.claude/.credentials.json`,
-      'chmod 600 ~/.claude/.credentials.json',
-    );
-
-    // Settings files — non-fatal
-    for (const f of [settingsFile, settingsLocalFile]) {
-      try {
-        const data = await readFile(f);
-        const b64 = data.toString('base64');
-        const basename = path.basename(f);
-        setupParts.push(`echo '${b64}' | base64 -d > ~/.claude/${basename}`);
-      } catch { /* file doesn't exist, skip */ }
-    }
-
-    setupParts.push('chmod 700 ~/.claude');
-  } catch {
-    // No local credentials — claude will need to auth interactively
-  }
-
-  // Clone repo if we have a URL
-  if (repoUrl) {
-    setupParts.push(`git clone '${repoUrl}' '${workDir}' 2>&1 || (mkdir -p '${workDir}')`);
-  } else {
-    setupParts.push(`mkdir -p '${workDir}'`);
-  }
-
-  setupParts.push(`cd '${workDir}'`);
-
-  // Golden image provides claude — just ensure PATH includes ~/.local/bin
-  setupParts.push(
-    'export PATH="$HOME/.local/bin:$PATH"',
-    'grep -q ".local/bin" ~/.bashrc 2>/dev/null || echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
-  );
-
-  // Session sync: death trap + periodic background sync to /root/artifacts/
-  // Files in /root/artifacts/ are downloadable via unsandbox artifact API
-  setupParts.push(
-    '# --- session artifact sync ---',
-    'sync_sessions() {',
-    '  mkdir -p /root/artifacts',
-    '  cd "$HOME/.claude" 2>/dev/null || return 0',
-    '  MARKER="$HOME/.claude/.last_sync"',
-    '  if [ -f "$MARKER" ]; then NEWER="-newer $MARKER"; else NEWER=""; fi',
-    '  FILES=$(find projects/ \\( -name "*.jsonl" -o -name "sessions-index.json" \\) $NEWER 2>/dev/null || true)',
-    '  if [ -n "$FILES" ]; then',
-    '    echo "$FILES" | tar czf /root/artifacts/claude-sessions.tar.gz -T - 2>/dev/null || true',
-    '  fi',
-    '  touch "$MARKER"',
-    '}',
-    '# Death trap — sync before container dies',
-    'trap "sync_sessions; exit" SIGTERM SIGINT SIGHUP',
-    '# Background periodic sync every 3 minutes',
-    '(while true; do sleep 180; sync_sessions; done) &',
-  );
-
-  // Build the harness command
-  let harnessCmd = resolvedHarness === 'claude' ? 'claude' : resolvedHarness;
-  if (resolvedHarness === 'claude') {
-    if (yolo) harnessCmd += ' --dangerously-skip-permissions';
-    if (yolo) {
-      const escaped = AGENT_SYSTEM_PROMPT.replace(/'/g, "'\\''");
-      harnessCmd += ` --append-system-prompt '${escaped}'`;
-    }
-    if (prompt) {
-      const escaped = prompt.replace(/'/g, "'\\''");
-      harnessCmd += ` '${escaped}'`;
-    }
-  }
-
-  setupParts.push(harnessCmd);
-
-  const setupScript = setupParts.join('\n');
-  const execPath = `/sessions/${sessionId}/execute`;
-  const execPayload = JSON.stringify({ command: setupScript });
-  const execHeaders = unsandboxHeaders(publicKey, secretKey, 'POST', execPath, execPayload);
-
-  try {
-    // Fire and forget — the session runs in background, we don't wait for claude to finish
-    fetch(`${UNSANDBOX_API_BASE}${execPath}`, {
-      method: 'POST', headers: execHeaders, body: execPayload,
-      signal: AbortSignal.timeout(300000),
-    }).catch(() => {});
-
-    // Register deployment
-    if (projectName) {
-      try {
-        const db = getDb();
-        const proj = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: number } | undefined;
-        if (proj) {
-          db.prepare(`
-            INSERT INTO agent_deployments (tmux_session, tmux_window, project_id, todo_ids, status, started_at)
-            VALUES (?, ?, ?, ?, 'running', datetime('now'))
-          `).run(`unsandbox-${sessionId}`, 'main', proj.id, JSON.stringify(body.todoIds ?? []));
-        }
-      } catch { /* non-fatal */ }
-    }
-
-    return NextResponse.json({
-      success: true,
-      tmuxSession: `unsandbox-${sessionId}`,
-      tmuxWindow: 'main',
-      multiplexer: 'unsandbox',
-      host: 'unsandbox',
-      sessionId,
-      command: `unsandbox session ${sessionId}`,
-    });
-  } catch (err) {
-    return NextResponse.json({ error: `Unsandbox harness boot failed: ${err}` }, { status: 500 });
-  }
 }

@@ -1,9 +1,8 @@
 # 3970: Follow-ups surfaced by the landing-page reshoot
 
-**Status:** blocked
+**Status:** open
 **Project:** unfirehose-nextjs-logger
 **Estimated:** 120m
-**Blocked by:** fox — the npm token in ~/.npmrc no longer authenticates
 **Todo IDs:** 3970
 
 ## Context
@@ -51,7 +50,13 @@ human tab-switching never waits for.
   per day in the fold. Weekly velocity now counts a session in the week it
   last ran, rather than once per week it touched.
 
-## Blocked: npm publish
+## npm publish: blocker moot (2026-10-24)
+
+fox: CI is our only publisher. No local token is minted; `make publish` now
+bumps, commits and tags, and pushing the tag publishes through GitLab's job.
+One publishing path, one place a token lives. What follows is the history.
+
+### Was blocked: npm publish
 
 `npm whoami` → **401 Unauthorized**; `npm publish` → 404 on our own scope,
 which is what npm returns when the token cannot write it. Both packages

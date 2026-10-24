@@ -65,7 +65,7 @@ export function TimeRangeSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 text-base text-[var(--color-foreground)] cursor-pointer"
+      className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-1.5 min-h-10 text-base text-[var(--color-foreground)] cursor-pointer"
     >
       {offered.map((o) => (
         <option key={o.value} value={o.value}>

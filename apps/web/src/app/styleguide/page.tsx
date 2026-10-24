@@ -282,7 +282,7 @@ export default function StyleguidePage() {
       <Section title="Pills, Kanban & Motion">
         {/* Live page: one pill per project; colored = active, muted = hot but idle. Never wraps. */}
         <div className="flex items-center gap-1.5 overflow-x-auto">
-          {[['unsandbox-com', '#10b981', 12], ['unfirehose', '#a78bfa', 3], ['uncloseai-com', 'var(--color-muted)', 47]].map(([name, color, n]) => (
+          {[['permacomputer', '#10b981', 12], ['unfirehose', '#a78bfa', 3], ['uncloseai-com', 'var(--color-muted)', 47]].map(([name, color, n]) => (
             <span key={name} className="text-base px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap" style={{ borderColor: color as string, color: color as string }}>
               {name} <span className="opacity-50">×{n}</span>
             </span>

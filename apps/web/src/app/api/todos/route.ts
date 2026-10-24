@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { jsonError } from '@/lib/json-error';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { uuidv7 } from '@unturf/unfirehose/uuidv7';
 import { recordTriage } from '@unturf/unfirehose/db/triage';
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     const { content, projectId, projectName, sessionUuid, source, status: initialStatus } = body;
 
     if (!content?.trim()) {
-      return NextResponse.json({ error: 'content required' }, { status: 400 });
+      return jsonError('content required', 400);
     }
 
     // Resolve project and session from sessionUuid if provided
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     if (!pid) {
       const first = db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get() as any;
       pid = first?.id;
-      if (!pid) return NextResponse.json({ error: 'no projects found' }, { status: 400 });
+      if (!pid) return jsonError('no projects found', 400);
     }
 
     const todoStatus = initialStatus === 'in_progress' ? 'in_progress' : 'pending';
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, id: Number(result.lastInsertRowid), uuid: todoUuid });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
 
@@ -67,7 +68,7 @@ export async function PATCH(request: NextRequest) {
     const db = getDb();
     const body = await request.json();
     const { id, estimatedMinutes, status, content } = body;
-    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+    if (!id) return jsonError('id required', 400);
 
     if (content !== undefined) {
       db.prepare('UPDATE todos SET content = ?, updated_at = datetime(\'now\') WHERE id = ?')
@@ -100,7 +101,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
 
@@ -111,8 +112,8 @@ export async function DELETE(request: NextRequest) {
     const { id, ids } = body;
 
     const todoIds: number[] = ids ?? (id ? [id] : []);
-    if (todoIds.length === 0) return NextResponse.json({ error: 'id or ids required' }, { status: 400 });
-    if (todoIds.length > 500) return NextResponse.json({ error: 'max 500 ids per batch' }, { status: 400 });
+    if (todoIds.length === 0) return jsonError('id or ids required', 400);
+    if (todoIds.length > 500) return jsonError('max 500 ids per batch', 400);
 
     const now = new Date().toISOString();
     let deleted = 0;
@@ -148,7 +149,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ ok: true, deleted });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
 
@@ -324,7 +325,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
 

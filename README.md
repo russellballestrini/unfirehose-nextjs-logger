@@ -1,6 +1,6 @@
 # unfirehose
 
-A local-first observability dashboard for machine learning coding agents. Reads JSONL session data from Claude Code, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
+A local-first observability dashboard for machine learning coding agents. Reads session data from Claude Code, OpenAI Codex, Gemini CLI, Continue, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
 
 No cloud. No telemetry. Your data stays on your machine.
 
@@ -13,7 +13,8 @@ npm install
 make dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On a fresh install our
+Open [http://localhost:3000](http://localhost:3000) (it listens on 127.0.0.1, this
+machine only; see [On a phone](#on-a-phone-same-network)). On a fresh install our
 first-run wizard takes it from there: it shows which harness directories it
 found on this machine, counts rows as ingest moves, and hands off to the
 dashboard once your first session lands.
@@ -25,6 +26,11 @@ dashboard once your first session lands.
   synthetic database under `~/.unfirehose-demo/` and serves it on
   `http://localhost:3010`, beside a real stack on :3000, so every page has
   something on it.
+- Database getting big? Settings → Database shows size by table and growth
+  per week, and offers a retention window for old block text: past it, text
+  is packed into a compressed cold table (nothing deleted, every count
+  exact, every page still reads it). `make vacuum` gives freed pages back to
+  disk; our worker also runs one daily while ingest is quiet.
 - Want it to survive a crash, a logout and a reboot? See
   [Keep it running](#keep-it-running).
 - Will not install node? See [Docker](#docker).
@@ -52,6 +58,32 @@ After pulling new code on a service box: `make build && make service-restart`.
 Services and `make dev` are mutually exclusive: two workers would ingest
 everything twice and two webs fight over :3000. Each side refuses to start
 while the other runs, so `make service-stop` before `make dev`.
+
+### On a phone, same network
+
+Our dashboard has no login, and it can push commits and type into tmux, so
+it listens on **127.0.0.1**, this machine only, unless you opt in.
+`npm run dev` and `npm run start` in apps/web (so `make dev`, `make demo` and
+the systemd unit) start `next` through `apps/web/scripts/serve.mjs`, which
+adds `-H 127.0.0.1`.
+
+To open it on a phone, Settings → Phone: tick that you understand what it
+exposes (**anyone on the same network can read every session, push commits,
+and type into tmux; there is no login**), save, and restart: `make dev`
+again, or `make service-restart` for the units. It is then bound to
+0.0.0.0, and the tab lists this machine's LAN addresses and draws a QR code
+for `http://<address>:<port>/`; point a phone's camera at it. Nothing goes
+through a cloud. The QR appears only once our server actually answers on a
+LAN address. Use it on a network you control, never café or conference
+Wi-Fi.
+
+The choice is saved in `$UNFIREHOSE_DIR/web-bind.json`. `UNFIREHOSE_HOST`
+overrides it either way and then decides alone, for example
+`UNFIREHOSE_HOST=0.0.0.0 make dev` for one run, or
+`Environment=UNFIREHOSE_HOST=127.0.0.1` in the unit to pin it; an explicit
+`-H` on the command line wins over both. In Docker the image binds 0.0.0.0
+inside the container and compose publishes `127.0.0.1:3000:3000`; change it
+to `3000:3000` to open it.
 
 ## Docker
 
@@ -268,7 +300,10 @@ Mesh status view across your compute nodes: per-node resource tracking (CPU, mem
 Public usage profile, opt-in. Sessions, streaks, hours-of-day heatmap, badges. Per-project visibility (public / unlisted / private). Generates a `unfirehose-scrobble/1.0` payload you can host anywhere. No prompts, responses, or training data — ever.
 
 ### Settings
-Configure alert thresholds, display preferences, vault for BYO LLM keys (used by the in-app agent helpers), mesh defaults, scan paths.
+Configure alert thresholds, display preferences, vault for BYO LLM keys (used by the in-app agent helpers), mesh defaults, scan paths. The Phone tab draws a QR code that opens this dashboard on a phone on the same network.
+
+### Integrations
+Optional products the dashboard can talk to, every one off by default: while off it makes no network request, adds nothing to any page, and its API routes answer 404. Turn one on in Settings → Integrations, or for the whole process with `UNFIREHOSE_INTEGRATIONS=<id>[,<id>…]` (when set, the environment decides and the toggle is locked; `none` turns all off). Today there is one: `unsandbox`, cloud containers as a mesh node, which needs a key pair from that service. Each lives in its own directory under `apps/web/src/integrations/`.
 
 ## Packages
 
@@ -318,18 +353,28 @@ unfirehose/
 
 No external services. No API keys required. Docker optional: `npm install && make dev` is our whole install.
 
-## Codex CLI
+## Codex CLI, Gemini CLI and Continue
 
-After installing dependencies, run `npx tsx scripts/codex-bridge.mts` alongside
-`make dev`. The bridge reads existing `$CODEX_HOME/sessions` logs incrementally;
-no extra model calls are needed. To select harnesses explicitly, set
-`UNFIREHOSE_HARNESSES=codex,claude-code` on the ingestion worker. Claude includes
-regular and workflow-nested subagent transcripts. See [Codex setup and format details](packages/schema/docs/harnesses/openai-codex.md).
+Nothing to set up: our worker reads each tool's own session files where the
+tool keeps them, incrementally, and never writes to them.
+
+| Harness | Reads | Notes |
+|---|---|---|
+| OpenAI Codex | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` | [format](packages/schema/docs/harnesses/openai-codex.md); `scripts/codex-bridge.mts` is retired |
+| Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` (and legacy `.json`) | [format](packages/schema/docs/harnesses/gemini-cli.md); follows `GEMINI_CLI_HOME` |
+| Continue | `~/.continue/sessions/<id>.json` | [format](packages/schema/docs/harnesses/continue-dev.md); follows `CONTINUE_GLOBAL_DIR` |
+
+Their sessions land as the same message and content-block rows Claude Code's
+do, so tokens, tool calls, reasoning and the session viewer work the same. To
+select harnesses explicitly, set `UNFIREHOSE_HARNESSES=codex,gemini-cli,claude-code`
+on the ingestion worker. Claude includes regular and workflow-nested subagent
+transcripts.
 
 ## Architecture
 
 Ingest reads session data from `~/.claude/`, `~/.fetch/`, `~/.uncloseai/`,
-`~/.agnt/` and any `~/.<name>/unfirehose/` directory into SQLite at
+`~/.agnt/`, `~/.codex/sessions/`, `~/.gemini/tmp/`, `~/.continue/sessions/`
+and any `~/.<name>/unfirehose/` directory into SQLite at
 `~/.unfirehose/unfirehose.db`. After our first pass it is incremental
 (byte-offset tracking per file) and driven by a file watcher on JSONL changes.
 
@@ -411,6 +456,9 @@ make report      # all four, with JSON under reports/
 
 The tools live in `scripts/quality/` and carry their own suite — a metric
 nobody can check is worse than no metric.
+
+GitHub runs these on every pull request (`.github/workflows/ci.yml`), each
+suite in its own job, mirroring the test stage of `.gitlab-ci.yml`.
 
 ### Database Schema
 
@@ -537,7 +585,8 @@ week of synthetic history and serves it:
 make demo        # seed ~/.unfirehose-demo, then open http://localhost:3010
 ```
 
-Two projects, three harnesses (claude-code, uncloseai, agnt), 21 sessions with
+Two projects, three harnesses (claude-code, uncloseai, agnt) with a session a
+day each, one session each for codex, gemini-cli, continue and aider (25 sessions) with
 tool calls and reasoning, a few todos, one alert and a week of samples for a
 `demo-node` on Permacomputer. Every message is booked against a synthetic model
 (`demo-model`, `demo-model-small`), so every cost reads $0 and our pricing book
