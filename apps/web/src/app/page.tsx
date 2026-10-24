@@ -30,8 +30,8 @@ import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TimeRangeSelect, useTimeRange } from '@unturf/unfirehose-ui/TimeRangeSelect';
-import { TOKEN_TYPE_COLORS, totalOf, cacheOf } from '@unturf/unfirehose-ui/TokenSplit';
-import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
+import { TOKEN_TYPE_COLORS, TokenSplitStats } from '@unturf/unfirehose-ui/TokenSplit';
+import { StatStrip, Stat, StatDivider } from '@unturf/unfirehose-ui/StatStrip';
 import { FirstRunWizard, WIZARD_POLL_MS } from '@/components/FirstRunWizard';
 import { CoachMarks } from '@/components/CoachMarks';
 
@@ -329,29 +329,12 @@ export default function DashboardPage() {
 
         <StatDivider />
 
-        <Stat
-          label="Tokens"
-          value={formatTokens(totalOf(splitTokens))}
-          sub={`$${data.summary.totalCost.toLocaleString()}`}
-          title="Input + output + cache read + cache write, priced at API rates. Cache is billed at its own rate — not free, and not folded into input."
-        />
-        <Stat
-          label="Input"
-          value={formatTokens(splitTokens.input)}
-          sub={costSub(data.summary.costSplit?.input)}
-          color={TOKEN_TYPE_COLORS.input}
-        />
-        <Stat
-          label="Cache"
-          value={formatTokens(cacheOf(splitTokens))}
-          sub={`${costSub(cacheCostOf(data.summary.costSplit))}${cacheShare != null ? ` · ${Math.round(cacheShare * 100)}% of tokens` : ''}`}
-          color={TOKEN_TYPE_COLORS.cacheRead}
-        />
-        <Stat
-          label="Output"
-          value={formatTokens(splitTokens.output)}
-          sub={costSub(data.summary.costSplit?.output)}
-          color={TOKEN_TYPE_COLORS.output}
+        <TokenSplitStats
+          tokens={splitTokens}
+          costs={data.summary.costSplit}
+          totalSub={`$${data.summary.totalCost.toLocaleString()}`}
+          totalTitle="Input + output + cache read + cache write, priced at API rates. Cache is billed at its own rate — not free, and not folded into input."
+          cacheShare={cacheShare}
         />
       </StatStrip>
       </div>

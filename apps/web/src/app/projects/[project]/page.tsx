@@ -7,8 +7,8 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
 import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
-import { TOKEN_TYPE_COLORS, totalOf, cacheOf, cacheShareOf } from '@unturf/unfirehose-ui/TokenSplit';
-import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
+import { cacheShareOf, TokenSplitStats } from '@unturf/unfirehose-ui/TokenSplit';
+import { StatStrip, Stat, StatDivider, costSub } from '@unturf/unfirehose-ui/StatStrip';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
@@ -475,29 +475,12 @@ export function OverviewTab({ full, data, meta, project, decodedProject: _decode
 
             <StatDivider />
 
-            <Stat
-              label="Tokens"
-              value={formatTokens(totalOf(projectTokens))}
-              sub={costSub(full.stats.totalCost)}
-              title="Input + output + cache read + cache write, priced at what these tokens cost to buy."
-            />
-            <Stat
-              label="Input"
-              value={formatTokens(projectTokens.input)}
-              sub={costSub(full.stats.costSplit?.input)}
-              color={TOKEN_TYPE_COLORS.input}
-            />
-            <Stat
-              label="Cache"
-              value={formatTokens(cacheOf(projectTokens))}
-              sub={`${costSub(cacheCostOf(full.stats.costSplit))}${projectCacheShare != null ? ` · ${Math.round(projectCacheShare * 100)}% of tokens` : ''}`}
-              color={TOKEN_TYPE_COLORS.cacheRead}
-            />
-            <Stat
-              label="Output"
-              value={formatTokens(projectTokens.output)}
-              sub={costSub(full.stats.costSplit?.output)}
-              color={TOKEN_TYPE_COLORS.output}
+            <TokenSplitStats
+              tokens={projectTokens}
+              costs={full.stats.costSplit}
+              totalSub={costSub(full.stats.totalCost)}
+              totalTitle="Input + output + cache read + cache write, priced at what these tokens cost to buy."
+              cacheShare={projectCacheShare}
             />
           </StatStrip>
           <div className="text-right">
