@@ -374,9 +374,9 @@ compose-logs:
 	docker compose logs -f --tail 100
 
 # --- npm release -----------------------------------------------------
-# Bump all four packages to one version, commit, tag, publish, and wait
-# for the registry to answer for each. The bump lands in git, so git and
-# npm agree. Token from ~/.npmrc. Pushing stays yours to do.
+# Bump all four packages to one version, commit and tag. The bump lands in
+# git, so git and npm agree. Pushing the tag publishes: CI is our only
+# publisher, and the only place an npm token lives.
 #   make publish-dry-run              pack at the next patch, change nothing
 #   make publish                      next patch
 #   make publish BUMP=minor           or major, or an exact X.Y.Z

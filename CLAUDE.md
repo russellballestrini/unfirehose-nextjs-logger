@@ -93,14 +93,14 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ### Publishing
 
-npm token stored at `~/.npmrc` (600 perms, outside repo). All four packages release together at one version, bumped in git:
+CI is our only publisher: GitLab's publish job holds `NPM_TOKEN` and runs on a pushed `v*` tag. No npm token lives on a workstation. All four packages release together at one version, bumped in git:
 ```bash
 make publish-dry-run          # pack at the next patch, change nothing
-make publish                  # bump, commit "release: vX.Y.Z", tag, publish, wait for npm
+make publish                  # bump, commit "release: vX.Y.Z", tag (publishes nothing)
 make publish BUMP=minor       # or major, or an exact X.Y.Z
-git push origin HEAD --follow-tags
+git push origin HEAD --follow-tags   # this publishes: CI's job, which waits until npm answers
 ```
-`scripts/publish.sh` counts up from whichever is higher, git's version or npm's. A pushed `v*` tag also runs the CI publish job, which tolerates a version already on npm.
+`scripts/publish.sh` counts up from whichever is higher, git's version or npm's. The CI job tolerates a version already on npm and fails if the registry never answers for one.
 
 Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking, All Logs, Tokens, Usage Monitor, Reports, Actions, Scrobble, Schema, Settings, Permacomputer.
 

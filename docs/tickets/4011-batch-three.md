@@ -321,3 +321,19 @@ Decisions for fox:
 8. The `password:` rule over-redacts code. `./training` is exported from core's package.json but points at a file that does not exist.
 9. `next dev` already listens on 0.0.0.0, so a dashboard with no login is on the LAN today. The mobile drawer cutoff is 1024 px.
 10. Ticket 4004 is marked blocked.
+
+## fox's decisions (2026-10-24)
+
+1. **Aider, Cursor, OpenCode.** Scan Aider history in the roots of projects we already ingest, nowhere else: those are the repos the person demonstrably works in. Skip Cursor and OpenCode until their storage holds still for two releases; a reader we rewrite every month is a liability, not reach.
+2. **CI red jobs.** Fix the 16 lint errors now. Set each quality budget to today's measured value, so CI fails only on regression, and ratchet the budgets down as splits land. A budget nobody has ever met teaches people to ignore red.
+3. **Unsandbox boundary.** Off by default and off across upgrades: nothing turns it on without the setting or the environment. Kill-session stays broken, with a note in `integrations/unsandbox/terminal.ts`, because the integration is leaving and every hour spent inside the boundary goes to a product that is leaving.
+4. **Retention.** Keep everything by default (already the default: no window, nothing moves). Brotli is fine. The knob is for people with small disks, not for us to decide what they lose. Doctor's 10 GB warning is the nudge.
+5. **Ledger.** Yes to all three: run the detectors at ingest so alerts fire, count `npm install` as network, and count MCP calls as network. Anything that leaves the box is an action the owner should be able to see.
+6. **Alert delivery.** Keep dropping alerts over the hourly cap, and show the dropped count beside the rule. A queue that drains hours later delivers stale alarms, which are worse than a visible count.
+7. **Training export.** Keep the over-redacting rule: a training set that leaks a secret cannot be recalled, while one that loses a line of code can be regenerated. The dead `./training` export is gone, and `package-exports.test.ts` checks that every export resolves.
+8. **LAN exposure.** Bind 127.0.0.1 by default everywhere: dev, demo and the systemd web unit. The LAN is an opt-in from the Phone tab, with the warning spelled out. A no-login dashboard that can push commits and type into tmux must not be reachable by default from anything that joins the wifi. This one blocks the merge.
+9. **Tablet breakpoint at 1024 px.** Fine as shipped.
+10. **4004, measured watts.** Pre-aggregate in the sampler. Subtract idle draw and show idle as the node's standing cost. Sum GPUs per node until nvidia-smi gives us a per-process mapping. Per-row joins at request time would put us back where the tokens route was.
+11. **4010 follow-ups.** All three accepted as shipped.
+12. **npm publishing.** CI is the only publisher. 3970's blocker is closed as moot, and no local token is minted. `make publish` now bumps, commits and tags; pushing the tag publishes. One publishing path, one place a token lives.
+13. **Monetization.** Nothing, for now. Fund it from the products that are products and keep unfirehose a gift. Revisit only if someone asks to pay for hosting or support, the two honest things to sell. Reach first, which is exactly what batch three is.
