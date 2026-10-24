@@ -311,7 +311,7 @@ Decisions for fox:
 
 ## Decisions for fox, all items
 
-1. Aider, Cursor and OpenCode are still documented only. Aider keeps its history in each repo, so which repos to scan needs a decision. Cursor and OpenCode store sessions in a shape that changes between releases.
+1. Cursor and OpenCode are still documented only: they store sessions in a shape that changes between releases. Aider is decided and ingested (see "Outcome: Aider").
 2. (none)
 3. Lint and budget jobs are red on arrival: fix the code, or raise the budgets?
 4. Should `DELETE /sessions/:id` (kill session) be fixed inside the boundary? Should an upgrade keep unsandbox off until someone turns it on?
@@ -364,3 +364,71 @@ Decisions for fox:
 - There is no origin check on any other mutating route. Only `POST /api/lan` has one. A page on another site can still POST to `localhost:3000` (git push, tmux keystrokes) from the browser on this machine. That is a wider defect than LAN exposure and worth its own ticket.
 - The unsandbox bootstrap script (`integrations/unsandbox/NodePage.tsx`) still runs a bare `npx next start` inside the remote container, where the unsandbox port mapping decides. It was left as is.
 - `next dev` warns about cross-origin HMR when opened by a LAN address once opted in (`allowedDevOrigins`), as noted under item 9.
+
+## Outcome: Aider (fox's decision)
+
+fox decided: scan only the roots of projects we already ingest. Aider is now
+ingested.
+
+- **Where we look.** `db/project-roots.ts` `knownProjectRoots(db)` returns every
+  `projects.path` and `last_cwd_seen` that exists, plus the git root above it
+  when it is a subdirectory (Aider writes its log in the git root). The walk
+  stops below `$HOME`. Nothing crawls the home directory. A repo is searched
+  only after some harness we read has worked in it.
+- **Registry.** Aider gets `format: 'aider-history'` (in `FOREIGN_FORMATS`) and
+  `repoFile: '.aider.chat.history.md'`. It has no entry in `HARNESS_ROOTS`, since
+  it has no root of its own. The registry test now requires each ingested
+  harness to have exactly one of a `HARNESS_ROOTS` entry or a `repoFile`
+  (today that is Aider alone). A comment there explains why.
+  `foreignSessionFiles('aider-history', root)` checks one file with a stat
+  and never lists a directory.
+- **Reader** (`aider-adapter.ts`, `ingestAiderFile` in `db/ingest-foreign.ts`).
+  - Each `# aider chat started at` header starts a session in project
+    `aider:<slug>`, where the slug comes from the root the file is in.
+  - `#### ` lines are prompts. A reply is the text between them. Each
+    SEARCH/REPLACE edit becomes an `Edit` tool call (`file_path`,
+    `old_string`, `new_string`), and `> Applied edit to <file>` becomes its
+    result.
+  - Other `> ` lines are kept verbatim as system messages with
+    `subtype: aider-output`.
+  - The model comes from `Main model:` / `Model:` / `Models:` lines and the
+    version from `Aider vX`.
+  - Inside a reply, only Aider's own hard-broken lines (trailing two spaces)
+    outside a code fence count as markers. A quote or a heading in a reply
+    stays part of the reply.
+- **Tokens.** `Tokens: 4.4k sent, 2.1k cache write, 3.2k cache hit, 312
+  received.` is read as printed, so "4.4k" becomes 4400. A message with any
+  rounded figure gets the new column `messages.tokens_approx = 1`. No
+  precision is invented. Cache hits and writes are booked beside "sent", not
+  subtracted from it, matching Aider's own cost arithmetic.
+- **Times.** The header gives local time with no zone. Prompts take their time
+  from `.aider.input.history` (matched by text, in order, after the run's
+  start). Every other message takes the latest time known before it, so times
+  never run backwards.
+- **Incremental.** The file is append-only, so it is read from a byte offset
+  that always sits on an item's first line, with the open run's state stored
+  in `reader_state`. While the file moved within the last 30 s, the newest
+  turn (its prompt onward) waits, so its `Tokens:` line lands with its reply.
+  A file shorter than our offset (cleared) is read again from the start.
+  Message ids are `aider:<session>:<offset from header>`. The session id is
+  sha256 of the path, the header's offset and its time, so a cleared and
+  rewritten log does not collide with what was read before.
+- **Detection.** `detectHarnesses({ projectRoots })`. `/api/onboarding` (wizard,
+  Settings) passes our projects' roots, and `make doctor` reads them through
+  a read-only handle on the database. With no database, Aider reads as not
+  found.
+- **Demo, docs.** `make demo` has 25 sessions, one of them Aider's, with rounded,
+  approximate counts. The fixture is `test/fixtures/harnesses/aider/demo-api/`
+  (two runs, an edit, a `<blank>` input, look-alike markers). The adapter
+  doc, the schema READMEs and `docs/jsonl-schema.md` say Supported.
+
+Decisions to review:
+- A system message per run of `> ` lines keeps Aider's output (commits,
+  "Added x to the chat", warnings) visible in the viewer. The other option was
+  to drop it.
+- A `Tokens:` line that arrives a pass after its reply has already landed is
+  lost. That happens only if Aider paused more than 30 s between the two.
+- Aider prints no per-message model in architect mode. Replies are booked to
+  the main model.
+- `/run` and `/add` stay as prompt text and are not turned into tool calls:
+  the person ran them, not the agent, so the action ledger does not count them.
