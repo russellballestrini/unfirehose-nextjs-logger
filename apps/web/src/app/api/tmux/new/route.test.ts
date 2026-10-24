@@ -58,6 +58,20 @@ describe('POST /api/tmux/new', () => {
     expect(calls[0].args[5]).toBe(`tmux new-session -d -s remote -c '/srv' -x 220 -y 50 'echo '\\''hi'\\'''`);
   });
 
+  it('keeps a remote working directory one word for the far shell, quotes and newlines included', async () => {
+    await open({ name: 'r', host: 'node-1.lan', cwd: "/srv/it's" });
+    expect(calls[0].args[5]).toBe(`tmux new-session -d -s r -c '/srv/it'\\''s' -x 220 -y 50 'zsh || bash'`);
+    calls.length = 0;
+    await open({ name: 'r', host: 'node-1.lan', cwd: "/srv'\ntouch /tmp/pwned" });
+    expect(calls[0].args[5]).not.toContain('-c');
+  });
+
+  it('refuses a host ssh would read as an option', async () => {
+    const res = await open({ name: 'ok', host: '-Fevil' });
+    expect((await res.json()).error).toMatch(/Invalid hostname/);
+    expect(calls).toEqual([]);
+  });
+
   it('refuses a missing name, a name tmux or a shell would misread, and a bad host', async () => {
     const missing = await open({});
     expect(missing.status).toBe(400);
