@@ -56,21 +56,40 @@ async function readRaplWatts(): Promise<number | null> {
   const read1 = await readAll();
   await sleep(100);
   const read2 = await readAll();
+  return raplWatts(read1, read2, 0.1);
+}
+
+/**
+ * Watts from two reads of every package's energy_uj, `intervalS` apart.
+ * Null when any package could not be read either time: a partial sum would
+ * understate the machine. Each counter is 32 bits and wraps.
+ */
+export function raplWatts(read1: (string | null)[], read2: (string | null)[], intervalS: number): number | null {
   let totalUj = 0;
-  for (let i = 0; i < packages.length; i++) {
+  for (let i = 0; i < read1.length; i++) {
     if (read1[i] === null || read2[i] === null) return null;
     let delta = parseInt(read2[i]!) - parseInt(read1[i]!);
     if (delta < 0) delta += 2 ** 32; // counter wrapped
     totalUj += delta;
   }
-  // Microjoules over 0.1 s to watts: uj / (interval_s * 1e6).
-  return round(totalUj / (0.1 * 1e6));
+  // Microjoules over the interval to watts: uj / (interval_s * 1e6).
+  return round(totalUj / (intervalS * 1e6));
 }
 
+export interface NvidiaReading { watts: number | null; model?: string; memTotalMB?: number; memUsedMB?: number; util?: number }
+
 /** One nvidia-smi call carries power and utilisation for every GPU. */
-async function readNvidia(): Promise<{ watts: number | null; model?: string; memTotalMB?: number; memUsedMB?: number; util?: number }> {
-  const out = await run('nvidia-smi', ['--query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits']);
-  const r: { watts: number | null; model?: string; memTotalMB?: number; memUsedMB?: number; util?: number } = { watts: null };
+async function readNvidia(): Promise<NvidiaReading> {
+  return parseNvidiaSmi(await run('nvidia-smi', ['--query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits']));
+}
+
+/**
+ * `nvidia-smi --query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu
+ * --format=csv,noheader,nounits`, one line per GPU: power and memory summed
+ * across cards, utilisation the busiest card's, the model the first card's.
+ */
+export function parseNvidiaSmi(out: string | null): NvidiaReading {
+  const r: NvidiaReading = { watts: null };
   if (!out) return r;
   let watts = 0;
   for (const line of out.split('\n')) {
