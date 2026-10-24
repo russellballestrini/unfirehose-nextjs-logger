@@ -97,7 +97,9 @@ coverage:
 # in the same change, so CI fails only on a regression.
 # crap: 20728 before batch three's pay-down, 18634 after its tests, 22097
 # once Aider, energy attribution and credential alerts landed with them.
-CRAP_BUDGET  ?= 22097
+# CI's runner is the reading that counts: 22115 there, 18 above a local run
+# of the same commit (coverage of a few timing-dependent paths differs).
+CRAP_BUDGET  ?= 22115
 # Duplication: 3680 redundant tokens before batch three folded 23 clones
 # into shared code, 2002 with the new readers in.
 DUPE_BUDGET  ?= 2002
