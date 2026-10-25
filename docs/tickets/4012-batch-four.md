@@ -128,6 +128,41 @@ reject deltas above the hardware's ceiling, and derive requests per day from
 the request counter, not the token one. This is the $/1000 answers metric
 the Prime Mission measures by; today it cannot be trusted.
 
+### 13. Attribution charges our sessions for the public lane's energy
+In a 15-minute bucket where any session of ours ran, `splitActive` hands the
+bucket's whole above-idle energy to our groups; public traffic in the same
+bucket has no rows to receive its share. Measured on the exl3 period, which
+overlapped the public endpoint: 1,613 Wh per million output tokens against
+727 for the whole Qwen history and about 1,400 from first principles at
+70 tokens a second, so our per-token numbers are inflated wherever the lanes
+shared the GPU. Fix needs a per-lane token count per bucket, which only the
+serving side has: see item 14. Until then, `measured` should be downgraded to
+`shared` in any bucket where the vLLM counters show more prompt tokens than
+our messages account for.
+
+### 14. Outputs, dollar for dollar and watt for watt
+The sampler reads vLLM's prefix-cache token counter and nothing else, so
+output tokens are estimated from our own prompt-heavy ratio (1 to 1.4 % of
+prompt), which public chat and agent traffic will not match. Sample
+`prompt_tokens_total`, `generation_tokens_total` and `num_requests_running`
+from `/metrics`, store them beside the cache counters, and derive per-day
+prompt, output and request counts per model with deltas rejected above the
+hardware ceiling (item 12). Then the node ledger can split each bucket's
+energy into input and output watt-hours by measured GPU-seconds, and the
+dashboard can price the public lane's outputs at market beside our
+electricity, per million tokens each way.
+
+### 15. Usage events from a key-holding proxy
+fox plans a proxy, as for unhomeschool and the unsandbox portal, that holds
+the upstream key so `uncloseai.js` reaches a blessed endpoint by default
+while still allowing a caller's own endpoint. Define and ingest the event
+that proxy would emit per request: lane (owner, keyed, anonymous), key id or
+null, model, prompt and output tokens, cache hits, latency, status, and the
+node that served it. Lands as unfirehose/1.0 messages under a `proxy`
+harness so cost, energy and the Savings panel see it, and gives item 13 its
+per-lane split. The proxy itself is fox's; this item is the receiving end
+and a fixture-driven test for the event shape.
+
 ## Decisions fox owns
 Cursor and OpenCode readers stay off until their formats hold still.
 Monetization direction is unchanged: none. unsandbox remains behind its
