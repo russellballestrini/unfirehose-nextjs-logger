@@ -14,6 +14,7 @@ export default function SchemaPage() {
   // the harness section in Settings link to a harness's adapter doc this way.
   useEffect(() => {
     const doc = new URLSearchParams(window.location.search).get('doc');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the query string exists only in the browser, after hydration
     if (doc && /^[\w./-]+\.md$/.test(doc) && !doc.includes('..')) setSelectedFile(doc);
   }, []);
   const { data: index } = useSWR('/api/schema', fetcher);

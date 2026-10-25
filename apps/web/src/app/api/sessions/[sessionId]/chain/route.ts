@@ -74,6 +74,9 @@ export async function GET(
       return NextResponse.json({ error: 'project query param required for live=1' }, { status: 400 });
     }
     const { adapter, slug } = harnessFor(project);
+    // A harness in a format of its own (Codex, Gemini CLI, Continue) is not
+    // chained and has no session file to verify live; what ingest recorded stands.
+    if (adapter.stored) return NextResponse.json({ ...body, live: null });
     const filePath = adapter.sessionFile(slug, sessionId);
     let text: string;
     try {

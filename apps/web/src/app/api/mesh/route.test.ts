@@ -3,6 +3,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 
+/** The fields these tests read off a node in our mesh payload. */
+type MeshRow = { hostname: string; reachable: boolean };
+
 /**
  * The mesh summary: every node at once, and the totals across them.
  *
@@ -166,7 +169,7 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     expect(completed).toBe(0);
     expect(res.headers.get('X-Mesh-Source')).toBe('snapshots');
     const body = await res.json();
-    expect(body.nodes.find((n: any) => n.hostname === 'cammy.foxhop.net')).toMatchObject({
+    expect(body.nodes.find((n: MeshRow) => n.hostname === 'cammy.foxhop.net')).toMatchObject({
       reachable: true, cpuCores: 16, loadAvg: [2.5, 1.2, 0.9], memTotalGB: 32,
     });
     expect(body.summary).toMatchObject({ totalNodes: 2, reachableNodes: 2, totalCores: 24 });
@@ -195,7 +198,7 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     expect(age).toBeLessThan(23_000);
     // What moves comes from the row; what does not comes from the stored
     // facts — and uptime kept counting since they were read.
-    const me = body.nodes.find((n: any) => n.hostname === 'neoblanka');
+    const me = body.nodes.find((n: MeshRow) => n.hostname === 'neoblanka');
     expect(me).toMatchObject({ cpuModel: 'EPYC 7443', cpuYear: 2021, cpuTdpWatts: 200, spinningDisks: 2, ssdCount: 1, cpuCores: 8, memTotalGB: 32, memUsedGB: 10 });
     expect(me.uptimeSeconds).toBeGreaterThanOrEqual(86_460);
     // A sample that missed nvidia-smi keeps the card and its capacity — a
@@ -212,7 +215,7 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     seedSnapshot('ryu', 5);
     seedFacts('ryu', { cpuModel: 'i5-8400' }, { alias: 'ai-3060.foxhop.net' });
     const body = await (await get('')).json();
-    expect(body.nodes.map((n: any) => [n.hostname, n.reachable])).toEqual([['neoblanka', true], ['ryu', true]]);
+    expect(body.nodes.map((n: MeshRow) => [n.hostname, n.reachable])).toEqual([['neoblanka', true], ['ryu', true]]);
     expect(body.nodes[1].cpuModel).toBe('i5-8400');
   });
 
@@ -229,7 +232,7 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     seedSnapshot('neoblanka', 3);
 
     const body = await (await get('')).json();
-    expect(body.nodes.map((n: any) => n.hostname)).toEqual([
+    expect(body.nodes.map((n: MeshRow) => n.hostname)).toEqual([
       'neoblanka', 'cammy.foxhop.net', 'guile.foxhop.net', 'blanka.foxhop.net',
       // Still sampled, no longer configured: after the fleet, not shuffled into it.
       'ghost.foxhop.net',
@@ -244,10 +247,10 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     const body = await (await get('')).json();
     expect(probeOrder).toEqual([]);
     // The way a failed probe reports it, with when it was last heard from.
-    const cammy = body.nodes.find((n: any) => n.hostname === 'cammy.foxhop.net');
+    const cammy = body.nodes.find((n: MeshRow) => n.hostname === 'cammy.foxhop.net');
     expect(cammy.reachable).toBe(false);
     expect(cammy.error).toMatch(/^Last sample .* ago$/);
-    const guile = body.nodes.find((n: any) => n.hostname === 'guile.foxhop.net');
+    const guile = body.nodes.find((n: MeshRow) => n.hostname === 'guile.foxhop.net');
     expect(guile).toMatchObject({ reachable: false, error: 'No sample yet' });
     // Counted as present, not as answering: zeros would read as idle.
     expect(body.summary).toMatchObject({ totalNodes: 3, reachableNodes: 1, totalCores: 8 });
@@ -271,7 +274,7 @@ describe('GET /api/mesh from the worker\'s snapshots', () => {
     expect(res.headers.get('X-Mesh-Source')).toBe('live');
     expect(probeOrder).toContain('cammy.foxhop.net');
     const body = await res.json();
-    expect(body.nodes.find((n: any) => n.hostname === 'neoblanka').cpuCores).toBe(32);
-    expect(body.nodes.find((n: any) => n.hostname === 'cammy.foxhop.net').reachable).toBe(false);
+    expect(body.nodes.find((n: MeshRow) => n.hostname === 'neoblanka').cpuCores).toBe(32);
+    expect(body.nodes.find((n: MeshRow) => n.hostname === 'cammy.foxhop.net').reachable).toBe(false);
   });
 });

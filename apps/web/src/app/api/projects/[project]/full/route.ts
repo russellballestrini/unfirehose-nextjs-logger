@@ -3,6 +3,7 @@ import { getDb } from '@unturf/unfirehose/db/schema';
 import { costForUsage } from '@unturf/unfirehose/pricing';
 import { ensurePricingHydrated } from '@unturf/unfirehose/pricing-sync';
 import { TOOL_CALL_SQL } from '@unturf/unfirehose/block-types';
+import { blockTextSql } from '@unturf/unfirehose/db/block-cold';
 import { OPEN_TODO_SQL } from '@unturf/unfirehose/db/session-facts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -99,17 +100,19 @@ export async function GET(
       LIMIT 30
     `).all(proj.id) as any[];
 
-    // Recent prompts (last 10 user messages that aren't system/synthetic)
+    // Recent prompts (last 10 user messages that aren't system/synthetic).
+    // Through blockTextSql: a quiet project's last prompts may be cold.
+    const CBT = blockTextSql('cb');
     const prompts = db.prepare(`
-      SELECT m.timestamp, cb.text_content, s.session_uuid, s.display_name as session_display, m.model
+      SELECT m.timestamp, ${CBT} AS text_content, s.session_uuid, s.display_name as session_display, m.model
       FROM messages m
       JOIN sessions s ON m.session_id = s.id
       JOIN content_blocks cb ON cb.message_id = m.id AND cb.block_type = 'text'
       WHERE s.project_id = ? AND m.type = 'user'
-        AND cb.text_content NOT LIKE '%[Request interrupted%'
-        AND cb.text_content NOT LIKE '%<system%'
-        AND cb.text_content NOT LIKE '%{"type"%'
-        AND length(cb.text_content) > 10
+        AND ${CBT} NOT LIKE '%[Request interrupted%'
+        AND ${CBT} NOT LIKE '%<system%'
+        AND ${CBT} NOT LIKE '%{"type"%'
+        AND length(${CBT}) > 10
       ORDER BY m.timestamp DESC LIMIT 10
     `).all(proj.id) as any[];
 

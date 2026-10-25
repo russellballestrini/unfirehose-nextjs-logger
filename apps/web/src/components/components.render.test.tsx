@@ -96,6 +96,14 @@ const PROPS = {
   harnesses: [], filter: '', setFilter: vi.fn(), statuses: {}, header: null,
 } as Record<string, unknown>;
 
+// What a page or component does here is fixed; how long it takes is not.
+// The first test in a file pays for compiling its whole module graph:
+// 0.9 s for TodoBoard.tsx on an idle four-core box and 16 s with every
+// suite at once beside 24 busy processes on two cores (2026-10-23), where
+// a page in render.smoke took 71 s, past this config's 30 s. Every test that loads a module gets a deadline sized
+// for that box with room to spare; one that hangs still fails.
+const LOAD_DEADLINE_MS = 180_000;
+
 describe('every shared component mounts', () => {
   it('finds them, so this cannot quietly cover nothing', () => {
     expect(Object.keys(modules).length).toBeGreaterThan(3);
@@ -116,6 +124,6 @@ describe('every shared component mounts', () => {
         cleanup();
       }
       expect(true).toBe(true);
-    });
+    }, LOAD_DEADLINE_MS);
   }
 });

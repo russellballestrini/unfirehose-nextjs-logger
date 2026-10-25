@@ -3,7 +3,9 @@
 import { GaugeTrack, UTILISATION } from '@unturf/unfirehose-ui/Gauge';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { formatBytes } from '@unturf/unfirehose/format';
-import { Badge, cores, vmMem } from './shared';
+import { sumOf } from '@unturf/unfirehose/num';
+import { unescapeMachineName } from '@/lib/machine-name';
+import { Badge, cores, tile, vmMem } from './shared';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -13,11 +15,6 @@ const VM_STATE_COLORS: Record<string, string> = {
   'shut off': '#71717a', 'powered off': '#71717a', crashed: '#f87171', dying: '#f87171', idle: '#60a5fa',
 };
 const HYPERVISOR_LABEL: Record<string, string> = { qemu: 'QEMU', xen: 'Xen', virtualbox: 'VirtualBox' };
-
-/** systemd's unit escaping, undone: `qemu\x2d38\x2dname` reads `qemu-38-name`. Same as node-probe's, kept here so this client file does not import the server-side parser module. */
-function unescapeMachineName(v: string): string {
-  return v.replace(/\\x([0-9a-fA-F]{2})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)));
-}
 
 /**
  * Virtual machines on this host: QEMU/KVM, Xen and VirtualBox guests, as the
@@ -43,19 +40,11 @@ export function VirtualMachinesSection({ vms, containers, hostCores, hostMemByte
   const running = vms.filter((v) => v.state === 'running');
   const stateCounts = new Map<string, number>();
   for (const v of vms) stateCounts.set(v.state, (stateCounts.get(v.state) ?? 0) + 1);
-  const vcpus = running.reduce((s, v) => s + (v.vcpus ?? 0), 0);
-  const memMB = running.reduce((s, v) => s + (v.memMB ?? 0), 0);
-  const hostCpu = running.reduce((s, v) => s + (v.cpuPct ?? byId.get(v.containerId)?.resources?.cpuPct ?? 0), 0);
-  const hostRss = running.reduce((s, v) => s + (v.rssKB != null ? v.rssKB * 1024 : byId.get(v.containerId)?.resources?.memUsed ?? 0), 0);
+  const vcpus = sumOf(running, (v) => v.vcpus);
+  const memMB = sumOf(running, (v) => v.memMB);
+  const hostCpu = sumOf(running, (v) => v.cpuPct ?? byId.get(v.containerId)?.resources?.cpuPct);
+  const hostRss = sumOf(running, (v) => v.rssKB != null ? v.rssKB * 1024 : byId.get(v.containerId)?.resources?.memUsed);
   const hvs = [...new Set(vms.map((v) => v.hypervisor))];
-
-  const tile = (label: string, value: string, sub?: string) => (
-    <div key={label} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
-      <div className="text-lg font-mono leading-tight">{value}</div>
-      {sub && <div className="text-[10px] text-[var(--color-muted)]">{sub}</div>}
-    </div>
-  );
 
   return (
     <div className="space-y-3">

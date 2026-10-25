@@ -6,7 +6,7 @@ import { humanDelta } from '@unturf/unfirehose/ago';
 import { formatBytes } from '@unturf/unfirehose/format';
 import { Donut } from '@/components/Donut';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
-import { Badge, Pressure, ResourceBar, Section, containerStatus, cores, type TabProps } from './shared';
+import { Badge, Pressure, ResourceBar, Section, containerStatus, cores, tile, type TabProps } from './shared';
 import { VirtualMachinesSection } from './virtual-machines';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -144,14 +144,6 @@ export function ContainersTab(props: TabProps) {
 
   const openCount = filtered.reduce((n, c) => n + (expanded.has(c.id) ? 1 : 0), 0);
   const anyOpen = openCount > 0;
-
-  const tile = (label: string, value: string, sub?: string) => (
-    <div key={label} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
-      <div className="text-lg font-mono leading-tight">{value}</div>
-      {sub && <div className="text-[10px] text-[var(--color-muted)]">{sub}</div>}
-    </div>
-  );
 
   return (
     <div className="space-y-6">

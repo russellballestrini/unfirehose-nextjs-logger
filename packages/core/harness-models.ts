@@ -11,6 +11,8 @@
 // adapter per harness: how to ask, and how to read the answer. Parsing lives
 // here (pure, testable); running the command lives in the API route.
 
+import { HARNESS_REGISTRY } from './harness-registry';
+
 export interface HarnessModel {
   /** Model id to pass back to the harness, e.g. `qwen/qwen3.8-27b`. */
   id: string;
@@ -143,19 +145,12 @@ export interface HarnessChoice {
   cmd: string;
 }
 
+// From the registry, in the order the boot panel has always shown them.
 export const HARNESSES: HarnessChoice[] = [
-  { value: 'claude',    label: 'Claude Code',   cmd: 'claude' },
-  { value: 'uncloseai', label: 'uncloseai-cli', cmd: 'unclose' },
-  { value: 'gemini',    label: 'Gemini CLI',    cmd: 'gemini' },
-  { value: 'codex',     label: 'Codex CLI',     cmd: 'codex' },
-  { value: 'open-code', label: 'Open Code',     cmd: 'opencode' },
-  { value: 'aider',     label: 'Aider',         cmd: 'aider' },
-  { value: 'agnt',      label: 'agnt',          cmd: 'agnt' },
-  { value: 'cursor',    label: 'Cursor',        cmd: 'cursor' },
-  { value: 'continue',  label: 'Continue',      cmd: 'continue' },
-  { value: 'ollama',    label: 'Ollama',        cmd: 'ollama' },
-  { value: 'fetch',     label: 'Fetch',         cmd: 'fetch' },
-  { value: 'custom',    label: 'Custom...',     cmd: '' },
+  ...HARNESS_REGISTRY.filter((h) => h.launch)
+    .sort((x, y) => x.launch!.rank - y.launch!.rank)
+    .map((h) => ({ value: h.launch!.key, label: h.launch!.label ?? h.label, cmd: h.launch!.cmd })),
+  { value: 'custom', label: 'Custom...', cmd: '' },
 ];
 
 /** Executable for a harness key, or the custom command when one is given. */
@@ -165,14 +160,9 @@ export function harnessCommand(harness: string, customCmd?: string): string {
 }
 
 /** Harnesses that accept a model argument, and the flag they use. */
-export const HARNESS_MODEL_FLAGS: Record<string, string> = {
-  uncloseai: '--model',
-  claude: '--model',
-  gemini: '--model',
-  codex: '--model',
-  aider: '--model',
-  ollama: '',   // model is a positional arg, not a flag
-};
+export const HARNESS_MODEL_FLAGS: Record<string, string> = Object.fromEntries(
+  HARNESS_REGISTRY.filter((h) => h.launch?.modelFlag !== undefined).map((h) => [h.launch!.key, h.launch!.modelFlag!]),
+);
 
 /**
  * How a harness is handed its task, and how it is asked to stay open.

@@ -4,9 +4,16 @@
 # Serves the built app (`make build` first). The dashboard reads payloads the
 # worker stores, so it stays useful, if stale, while the worker restarts;
 # the two units are therefore independent rather than chained.
+#
+# Listens on 127.0.0.1 only. `npm run start` is apps/web/scripts/serve.mjs,
+# which adds `-H` from $UNFIREHOSE_DIR/web-bind.json (Settings → Phone) or
+# UNFIREHOSE_HOST: our dashboard has no login. After an opt-in:
+#   make service-restart
+# To pin it here instead, uncomment (UNFIREHOSE_HOST decides alone):
+#Environment=UNFIREHOSE_HOST=127.0.0.1
 
 [Unit]
-Description=unfirehose web: dashboard on :3000
+Description=unfirehose web: dashboard on 127.0.0.1:3000 (Settings → Phone opens it to the network)
 Documentation=file://@REPO@/CLAUDE.md
 After=network-online.target
 Wants=network-online.target

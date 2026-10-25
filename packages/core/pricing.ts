@@ -793,6 +793,26 @@ export function selfHostCostSplit(
   return kwh * getKwhRate();
 }
 
+/**
+ * Estimated GPU-seconds a token mix took, the key measured energy is split
+ * by when several models, projects or harnesses share a node's draw (ticket
+ * 4004). Decode costs ~30x a prefill token and a cache read a tenth of that,
+ * so splitting by raw token count would hand a cache-heavy agent loop the
+ * power bill of the model that was actually generating. A model with no
+ * hardware hint is weighed on the 3090 profile: the ratio between token
+ * kinds matters here, not the absolute seconds.
+ */
+export function selfHostWeight(
+  model: string,
+  input: number,
+  output: number,
+  cacheRead: number,
+  cacheWrite: number,
+): number {
+  const hw = SELF_HOST_HARDWARE[hardwareForModel(model) ?? '3090'] ?? SELF_HOST_HARDWARE['3090'];
+  return selfHostSeconds(hw, input, output, cacheRead, cacheWrite);
+}
+
 /** Legacy total-only form. Treats every token as decode — an upper bound. */
 export function selfHostCost(model: string, totalTokens: number): number {
   if (!totalTokens) return 0;

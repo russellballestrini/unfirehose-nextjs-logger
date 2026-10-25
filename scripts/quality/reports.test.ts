@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { ROOT } from './workspaces.ts';
+import { loadCoverage } from './coverage.ts';
 
 /**
  * The reports themselves run.
@@ -17,6 +18,39 @@ import { ROOT } from './workspaces.ts';
  * of that file is what a later run reads back, and what the Makefile's
  * `report` target leaves behind.
  */
+
+/**
+ * Half of these read what a coverage run left on disk: the CRAP score is
+ * complexity weighed by how much of each function ran, and the coverage
+ * report is that measurement summed. A fresh clone has none, so on one they
+ * cannot pass and have nothing to say — they skip, and say why in their
+ * name. CI runs them for real: the GitHub workflow downloads the coverage
+ * the core, ui and web jobs measured and sets UNFIREHOSE_REQUIRE_COVERAGE=1,
+ * under which a missing measurement fails here instead of skipping, so a
+ * broken hand-off cannot turn into a quietly green suite. GitLab's
+ * `make quality-gate` measures every workspace before this one runs.
+ */
+const measured = loadCoverage().found.length > 0;
+const required = process.env.UNFIREHOSE_REQUIRE_COVERAGE === '1';
+const NO_COVERAGE = 'skipped: no coverage on disk, run `make coverage` first';
+const withCoverage = (title: string, fn: () => unknown, timeout?: number) =>
+  measured || required ? it(title, fn, timeout) : it.skip(`${title} (${NO_COVERAGE})`, fn, timeout);
+
+/**
+ * What a report call does is fixed; how long it takes is not. Each walks
+ * and parses every source file in the repo: 4 to 8 s on an idle four-core
+ * box, and 130 s for report-cc, 95 s for report-dupes with the suites run
+ * at once beside 24 busy processes on two cores (2026-10-23) — the same
+ * 50 to 120 s that failed `make test` on a busy box the day before, against
+ * this config's 60 s. Every test that runs a whole report gets a deadline
+ * sized for that box, with room to spare; one that hangs still fails.
+ */
+const REPORT_DEADLINE_MS = 300_000;
+if (!measured && !required) console.warn(`reports.test.ts: coverage-reading tests ${NO_COVERAGE}`);
+
+it.runIf(required)('finds the coverage CI promised it', () => {
+  expect(measured, 'UNFIREHOSE_REQUIRE_COVERAGE=1 but no workspace has coverage/coverage-final.json').toBe(true);
+});
 
 let out: string;
 const quiet = { log: console.log, error: console.error };
@@ -47,7 +81,7 @@ describe('report-cc', () => {
     for (let i = 1; i < 50; i += 1) {
       expect(report.functions[i - 1].complexity).toBeGreaterThanOrEqual(report.functions[i].complexity);
     }
-  });
+  }, REPORT_DEADLINE_MS);
 
   it('narrows to one workspace when asked', async () => {
     const { main } = await import('./report-cc.ts');
@@ -55,7 +89,7 @@ describe('report-cc', () => {
     for (const fn of read('cc-core.json').functions) {
       expect(fn.path.startsWith('packages/core')).toBe(true);
     }
-  });
+  }, REPORT_DEADLINE_MS);
 });
 
 describe('report-dupes', () => {
@@ -70,7 +104,7 @@ describe('report-dupes', () => {
       expect(clone.instances.length).toBeGreaterThan(1);
       expect(clone.tokens).toBeGreaterThanOrEqual(120);
     }
-  });
+  }, REPORT_DEADLINE_MS);
 });
 
 describe('report-orphans', () => {
@@ -86,20 +120,20 @@ describe('report-orphans', () => {
     // a future orphan fails here rather than waiting to be noticed.
     expect(report.orphaned).toEqual([]);
     expect(report.deadFunctions).toEqual([]);
-  });
+  }, REPORT_DEADLINE_MS);
 });
 
 describe('report-crap', () => {
-  it('scores every function it measured and writes them worst first', async () => {
+  withCoverage('scores every function it measured and writes them worst first', async () => {
     const { main } = await import('./report-crap.ts');
     main(['--json', jsonAt('crap.json')]);
     const r = read('crap.json');
     expect(r.functions.length).toBeGreaterThan(1000);
     const craps = r.functions.map((f: { crap: number }) => f.crap);
     expect([...craps].sort((a: number, b: number) => b - a)).toEqual(craps);
-  });
+  }, REPORT_DEADLINE_MS);
 
-  it('scores a fully covered function at exactly its complexity', () => {
+  withCoverage('scores a fully covered function at exactly its complexity', () => {
     // This is the property the whole metric rests on, and it is why the
     // total can never fall below the sum of our complexity. Asserted against
     // the real report rather than a fixture, so a change to the formula that
@@ -110,34 +144,34 @@ describe('report-crap', () => {
     for (const f of covered.slice(0, 200)) expect(f.crap).toBe(f.complexity);
   });
 
-  it('never scores a function below its own complexity', () => {
+  withCoverage('never scores a function below its own complexity', () => {
     const r = read('crap.json');
     for (const f of r.functions) expect(f.crap).toBeGreaterThanOrEqual(f.complexity);
   });
 
-  it('carries the threshold it judged by, and counts what failed it', () => {
+  withCoverage('carries the threshold it judged by, and counts what failed it', () => {
     // The number is meaningless without the threshold that produced it.
     const r = read('crap.json');
     expect(typeof r.threshold).toBe('number');
     expect(r.over).toBe(r.functions.filter((f: { crap: number }) => f.crap > r.threshold).length);
   });
 
-  it('reports a total that is the sum of what it wrote', async () => {
+  withCoverage('reports a total that is the sum of what it wrote', async () => {
     const { main } = await import('./report-crap.ts');
     main(['--json', jsonAt('crap-total.json')]);
     const r = read('crap-total.json');
     const sum = r.functions.reduce((a: number, f: { crap: number }) => a + f.crap, 0);
     expect(r.total).toBeCloseTo(sum, 6);
-  });
+  }, REPORT_DEADLINE_MS);
 
-  it('honours a threshold given on the command line', async () => {
+  withCoverage('honours a threshold given on the command line', async () => {
     const { main } = await import('./report-crap.ts');
     main(['--threshold', '9999', '--json', jsonAt('crap-high.json')]);
     expect(read('crap-high.json').threshold).toBe(9999);
     expect(read('crap-high.json').over).toBe(0);
-  });
+  }, REPORT_DEADLINE_MS);
 
-  it('refuses a budget when a workspace was not measured', async () => {
+  withCoverage('refuses a budget when a workspace was not measured', async () => {
     // A workspace with no report on disk is silently not scored, and its
     // complexity leaves the total with it — which reads as an improvement.
     // This report once showed 9,778 instead of 10,366 because one of four
@@ -158,7 +192,7 @@ describe('report-crap', () => {
     expect(exit).not.toHaveBeenCalled();
     spy.mockRestore();
     exit.mockRestore();
-  });
+  }, REPORT_DEADLINE_MS);
 
   it('refuses rather than reporting zeros when there is no coverage', async () => {
     // A report of 0% coverage and a report of no measurement look identical
@@ -172,11 +206,11 @@ describe('report-crap', () => {
     expect(exit).toHaveBeenCalledWith(1);
     spy.mockRestore();
     exit.mockRestore();
-  });
+  }, REPORT_DEADLINE_MS);
 });
 
 describe('report-coverage', () => {
-  it('writes covered-of-total per workspace, not a percentage', async () => {
+  withCoverage('writes covered-of-total per workspace, not a percentage', async () => {
     // A percentage cannot be added up. Keeping both numbers is what lets
     // the overall figure be recomputed rather than averaged — averaging
     // workspace percentages weights a 40-file package the same as a 400.
@@ -190,9 +224,9 @@ describe('report-coverage', () => {
         expect(w[metric].covered).toBeGreaterThanOrEqual(0);
       }
     }
-  });
+  }, REPORT_DEADLINE_MS);
 
-  it('reports an overall figure that is the sum of the parts', async () => {
+  withCoverage('reports an overall figure that is the sum of the parts', async () => {
     const r = read('coverage.json');
     for (const metric of ['statements', 'branches', 'functions'] as const) {
       const summed = r.workspaces.reduce(
@@ -201,7 +235,7 @@ describe('report-coverage', () => {
     }
   });
 
-  it('lists the files it measured', async () => {
+  withCoverage('lists the files it measured', async () => {
     const r = read('coverage.json');
     expect(r.files.length).toBeGreaterThan(100);
     expect(r.files[0]).toHaveProperty('path');
@@ -216,7 +250,7 @@ describe('report-coverage', () => {
     expect(() => main([])).toThrow('exit');
     spy.mockRestore();
     exit.mockRestore();
-  });
+  }, REPORT_DEADLINE_MS);
 });
 
 /**
@@ -230,7 +264,7 @@ describe('report-coverage', () => {
 describe('budgets', () => {
   const run = (script: string, args: string[]) => {
     const res = spawnSync('npx', ['tsx', `scripts/quality/${script}`, ...args], {
-      cwd: ROOT, encoding: 'utf-8', timeout: 300_000,
+      cwd: ROOT, encoding: 'utf-8', timeout: REPORT_DEADLINE_MS - 30_000,
     });
     return { code: res.status, out: (res.stdout ?? '') + (res.stderr ?? '') };
   };
@@ -246,29 +280,29 @@ describe('budgets', () => {
     return vi.spyOn(coverage, 'loadCoverage').mockReturnValue({ ...real, missing: [] });
   };
 
-  it('fails the build when crap is over its budget', async () => {
+  withCoverage('fails the build when crap is over its budget', async () => {
     const { main } = await import('./report-crap.ts');
     const spy = await crapWithFullCoverage();
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
     expect(() => main(['--budget', '1'])).toThrow('exit');
     expect(exit).toHaveBeenCalledWith(1);
     spy.mockRestore(); exit.mockRestore();
-  });
+  }, REPORT_DEADLINE_MS);
 
-  it('passes, and says so, when crap is under it', async () => {
+  withCoverage('passes, and says so, when crap is under it', async () => {
     const { main } = await import('./report-crap.ts');
     const spy = await crapWithFullCoverage();
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
     expect(() => main(['--budget', '999999'])).not.toThrow();
     expect(exit).not.toHaveBeenCalled();
     spy.mockRestore(); exit.mockRestore();
-  });
+  }, REPORT_DEADLINE_MS);
 
   it('fails the build when duplication is over its budget', () => {
     const r = run('report-dupes.ts', ['--budget', '1']);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/redundant tokens \d+ is over the budget/);
-  });
+  }, REPORT_DEADLINE_MS);
 
   it('says nothing about budgets when none was asked for', () => {
     // The reports are read by people too, and a number with no budget
@@ -276,5 +310,5 @@ describe('budgets', () => {
     const r = run('report-dupes.ts', []);
     expect(r.code).toBe(0);
     expect(r.out).not.toMatch(/budget/);
-  });
+  }, REPORT_DEADLINE_MS);
 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { jsonError } from '@/lib/json-error';
 import { getDb, UNFIREHOSE_DIR } from '@unturf/unfirehose/db/schema';
 import { createHash } from 'crypto';
 import { mkdirSync, writeFileSync, unlinkSync, existsSync } from 'fs';
@@ -15,12 +16,12 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const todoId = formData.get('todoId');
     if (!todoId) {
-      return NextResponse.json({ error: 'todoId required' }, { status: 400 });
+      return jsonError('todoId required', 400);
     }
 
     const files = formData.getAll('files') as File[];
     if (files.length === 0) {
-      return NextResponse.json({ error: 'no files provided' }, { status: 400 });
+      return jsonError('no files provided', 400);
     }
 
     // Validate sizes before processing
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, attachments });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
 
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
     const url = request.nextUrl;
     const todoId = url.searchParams.get('todoId');
     if (!todoId) {
-      return NextResponse.json({ error: 'todoId required' }, { status: 400 });
+      return jsonError('todoId required', 400);
     }
 
     const db = getDb();
@@ -99,7 +100,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ attachments });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }
 
@@ -109,7 +110,7 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { id } = body;
     if (!id) {
-      return NextResponse.json({ error: 'id required' }, { status: 400 });
+      return jsonError('id required', 400);
     }
 
     // Get the attachment to find its hash before deleting
@@ -118,7 +119,7 @@ export async function DELETE(request: NextRequest) {
     ).get(id) as any;
 
     if (!attachment) {
-      return NextResponse.json({ error: 'attachment not found' }, { status: 404 });
+      return jsonError('attachment not found', 404);
     }
 
     const { hash } = attachment;
@@ -143,6 +144,6 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return jsonError(err.message, 500);
   }
 }

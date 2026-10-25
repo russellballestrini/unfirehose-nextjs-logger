@@ -44,8 +44,8 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
   return (
     <>
     {/* Charts row: activity + hour distribution */}
-    <div className="grid grid-cols-2 gap-4">
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="min-w-0 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Activity ({range})
         </h3>
@@ -58,7 +58,7 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
         />
       </div>
 
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <div className="min-w-0 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Hour Distribution
           <span className="font-normal text-[var(--color-muted)] ml-2">
@@ -77,9 +77,9 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
     </div>
 
     {/* Day of week charts row */}
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Day of week totals */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <div className="min-w-0 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Day of Week ({range})
         </h3>
@@ -92,7 +92,7 @@ export function DashboardCharts({ data, range }: { data: any; range: string }) {
       </div>
 
       {/* Day × Hour hotspot curves */}
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
+      <div className="min-w-0 bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
         <h3 className="text-base font-bold mb-3 text-[var(--color-muted)]">
           Hotspots by Day &times; Hour
           <span className="font-normal text-[var(--color-muted)] ml-2">
@@ -124,7 +124,7 @@ export function ModelUsagePie({ modelData }: { modelData: any[] }) {
       data={modelData.map((m: any) => ({ name: m.name, fullName: m.fullName, value: m.tokens, color: getModelColor(m.fullName) }))}
       format={formatTokens}
       height={200}
-      className="w-[220px] shrink-0"
+      className="w-[220px] max-w-full shrink-0 self-center md:self-auto"
     />
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { hasAny } from '@/lib/ever';
+import { blockTextSql } from '@unturf/unfirehose/db/block-cold';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
         -- Subset whose text is locally readable (not sealed by Anthropic).
         (SELECT COUNT(*) FROM content_blocks cb JOIN messages m ON cb.message_id = m.id
          WHERE m.session_id = s.id AND cb.block_type IN ('thinking', 'reasoning')
-           AND cb.text_content IS NOT NULL AND cb.text_content != ''
+           AND COALESCE(${blockTextSql('cb')}, '') != ''
            AND m.timestamp >= ?) as readable_reasoning_count
       FROM sessions s
       JOIN projects p ON s.project_id = p.id

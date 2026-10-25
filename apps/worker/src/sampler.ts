@@ -23,12 +23,18 @@ import { getLocalStats } from '@unturf/unfirehose/mesh-local';
 import { probeRemote } from '@unturf/unfirehose/mesh-remote';
 import { insertMeshSnapshots } from '@unturf/unfirehose/db/mesh-snapshots';
 import { sampleVllmCache } from '@unturf/unfirehose/vllm-sample';
+import { refreshEnergyAttribution, type IdleCache } from '@unturf/unfirehose/energy-attribution';
 
 export const MESH_POLL_INTERVAL_MS = 15_000;
 // vLLM prefix-cache counters move over minutes, and each sample is an SSH
 // round trip to a box that is busy serving inference. Five minutes gives
 // useful windows without pestering the GPUs.
 export const VLLM_CACHE_SAMPLE_MS = 5 * 60_000;
+// Energy attribution folds samples into 15-minute buckets; once a minute
+// keeps the bucket now filling close to live, and the first run waits for
+// a round of samples to land.
+export const ENERGY_ATTRIBUTION_MS = 60_000;
+const ENERGY_FIRST_MS = 20_000;
 
 // Deterministic per-host phase offset within [0, intervalMs) so that
 // hundreds of nodes don't stampede the network and SSH targets at the same
@@ -127,11 +133,29 @@ function main() {
       .catch((err) => console.error('[sampler] vllm cache sample failed:', err));
   }, VLLM_CACHE_SAMPLE_MS);
 
+  // Measured energy, attributed (ticket 4004): here, beside the samples it
+  // reads, so no page or payload build joins snapshots to messages. The
+  // idle cache outlives ticks; a tick then reads the quarter hour it
+  // rebuilds, not a week of samples.
+  const idleCache: IdleCache = new Map();
+  const energyTick = () => {
+    try {
+      const r = refreshEnergyAttribution(getDb(), { idleCache });
+      if (r.chunks > 1) console.log(`[sampler] energy attribution: ${r.buckets} node bucket(s) through ${r.through}`);
+    } catch (err) {
+      console.error('[sampler] energy attribution failed:', err);
+    }
+  };
+  const energyKickoff = setTimeout(energyTick, ENERGY_FIRST_MS);
+  const energy = setInterval(energyTick, ENERGY_ATTRIBUTION_MS);
+
   const stop = (why: string) => {
     for (const t of active.values()) stopHost(t);
     active.clear();
     clearInterval(rediscover);
     clearInterval(vllm);
+    clearTimeout(energyKickoff);
+    clearInterval(energy);
     console.log(`[sampler] ${why}, stopping`);
     process.exit(0);
   };

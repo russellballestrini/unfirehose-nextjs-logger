@@ -327,3 +327,19 @@ describe('what a row says', () => {
     expect(body.hasAnyMessages).toBe(true);
   });
 });
+
+// Runs last: it moves every block of this file's fixtures into cold storage.
+describe('cold block text (retention window)', () => {
+  it('answers every query the same after the text goes cold', async () => {
+    const { freezeBatch } = await import('@unturf/unfirehose/db/block-cold');
+    const queries = ['', '?search=alpha', '?search=subagent', '?search=weighing', '?has_thinking=true', '?search=duplicable&limit=1', '?search=src%2Fb.ts'];
+    const before = await Promise.all(queries.map(async (q) => (await get(q)).body));
+    // A 30-day window seen from far ahead: every fixture is older than it.
+    while (!freezeBatch(db, { days: 30, now: Date.parse('2100-01-01T00:00:00Z'), minBytes: 1 }).caughtUp) { /* drain */ }
+    const hot = db.prepare("SELECT COUNT(*) AS n FROM content_blocks WHERE cold = 0 AND (text_content != '' OR tool_input != '')").get() as { n: number };
+    expect(hot.n).toBe(0);
+    const after = await Promise.all(queries.map(async (q) => (await get(q)).body));
+    expect(after).toEqual(before);
+    expect(before[1].entries.length).toBeGreaterThan(0);
+  });
+});

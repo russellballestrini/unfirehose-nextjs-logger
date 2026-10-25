@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
-import { ModelRow } from './page';
+import { ModelRow, energyTitle, NodeEnergyLine } from './page';
 import { ProjectCard } from './projects/page';
 import { MarkdownRenderer } from './schema/page';
 
@@ -35,7 +35,7 @@ const model = (over: Record<string, unknown> = {}) => ({
   cost: 12.5, inputCost: 3, outputCost: 7, cacheCost: 2.5,
   energy: 0.4, avoided: 8, host: 'anthropic', selfHosted: false,
   costSource: 'priced', pricedAgainst: 'anthropic', promo: false,
-  meshObservedUSD: null, structuralReuseRate: null, structuralReuseTokens: 0,
+  energySource: null, measuredTokenShare: null, measuredEnergyKwh: null, structuralReuseRate: null, structuralReuseTokens: 0,
   measuredCacheHits: null, measuredCacheQueries: null, measuredCacheNodes: null,
   ...over,
 });
@@ -53,6 +53,18 @@ describe('ModelRow', () => {
       costSource: 'measured', pricedAgainst: 'openrouter',
     })} />);
     expect(container.textContent).toContain('4090-ai');
+  });
+
+  it('says when its power is measured on the node, not estimated (ticket 4004)', () => {
+    const m = model({
+      selfHosted: true, host: '3090-ai', energy: 0.8, energySource: 'measured', measuredEnergyKwh: 2.4,
+      measuredTokenShare: 1,
+    });
+    const { container } = table(<ModelRow m={m} />);
+    const power = [...container.querySelectorAll('span[title]')].find((e) => e.textContent === '$0.80')!;
+    expect(power.getAttribute('title')).toMatch(/^Measured: 2\.40 kWh/);
+    expect(energyTitle({ ...m, energySource: 'mixed', measuredTokenShare: 0.75 })).toMatch(/25% of tokens/);
+    expect(energyTitle({ ...m, energySource: 'estimate' })).toMatch(/^Estimated/);
   });
 
   it('shows a measured cache rate where a node reported one', () => {
@@ -143,5 +155,24 @@ describe('MarkdownRenderer', () => {
   it('survives an unclosed code fence', () => {
     // A truncated document is the normal case when a doc is being edited.
     expect(() => render(<MarkdownRenderer content={'```ts\nconst x = 1;\n'} />)).not.toThrow();
+  });
+});
+
+describe('NodeEnergyLine', () => {
+  const host = {
+    hostname: 'ai.foxhop.net', idleWatts: 95, rateKwh: 0.33, totalKwh: 30,
+    standingUSD: 5.5, attributedUSD: 3.25, unattributedUSD: 1.25, standingMonthlyUSD: 22.9,
+  };
+  it('splits our nodes’ power into standing, our sessions and other work', () => {
+    const { container } = render(<NodeEnergyLine hosts={[host]} />);
+    const text = container.textContent ?? '';
+    expect(text).toContain('Our node drew $10 of power this range');
+    expect(text).toContain('$5.50 standing (idle, ~$23/mo)');
+    expect(text).toContain('$3.25 serving our sessions');
+    expect(text).toContain('$1.25 other work');
+  });
+  it('draws nothing until a node was sampled: no new empty state', () => {
+    const { container } = render(<NodeEnergyLine hosts={[]} />);
+    expect(container.innerHTML).toBe('');
   });
 });

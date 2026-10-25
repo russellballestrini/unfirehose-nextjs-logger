@@ -2,7 +2,7 @@
  * Every harness we know how to install, in one place.
  *
  * This catalogue existed three times — twice in the node detail page after
- * its tabs were split out, and again on the unsandbox page — and the copies
+ * its tabs were split out, and again on a cloud container page — and the copies
  * had drifted. The container one had lost the third tag from all sixteen
  * entries, so the same search box matched different things depending on
  * which page you typed it into, and adding a seventeenth harness meant
@@ -30,7 +30,7 @@ export interface Harness {
  * Where a harness is being installed.
  *
  * `node` is a machine we ssh to, which gives us a login shell and a real
- * $HOME. `container` is an unsandbox box running as root without one.
+ * $HOME. `container` is a cloud container running as root without one.
  */
 export type HarnessContext = 'node' | 'container';
 

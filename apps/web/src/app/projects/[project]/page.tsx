@@ -7,8 +7,8 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import type { SessionIndexEntry, ProjectMetadata } from '@unturf/unfirehose/types';
 import { formatRelativeTime, formatTokens, gitRemoteToWebUrl, commitUrl } from '@unturf/unfirehose/format';
-import { TOKEN_TYPE_COLORS, totalOf, cacheOf, cacheShareOf } from '@unturf/unfirehose-ui/TokenSplit';
-import { StatStrip, Stat, StatDivider, costSub, cacheCostOf } from '@unturf/unfirehose-ui/StatStrip';
+import { cacheShareOf, TokenSplitStats } from '@unturf/unfirehose-ui/TokenSplit';
+import { StatStrip, Stat, StatDivider, costSub } from '@unturf/unfirehose-ui/StatStrip';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { HarnessPicker } from '@unturf/unfirehose-ui/HarnessPicker';
 import { harnessCommand } from '@unturf/unfirehose/harness-models';
@@ -16,8 +16,10 @@ import { SessionPopover } from '@unturf/unfirehose-ui/SessionPopover';
 import { BootScreen } from '@unturf/unfirehose-ui/BootScreen';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
 import { TodoBoard } from '@/components/TodoBoard';
+import { TrainingExport } from '@/components/TrainingExport';
 import { DiffView } from '@unturf/unfirehose-ui/DiffView';
 import { ChainBadge } from '@unturf/unfirehose-ui/ChainBadge';
+import { integrationForHost, useIntegrationBootTargets } from '@/integrations';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -194,20 +196,22 @@ export default function ProjectPage({
   // 469 models across local GPUs, OpenRouter, Nous and Grok — dispatching
   // without choosing means taking whatever default it holds.
   const { data: harnessModels } = useSWR<any>(
-    `/api/harness/models?harness=${encodeURIComponent(harness)}${target !== 'localhost' && target !== 'unsandbox' ? `&host=${encodeURIComponent(target)}` : ''}`,
+    `/api/harness/models?harness=${encodeURIComponent(harness)}${target !== 'localhost' && !integrationForHost(target) ? `&host=${encodeURIComponent(target)}` : ''}`,
     fetcher,
     { revalidateOnFocus: false, keepPreviousData: false },
   );
 
   // Mesh nodes for target dropdown
   const { data: mesh } = useSWR('/api/mesh', fetcher, { revalidateOnFocus: false });
-  const { data: unsandboxStatus } = useSWR('/api/unsandbox', fetcher, { revalidateOnFocus: false });
+  const integrationTargets = useIntegrationBootTargets();
   const meshNodes: { hostname: string; reachable: boolean }[] = mesh?.nodes ?? [];
   const targets = [
     { value: 'localhost', label: 'localhost' },
     ...meshNodes.filter(n => n.reachable && n.hostname !== mesh?.localHostname).map(n => ({ value: n.hostname, label: n.hostname })),
-    ...(unsandboxStatus?.connected ? [{ value: 'unsandbox', label: 'unsandbox.com' }] : []),
+    ...integrationTargets,
   ];
+  // A cloud container has no checkout of ours: it boots from the git remote.
+  const clonesRemote = integrationTargets.some(t => t.value === target && t.clonesRemote);
 
   // Core data
   const { data, error } = useSWR<{
@@ -262,7 +266,7 @@ export default function ProjectPage({
     return harnessCommand(harness, customCmd);
   }
 
-  // Get git remote URL from metadata for unsandbox (no local path needed)
+  // Get git remote URL from metadata for a target that clones it (no local path needed)
   const gitRemoteUrl = meta?.remotes?.find((r: any) => r.type === 'fetch' && r.name === 'origin')?.url
     ?? meta?.remotes?.find((r: any) => r.type === 'fetch')?.url;
 
@@ -271,7 +275,7 @@ export default function ProjectPage({
   const derivedProjectPath = data?.originalPath || full?.project?.path || null;
 
   async function bootSession(sessionId?: string) {
-    if (!derivedProjectPath && !(target === 'unsandbox' && gitRemoteUrl)) {
+    if (!derivedProjectPath && !(clonesRemote && gitRemoteUrl)) {
       setBootResult('Error: No project path found — waiting for path resolution. Try refreshing.');
       return;
     }
@@ -291,7 +295,7 @@ export default function ProjectPage({
           harnessKey: harness,
           model: model || undefined,
           host: target !== 'localhost' ? target : undefined,
-          repoUrl: target === 'unsandbox' ? gitRemoteUrl : undefined,
+          repoUrl: clonesRemote ? gitRemoteUrl : undefined,
         }),
       });
       const result = await res.json();
@@ -337,7 +341,7 @@ export default function ProjectPage({
             harnessKey: harness,
             model: model || undefined,
             host: target !== 'localhost' ? target : undefined,
-            repoUrl: target === 'unsandbox' ? gitRemoteUrl : undefined,
+            repoUrl: clonesRemote ? gitRemoteUrl : undefined,
           }),
         });
         const result = await res.json();
@@ -471,29 +475,12 @@ export function OverviewTab({ full, data, meta, project, decodedProject: _decode
 
             <StatDivider />
 
-            <Stat
-              label="Tokens"
-              value={formatTokens(totalOf(projectTokens))}
-              sub={costSub(full.stats.totalCost)}
-              title="Input + output + cache read + cache write, priced at what these tokens cost to buy."
-            />
-            <Stat
-              label="Input"
-              value={formatTokens(projectTokens.input)}
-              sub={costSub(full.stats.costSplit?.input)}
-              color={TOKEN_TYPE_COLORS.input}
-            />
-            <Stat
-              label="Cache"
-              value={formatTokens(cacheOf(projectTokens))}
-              sub={`${costSub(cacheCostOf(full.stats.costSplit))}${projectCacheShare != null ? ` · ${Math.round(projectCacheShare * 100)}% of tokens` : ''}`}
-              color={TOKEN_TYPE_COLORS.cacheRead}
-            />
-            <Stat
-              label="Output"
-              value={formatTokens(projectTokens.output)}
-              sub={costSub(full.stats.costSplit?.output)}
-              color={TOKEN_TYPE_COLORS.output}
+            <TokenSplitStats
+              tokens={projectTokens}
+              costs={full.stats.costSplit}
+              totalSub={costSub(full.stats.totalCost)}
+              totalTitle="Input + output + cache read + cache write, priced at what these tokens cost to buy."
+              cacheShare={projectCacheShare}
             />
           </StatStrip>
           <div className="text-right">
@@ -532,7 +519,7 @@ export function OverviewTab({ full, data, meta, project, decodedProject: _decode
                 harness={harness} setHarness={setHarness}
                 customCmd={customCmd} setCustomCmd={setCustomCmd}
                 model={model} setModel={setModel}
-                target={target}
+                target={target} probeLocally={!!integrationForHost(target)}
               />
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-[var(--color-muted)]">Target</span>
@@ -669,6 +656,8 @@ export function OverviewTab({ full, data, meta, project, decodedProject: _decode
               </div>
             </div>
           )}
+
+          <TrainingExport project={decodeURIComponent(project)} />
 
           {/* Top Tools */}
           {full?.toolUsage?.length > 0 && (
@@ -940,6 +929,9 @@ export function ActivityTab({ activityData, project, decodedProject: _decodedPro
 
   return (
     <div className="space-y-6">
+      <Link href={`/actions?project=${project}`} className="inline-block text-[var(--color-accent)] hover:underline">
+        Every file, git and network action agents took in this project →
+      </Link>
       <h3 className="text-sm font-bold text-[var(--color-muted)]">Recent Prompt-Commit Activity</h3>
 
       {prompts.length > 0 ? (

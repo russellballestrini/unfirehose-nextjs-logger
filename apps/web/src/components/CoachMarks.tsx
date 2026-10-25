@@ -119,12 +119,14 @@ export function CoachMarks({ page }: { page: CoachPage }) {
   const [open, setOpen] = useState(false);
   const [placed, setPlaced] = useState<Placed[]>([]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only after mount
   useEffect(() => { setOpen(!coachDismissed(page)); }, [page]);
 
   // An unknown page has no hints rather than a crash.
   const layout = useCallback(() => setPlaced(place(COACH_HINTS[page] ?? [])), [page]);
   useLayoutEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- positions come from measuring the rendered anchors
     layout();
     // Anchors render as data arrives; look again a moment later and on resize.
     const t = setTimeout(layout, 800);

@@ -418,7 +418,7 @@ describe('panels that need the hardware to exist', () => {
 
     it('points a libvirt guest at its machined cgroup row when the scan listed one', () => {
       const containers = [
-        ...(bag().probe.containers as any[]),
+        ...(bag().probe.containers as Record<string, unknown>[]),
         { id: 'qemu\\x2d38\\x2d11_buildunturfcom', name: 'qemu-38-11_buildunturfcom', runtime: 'nspawn', state: 'running', status: 'running',
           image: '', ports: '', pid: 4211, viaCgroup: true, resources: { cpuPct: 11.9, memUsed: 900_000_000, tasks: 9 } },
       ];

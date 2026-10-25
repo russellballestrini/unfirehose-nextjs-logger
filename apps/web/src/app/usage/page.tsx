@@ -11,6 +11,7 @@ import { formatTokens } from '@unturf/unfirehose/format';
 import { humanDelta } from '@unturf/unfirehose/ago';
 import { PageContext } from '@unturf/unfirehose-ui/PageContext';
 import { EmptyState } from '@unturf/unfirehose-ui/EmptyState';
+import { describeSecretAlert, isSecretAlert, parseSecretDetails } from '@unturf/unfirehose/secret-alert';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -203,7 +204,9 @@ export default function UsageMonitorPage() {
           enabled_rules: thresholds?.filter((t: any) => t.enabled).length ?? 0,
           breaches_14d: days.reduce((s, d) => s + d.total, 0),
         }}
-        details={alerts?.map((a: any) => `ALERT: ${a.metric} exceeded ${formatTokens(a.threshold_value)} in ${a.window_minutes}min — actual: ${formatTokens(a.actual_value)}`).join('\n')}
+        details={alerts?.map((a: any) => isSecretAlert(a)
+          ? `ALERT: ${describeSecretAlert(a).title}`
+          : `ALERT: ${a.metric} exceeded ${formatTokens(a.threshold_value)} in ${a.window_minutes}min — actual: ${formatTokens(a.actual_value)}`).join('\n')}
       />
 
       {/* Header */}
@@ -220,16 +223,42 @@ export default function UsageMonitorPage() {
           </button>
         </div>
       </div>
+      {/* Credentials seen at ingest: one line each, above the usage banner. */}
+      {Array.isArray(alerts) && alerts.some(isSecretAlert) && (
+        <div className="bg-red-950/60 border border-red-900/60 rounded p-4" data-secret-banner>
+          <h3 className="text-sm font-bold text-[var(--color-error)] tracking-wide mb-2">
+            CREDENTIALS SEEN
+            <span className="ml-2 text-xs font-normal text-[var(--color-muted)]">
+              in a tool call or its output; everything in a session goes to its model provider, so rotate them
+            </span>
+          </h3>
+          <div className="space-y-0.5">
+            {alerts.filter(isSecretAlert).map((a: any) => {
+              const d = parseSecretDetails(a)!;
+              const w = describeSecretAlert(a);
+              return (
+                <Link key={a.id} href={`/usage/alert/${a.id}`} className="flex flex-wrap items-center gap-2 py-0.5 px-2 text-sm rounded hover:bg-red-900/30">
+                  <span className="font-mono font-bold text-[var(--color-error)]">{w.kinds}</span>
+                  <span className="text-[var(--color-muted)]">in {w.where} · {d.projectDisplay || d.project || 'unknown project'}{a.actual_value > 1 ? ` · ${a.actual_value}x` : ''}</span>
+                  <span className="text-xs text-[var(--color-muted)] ml-auto">{d.seenAt || a.triggered_at}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Alert banner — grouped by metric + window */}
-      {alerts && alerts.length > 0 && (() => {
+      {alerts && alerts.some((a: any) => !isSecretAlert(a)) && (() => {
+        const usageAlerts = alerts.filter((a: any) => !isSecretAlert(a));
         const groups: Record<string, { metric: string; window: number; threshold: number; alerts: any[] }> = {};
-        for (const a of alerts) {
+        for (const a of usageAlerts) {
           const key = `${a.metric}:${a.window_minutes}`;
           if (!groups[key]) groups[key] = { metric: a.metric, window: a.window_minutes, threshold: a.threshold_value, alerts: [] };
           groups[key].alerts.push(a);
         }
         const sorted = Object.values(groups).sort((a, b) => b.window - a.window || b.alerts[0]?.triggered_at?.localeCompare(a.alerts[0]?.triggered_at));
-        const globalPeak = Math.max(...alerts.map((a: any) => a.actual_value), 1);
+        const globalPeak = Math.max(...usageAlerts.map((a: any) => a.actual_value), 1);
 
         return (
           <div className="bg-red-950/60 border border-red-900/60 rounded p-4">
@@ -237,7 +266,7 @@ export default function UsageMonitorPage() {
               <h3 className="text-sm font-bold text-[var(--color-error)] tracking-wide">
                 USAGE ALERTS
                 <span className="ml-2 text-xs font-normal text-[var(--color-muted)]">
-                  {alerts.length} unacknowledged across {sorted.length} {sorted.length === 1 ? 'rule' : 'rules'}
+                  {usageAlerts.length} unacknowledged across {sorted.length} {sorted.length === 1 ? 'rule' : 'rules'}
                 </span>
               </h3>
               <ActionButton
@@ -401,8 +430,17 @@ export default function UsageMonitorPage() {
                       }`}
                     >
                       <span className="font-mono truncate">{a.triggered_at}</span>
-                      <span>{windowLabel(a.window_minutes)}</span>
-                      <span className="truncate"><span className="font-mono font-bold">{a.metric}</span> {formatTokens(a.actual_value)} / {formatTokens(a.threshold_value)}</span>
+                      {isSecretAlert(a) ? (
+                        <>
+                          <span>key</span>
+                          <span className="truncate"><span className="font-mono font-bold">{describeSecretAlert(a).kinds}</span> in {describeSecretAlert(a).where} · {parseSecretDetails(a)?.projectDisplay || a.project_name}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>{windowLabel(a.window_minutes)}</span>
+                          <span className="truncate"><span className="font-mono font-bold">{a.metric}</span> {formatTokens(a.actual_value)} / {formatTokens(a.threshold_value)}</span>
+                        </>
+                      )}
                       {a.acknowledged ? <span className="text-[var(--color-accent)]">ack</span> : <span />}
                     </Link>
                   ))}

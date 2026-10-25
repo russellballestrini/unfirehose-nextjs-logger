@@ -112,6 +112,17 @@ export function Pressure({ psi }: { psi: { cpu: number | null; memory: number | 
   return <div className="flex gap-3 text-xs">{(['cpu', 'memory', 'io'] as const).map(cell)}</div>;
 }
 
+/** One figure in a tab's summary row: a label, its value, a line under it. */
+export function tile(label: string, value: string, sub?: string) {
+  return (
+    <div key={label} className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      <div className="text-lg font-mono leading-tight">{value}</div>
+      {sub && <div className="text-[10px] text-[var(--color-muted)]">{sub}</div>}
+    </div>
+  );
+}
+
 /** "4096 MiB" reads as "4 GiB"; the guest's configured memory, not its use. */
 export function vmMem(mb: number | null | undefined): string {
   if (mb == null) return '—';

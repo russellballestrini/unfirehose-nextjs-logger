@@ -31,7 +31,7 @@ import {
   calcSystemWatts, calcNonCpuWatts, formatUptime, round, memCapGB, countSsds,
   parseMeminfo, parseLoadavg,
 } from './mesh-probe';
-import { num } from './num';
+import { sumNvidiaRows } from './gpu-sum';
 
 /** A command's trimmed stdout, or null for any failure: absent, timed out, non-zero. */
 function run(file: string, args: string[], opts: { timeoutMs?: number; shell?: boolean } = {}): Promise<string | null> {
@@ -56,34 +56,42 @@ async function readRaplWatts(): Promise<number | null> {
   const read1 = await readAll();
   await sleep(100);
   const read2 = await readAll();
+  return raplWatts(read1, read2, 0.1);
+}
+
+/**
+ * Watts from two reads of every package's energy_uj, `intervalS` apart.
+ * Null when any package could not be read either time: a partial sum would
+ * understate the machine. Each counter is 32 bits and wraps.
+ */
+export function raplWatts(read1: (string | null)[], read2: (string | null)[], intervalS: number): number | null {
   let totalUj = 0;
-  for (let i = 0; i < packages.length; i++) {
+  for (let i = 0; i < read1.length; i++) {
     if (read1[i] === null || read2[i] === null) return null;
     let delta = parseInt(read2[i]!) - parseInt(read1[i]!);
     if (delta < 0) delta += 2 ** 32; // counter wrapped
     totalUj += delta;
   }
-  // Microjoules over 0.1 s to watts: uj / (interval_s * 1e6).
-  return round(totalUj / (0.1 * 1e6));
+  // Microjoules over the interval to watts: uj / (interval_s * 1e6).
+  return round(totalUj / (intervalS * 1e6));
 }
 
+export interface NvidiaReading { watts: number | null; model?: string; memTotalMB?: number; memUsedMB?: number; util?: number }
+
 /** One nvidia-smi call carries power and utilisation for every GPU. */
-async function readNvidia(): Promise<{ watts: number | null; model?: string; memTotalMB?: number; memUsedMB?: number; util?: number }> {
-  const out = await run('nvidia-smi', ['--query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits']);
-  const r: { watts: number | null; model?: string; memTotalMB?: number; memUsedMB?: number; util?: number } = { watts: null };
-  if (!out) return r;
-  let watts = 0;
-  for (const line of out.split('\n')) {
-    const parts = line.split(',').map((s) => s.trim());
-    const w = parseFloat(parts[0]);
-    if (!isNaN(w)) watts += w;
-    if (!r.model && parts[1]) r.model = parts[1];
-    if (parts[2]) r.memTotalMB = (r.memTotalMB ?? 0) + num(parts[2]);
-    if (parts[3]) r.memUsedMB = (r.memUsedMB ?? 0) + num(parts[3]);
-    if (parts[4]) r.util = Math.max(r.util ?? 0, num(parts[4]));
-  }
-  r.watts = watts > 0 ? round(watts) : null;
-  return r;
+async function readNvidia(): Promise<NvidiaReading> {
+  return parseNvidiaSmi(await run('nvidia-smi', ['--query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits']));
+}
+
+/**
+ * `nvidia-smi --query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu
+ * --format=csv,noheader,nounits`, one line per GPU. Every card in this box,
+ * summed: a node is the unit we price (gpu-sum.ts).
+ */
+export function parseNvidiaSmi(out: string | null): NvidiaReading {
+  if (!out) return { watts: null };
+  const g = sumNvidiaRows(out.split('\n'));
+  return { watts: g.watts != null ? round(g.watts) : null, model: g.model, memTotalMB: g.memTotalMB, memUsedMB: g.memUsedMB, util: g.util };
 }
 
 interface StaticFacts {

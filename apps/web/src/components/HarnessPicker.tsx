@@ -5,7 +5,7 @@ import type { Harness } from '@/lib/harnesses';
 /**
  * The grid of installable harnesses, with a filter over it.
  *
- * Two pages install harnesses — a machine we ssh to, and an unsandbox
+ * Two pages install harnesses — a machine we ssh to, and a cloud
  * container — and both drew this grid themselves. The markup was the same
  * sixty lines twice, which is how the two came to disagree about which
  * tags a card shows and what the button says while it works.

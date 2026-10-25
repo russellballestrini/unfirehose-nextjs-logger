@@ -1,5 +1,9 @@
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { TOOL_CALL_SQL } from '@unturf/unfirehose/block-types';
+import { blockToolInputSql } from '@unturf/unfirehose/db/block-cold';
+
+// Tool inputs may be cold (db/block-cold.ts).
+const CB_INPUT = blockToolInputSql('cb');
 
 const db = getDb();
 
@@ -11,7 +15,7 @@ console.log('[backfill] Starting todo backfill from content_blocks...');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const taskCreates: any[] = db.prepare(`
-  SELECT cb.tool_input, m.session_id, s.project_id, s.session_uuid, m.timestamp
+  SELECT ${CB_INPUT} AS tool_input, m.session_id, s.project_id, s.session_uuid, m.timestamp
   FROM content_blocks cb
   JOIN messages m ON cb.message_id = m.id
   JOIN sessions s ON m.session_id = s.id
@@ -45,7 +49,7 @@ const tx = db.transaction(() => {
 
   // Process TaskUpdate
   const taskUpdates = db.prepare(`
-    Select cb.tool_input, m.session_id, s.project_id, m.timestamp
+    SELECT ${CB_INPUT} AS tool_input, m.session_id, s.project_id, m.timestamp
     FROM content_blocks cb
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id
@@ -85,7 +89,7 @@ const tx = db.transaction(() => {
 
   // Process TodoWrite
   const todoWrites = db.prepare(`
-    SELECT cb.tool_input, m.session_id, s.project_id, s.session_uuid, m.timestamp
+    SELECT ${CB_INPUT} AS tool_input, m.session_id, s.project_id, s.session_uuid, m.timestamp
     FROM content_blocks cb
     JOIN messages m ON cb.message_id = m.id
     JOIN sessions s ON m.session_id = s.id

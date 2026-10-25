@@ -2,6 +2,8 @@ import { harnessFor } from '@unturf/unfirehose/session-paths';
 import { streamJsonl } from '@unturf/unfirehose/jsonl-reader';
 import { NextRequest, NextResponse } from 'next/server';
 import { stat } from 'fs/promises';
+import { getDb } from '@unturf/unfirehose/db/schema';
+import { storedSessionMessages } from '@unturf/unfirehose/db/session-messages';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -33,13 +35,22 @@ export async function GET(
   }
 
   const { adapter, slug } = harnessFor(project);
-  const filePath = adapter.sessionFile(slug, sessionId);
+  // A harness in a format of its own (Codex, Gemini CLI, Continue) has no
+  // session file to stream; its session is the rows ingest stored.
+  const filePath = adapter.stored ? null : adapter.sessionFile(slug, sessionId);
 
-  try {
-    await stat(filePath);
-  } catch {
+  if (filePath) {
+    try {
+      await stat(filePath);
+    } catch {
+      return NextResponse.json(
+        { error: 'Session file not found', path: filePath, harness: adapter.name },
+        { status: 404 }
+      );
+    }
+  } else if (!(getDb().prepare('SELECT 1 FROM sessions WHERE session_uuid = ?').get(sessionId))) {
     return NextResponse.json(
-      { error: 'Session file not found', path: filePath, harness: adapter.name },
+      { error: 'Session not found', harness: adapter.name },
       { status: 404 }
     );
   }
@@ -50,13 +61,22 @@ export async function GET(
     ? new Set(typesParam.split(',').map((t) => t.trim()).filter(Boolean))
     : null;
 
+  async function* source(): AsyncGenerator<any> {
+    if (!filePath) {
+      yield* storedSessionMessages(getDb(), sessionId);
+      return;
+    }
+    for await (const raw of streamJsonl<any>(filePath)) {
+      const msg = adapter.normalize(raw);
+      if (msg) yield msg;
+    }
+  }
+
   async function* normalized(): AsyncGenerator<any> {
     // Raw lines — no type filter at reader level (the filter must run after normalize).
     let matched = 0;
     let emitted = 0;
-    for await (const raw of streamJsonl<any>(filePath)) {
-      const msg = adapter.normalize(raw);
-      if (!msg) continue;
+    for await (const msg of source()) {
       if (roleFilter && !roleFilter.has(msg.role)) continue;
       matched++;
       if (matched <= offset) continue;

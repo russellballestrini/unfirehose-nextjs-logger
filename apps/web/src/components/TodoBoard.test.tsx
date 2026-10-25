@@ -14,6 +14,9 @@ import { TodoBoard } from './TodoBoard';
  * the todos page proved nothing about any of it.
  */
 
+// The longest drop effect is 1 s; this leaves room for a loaded runner.
+const DROP_EFFECTS_DEADLINE_MS = 10_000;
+
 const todo = (over: Record<string, unknown> = {}) => ({
   id: 1, uuid: '01a03597-28b3-7b9c-991e-35decbcd4e4c', content: 'fix the thing',
   status: 'pending', activeForm: 'Fixing the thing', source: 'claude',
@@ -182,6 +185,14 @@ describe('TodoBoard — dragging', () => {
     await act(async () => {
       fireEvent.drop(target, { dataTransfer: dataTransfer(), clientX: 100, clientY: 100 });
     });
+    // A drop plays a burst (600 ms, 1 s into progress) and a landing pulse
+    // (700 ms), each cleared by a timer. Wait for both to clear, so every
+    // drop test ends in the same place: before this, whether a test outlived
+    // those timers decided their coverage, and the CRAP budget read 5 apart
+    // on one commit (2026-10-24).
+    await waitFor(() => {
+      expect(document.querySelector('.pointer-events-none.fixed.z-50, .card-landed')).toBeNull();
+    }, { timeout: DROP_EFFECTS_DEADLINE_MS });
   };
 
   it('starts the work when a pending todo is dragged into progress', async () => {

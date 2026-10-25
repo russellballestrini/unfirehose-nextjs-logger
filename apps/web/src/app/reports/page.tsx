@@ -186,6 +186,24 @@ export default function ReportsPage() {
                 </table>
               </div>
             )}
+            {r.electricityByProject?.length > 0 && (
+              <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4" data-electricity-by-project>
+                <h2 className="text-lg font-bold mb-1">Electricity by project</h2>
+                <p className="text-sm text-[var(--color-muted)] mb-3">
+                  What our sessions on each node drew above its idle, measured. Already inside the electricity lines; this says which client it served.
+                </p>
+                <table className="w-full text-base">
+                  <tbody>
+                    {r.electricityByProject.map((p: any) => (
+                      <tr key={p.project} className="border-t border-[var(--color-border)]">
+                        <td className="py-1.5 pr-3 [overflow-wrap:anywhere]">{p.project}</td>
+                        <td className="py-1.5 text-right font-mono">{money(p.usd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {r.memo?.length > 0 && (
               <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] p-4">
                 <h2 className="text-lg font-bold mb-1">Not counted in the total</h2>

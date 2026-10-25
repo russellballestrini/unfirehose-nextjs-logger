@@ -5,7 +5,17 @@ const db = createTestDb();
 vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 // The machine running the tests is not the machine being onboarded.
 let found: Array<Record<string, unknown>> = [];
-vi.mock('@unturf/unfirehose/harness-detect', () => ({ detectHarnesses: () => found }));
+let asked: { projectRoots?: string[] } | undefined;
+vi.mock('@unturf/unfirehose/harness-detect', () => ({
+  detectHarnesses: (opts?: { projectRoots?: string[] }) => { asked = opts; return found; },
+}));
+// Nor is its disk the one being checked.
+const GiB = 1024 ** 3;
+let space: { path: string; freeBytes: number; totalBytes: number } | null = { path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB };
+vi.mock('@unturf/unfirehose/db/maintenance', async (orig) => ({
+  ...(await orig<typeof import('@unturf/unfirehose/db/maintenance')>()),
+  dbDiskSpace: () => space,
+}));
 
 const { GET } = await import('./route');
 const { setSetting } = await import('@unturf/unfirehose/db/ingest');
@@ -20,6 +30,13 @@ describe('GET /api/onboarding', () => {
     const body = await (await GET()).json();
     expect(body).toMatchObject({ sessions: 0, projects: 0, messages: 0, workerAlive: false, lastIngestAt: null });
     expect(body.harnesses[0]).toMatchObject({ id: 'claude-code', found: true, sessions: 0, lastMessageAt: null });
+  });
+
+  it('asks the detector to look for Aider in the roots of our projects, only those that exist', async () => {
+    seedProject(db, '-tmp', 'tmp');
+    db.prepare("UPDATE projects SET path = '/tmp', last_cwd_seen = '/nonexistent/unfirehose-test'").run();
+    await GET();
+    expect(asked?.projectRoots).toEqual(['/tmp']);
   });
 
   it('counts what has landed and joins each harness to its sessions', async () => {
@@ -40,5 +57,16 @@ describe('GET /api/onboarding', () => {
     expect(stale.payloadAt).not.toBeNull();
     setSetting('last_ingest_at', new Date().toISOString());
     expect((await (await GET()).json()).workerAlive).toBe(true);
+  });
+
+  it('reports free disk under our database, low under 10 GB', async () => {
+    space = { path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB };
+    expect((await (await GET()).json()).disk).toEqual({ path: '/data', freeBytes: 200 * GiB, totalBytes: 500 * GiB, level: 'ok', lowBytes: 10 * GiB });
+    space = { path: '/data', freeBytes: 6 * GiB, totalBytes: 500 * GiB };
+    expect((await (await GET()).json()).disk.level).toBe('low');
+    space = { path: '/data', freeBytes: 0.2 * GiB, totalBytes: 500 * GiB };
+    expect((await (await GET()).json()).disk.level).toBe('critical');
+    space = null;
+    expect((await (await GET()).json()).disk).toMatchObject({ freeBytes: null, level: 'unknown' });
   });
 });

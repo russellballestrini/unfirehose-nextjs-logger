@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseUncloseModels, parseOllamaModels, withModelArg, supportsModelSelection, isLocalProviderSet, HARNESS_MODEL_ADAPTERS, withPromptArg } from './harness-models.js';
+import { parseUncloseModels, parseOllamaModels, withModelArg, supportsModelSelection, isLocalProviderSet, HARNESS_MODEL_ADAPTERS, withPromptArg, harnessCommand } from './harness-models.js';
 
 // Verbatim from `unclose --list-models` on 2026-08-25 (469 models total).
 const UNCLOSE_OUT = [
@@ -146,5 +146,23 @@ describe('withPromptArg — a harness has to be handed its task', () => {
     );
     expect(parts.join(' '))
       .toBe('unclose --model Lorbus/Qwen3.6-27B-int4-AutoRound -f /tmp/task.txt');
+  });
+});
+
+describe('harnessCommand', () => {
+  it('maps a harness key to the executable it runs', () => {
+    expect(harnessCommand('claude')).toBe('claude');
+    expect(harnessCommand('uncloseai')).toBe('unclose');
+    expect(harnessCommand('open-code')).toBe('opencode');
+  });
+
+  it('runs the custom command when one is given, trimmed', () => {
+    expect(harnessCommand('custom', '  my-agent --flag ')).toBe('my-agent --flag');
+  });
+
+  it('falls back to claude for a blank custom command or an unknown key', () => {
+    expect(harnessCommand('custom')).toBe('claude');
+    expect(harnessCommand('custom', '   ')).toBe('claude');
+    expect(harnessCommand('no-such-harness')).toBe('claude');
   });
 });

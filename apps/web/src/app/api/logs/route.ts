@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@unturf/unfirehose/db/schema';
 import { hasAny } from '@/lib/ever';
 import { isToolCall } from '@unturf/unfirehose/block-types';
+import { blockTextSql, blockToolInputSql } from '@unturf/unfirehose/db/block-cold';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,7 +32,7 @@ const SIDECHAIN_CLAUSES: Record<string, string | undefined> = {
 const HAS_REASONING =
   "EXISTS (SELECT 1 FROM content_blocks cb_t WHERE cb_t.message_id = m.id" +
   " AND cb_t.block_type IN ('thinking', 'reasoning')" +
-  " AND cb_t.text_content IS NOT NULL AND cb_t.text_content != '')";
+  ` AND COALESCE(${blockTextSql('cb_t')}, '') != '')`;
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -65,7 +66,9 @@ export async function GET(request: NextRequest) {
       // A date with no time means the whole of that day.
       ['m.timestamp <= ?', dateTo && `${dateTo}T23:59:59`],
       SIDECHAIN_CLAUSES[sidechainParam],
-      search ? ['(cb_search.text_content LIKE ? OR cb_search.tool_input LIKE ?)', `%${search}%`, `%${search}%`] : null,
+      // Through the cold path too: a search reaches text past a retention
+      // window, decompressing it as it goes (db/block-cold.ts).
+      search ? [`(${blockTextSql('cb_search')} LIKE ? OR ${blockToolInputSql('cb_search')} LIKE ?)`, `%${search}%`, `%${search}%`] : null,
       hasThinking ? HAS_REASONING : null,
     ]);
 
@@ -107,8 +110,9 @@ export async function GET(request: NextRequest) {
     // messages' blocks were results the page never saw.
     const msgIds = messages.map(m => m.id);
     const previewRows = db.prepare(`
-      SELECT message_id, text_content, block_type, tool_name, tool_input, tool_use_id, is_error
-      FROM content_blocks
+      SELECT cb.message_id, ${blockTextSql('cb')} AS text_content, cb.block_type, cb.tool_name,
+             ${blockToolInputSql('cb')} AS tool_input, cb.tool_use_id, cb.is_error
+      FROM content_blocks cb
       WHERE message_id IN (${msgIds.map(() => '?').join(',')})
         AND block_type IN ('text', 'thinking', 'reasoning', 'tool-call', 'tool_use', 'tool-result', 'tool_result')
       ORDER BY message_id, position

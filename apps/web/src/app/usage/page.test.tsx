@@ -268,6 +268,25 @@ describe('usage monitor', () => {
     expect(document.body.textContent).toContain('Loading');
   });
 
+  it('lists a credential alert on its own, by kind and where, not as a usage breach', async () => {
+    const secret = alert({
+      id: 9, alert_type: 'secret_exposed', metric: 'secret', window_minutes: 0, threshold_value: 0, actual_value: 1,
+      project_name: '-home-fox-git-api',
+      details: JSON.stringify({ kinds: ['github_token'], location: 'result', tool: 'Bash', session: 's', project: '-home-fox-git-api', projectDisplay: 'api', seenAt: '2026-10-24T10:00:00Z' }),
+    });
+    alerts = [alert(), secret];
+    recent = [secret];
+    await show();
+    const banner = document.querySelector('[data-secret-banner]')!;
+    expect(banner.textContent).toContain('CREDENTIALS SEEN');
+    expect(banner.textContent).toContain('GitHub token');
+    expect(banner.textContent).toContain('in a tool result of Bash · api');
+    expect(banner.querySelector('a')!.getAttribute('href')).toBe('/usage/alert/9');
+    // The usage banner counts only the usage alert.
+    expect(document.body.textContent).toContain('1 unacknowledged across 1 rule');
+    expect(document.body.textContent).not.toContain('secret 1 / 0');
+  });
+
   it('lays history and the panel side by side on a wide screen', async () => {
     await show();
     const grid = document.querySelector('.lg\\:grid-cols-2');

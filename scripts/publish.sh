@@ -2,14 +2,18 @@
 # Release the four npm packages at one version, from git, in one step.
 #
 #   scripts/publish.sh --dry-run [patch|minor|major|X.Y.Z]   pack, publish nothing, change nothing
-#   scripts/publish.sh [patch|minor|major|X.Y.Z]             bump, commit, tag, publish, verify
+#   scripts/publish.sh [patch|minor|major|X.Y.Z]             bump, commit, tag
 #
 # Versions used to be bumped by the CI publish job, in its own checkout, so
 # git said 1.3.0 for every package while npm served 1.3.7. Here the bump is
 # a commit and the tag points at it. The next version counts up from
-# whichever is higher, npm's or ours. Publishing reads the token from
-# ~/.npmrc; nothing here prints or passes it. Pushing stays a separate,
-# deliberate step: the command is printed at the end.
+# whichever is higher, npm's or ours.
+#
+# CI is our only publisher (fox, 2026-10-24): pushing the tag runs GitLab's
+# publish job, which holds NPM_TOKEN and waits for the registry to answer
+# for every package. No token lives on a laptop, so there is one publishing
+# path and one place a token lives. Pushing stays a separate, deliberate
+# step: the command is printed at the end.
 set -eu
 
 PKGS="packages/core packages/schema packages/router packages/ui"
@@ -100,35 +104,12 @@ if [ $DRY = 1 ]; then
   exit 0
 fi
 
-# Fail before touching git when the token is missing or dead: v1.2.0, v1.3.1
-# and v1.3.3 all "passed" in CI with four 404s and nothing on npm.
-npm whoami >/dev/null 2>&1 || { echo "npm whoami failed: no working token in ~/.npmrc" >&2; exit 1; }
-
 make typecheck
 set_version "$VERSION"
-(cd packages/router && npm run build)
 git add package-lock.json $(for d in $PKGS; do echo "$d/package.json"; done)
 git commit -q -m "release: $TAG"
 git tag -a "$TAG" -m "$TAG"
 
-for d in $PKGS; do
-  echo "==> publishing $(node -p "require('./$d/package.json').name")@$VERSION"
-  (cd "$d" && npm publish --access public)
-done
-
-# The registry is the only witness that counts, and it takes a while to
-# answer for a version it just accepted.
-for d in $PKGS; do
-  name=$(node -p "require('./$d/package.json').name")
-  i=0
-  until [ "$(npm view "$name@$VERSION" version 2>/dev/null)" = "$VERSION" ]; do
-    i=$((i + 1))
-    [ $i -ge 20 ] && { echo "NOT on npm after 5 minutes: $name@$VERSION" >&2; exit 1; }
-    sleep 15
-  done
-  echo "on npm: $name@$VERSION"
-done
-
 echo
-echo "published $TAG. To share the commit and tag:"
+echo "tagged $TAG. To publish it, push the commit and tag; CI's publish job does the rest:"
 echo "  git push origin HEAD --follow-tags"

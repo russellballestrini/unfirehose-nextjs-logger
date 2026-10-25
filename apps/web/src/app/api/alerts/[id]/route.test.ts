@@ -16,6 +16,15 @@ vi.mock('@unturf/unfirehose/db/ingest', () => ({
       actual_value: 300000, project_name: null, details: '{"windowStart":"2026-03-03T14:25"}',
       acknowledged: 0,
     };
+    if (id === 2) return {
+      id: 2, triggered_at: '2026-10-24 10:00:05', alert_type: 'secret_exposed',
+      window_minutes: 0, metric: 'secret', threshold_value: 0, actual_value: 1,
+      project_name: '-home-fox-git-api', acknowledged: 0,
+      details: JSON.stringify({
+        kinds: ['github_token'], location: 'call', tool: 'Write', session: 'sess-a', project: '-home-fox-git-api',
+        projectDisplay: 'api', harness: 'claude-code', seenAt: '2026-10-24T10:00:00Z', blockId: 7, toolUseId: 'toolu_9',
+      }),
+    };
     return undefined;
   }),
   // Named to match the route's import. It was `getUsageByProjectInWindow`
@@ -41,6 +50,17 @@ function req(url: string) {
 }
 
 describe('GET /api/alerts/:id', () => {
+  it('answers a credential alert with what was seen and where, not a usage window', async () => {
+    const res = await GET(req('/api/alerts/2'), { params: Promise.resolve({ id: '2' }) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.window).toBeUndefined();
+    expect(body.secret).toMatchObject({ kinds: ['github_token'], location: 'call', tool: 'Write', session: 'sess-a', projectDisplay: 'api' });
+    expect(body.words).toMatchObject({
+      kinds: 'GitHub token', where: 'a tool call of Write', sessionPath: '/projects/-home-fox-git-api/sess-a#tool-toolu_9',
+    });
+  });
+
   it('returns 400 for non-numeric id', async () => {
     const res = await GET(req('/api/alerts/abc'), { params: Promise.resolve({ id: 'abc' }) });
     expect(res.status).toBe(400);

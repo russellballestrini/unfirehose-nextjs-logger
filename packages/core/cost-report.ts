@@ -26,10 +26,11 @@
  * filed copy says exactly how its figures were converted.
  */
 import type Database from 'better-sqlite3';
-import { costForUsage, getKwhRate } from './pricing';
+import { costForUsage } from './pricing';
 import { ensurePricingHydrated } from './pricing-sync';
 import { rollupTarget } from './project-rollup';
-import { nodeEconKey, parseExcludedHosts, DEFAULT_ISP_COST_MONTHLY } from './mesh-econ';
+import { nodeEconKey, parseExcludedHosts, kwhRateForHost, DEFAULT_ISP_COST_MONTHLY } from './mesh-econ';
+import { integrable, readEnergyAttribution } from './energy-attribution';
 import { readPayload, storePayload } from './precomputed';
 
 export type CostBasis = 'stated' | 'priced' | 'measured' | 'flat';
@@ -87,6 +88,12 @@ export interface MonthlyCostReport {
   byCategory: { category: CostCategory; label: string; usd: number }[];
   byProject: { project: string; usd: number }[];
   byModel: { model: string; usd: number; tokens: number; basis: CostBasis }[];
+  /**
+   * Measured electricity our own sessions on each node explain, by project
+   * (ticket 4004). Already inside the electricity lines and the total; this
+   * says which client it served. Absent from reports filed before it.
+   */
+  electricityByProject?: { project: string; usd: number }[];
   totalUSD: number;
   notes: string[];
 }
@@ -224,8 +231,12 @@ function readEnergy(db: Database.Database, from: number, to: number): Map<string
   for (const r of raw) {
     const ts = parseSqliteTime(r.timestamp);
     if (prev && prev.host === r.hostname) {
-      const dtH = (ts - prev.ts) / 3_600_000;
-      if (dtH > 0 && dtH < 5 / 60) add(r.hostname, (prev.w / 1000) * dtH, dtH);
+      // The gap rule our energy attribution integrates by, so its buckets
+      // and this line are one integral (energy-attribution.ts).
+      if (integrable(ts - prev.ts)) {
+        const dtH = (ts - prev.ts) / 3_600_000;
+        add(r.hostname, (prev.w / 1000) * dtH, dtH);
+      }
     }
     prev = { host: r.hostname, ts, w: r.watts };
   }
@@ -350,19 +361,38 @@ export function buildMonthlyCostReport(db: Database.Database, inp: CostReportInp
 
   // Electricity and connectivity, per node the sampler saw this month.
   const excluded = parseExcludedHosts(settings);
-  const defaultRate = parseFloat(settings.mesh_default_electricity_kwh) || getKwhRate();
   const hoursInPeriod = (until - start) / 3_600_000;
   const energy = readEnergy(db, start, until);
+  // How each node's measured kWh divides (ticket 4004): its standing draw,
+  // what our own messages on it explain, and other work. Shares of what the
+  // attribution tables saw, applied to this line's own integral, so the
+  // line and the total are what they were before the split existed.
+  const split = readEnergyAttribution(db, { from: start, to: until, settings });
+  const splitByHost = new Map(split.hosts.map((h) => [h.hostname, h]));
+  const electricityByProject = new Map<string, number>();
   const connections = new Map<string, { label: string; usd: number; hosts: string[] }>();
   let unconfigured = 0;
   for (const [host, e] of [...energy].sort(([a], [b]) => a.localeCompare(b))) {
     if (excluded.has(host)) continue;
     const econ = econFor(settings, host);
-    const rate = econ?.electricityCostKwh || defaultRate;
+    const rate = kwhRateForHost(settings, host);
     const cover = hoursInPeriod > 0 ? Math.min(100, (e.sampledHours / hoursInPeriod) * 100) : 0;
+    const hs = splitByHost.get(host);
+    let splitDetail = '';
+    if (hs && hs.totalKwh > 0) {
+      const share = (kwh: number) => (kwh / hs.totalKwh) * e.kwh;
+      splitDetail = `: ${share(hs.standingKwh).toFixed(1)} standing (idle ~${Math.round(hs.idleWatts ?? 0)} W), `
+        + `${share(hs.attributedKwh).toFixed(1)} serving our sessions, ${share(hs.unattributedKwh).toFixed(1)} other work`;
+      // Each project's share of this node, scaled the same way.
+      for (const g of split.groups) {
+        if (g.hostname !== host || !(g.kwh > 0)) continue;
+        const project = projectLabel(g.projectName, g.project);
+        electricityByProject.set(project, (electricityByProject.get(project) ?? 0) + share(g.kwh) * rate);
+      }
+    }
     lines.push({
       category: 'electricity', item: host, basis: 'measured', usd: e.kwh * rate,
-      detail: `${e.kwh.toFixed(1)} kWh at $${rate.toFixed(3)}/kWh; sampled ${cover.toFixed(0)}% of the period`,
+      detail: `${e.kwh.toFixed(1)} kWh at $${rate.toFixed(3)}/kWh${splitDetail}; sampled ${cover.toFixed(0)}% of the period`,
     });
     if (!econ) { unconfigured++; continue; }
     // Machines behind one connection share one bill. A connection is the
@@ -411,6 +441,7 @@ export function buildMonthlyCostReport(db: Database.Database, inp: CostReportInp
     byCategory: byCategory.map((c) => ({ ...c, usd: round2Exact(c.usd) })),
     byProject: [...byProject].map(([project, v]) => ({ project, usd: round2Exact(v) })).filter((p) => p.usd > 0).sort((a, b) => b.usd - a.usd),
     byModel: [...byModel].map(([model, v]) => ({ model, usd: round2Exact(v.usd), tokens: v.tokens, basis: v.basis })).sort((a, b) => b.usd - a.usd),
+    electricityByProject: [...electricityByProject].map(([project, v]) => ({ project, usd: round2Exact(v) })).filter((p) => p.usd > 0).sort((a, b) => b.usd - a.usd),
     totalUSD: round2Exact(totalUSD),
     notes,
   };

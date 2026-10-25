@@ -59,7 +59,6 @@ beforeEach(() => {
   data = {
     '/api/projects/demo': { originalPath: '/home/fox/git/demo', sessions: [] },
     '/api/mesh': { nodes: [{ hostname: 'cammy', reachable: true }, { hostname: 'guile', reachable: false }] },
-    '/api/unsandbox': { connected: true, tier: 'builder' },
     '/api/harness/models': { models: [{ id: 'claude-opus-5', label: 'Opus 5' }] },
   };
   global.fetch = vi.fn(async (url: string) => ({

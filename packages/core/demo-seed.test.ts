@@ -16,8 +16,11 @@ vi.mock('./pricing-sync', async (importOriginal) => ({
   ensurePricingHydrated: () => {},
 }));
 
-const { seedDemo, buildDemoPayloads, DEMO_HARNESSES, DEMO_DAYS, DEMO_TURNS, DEMO_NODE, DEMO_MODELS, DEMO_PROJECTS } = await import('./demo-seed');
+const { seedDemo, buildDemoPayloads, DEMO_HARNESSES, DEMO_ONE_SESSION_HARNESSES, DEMO_DAYS, DEMO_TURNS, DEMO_NODE, DEMO_MODELS, DEMO_PROJECTS } = await import('./demo-seed');
 const { SYNTHETIC_MODELS, costForUsage } = await import('./pricing');
+const { FOREIGN_FORMATS, ingestedHarnesses } = await import('./harness-registry');
+const ALL_DEMO_HARNESSES = [...DEMO_HARNESSES, ...DEMO_ONE_SESSION_HARNESSES];
+const DEMO_SESSIONS = DEMO_DAYS * DEMO_HARNESSES.length + DEMO_ONE_SESSION_HARNESSES.length;
 const { readDashboard } = await import('./dashboard');
 const { readTokensPayload } = await import('./tokens');
 const { readProjectList } = await import('./projects-list');
@@ -49,7 +52,7 @@ describe('seedDemo', () => {
   beforeAll(() => { counts = seedDemo(db, { now: NOW }); });
 
   it('writes what the ticket asks for', () => {
-    const sessions = DEMO_DAYS * DEMO_HARNESSES.length;
+    const sessions = DEMO_SESSIONS;
     expect(counts).toEqual({
       projects: 2,
       sessions,
@@ -57,13 +60,22 @@ describe('seedDemo', () => {
       todos: 5,
       alerts: 1,
       meshSnapshots: DEMO_DAYS * 24 * 12,
+      // Every turn but the first and last calls one tool, and each touches something.
+      actions: sessions * (DEMO_TURNS - 2),
     });
     const harnesses = db.prepare('SELECT harness, COUNT(*) AS n FROM sessions GROUP BY harness ORDER BY harness').all();
     expect(harnesses).toEqual([
       { harness: 'agnt', n: DEMO_DAYS },
+      { harness: 'aider', n: 1 },
       { harness: 'claude-code', n: DEMO_DAYS },
+      { harness: 'codex', n: 1 },
+      { harness: 'continue', n: 1 },
+      { harness: 'gemini-cli', n: 1 },
       { harness: 'uncloseai', n: DEMO_DAYS },
     ]);
+    // One session for every harness with a reader of its own, as the registry names them.
+    expect([...DEMO_ONE_SESSION_HARNESSES].sort()).toEqual(
+      ingestedHarnesses().filter((h) => FOREIGN_FORMATS.has(h.format!)).map((h) => h.id).sort());
     // Both projects carry work, and both are repos (a project list drops a
     // row with no root commit).
     const perProject = db.prepare(`SELECT p.root_commit_hash AS root, COUNT(s.id) AS n FROM projects p
@@ -81,6 +93,14 @@ describe('seedDemo', () => {
     const days = db.prepare(`SELECT COUNT(DISTINCT substr(timestamp, 1, 10)) AS n FROM messages`).get() as { n: number };
     expect(days.n).toBeGreaterThanOrEqual(DEMO_DAYS);
     expect(db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE status = 'active'`).get()).toEqual({ n: 1 });
+  });
+
+  it('fills our action ledger, a destructive call and a network call among it', () => {
+    const kinds = db.prepare(`SELECT kind, COUNT(*) AS n FROM action_ledger GROUP BY kind`).all() as Array<{ kind: string; n: number }>;
+    expect(kinds.map((k) => k.kind).sort()).toEqual(['fs-read', 'fs-write', 'git', 'network', 'shell']);
+    const flagged = db.prepare(`SELECT command, flags FROM action_ledger WHERE flagged = 1`).all() as Array<{ command: string; flags: string }>;
+    expect(flagged.length).toBeGreaterThan(0);
+    expect(flagged.every((f) => f.flags === 'destructive' && f.command.includes('reset --hard'))).toBe(true);
   });
 
   it('carries text, reasoning, tool calls and their results', () => {
@@ -136,9 +156,10 @@ describe('buildDemoPayloads', () => {
     // Ranges slide with the wall clock; seed up to it.
     const fresh = db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number };
     if (fresh.n > 0) {
-      for (const t of ['content_blocks', 'usage_minutes', 'messages', 'todos', 'sessions', 'projects', 'alerts', 'mesh_snapshots', 'mesh_node_facts']) {
+      for (const t of ['content_blocks', 'usage_minutes', 'messages', 'todos', 'sessions', 'projects', 'alerts', 'mesh_snapshots', 'mesh_node_facts', 'node_energy_15m', 'energy_attribution_15m']) {
         db.prepare(`DELETE FROM ${t}`).run();
       }
+      db.prepare(`DELETE FROM settings WHERE key LIKE 'energy_attribution%'`).run();
     }
     seedDemo(db);
     await buildDemoPayloads();
@@ -154,14 +175,32 @@ describe('buildDemoPayloads', () => {
       expect(d.dailyActivity.length).toBeGreaterThan(0);
     }
     const week = readDashboard('7d', Infinity)!.payload;
-    expect(week.summary.sessions).toBe(DEMO_DAYS * DEMO_HARNESSES.length);
+    expect(week.summary.sessions).toBe(DEMO_SESSIONS);
     expect(week.modelBreakdown.map((m: any) => m.model).sort()).toEqual([...DEMO_MODELS].sort());
+  });
+
+  it('attributes measured watts on our demo node, idle shown as its standing cost (ticket 4004)', () => {
+    const week = readDashboard('7d', Infinity)!.payload;
+    const node = week.nodeEnergy.find((h: any) => h.hostname === DEMO_NODE);
+    expect(node.idleWatts).toBeGreaterThan(0);
+    expect(node.standingUSD).toBeGreaterThan(0);
+    expect(node.standingMonthlyUSD).toBeGreaterThan(0);
+    expect(node.attributedUSD).toBeGreaterThan(0);
+    expect(node.standingKwh + node.activeKwh).toBeCloseTo(node.totalKwh, 6);
+    // Both demo models are served on the node by some harness, so both carry a measured power bill.
+    for (const m of week.modelBreakdown) {
+      expect(['measured', 'mixed']).toContain(m.energySource);
+      expect(m.energyUSD).toBeGreaterThan(0);
+      expect(m.host).toBe(DEMO_NODE);
+    }
+    const harnesses = db.prepare('SELECT DISTINCT harness FROM energy_attribution_15m ORDER BY harness').all();
+    expect(harnesses).toEqual([{ harness: 'agnt' }, { harness: 'uncloseai' }]);
   });
 
   it('stores a populated tokens payload split by harness', () => {
     const t = readTokensPayload('7d', Infinity)!.payload;
     expect(JSON.stringify(t)).toContain('demo-model');
-    for (const harness of DEMO_HARNESSES) expect(JSON.stringify(t)).toContain(harness);
+    for (const harness of ALL_DEMO_HARNESSES) expect(JSON.stringify(t)).toContain(harness);
     expect(readTokensPayload('all', Infinity)).not.toBeNull();
   });
 
@@ -171,8 +210,8 @@ describe('buildDemoPayloads', () => {
     for (const p of list) expect(p.sessionCount).toBeGreaterThan(0);
   });
 
-  it('stores a scrobble payload that sees all three harnesses', () => {
+  it('stores a scrobble payload that sees every demo harness', () => {
     const s = readScrobblePayload(Infinity)!.payload;
-    expect(s.harnesses.map((h: any) => h.harness).sort()).toEqual([...DEMO_HARNESSES].sort());
+    expect(s.harnesses.map((h: any) => h.harness).sort()).toEqual([...ALL_DEMO_HARNESSES].sort());
   });
 });

@@ -12,8 +12,12 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
-      include: ['quality/**/*.ts'],
-      exclude: ['**/*.test.*'],
+      // Everything our CRAP report scores as `scripts` source (workspaces.ts
+      // walks the whole directory), not just quality/: a file the report
+      // grades but coverage never instruments reads 0% however well its
+      // suite tests it, which is what doctor-checks.ts did.
+      include: ['**/*.ts'],
+      exclude: ['**/*.test.*', 'node_modules/**', 'coverage/**'],
       // A floor, not a target. Set a few points under where each workspace
       // actually sits, so an ordinary change never trips it and a
       // wholesale loss of tests does. Raise these when the real number

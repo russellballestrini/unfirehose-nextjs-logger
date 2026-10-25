@@ -2,9 +2,9 @@ import { parseToolArgs } from './uncloseai-adapter';
 import path from 'path';
 import { homedir } from 'os';
 import { claudePaths } from './claude-paths';
-import { fetchPaths } from './fetch-paths';
-import { uncloseaiPaths } from './uncloseai-paths';
-import { agntPaths } from './agnt-paths';
+import { harnessPaths } from './harness-paths';
+import { FOREIGN_FORMATS, ingestedHarnesses, type HarnessFormat } from './harness-registry';
+import { HARNESS_ROOTS } from './harness-roots';
 import { normalizeClaudeCodeEntry } from './claude-code-adapter';
 import { normalizeUncloseaiEntry } from './uncloseai-adapter';
 
@@ -21,8 +21,16 @@ import { normalizeUncloseaiEntry } from './uncloseai-adapter';
  */
 export interface HarnessAdapter {
   name: string;
+  /** The session's JSONL. Throws for a `stored` harness, whose files are not laid out by session. */
   sessionFile(slug: string, sessionId: string): string;
   normalize(raw: any): UfMessage | null;
+  /**
+   * Read back from our database, not the disk: a harness in a format of its
+   * own (Codex rollouts, Gemini CLI recordings, Continue sessions) has no
+   * `{slug}/{session}.jsonl` to stream, and its rows are the same rows a
+   * Claude Code session has (see db/session-messages.ts).
+   */
+  stored?: boolean;
 }
 
 /**
@@ -40,6 +48,12 @@ export interface UfMessage {
   content: any[];
   model?: string | null;
   usage?: any;
+  /**
+   * Our own mark, not unfirehose/1.0: the usage counts were read off a
+   * harness's rounded display (Aider's "2.4k sent"), not reported exactly.
+   * Stored as messages.tokens_approx.
+   */
+  tokensApprox?: boolean;
   subtype?: string | null;
   durationMs?: number | null;
   sidechain?: boolean;
@@ -122,33 +136,45 @@ function normalizeUncloseaiCli(raw: any): UfMessage | null {
   }
 }
 
-const HARNESSES: Record<string, HarnessAdapter> = {
-  'claude-code': {
-    name: 'claude-code',
-    sessionFile: (slug, id) => claudePaths.sessionFile(slug, id),
-    normalize: (raw) => normalizeClaudeCodeEntry(raw) as UfMessage | null,
-  },
-  fetch: {
-    name: 'fetch',
-    sessionFile: (slug, id) => fetchPaths.sessionFile(slug, id),
-    normalize: passthroughNative,
-  },
-  uncloseai: {
-    name: 'uncloseai',
-    sessionFile: (slug, id) => uncloseaiPaths.sessionFile(slug, id),
-    normalize: passthroughNative,
-  },
-  'uncloseai-cli': {
-    name: 'uncloseai-cli',
-    sessionFile: (slug, id) => uncloseaiPaths.sessionFile(slug, id),
-    normalize: normalizeUncloseaiCli,
-  },
-  agnt: {
-    name: 'agnt',
-    sessionFile: (slug, id) => agntPaths.sessionFile(slug, id),
-    normalize: passthroughNative,
-  },
+// Foreign formats are folded by their readers in db/ingest-foreign.ts; there
+// is no line-at-a-time normalizer to stream them through.
+const stored = () => null;
+const NORMALIZE: Record<HarnessFormat, (raw: any) => UfMessage | null> = {
+  'claude-code': (raw) => normalizeClaudeCodeEntry(raw) as UfMessage | null,
+  unfirehose: passthroughNative,
+  'uncloseai-cli': normalizeUncloseaiCli,
+  'codex-rollout': stored,
+  'gemini-chat': stored,
+  'continue-session': stored,
+  'aider-history': stored,
 };
+
+function adapterFor(id: string, format: HarnessFormat): HarnessAdapter {
+  if (FOREIGN_FORMATS.has(format)) {
+    return {
+      name: id,
+      stored: true,
+      sessionFile: () => { throw new Error(`${id} sessions are read from our database, not a session file`); },
+      normalize: NORMALIZE[format],
+    };
+  }
+  // Claude Code nests subagents under their parent session; every other
+  // harness is {root}/{slug}/{session}.jsonl.
+  const sessionFile = id === 'claude-code'
+    ? (slug: string, sid: string) => claudePaths.sessionFile(slug, sid)
+    : (slug: string, sid: string) => harnessPaths(HARNESS_ROOTS[id]()).sessionFile(slug, sid);
+  return { name: id, sessionFile, normalize: NORMALIZE[format] };
+}
+
+// Every ingested harness in the registry, plus the older ids some of them
+// also wrote under (uncloseai-cli's pre-1.0 lines).
+const HARNESSES: Record<string, HarnessAdapter> = Object.fromEntries(
+  ingestedHarnesses().flatMap((h) => [
+    [h.id, adapterFor(h.id, h.format!)],
+    ...Object.entries(h.altFormats ?? {}).map(([alt, fmt]) => [alt, { ...adapterFor(h.id, fmt), name: alt }]),
+  ]),
+);
+
 
 function genericNativeAdapter(harness: string): HarnessAdapter {
   return {

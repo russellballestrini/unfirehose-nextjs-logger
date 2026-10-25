@@ -24,11 +24,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${geistMono.variable} antialiased h-screen flex overflow-hidden`}>
+      <body className={`${geistMono.variable} antialiased h-screen flex flex-col lg:flex-row overflow-hidden`}>
         <VaultShell>
           <ThemeProvider />
           <Sidebar />
-          <main className="flex-1 overflow-auto p-6 relative">
+          <main className="flex-1 min-w-0 min-h-0 overflow-auto p-4 sm:p-6 relative">
             {children}
           </main>
         </VaultShell>

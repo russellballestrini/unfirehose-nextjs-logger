@@ -103,7 +103,6 @@ export const PROVIDERS = [
   { value: 'linode', label: 'Linode/Akamai' },
   { value: 'oracle', label: 'Oracle Cloud' },
   { value: 'scaleway', label: 'Scaleway' },
-  { value: 'unsandbox', label: 'unsandbox.com' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -374,6 +373,26 @@ export interface NodeScoreDetail {
   efficiencyScore: number; // legacy alias (breakdown line)
 }
 
+/**
+ * A rough continent for a coordinate, for counting how many a mesh spans.
+ * Boxes, checked in order, so the first that fits wins.
+ *
+ * Known defect, kept as it scored: everything east of 60°E reads as Asia,
+ * Sydney included. This once went on to an Oceania box (lat < -10,
+ * lon > 100) that the Asia test above it had already swallowed, so no
+ * coordinate could ever reach it; it is gone rather than left looking live.
+ * Giving Oceania its own continent would raise some meshes' diversity
+ * bonus, which is a scoring change to make on purpose.
+ */
+export function continentOf(lat: number, lon: number): 'NA' | 'SA' | 'EU' | 'AF' | 'AS' | 'OTHER' {
+  if (lat > 10 && lon < -30) return 'NA';
+  if (lat < -10 && lon < -30) return 'SA';
+  if (lat > 35 && lon > -30 && lon < 60) return 'EU';
+  if (lat < 35 && lon > 20 && lon < 60) return 'AF';
+  if (lon >= 60) return 'AS';
+  return 'OTHER';
+}
+
 export function computeMeshScore(
   nodes: { hostname: string; sshHostname?: string; econ: NodeEcon; meshNode?: any }[],
   geoipNodes?: any[],
@@ -424,16 +443,7 @@ export function computeMeshScore(
   const avgDistance = pairCount > 0 ? Math.round(totalDist / pairCount) : 0;
 
   // Geographic diversity: count distinct continents (rough)
-  const continents = new Set(configured.map(n => {
-    const { lat, lon } = n.econ;
-    if (lat > 10 && lon < -30) return 'NA';
-    if (lat < -10 && lon < -30) return 'SA';
-    if (lat > 35 && lon > -30 && lon < 60) return 'EU';
-    if (lat < 35 && lon > 20 && lon < 60) return 'AF';
-    if (lon >= 60) return 'AS';
-    if (lat < -10 && lon > 100) return 'OC';
-    return 'OTHER';
-  }));
+  const continents = new Set(configured.map(n => continentOf(n.econ.lat, n.econ.lon)));
   const geoDiversityBonus = Math.max(0, (continents.size - 1) * 20);
 
   // ISP/provider diversity

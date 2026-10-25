@@ -584,14 +584,14 @@ describe('ingestAll over a native harness', () => {
   });
   it('uses a native header cwd without guessing a long deleted path', async () => {
     const slug = '-missing-' + 'hyphenated-segment-'.repeat(8);
-    const dir = path.join(home, '.codex', 'unfirehose', slug);
+    const dir = path.join(home, '.orcestra', 'unfirehose', slug);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'codex-path-regression.jsonl'),
+    fs.writeFileSync(path.join(dir, 'native-path-regression.jsonl'),
       JSON.stringify({ type: 'session', cwd: '/missing/original-working-directory' }) + '\n' +
-      message('codex-path-message', 'user', 'header path survives deleted worktrees') + '\n');
+      message('native-path-message', 'user', 'header path survives deleted worktrees') + '\n');
     const { ingestAll } = await import('./ingest');
     await ingestAll();
-    expect(one<{ path: string }>("SELECT path FROM projects WHERE name LIKE 'codex:%'").path)
+    expect(one<{ path: string }>("SELECT path FROM projects WHERE name LIKE 'orcestra:%'").path)
       .toBe('/missing/original-working-directory');
   }, 3000);
 

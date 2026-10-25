@@ -11,6 +11,7 @@ import path from 'path';
 import { getDb } from './schema';
 import { detectRateLimit } from '../rate-limits';
 import { recordHarnessRefusal } from './refusals';
+import { blockTextSql } from './block-cold';
 import { classifyClaudeApiError } from '../claude-code-adapter';
 import { claudePaths } from '../claude-paths';
 import { uncloseaiPaths } from '../uncloseai-paths';
@@ -67,7 +68,7 @@ export function scanRateLimits(
     .prepare(
       `SELECT cb.id       AS block_id,
               cb.message_id,
-              cb.text_content,
+              ${blockTextSql('cb')} AS text_content,
               cb.block_type,
               m.type      AS message_type,
               m.session_id,
@@ -80,8 +81,7 @@ export function scanRateLimits(
          JOIN messages m ON m.id = cb.message_id
          LEFT JOIN sessions s ON s.id = m.session_id
         WHERE cb.id > ?
-          AND cb.text_content IS NOT NULL
-          AND cb.text_content != ''
+          AND (cb.cold = 1 OR (cb.text_content IS NOT NULL AND cb.text_content != ''))
         ORDER BY cb.id
         LIMIT ?`,
     )
@@ -141,6 +141,8 @@ export function scanRateLimits(
         (r.block_type === 'text' || r.block_type === 'reasoning') &&
         r.model && r.model !== '<synthetic>'
       ) continue;
+      // A cold block with only a tool input has no text to read.
+      if (!r.text_content) continue;
       const ev = detectRateLimit(r.text_content);
       if (!ev) continue;
       if (r.timestamp && nearbyReported.get(r.session_id, r.timestamp)) continue;

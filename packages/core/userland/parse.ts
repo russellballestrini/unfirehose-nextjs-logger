@@ -4,7 +4,7 @@ import {
   type MeshNode, parseCpuModel, lookupCpuTdp, lookupCpuYear,
   calcSystemWatts, calcNonCpuWatts, memCapGB, formatUptime, round,
 } from '../mesh-probe';
-import { num } from '../num';
+import { sumNvidiaRows } from '../gpu-sum';
 
 /**
  * The wire, read but not yet interpreted: every `key=value`, and the
@@ -276,17 +276,13 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
   let gpuMemUsedMB: number | undefined;
   let gpuUtil: number | undefined;
   if (w.gpu.length) {
-    let totalPower = 0;
-    for (const line of w.gpu) {
-      const parts = line.split(',').map(s => s.trim());
-      const watts = parseFloat(parts[0]!);
-      if (!isNaN(watts)) totalPower += watts;
-      if (!gpuModel && parts[1]) gpuModel = parts[1];
-      if (parts[2]) gpuMemTotalMB = (gpuMemTotalMB ?? 0) + num(parts[2]);
-      if (parts[3]) gpuMemUsedMB = (gpuMemUsedMB ?? 0) + num(parts[3]);
-      if (parts[4]) gpuUtil = Math.max(gpuUtil ?? 0, num(parts[4]));
-    }
-    if (totalPower > 0) gpuPowerWatts = round(totalPower);
+    // Every card on the node, summed (gpu-sum.ts).
+    const g = sumNvidiaRows(w.gpu);
+    gpuModel = g.model;
+    gpuMemTotalMB = g.memTotalMB;
+    gpuMemUsedMB = g.memUsedMB;
+    gpuUtil = g.util;
+    if (g.watts != null) gpuPowerWatts = round(g.watts);
   }
 
   if (!powerWatts && networkWatts !== null) {

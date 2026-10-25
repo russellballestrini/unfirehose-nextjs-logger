@@ -46,6 +46,15 @@ beforeAll(() => {
 
 const pages = import.meta.glob('./**/page.tsx');
 
+// What a page or component does here is fixed; how long it takes is not.
+// The first test in a file pays for compiling its whole module graph:
+// 1.2 s for active/page.tsx on an idle four-core box and 16 s with every
+// suite at once beside 24 busy processes on two cores (2026-10-23), where
+// rendering that same page in render.smoke took 71 s, past this config's
+// 30 s. Every test that loads a module gets a deadline sized
+// for that box with room to spare; one that hangs still fails.
+const LOAD_DEADLINE_MS = 180_000;
+
 describe('every page module', () => {
   it('finds all of them, so this test cannot quietly cover nothing', () => {
     expect(Object.keys(pages).length).toBeGreaterThanOrEqual(24);
@@ -56,6 +65,6 @@ describe('every page module', () => {
       const mod = (await load()) as { default?: unknown };
       // A page without a default export is not a page Next.js can route to.
       expect(typeof mod.default).toBe('function');
-    });
+    }, LOAD_DEADLINE_MS);
   }
 });

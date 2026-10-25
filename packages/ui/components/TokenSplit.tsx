@@ -1,6 +1,7 @@
 'use client';
 
 import { formatTokens, formatCost as defaultFormatCost } from '@unturf/unfirehose/format';
+import { Stat, costSub, cacheCostOf } from './StatStrip';
 
 /**
  * Canonical token-type colors. Every dashboard imports these rather than
@@ -158,7 +159,7 @@ export function TokenSplitCards({
   const inputCost = costs?.input;
   const outputCost = costs?.output;
 
-  const cols = showTotal ? 'grid-cols-4' : 'grid-cols-3';
+  const cols = showTotal ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3';
   return (
     <div className={`grid ${cols} gap-4 ${className ?? ''}`}>
       {showTotal && (
@@ -240,5 +241,47 @@ export function TokenSplitInline({
       <span className="text-[var(--color-border)]">·</span>
       {part('out', tokens.output, TOKEN_TYPE_COLORS.output, outputCost, 'Generated tokens.')}
     </span>
+  );
+}
+
+/**
+ * The same four figures as stats in a StatStrip: Tokens, Input, Cache,
+ * Output, each with what it cost. `cacheShare`, when known, says how much
+ * of every token was cache beside the cache price.
+ */
+export function TokenSplitStats({ tokens, costs, totalSub, totalTitle, cacheShare }: {
+  tokens: TokenSplitValues;
+  costs: TokenSplitCosts | undefined | null;
+  totalSub: string;
+  totalTitle: string;
+  cacheShare: number | null;
+}) {
+  return (
+    <>
+      <Stat
+        label="Tokens"
+        value={formatTokens(totalOf(tokens))}
+        sub={totalSub}
+        title={totalTitle}
+      />
+      <Stat
+        label="Input"
+        value={formatTokens(tokens.input)}
+        sub={costSub(costs?.input)}
+        color={TOKEN_TYPE_COLORS.input}
+      />
+      <Stat
+        label="Cache"
+        value={formatTokens(cacheOf(tokens))}
+        sub={`${costSub(cacheCostOf(costs))}${cacheShare != null ? ` · ${Math.round(cacheShare * 100)}% of tokens` : ''}`}
+        color={TOKEN_TYPE_COLORS.cacheRead}
+      />
+      <Stat
+        label="Output"
+        value={formatTokens(tokens.output)}
+        sub={costSub(costs?.output)}
+        color={TOKEN_TYPE_COLORS.output}
+      />
+    </>
   );
 }
