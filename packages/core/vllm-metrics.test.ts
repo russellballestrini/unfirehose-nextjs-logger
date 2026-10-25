@@ -21,6 +21,15 @@ vllm:prefix_cache_hits_total{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-Auto
 vllm:prefix_cache_hits_created{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 1.7869106011177013e+09
 vllm:kv_cache_usage_perc{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 0.0
 vllm:cache_config_info{block_size="1568",cache_dtype="fp8",enable_prefix_caching="True",engine="0",kv_cache_size_tokens="66901",num_gpu_blocks="49"} 1.0
+vllm:prompt_tokens_total{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 3.0132e+09
+vllm:prompt_tokens_created{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 1.7869106011177013e+09
+vllm:generation_tokens_total{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 5.09e+07
+vllm:generation_tokens_created{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 1.7869106011177013e+09
+vllm:request_success_total{engine="0",finished_reason="stop",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 120000.0
+vllm:request_success_total{engine="0",finished_reason="length",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 3000.0
+vllm:request_success_created{engine="0",finished_reason="stop",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 1.7869106011177013e+09
+vllm:num_requests_running{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 3.0
+vllm:num_requests_waiting{engine="0",model_name="Lorbus/Qwen3.6-27B-int4-AutoRound"} 1.0
 `;
 
 describe('parsing real vLLM output', () => {
@@ -56,6 +65,26 @@ describe('parsing real vLLM output', () => {
   it('gives the lifetime rate our node actually had', () => {
     const s = samples[0];
     expect((s.hits / s.queries) * 100).toBeCloseTo(5.77, 1);
+  });
+});
+
+describe('token and request counters, the output side', () => {
+  const [s] = parseVllmCacheMetrics(REAL);
+  it('reads prompt and generation totals as counters', () => {
+    expect(s.promptTokens).toBe(3.0132e9);
+    expect(s.generationTokens).toBe(5.09e7);
+  });
+  it('sums requests over every finished reason, and ignores the _created timestamps', () => {
+    expect(s.requests).toBe(123000);
+  });
+  it('keeps running and waiting as the gauges they are', () => {
+    expect(s.running).toBe(3);
+    expect(s.waiting).toBe(1);
+  });
+  it('leaves them undefined on an engine that does not report them', () => {
+    const [old] = parseVllmCacheMetrics('vllm:prefix_cache_queries_total{model_name="m"} 10\nvllm:prefix_cache_hits_total{model_name="m"} 1');
+    expect(old.promptTokens).toBeUndefined();
+    expect(old.requests).toBeUndefined();
   });
 });
 

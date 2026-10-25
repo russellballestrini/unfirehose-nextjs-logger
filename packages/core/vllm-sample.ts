@@ -25,7 +25,8 @@ const LOCAL = new Set(['localhost', '127.0.0.1', '::1']);
 /** Only the six lines we want, out of an exposition that runs to hundreds of KB. */
 const METRICS_CMD = (port: number) =>
   `curl -s --max-time 5 http://127.0.0.1:${port}/metrics ` +
-  `| grep -E '^vllm:(prefix_cache_(hits|queries)_total|kv_cache_usage_perc|cache_config_info)'`;
+  `| grep -E '^vllm:(prefix_cache_(hits|queries)_total|kv_cache_usage_perc|cache_config_info` +
+  `|prompt_tokens_total|generation_tokens_total|request_success_total|num_requests_(running|waiting))'`;
 
 /**
  * Run a shell command on a host — over ssh, or directly when the host is
@@ -80,8 +81,9 @@ export interface VllmSampleResult { host: string; port?: number; sampled: number
 /** Sample every host and record what is live. */
 export async function sampleVllmCache(db: Database.Database, hosts: string[]): Promise<VllmSampleResult[]> {
   const insert = db.prepare(`
-    INSERT INTO vllm_cache_samples (hostname, model, queries, hits, kv_usage, kv_size_tokens, prefix_caching)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO vllm_cache_samples (hostname, model, queries, hits, kv_usage, kv_size_tokens, prefix_caching,
+                                    prompt_tokens, generation_tokens, requests, running, waiting)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   return Promise.all(hosts.map(async (host) => {
     const got = await fetchVllmMetrics(db, host);
@@ -91,7 +93,8 @@ export async function sampleVllmCache(db: Database.Database, hosts: string[]): P
     const live = parseVllmCacheMetrics(got.body).filter((s) => s.queries > 0);
     for (const s of live) {
       insert.run(host, s.model, s.queries, s.hits, s.kvUsage ?? null, s.kvCacheSizeTokens ?? null,
-        s.prefixCachingEnabled == null ? null : (s.prefixCachingEnabled ? 1 : 0));
+        s.prefixCachingEnabled == null ? null : (s.prefixCachingEnabled ? 1 : 0),
+        s.promptTokens ?? null, s.generationTokens ?? null, s.requests ?? null, s.running ?? null, s.waiting ?? null);
     }
     return { host, port: got.port, sampled: live.length };
   }));

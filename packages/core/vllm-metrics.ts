@@ -30,6 +30,16 @@ export interface VllmCacheSample {
   prefixCachingEnabled?: boolean;
   /** KV cache capacity in tokens, from cache_config_info. */
   kvCacheSizeTokens?: number;
+  /** Prompt tokens processed, cumulative (vllm:prompt_tokens_total). */
+  promptTokens?: number;
+  /** Tokens generated, cumulative (vllm:generation_tokens_total). The output side, measured. */
+  generationTokens?: number;
+  /** Requests finished, cumulative, summed over every finished_reason label. */
+  requests?: number;
+  /** Requests in flight right now, a gauge. */
+  running?: number;
+  /** Requests queued right now, a gauge. */
+  waiting?: number;
 }
 
 const METRIC_LINE = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{([^}]*)\})?\s+([-+0-9.eE]+|NaN|\+Inf|-Inf)\s*$/;
@@ -113,6 +123,26 @@ export function parseVllmCacheMetrics(body: string): VllmCacheSample[] {
         break;
       case 'vllm:kv_cache_usage_perc':
         if (value !== null) get(model).kvUsage = value;
+        break;
+      // Token and request counters, kept since 2026-10-25. Until then only
+      // the cache lines were read, so output tokens on a node were an
+      // estimate from our own prompt-heavy ratio, and the public lane's
+      // outputs were unknown. These are counters too: store, then difference.
+      case 'vllm:prompt_tokens_total':
+        if (value !== null) get(model).promptTokens = value;
+        break;
+      case 'vllm:generation_tokens_total':
+        if (value !== null) get(model).generationTokens = value;
+        break;
+      case 'vllm:request_success_total':
+        // One series per finished_reason (stop, length, abort); the sum is requests served.
+        if (value !== null) get(model).requests = (get(model).requests ?? 0) + value;
+        break;
+      case 'vllm:num_requests_running':
+        if (value !== null) get(model).running = value;
+        break;
+      case 'vllm:num_requests_waiting':
+        if (value !== null) get(model).waiting = value;
         break;
       default:
         break;   // `_created` and everything else deliberately ignored

@@ -19,6 +19,12 @@ const db = createTestDb();
 const METRICS = [
   'vllm:prefix_cache_queries_total{model_name="qwen"} 1000',
   'vllm:prefix_cache_hits_total{model_name="qwen"} 400',
+  'vllm:prompt_tokens_total{model_name="qwen"} 900',
+  'vllm:generation_tokens_total{model_name="qwen"} 70',
+  'vllm:request_success_total{finished_reason="stop",model_name="qwen"} 5',
+  'vllm:request_success_total{finished_reason="length",model_name="qwen"} 1',
+  'vllm:num_requests_running{model_name="qwen"} 2',
+  'vllm:num_requests_waiting{model_name="qwen"} 0',
   'vllm:prefix_cache_queries_total{model_name="idle"} 0',
   'vllm:prefix_cache_hits_total{model_name="idle"} 0',
 ].join('\n');
@@ -85,6 +91,15 @@ describe('sampleVllmCache', () => {
     const out = await sampleVllmCache(db, ['gpu-box']);
     expect(out).toEqual([{ host: 'gpu-box', port: 18888, sampled: 1 }]);
     expect(rows()).toEqual([{ hostname: 'gpu-box', model: 'qwen', queries: 1000, hits: 400 }]);
+  });
+
+  it('stores the token and request counters beside the cache counters', async () => {
+    answerOn(18888);
+    await sampleVllmCache(db, ['gpu-box']);
+    const r = db.prepare('SELECT prompt_tokens, generation_tokens, requests, running, waiting FROM vllm_cache_samples').get();
+    expect(r).toEqual({ prompt_tokens: 900, generation_tokens: 70, requests: 6, running: 2, waiting: 0 });
+    // The probe must ask the box for those lines; a grep that dropped them is how they went missing.
+    expect(commands()[0].cmd).toMatch(/generation_tokens_total/);
   });
 
   it('reports a down node as sampled zero and carries on with the rest', async () => {

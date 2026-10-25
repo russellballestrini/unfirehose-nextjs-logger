@@ -950,7 +950,12 @@ export function migrate(db: Database.Database) {
       hits          REAL NOT NULL,          -- cumulative tokens served from cache
       kv_usage      REAL,                   -- gauge 0..1, instantaneous
       kv_size_tokens INTEGER,
-      prefix_caching INTEGER                -- vLLM's own on/off report
+      prefix_caching INTEGER,               -- vLLM's own on/off report
+      prompt_tokens  REAL,                  -- cumulative prompt tokens processed (2026-10-25)
+      generation_tokens REAL,               -- cumulative tokens generated: the output side, measured
+      requests       REAL,                  -- cumulative requests finished, summed over finished_reason
+      running        INTEGER,               -- gauge: requests in flight at sample time
+      waiting        INTEGER                -- gauge: requests queued at sample time
     );
     CREATE INDEX IF NOT EXISTS idx_vllm_cache_ts    ON vllm_cache_samples(timestamp);
     -- The rewrite watch and the witness pick journals by most-recently
@@ -959,6 +964,17 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_ingest_offsets_last_ingested ON ingest_offsets(last_ingested);
     CREATE INDEX IF NOT EXISTS idx_vllm_cache_host  ON vllm_cache_samples(hostname, model, timestamp);
   `);
+  // vLLM token and request counters beside the cache counters (2026-10-25),
+  // for a database that already had the table.
+  // The sampler kept only the prefix-cache lines, so a node's output tokens
+  // were an estimate from our own prompt-heavy ratio and the public lane's
+  // were unknown. Cumulative like queries/hits; running/waiting are gauges.
+  addColumn('vllm_cache_samples', 'prompt_tokens', 'REAL');
+  addColumn('vllm_cache_samples', 'generation_tokens', 'REAL');
+  addColumn('vllm_cache_samples', 'requests', 'REAL');
+  addColumn('vllm_cache_samples', 'running', 'INTEGER');
+  addColumn('vllm_cache_samples', 'waiting', 'INTEGER');
+
 
   // UUIDv7 unique index — try/catch since it may already exist
   try { db.exec('CREATE UNIQUE INDEX idx_todos_uuid ON todos(uuid) WHERE uuid IS NOT NULL'); } catch { /* exists */ }
