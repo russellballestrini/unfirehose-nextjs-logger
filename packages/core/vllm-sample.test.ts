@@ -93,6 +93,21 @@ describe('sampleVllmCache', () => {
     expect(rows()).toEqual([{ hostname: 'gpu-box', model: 'qwen', queries: 1000, hits: 400 }]);
   });
 
+  it('records an engine whose only movement is prompt tokens, as after a vLLM restart or with prefix caching off', async () => {
+    answerOn(18888, [
+      'vllm:prefix_cache_queries_total{model_name="fresh"} 0',
+      'vllm:prefix_cache_hits_total{model_name="fresh"} 0',
+      'vllm:prompt_tokens_total{model_name="fresh"} 55',
+      'vllm:generation_tokens_total{model_name="fresh"} 5',
+      'vllm:prefix_cache_queries_total{model_name="idle"} 0',
+      'vllm:prefix_cache_hits_total{model_name="idle"} 0',
+    ].join('\n'));
+    const out = await sampleVllmCache(db, ['gpu-box']);
+    expect(out[0].sampled).toBe(1);
+    expect(db.prepare('SELECT model, queries, prompt_tokens FROM vllm_cache_samples').all())
+      .toEqual([{ model: 'fresh', queries: 0, prompt_tokens: 55 }]);
+  });
+
   it('stores the token and request counters beside the cache counters', async () => {
     answerOn(18888);
     await sampleVllmCache(db, ['gpu-box']);

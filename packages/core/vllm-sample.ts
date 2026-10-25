@@ -88,9 +88,13 @@ export async function sampleVllmCache(db: Database.Database, hosts: string[]): P
   return Promise.all(hosts.map(async (host) => {
     const got = await fetchVllmMetrics(db, host);
     if (!got) return { host, sampled: 0 };
-    // A model with no queries at all is an engine that has never served —
-    // recording it every five minutes adds rows and no information.
-    const live = parseVllmCacheMetrics(got.body).filter((s) => s.queries > 0);
+    // A model that has never served is rows and no information every five
+    // minutes. "Served" used to mean prefix-cache queries above zero, which
+    // skipped a freshly restarted engine until its first cached prompt and
+    // would skip an engine with prefix caching off forever (2026-10-25: the
+    // 4090 sat unrecorded after a vLLM restart). Any counter moving counts.
+    const live = parseVllmCacheMetrics(got.body)
+      .filter((s) => s.queries > 0 || (s.promptTokens ?? 0) > 0 || (s.requests ?? 0) > 0);
     for (const s of live) {
       insert.run(host, s.model, s.queries, s.hits, s.kvUsage ?? null, s.kvCacheSizeTokens ?? null,
         s.prefixCachingEnabled == null ? null : (s.prefixCachingEnabled ? 1 : 0),
