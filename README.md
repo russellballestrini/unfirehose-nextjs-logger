@@ -1,6 +1,6 @@
 # unfirehose
 
-A local-first observability dashboard for machine learning coding agents. Reads session data from Claude Code, OpenAI Codex, Gemini CLI, Continue, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
+A local-first observability dashboard for machine learning coding agents. Reads session data from Claude Code, OpenAI Codex, Gemini CLI, Continue, Aider, agnt, uncloseai, fetch, arborist, normalizes it into SQLite, and gives you a single pane of glass across every harness, every project, every reasoning block, every token.
 
 No cloud. No telemetry. Your data stays on your machine.
 
@@ -218,7 +218,7 @@ the machine.
 - **A price book with provenance** — every dollar on every page is booked at the price in force the day the tokens were spent, from five public feeds kept in an append-only ledger.
 - **Cost split everywhere** — every model + harness row breaks equivalent cost into input / output / cache-read / cache-write. See which token type is actually costing you (spoiler: cache reads).
 - **Reasoning visibility** — Reasoning filter on `/live`, `/active`, `/logs`, and the session viewer. Models that ship sealed reasoning (signatures, no readable text) get a `·sealed` badge, so it is never mistaken for "no reasoning happened."
-- **19 harnesses** — Claude Code, uncloseai-cli, agnt, arborist, aider, Cursor, Continue, Gemini CLI, Codex, OpenCode, Pi, Ollama, vLLM, llama.cpp, Open WebUI, text-generation-webui, Fetch and more, all in one database. One session viewer, one project list, one token ledger.
+- **Every harness in one database** — Claude Code, Codex, Gemini CLI, Continue, Aider, uncloseai-cli, agnt, arborist and Fetch are ingested today, plus any native unfirehose/1.0 writer; 19 harnesses have adapter docs, Cursor and OpenCode among those still waiting for storage that holds still. One session viewer, one project list, one token ledger.
 - **Rename-resilient projects** — identity comes from the git root commit and origin, not the encoded path, so renaming a repo on disk keeps its whole history.
 
 
@@ -353,7 +353,7 @@ unfirehose/
 
 No external services. No API keys required. Docker optional: `npm install && make dev` is our whole install.
 
-## Codex CLI, Gemini CLI and Continue
+## Codex CLI, Gemini CLI, Continue and Aider
 
 Nothing to set up: our worker reads each tool's own session files where the
 tool keeps them, incrementally, and never writes to them.
@@ -363,6 +363,7 @@ tool keeps them, incrementally, and never writes to them.
 | OpenAI Codex | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` | [format](packages/schema/docs/harnesses/openai-codex.md); `scripts/codex-bridge.mts` is retired |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` (and legacy `.json`) | [format](packages/schema/docs/harnesses/gemini-cli.md); follows `GEMINI_CLI_HOME` |
 | Continue | `~/.continue/sessions/<id>.json` | [format](packages/schema/docs/harnesses/continue-dev.md); follows `CONTINUE_GLOBAL_DIR` |
+| Aider | `.aider.chat.history.md` in the root of each project we already ingest, nowhere else | [format](packages/schema/docs/harnesses/aider.md); token counts are Aider's rounded ones, marked approximate |
 
 Their sessions land as the same message and content-block rows Claude Code's
 do, so tokens, tool calls, reasoning and the session viewer work the same. To
