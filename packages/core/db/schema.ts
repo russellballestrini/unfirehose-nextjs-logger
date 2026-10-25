@@ -56,7 +56,11 @@ export function getDb(): Database.Database {
   }
 
   mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  _db = new Database(DB_PATH);
+  // Three processes write this file: the worker, its sampler child and the
+  // web server. The default 5 s lock wait lost sixteen mesh samples under a
+  // long ledger transaction (2026-10-25); writers now wait up to 10 s, and
+  // the ledger keeps its transactions short so they rarely wait at all.
+  _db = new Database(DB_PATH, { timeout: 10_000 });
   applyBasePragmas(_db);
   // 256MB page cache keeps our covering indices in memory across requests —
   // /api/tokens does a full scan of messages and was cache-thrashing at 2MB.

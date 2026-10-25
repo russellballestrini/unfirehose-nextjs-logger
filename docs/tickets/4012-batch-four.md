@@ -40,6 +40,20 @@ seeded from those. Acceptance: on the demo seed and on a fixture modelled on
 fox's data (provider `qwen`, no endpoint), attribution rows exist and the
 dashboard power column shows measured, not estimate.
 
+### Outcome, items 1 and 2 (blackops, 2026-10-25)
+Both fixed on main the same day, since both were live on fox's box.
+- **1.** `backfillLedger` walks its window a chunk at a time (`LEDGER_CHUNK`
+  5,000 ids per write transaction, cursor written after each) and hands the
+  thread back after `LEDGER_TICK_BUDGET_MS` 1.5 s; the head scan uses the
+  same chunk. Every connection opens with a 10 s busy timeout. Left for the
+  web session: moving the tick into the payload child.
+- **2.** `resolveUsageHost`: endpoint, then the `energy_provider_nodes`
+  settings map (provider -> hostname, JSON), then the model hardware hint
+  when exactly one mesh host carries the token; only for models
+  `isSelfHosted` says we ran. `ENERGY_RULES_VERSION` 2 recomputes history.
+  Left for the web session: the Settings → Permacomputer table that edits
+  the map; today it is a JSON setting.
+
 ## Quality, measured
 
 ### 3. Six functions nobody can hold in their head

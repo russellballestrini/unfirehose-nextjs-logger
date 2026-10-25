@@ -3,8 +3,8 @@ import type Database from 'better-sqlite3';
 import { createTestDb } from './test/db-helper';
 import {
   weightedPercentile, idleWattsForDay, idleWindow, hostIntervals, integrateBuckets, splitActive,
-  resolveMeshHost, refreshEnergyAttribution, readEnergyAttribution, buildEnergyChunk,
-  ENERGY_BUCKET_MS, ENERGY_KEYS, sqlTime, type Interval, type IdleCache,
+  resolveMeshHost, resolveUsageHost, refreshEnergyAttribution, readEnergyAttribution, buildEnergyChunk,
+  ENERGY_BUCKET_MS, ENERGY_KEYS, ENERGY_RULES_VERSION, sqlTime, type Interval, type IdleCache,
 } from './energy-attribution';
 import { selfHostWeight } from './pricing';
 import { nodeEconKey } from './mesh-econ';
@@ -140,6 +140,35 @@ describe('resolveMeshHost', () => {
   });
 });
 
+describe('resolveUsageHost: a message with no endpoint', () => {
+  const hosts = ['neoblanka', '4090-ai.lab', '3090-ai.lab', 'cammy.lab'];
+  const quant = 'turboderp/Qwen3.8-27B-exl3';
+
+  it('still prefers an endpoint when there is one', () => {
+    expect(resolveUsageHost({ endpoint: 'http://cammy.lab:8000/v1', provider: 'qwen', model: quant }, hosts)).toBe('cammy.lab');
+  });
+
+  it('takes the provider map from Settings next', () => {
+    expect(resolveUsageHost({ endpoint: null, provider: 'qwen', model: quant }, hosts, 'neoblanka', { qwen: '3090-ai.lab' })).toBe('3090-ai.lab');
+  });
+
+  it('falls back to the model hardware hint when one host carries that token', () => {
+    expect(resolveUsageHost({ endpoint: null, provider: 'local', model: quant }, hosts)).toBe('4090-ai.lab');
+    expect(resolveUsageHost({ endpoint: null, provider: 'hermes', model: 'solidrust/Hermes-3-Llama-3.1-8B-AWQ' }, hosts)).toBe('3090-ai.lab');
+  });
+
+  it('does not guess between two hosts that carry the token', () => {
+    expect(resolveUsageHost({ endpoint: null, provider: 'local', model: quant }, [...hosts, '4090-b.lab'])).toBeNull();
+  });
+
+  it('never puts a hosted model or a cloud provider on our GPU', () => {
+    // Listed as cloud-served: same family, somebody else's electricity.
+    expect(resolveUsageHost({ endpoint: null, provider: 'local', model: 'qwen/qwen3.8-27b' }, hosts)).toBeNull();
+    expect(resolveUsageHost({ endpoint: null, provider: 'openrouter', model: quant }, hosts)).toBeNull();
+    expect(resolveUsageHost({ endpoint: null, provider: 'local', model: 'claude-opus-5' }, hosts)).toBeNull();
+  });
+});
+
 // ── Against a database ───────────────────────────────────────────────────────
 
 const NODE = 'gpu-node';
@@ -218,6 +247,34 @@ describe('refreshEnergyAttribution', () => {
     const later = nodeRow(BUSY_FROM + 30 * MIN);
     expect(later.active_wh).toBeCloseTo(65, 6);
     expect(later.attributed_wh).toBe(0);
+  });
+
+  it('attributes a message that recorded no endpoint, through the provider map or the hardware hint', () => {
+    // fox's box: 167,008 messages in 30 days, none with an endpoint.
+    const GPU = '4090-ai.lab';
+    seedSnapshots(db, T0 - 7 * DAY, NOW, drawAt, GPU);
+    const p = db.prepare(`INSERT INTO projects (name, display_name, path) VALUES ('-home-x-git-gamma', 'gamma', '/x/gamma')`).run().lastInsertRowid;
+    const sid = db.prepare(`INSERT INTO sessions (session_uuid, project_id, harness, created_at) VALUES ('s3', ?, 'uncloseai', datetime('now'))`).run(p).lastInsertRowid;
+    db.prepare(`INSERT INTO messages (session_id, type, timestamp, model, input_tokens, output_tokens, endpoint, provider)
+                VALUES (?, 'assistant', ?, 'turboderp/Qwen3.8-27B-exl3', 500, 2000, NULL, 'qwen')`)
+      .run(sid, new Date(BUSY_FROM + 3 * MIN).toISOString());
+
+    refreshEnergyAttribution(db, { now: NOW, budgetMs: Infinity, chunkDays: 3 });
+    const rows = db.prepare('SELECT hostname, harness, active_wh FROM energy_attribution_15m WHERE hostname = ?').all(GPU) as { hostname: string; harness: string; active_wh: number }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].harness).toBe('uncloseai');
+    expect(rows[0].active_wh).toBeCloseTo(65, 6);
+    expect(db.prepare('SELECT value FROM settings WHERE key = ?').get(ENERGY_KEYS.rules)).toEqual({ value: String(ENERGY_RULES_VERSION) });
+  });
+
+  it('recomputes history when the rules version moves', () => {
+    seedMessages(db);
+    // Rows built by rules 1 would have left our busy hour unattributed; the
+    // cursor says it is all done.
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(ENERGY_KEYS.through, sqlTime(NOW));
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(ENERGY_KEYS.rules, '1');
+    refreshEnergyAttribution(db, { now: NOW, budgetMs: Infinity, chunkDays: 3 });
+    expect(nodeRow(BUSY_FROM).attributed_wh).toBeCloseTo(65, 6);
   });
 
   it('reads back priced at each node’s own rate, by node, model, project and harness', () => {

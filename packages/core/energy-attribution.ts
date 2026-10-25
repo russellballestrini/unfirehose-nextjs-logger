@@ -43,7 +43,7 @@
  */
 import type Database from 'better-sqlite3';
 import { hostname as osHostname } from 'os';
-import { CLOUD_PROVIDERS, ENDPOINT_TO_NODE, selfHostWeight } from './pricing';
+import { CLOUD_PROVIDERS, ENDPOINT_TO_NODE, MODEL_HARDWARE_HINT, isSelfHosted, selfHostWeight } from './pricing';
 import { findSameBox, sameBox } from './hostname-match';
 import { kwhRateForHost } from './mesh-econ';
 
@@ -62,6 +62,10 @@ export const ENERGY_KEYS = {
   at: 'energy_attribution_at',
   watermark: 'energy_attribution_watermark',
   through: 'energy_attribution_through',
+  /** Version of the attribution rules the stored rows were built by; a bump recomputes history. */
+  rules: 'energy_attribution_rules',
+  /** JSON object, provider name -> mesh hostname, edited in Settings; read on every refresh. */
+  providerNodes: 'energy_provider_nodes',
 } as const;
 
 // ── Time ──────────────────────────────────────────────────────────────────────
@@ -200,6 +204,51 @@ export function splitActive(activeWh: number, groups: { weight: number; messages
  * then any node we sample under that name (an alias, or the fqdn the box
  * reports), and a loopback endpoint is the node this process runs on.
  */
+/**
+ * Bumped when a change to how a message finds its node must reach history.
+ *   1  endpoint only
+ *   2  endpoint, then provider map, then model hardware hint (2026-10-25:
+ *      fox's box had no endpoint on any of 167k messages, so nothing was
+ *      ever attributed)
+ */
+export const ENERGY_RULES_VERSION = 2;
+
+export interface UsageIdentity {
+  endpoint: string | null | undefined;
+  provider: string | null | undefined;
+  model: string;
+}
+
+/**
+ * The mesh node a message's inference ran on, from the evidence we have:
+ *   1. its endpoint, when the harness recorded one (resolveMeshHost);
+ *   2. the provider -> node map a person keeps in Settings;
+ *   3. the model's hardware hint (a Qwen quant lives on the 4090 box), when
+ *      exactly one mesh host carries that token in its name.
+ * Steps 2 and 3 only apply to a model we know we ran ourselves — a hosted
+ * `qwen/qwen3.8-27b` through a reseller has no endpoint either, and it must
+ * not land on our GPU's bill.
+ */
+export function resolveUsageHost(
+  u: UsageIdentity,
+  meshHosts: readonly string[],
+  localHostname: string = osHostname(),
+  providerNodes: Record<string, string> = {},
+): string | null {
+  if (u.provider && CLOUD_PROVIDERS.has(u.provider)) return null;
+  if (u.endpoint) return resolveMeshHost(u.endpoint, meshHosts, localHostname);
+  if (!isSelfHosted(u.model, null, u.provider ?? null)) return null;
+  const mapped = u.provider ? providerNodes[u.provider] ?? providerNodes[u.provider.toLowerCase()] : undefined;
+  if (mapped) return findSameBox(meshHosts, mapped, (h) => [h]) ?? mapped;
+  const hint = MODEL_HARDWARE_HINT.find((m) => m.pattern.test(u.model))?.hardware;
+  if (hint) {
+    const token = hint.toLowerCase();
+    const carriers = meshHosts.filter((h) => h.toLowerCase().includes(token));
+    if (carriers.length === 1) return carriers[0];
+  }
+  return null;
+}
+
 export function resolveMeshHost(
   endpoint: string | null | undefined, meshHosts: readonly string[], localHostname: string = osHostname(),
 ): string | null {
@@ -218,6 +267,19 @@ export function resolveMeshHost(
 function readSetting(db: Database.Database, key: string): string | null {
   const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
   return r?.value ?? null;
+}
+
+/** The provider -> node map from Settings; anything unparseable is an empty map, never a throw. */
+export function readProviderNodes(db: Database.Database): Record<string, string> {
+  const raw = readSetting(db, ENERGY_KEYS.providerNodes);
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, h] of Object.entries(v)) if (typeof h === 'string' && h.trim()) out[k] = h.trim();
+    return out;
+  } catch { return {}; }
 }
 
 function writeSetting(db: Database.Database, key: string, value: string): void {
@@ -301,8 +363,9 @@ export function buildEnergyChunk(
     if (buckets.size) nodeBuckets.set(host, buckets);
   }
 
-  // Our messages that named an endpoint, folded to the minute in SQL so the
-  // rows that cross into JS are few.
+  // Our messages, folded to the minute in SQL so the rows that cross into
+  // JS are few. An endpoint is the best evidence of where a call ran, but
+  // most harnesses record none; resolveUsageHost takes what there is.
   const meshHosts = [...new Set([
     ...byHost.keys(),
     ...(db.prepare('SELECT hostname FROM mesh_node_facts').all() as { hostname: string }[]).map((r) => r.hostname),
@@ -320,19 +383,20 @@ export function buildEnergyChunk(
       FROM messages m
       JOIN sessions s ON s.id = m.session_id
      WHERE m.timestamp >= ? AND m.timestamp < ?
-       AND m.endpoint IS NOT NULL AND m.model IS NOT NULL AND m.model != '<synthetic>'
+       AND m.model IS NOT NULL AND m.model != '<synthetic>'
      GROUP BY m.endpoint, m.provider, m.model, project_id, harness, minute
   `).all(new Date(from).toISOString(), new Date(to).toISOString()) as {
-    endpoint: string; provider: string | null; model: string; project_id: number; harness: string; minute: string;
+    endpoint: string | null; provider: string | null; model: string; project_id: number; harness: string; minute: string;
     messages: number; input: number; output: number; cache_read: number; cache_write: number;
   }[];
 
+  const providerNodes = readProviderNodes(db);
   const resolved = new Map<string, string | null>();
   const groups = new Map<string, Group>();
   for (const u of usage) {
-    if (u.provider && CLOUD_PROVIDERS.has(u.provider)) continue;
-    if (!resolved.has(u.endpoint)) resolved.set(u.endpoint, resolveMeshHost(u.endpoint, meshHosts, opts.localHostname));
-    const host = resolved.get(u.endpoint);
+    const rk = `${u.endpoint ?? ''}\0${u.provider ?? ''}\0${u.model}`;
+    if (!resolved.has(rk)) resolved.set(rk, resolveUsageHost(u, meshHosts, opts.localHostname, providerNodes));
+    const host = resolved.get(rk);
     if (!host) continue;
     const ts = Date.parse(u.minute + ':00Z');
     if (!Number.isFinite(ts)) continue;
@@ -420,6 +484,13 @@ export function refreshEnergyAttribution(
   const current = bucketOf(now);
 
   const maxId = (db.prepare('SELECT MAX(id) AS id FROM messages').get() as { id: number | null }).id ?? 0;
+  // Rows built by older rules are recomputed from the first sample: the
+  // cursors go, the chunks below delete each bucket range before writing it.
+  const storedRules = Number(readSetting(db, ENERGY_KEYS.rules) ?? 0) || 0;
+  if (storedRules < ENERGY_RULES_VERSION) {
+    db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(ENERGY_KEYS.through, ENERGY_KEYS.watermark);
+    writeSetting(db, ENERGY_KEYS.rules, String(ENERGY_RULES_VERSION));
+  }
   const wm = Number(readSetting(db, ENERGY_KEYS.watermark) ?? 0) || 0;
   const throughRaw = readSetting(db, ENERGY_KEYS.through);
 
@@ -435,7 +506,7 @@ export function refreshEnergyAttribution(
   }
   if (maxId > wm) {
     const late = db.prepare(
-      'SELECT MIN(timestamp) AS t FROM messages WHERE id > ? AND endpoint IS NOT NULL AND timestamp IS NOT NULL',
+      'SELECT MIN(timestamp) AS t FROM messages WHERE id > ? AND timestamp IS NOT NULL',
     ).get(wm) as { t: string | null };
     const lt = late.t ? Date.parse(late.t) : NaN;
     if (Number.isFinite(lt) && (from == null || lt < from)) from = bucketOf(lt);

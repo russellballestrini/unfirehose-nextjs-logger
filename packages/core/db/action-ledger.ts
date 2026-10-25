@@ -34,8 +34,17 @@ import { outputKindsFor, outputReason, recordSightings, sightingStatus, type Sig
 const HEAD_KEY = 'action_ledger_head';
 const BELOW_KEY = 'action_ledger_below';
 const RULES_KEY = 'action_ledger_rules';
-/** Block ids per window. ~50 ms of classifying on a busy window. */
+/** Block ids a backfill tick may cover. */
 export const LEDGER_WINDOW = 50_000;
+/**
+ * Block ids per write transaction. One transaction over 50,000 ids held
+ * the write lock 6 to 14 s on a 2.3 M-block database (2026-10-25); the
+ * sampler, a separate process, lost the lock race sixteen times and dropped
+ * its samples. 5,000 ids is a fraction of a second.
+ */
+export const LEDGER_CHUNK = 5_000;
+/** Wall time a backfill tick may spend before handing the thread back to ingest. */
+export const LEDGER_TICK_BUDGET_MS = 1_500;
 
 function getSetting(db: Database.Database, key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
@@ -195,7 +204,9 @@ export function scanLedgerHead(
   db: Database.Database = getDb(),
   opts: { window?: number; maxPasses?: number; now?: Date } = {},
 ): LedgerScanResult & { head: number } {
-  const window = opts.window ?? LEDGER_WINDOW;
+  // A chunk per pass: after a long outage the head is far behind, and the
+  // same lock arithmetic as the backfill applies.
+  const window = opts.window ?? LEDGER_CHUNK;
   const maxPasses = opts.maxPasses ?? 4;
   let { head } = ledgerCursors(db);
   const max = maxBlockId(db);
@@ -220,15 +231,29 @@ export function scanLedgerHead(
  */
 export function backfillLedger(
   db: Database.Database = getDb(),
-  opts: { window?: number } = {},
+  opts: { window?: number; chunk?: number; budgetMs?: number } = {},
 ): LedgerScanResult & { remaining: number; done: boolean } {
   const window = opts.window ?? LEDGER_WINDOW;
+  const chunk = Math.max(1, opts.chunk ?? LEDGER_CHUNK);
+  const budget = opts.budgetMs ?? LEDGER_TICK_BUDGET_MS;
   const { below } = ledgerCursors(db);
-  if (below <= 1) return { scanned: 0, recorded: 0, secrets: 0, alerts: 0, remaining: 0, done: true };
-  const lo = Math.max(0, below - 1 - window);
-  const r = classifyRange(db, lo, below - 1, false);
-  setSetting(db, BELOW_KEY, lo + 1);
-  return { ...r, remaining: lo, done: lo === 0 };
+  const out = { scanned: 0, recorded: 0, secrets: 0, alerts: 0 };
+  if (below <= 1) return { ...out, remaining: 0, done: true };
+  // Newest first, one short transaction per chunk, the cursor written after
+  // each so a kill mid-tick loses nothing. The first chunk always runs; the
+  // budget decides whether another follows in this tick.
+  const floor = Math.max(0, below - 1 - window);
+  const started = Date.now();
+  let hi = below - 1;
+  let lo = hi;
+  do {
+    lo = Math.max(floor, hi - chunk);
+    const r = classifyRange(db, lo, hi, false);
+    out.scanned += r.scanned; out.recorded += r.recorded; out.secrets += r.secrets; out.alerts += r.alerts;
+    setSetting(db, BELOW_KEY, lo + 1);
+    hi = lo;
+  } while (lo > floor && Date.now() - started < budget);
+  return { ...out, remaining: lo, done: lo === 0 };
 }
 
 /** Head and history both, to the end. For `make demo`, tests and a manual rebuild. */

@@ -56,6 +56,25 @@ describe('filling our ledger', () => {
     expect(ledgerStatus(db)).toMatchObject({ rows: 10, backfillRemaining: 0, headLag: 0 });
   });
 
+  it('writes history in short transactions and stops at its time budget', () => {
+    // One 50,000-id transaction starved the sampler of the write lock; the
+    // backfill now goes a chunk at a time, cursor after each chunk.
+    const s = session('-home-fox-git-api', 'sess-b');
+    for (let i = 0; i < 12; i++) call(s, `2026-10-0${(i % 9) + 1}T11:00:00Z`, ['Bash', { command: `ls dir${i}` }]);
+    const before = ledgerCursors(db).below;
+
+    // No time at all still moves one chunk: progress is never zero.
+    const one = backfillLedger(db, { window: 1000, chunk: 3, budgetMs: 0 });
+    expect(one.done).toBe(false);
+    expect(ledgerCursors(db).below).toBe(before - 3);
+
+    // Given time, the tick walks the whole window chunk by chunk.
+    const rest = backfillLedger(db, { window: 1000, chunk: 3, budgetMs: Infinity });
+    expect(rest.done).toBe(true);
+    expect(ledgerCursors(db).below).toBe(1);
+    expect(ledgerStatus(db)).toMatchObject({ rows: 12, backfillRemaining: 0 });
+  });
+
   it('picks up tool calls that land after it started, at the head', () => {
     const s = session('-home-fox-git-api', 'sess-a');
     call(s, '2026-10-01T10:00:00Z', ['Read', { file_path: 'a.ts' }]);
