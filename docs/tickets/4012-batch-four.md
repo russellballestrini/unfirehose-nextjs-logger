@@ -104,6 +104,30 @@ exists. Render `docs/architecture/*.md`, `packages/schema/SPEC.md` and
 `llms.txt` under `/docs` with a sidebar and search, so a link in the app
 never leaves the app.
 
+## Found while reading the 4090's ledger (2026-10-25)
+
+### 11. Idle baseline inflates under saturation
+Idle is the time-weighted p10 of the trailing seven days. In weeks W35 to
+W38 the 4090 ran above 50 % GPU utilization in 78 to 90 % of samples, and
+the "idle" baseline rose to 166 to 257 W against a true idle near 90 W
+(system 70 W plus a loaded-but-quiet GPU at 16 W, measured on days the
+endpoint was off). So the busier the box, the smaller its reported active
+energy: September's active is understated by roughly a third. Clamp idle to
+the minimum of the 7-day p10, the 30-day p10, and the node's observed floor
+(p10 of samples with utilization under 5 %), and expose which one won.
+
+### 12. vLLM cache counter deltas are not requests, and some are impossible
+`vllm_cache_samples.queries` is a prefix-cache token counter, and its daily
+deltas on the 4090 read 3 to 44 billion for October 10 to 15 against 87
+million on October 20 and 21 at similar utilization. A 4090 prefills about
+three thousand tokens a second, 260 million a day at the outside, so the
+early figures are an artifact: a second instance under the same model name,
+a counter unit change across a vLLM upgrade, or resets the LAG arithmetic
+does not catch. Record the vLLM version and instance id with each sample,
+reject deltas above the hardware's ceiling, and derive requests per day from
+the request counter, not the token one. This is the $/1000 answers metric
+the Prime Mission measures by; today it cannot be trusted.
+
 ## Decisions fox owns
 Cursor and OpenCode readers stay off until their formats hold still.
 Monetization direction is unchanged: none. unsandbox remains behind its
