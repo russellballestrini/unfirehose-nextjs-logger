@@ -138,3 +138,19 @@ neoblanka) reads grade B within a few buckets of the deploy; the 3090
 stays C until `python3-pynvml` is on it; the 4090 stays C until both of
 fox's node steps are applied. Buckets before the deploy stay C forever,
 since no counter was stored for them.
+
+## Live, 2026-10-26 12:05 UTC, nine minutes after the deploy
+
+| host | RAPL readable | NVML | first bucket grade |
+|---|---|---|---|
+| guile (2 sockets, no GPU) | yes | n/a | **B**, measured 2.07 Wh against a 4.92 Wh estimate for the same minute |
+| 3090-ai | yes | not installed | C: counters on every sample, GPU half missing by design |
+| 4090-ai, cammy, blanka, neoblanka | present, mode 0400 | — | C until `state.apply energy-counters` |
+
+The gap between guile's measured and estimated figures is the part no
+counter sees: 251 GB of DIMMs, spinning disks and PSU loss, which the
+estimate models and RAPL does not. Both numbers are kept; a reader must
+not compare one host's B to another's C. vLLM counters now land every 15
+seconds on both GPU boxes; zero `SQLITE_BUSY` since the restart. Salt:
+`energy-counters` fleet-wide under os:Ubuntu, `energy-counters.nvml` on
+the GPU hosts (foxhop-states 6818327), not yet applied.
