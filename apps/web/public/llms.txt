@@ -410,6 +410,8 @@ Time-series metrics for mesh nodes, peak-preserving downsampled.
 - `?nodes=0` — drop the per-node breakdown from each point
 → `{ timeline: [{ timestamp, cpuPercent, memUsedGB, memTotalGB, gpuUtil, gpuMemUsedGB, ..., nodes? }], hostnames, hours, count, sampled, of }`
 
+Energy hosts carry `grade` ('B' exact joules from RAPL+NVML counters over ≥95% of sampled time, 'C' integrated watts), `measuredCoverage` (0..1), `measuredKwh`, and `idleSource` ('measured' from vLLM empty-queue reports, or 'p10'). Ticket 4013.
+
 ### POST /api/mesh/history
 Ingest snapshot from mesh nodes (append-only).
 ← `{ nodes: [...] }`

@@ -1,6 +1,6 @@
 # 4013: Energy audit to grade B — counters and request ids, no new hardware
 
-**Status:** open; fox has three steps, the web session has the rest
+**Status:** our side shipped 2026-10-26 (items 1 to 4 and 6; item 5 waits for the proxy's events); fox's three node steps open
 **Project:** unfirehose-nextjs-logger
 **Estimated:** two sessions for our side; fox's steps are minutes each
 **Owner:** web session; fox for the node-side steps
@@ -105,3 +105,36 @@ grade their inputs had. Mixed inputs show the lowest grade present.
   marginal and allocated watt-hours whose sum over an interval equals the
   interval's measured energy, to the millijoule.
 - Zero `SQLITE_BUSY` under the 15-second vLLM read on a 7 GB database.
+
+## Outcome, our side (blackops, 2026-10-26)
+
+- **1. Counters stored.** Remote probe: the `RAPL` line keeps both raw reads
+  and a `RAPLMAX` line carries each package's wrap range; the shared `nvidia`
+  fragment adds an `NVML` line (millijoules per GPU) where `python3 -c
+  'import pynvml'` succeeds. Local probe: same two values. Node fields
+  `cpuEnergy[{uj,max}]`, `gpuEnergyMj`; snapshot columns `cpu_energy_json`,
+  `gpu_energy_mj`. Node side: salt state `energy-counters` (foxhop-states
+  7a5c3ea) and `make node-energy-prep HOST=` for a box without salt.
+- **2. Energy from deltas, graded.** `energy-counters.ts`: RAPL wrap adds the
+  package range once; a backwards NVML step is a driver reload and the
+  interval is unknown; a GPU box needs both counters to be measured.
+  `node_energy_15m.measured_wh/measured_gpu_wh/grade`; cold rows
+  `measured_wh/measured_gpu_wh/energy_grade`, summed not smoothed. The
+  estimate columns keep their meaning; measured sits beside them.
+- **3. Measured idle.** `measuredIdleWindow`: time-weighted mean draw over
+  intervals the engine reported empty (running = 0, waiting = 0, report
+  under a minute old), trailing week, six quiet hours minimum; else p10.
+  `node_energy_15m.idle_source` says which. Replaces item 11 of 4012.
+- **4. Tokens at 15 s.** A `knownOnly` vLLM pass runs on the mesh tick for
+  hosts whose metrics port was found; discovery stays at five minutes.
+- **6. Grade on the read.** `EnergyHost` carries `grade`, `measuredCoverage`,
+  `measuredKwh`, `idleSource`; the fleet attribution table shows the grade
+  beside each host and marks an estimated idle with `~`.
+- **Not done: 5.** Request-level attribution needs the proxy's per-request
+  events (4012 item 15). The monthly report does not yet print a grade.
+
+What to expect live: a RAPL-readable box with no GPU (cammy, guile, blanka,
+neoblanka) reads grade B within a few buckets of the deploy; the 3090
+stays C until `python3-pynvml` is on it; the 4090 stays C until both of
+fox's node steps are applied. Buckets before the deploy stay C forever,
+since no counter was stored for them.

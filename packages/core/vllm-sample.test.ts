@@ -108,6 +108,18 @@ describe('sampleVllmCache', () => {
       .toEqual([{ model: 'fresh', queries: 0, prompt_tokens: 55 }]);
   });
 
+  it('a knownOnly pass skips a host whose port was never found, and reads one whose port was', async () => {
+    answerOn(18888);
+    // Nothing remembered yet: knownOnly has nobody to ask.
+    expect(await sampleVllmCache(db, ['gpu-box'], { knownOnly: true })).toEqual([]);
+    expect(commands()).toEqual([]);
+    // A full pass finds and remembers the port; the next knownOnly pass is one command.
+    await sampleVllmCache(db, ['gpu-box']);
+    vi.clearAllMocks(); answerOn(18888);
+    expect(await sampleVllmCache(db, ['gpu-box', 'never-seen'], { knownOnly: true })).toEqual([{ host: 'gpu-box', port: 18888, sampled: 1 }]);
+    expect(commands()).toHaveLength(1);
+  });
+
   it('stores the token and request counters beside the cache counters', async () => {
     answerOn(18888);
     await sampleVllmCache(db, ['gpu-box']);

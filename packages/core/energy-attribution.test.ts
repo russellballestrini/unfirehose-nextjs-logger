@@ -3,8 +3,8 @@ import type Database from 'better-sqlite3';
 import { createTestDb } from './test/db-helper';
 import {
   weightedPercentile, idleWattsForDay, idleWindow, hostIntervals, integrateBuckets, splitActive,
-  resolveMeshHost, resolveUsageHost, refreshEnergyAttribution, readEnergyAttribution, buildEnergyChunk,
-  ENERGY_BUCKET_MS, ENERGY_KEYS, ENERGY_RULES_VERSION, sqlTime, type Interval, type IdleCache,
+  resolveMeshHost, resolveUsageHost, refreshEnergyAttribution, readEnergyAttribution, buildEnergyChunk, measuredIdleWindow,
+  ENERGY_BUCKET_MS, ENERGY_KEYS, ENERGY_RULES_VERSION, QUIET_MATCH_MS, sqlTime, type Interval, type IdleCache,
 } from './energy-attribution';
 import { selfHostWeight } from './pricing';
 import { nodeEconKey } from './mesh-econ';
@@ -150,6 +150,40 @@ describe('grade B: energy from counters beside the estimate (4013)', () => {
     const [iv] = hostIntervals([], [{ ts: T0, watts: 100, gpuWatts: 0, sampleCount: 60, measuredWh: 20, measuredGpuWh: 0 }]);
     expect(iv.measuredWh).toBe(20);
     expect(integrateBuckets([iv], T0, T0 + ENERGY_BUCKET_MS, () => null).get(T0)!.grade).toBe('B');
+  });
+});
+
+describe('measured idle: what the engine called quiet (4013)', () => {
+  // A saturated week: 95 % of the time at 360 W, 5 % at 100 W. The p10 of
+  // the draw is 360; the engine's quiet reports pick the 100 W stretches out.
+  const day = T0;
+  const intervals: Interval[] = [];
+  const quiet: { ts: number; quiet: boolean }[] = [];
+  for (let t = day - 7 * DAY; t < day; t += MIN) {
+    const isQuiet = (Math.floor((t - (day - 7 * DAY)) / MIN) % 20) === 0;   // one minute in twenty
+    intervals.push({ ts: t, hours: 1 / 60, watts: isQuiet ? 100 : 360, gpuWatts: 0 });
+    quiet.push({ ts: t, quiet: isQuiet });
+  }
+
+  it('reads 100 W where the percentile would have read 360', () => {
+    expect(measuredIdleWindow(intervals, quiet, day).watts).toBeCloseTo(100, 6);
+    expect(idleWattsForDay(intervals, day)).toBe(360);
+  });
+
+  it('is nothing with under six quiet hours, so the caller falls back', () => {
+    const thin = quiet.map((q, i) => ({ ...q, quiet: q.quiet && i < 200 }));   // ~10 quiet minutes
+    expect(measuredIdleWindow(intervals, thin, day).watts).toBeNull();
+  });
+
+  it('a report labels the interval it falls in, never the one a full minute later', () => {
+    // Even minutes 100 W with a quiet report, odd minutes 360 W with none.
+    // If the report could reach the next interval the answer would be 230.
+    const alt: Interval[] = []; const reports: { ts: number; quiet: boolean }[] = [];
+    for (let t = day - 7 * DAY, i = 0; t < day; t += MIN, i++) {
+      alt.push({ ts: t, hours: 1 / 60, watts: i % 2 === 0 ? 100 : 360, gpuWatts: 0 });
+      if (i % 2 === 0) reports.push({ ts: t, quiet: true });
+    }
+    expect(measuredIdleWindow(alt, reports, day).watts).toBeCloseTo(100, 6);
   });
 });
 
@@ -341,6 +375,17 @@ describe('refreshEnergyAttribution', () => {
     expect(row.total_wh as number).toBeCloseTo(92.5, 6);
   });
 
+  it('takes idle from the engine\u2019s quiet reports when it has them, and says so', () => {
+    seedMessages(db);
+    // vLLM on the node reports an empty queue except during the busy hour.
+    const ins = db.prepare(`INSERT INTO vllm_cache_samples (timestamp, hostname, model, queries, hits, running, waiting) VALUES (?, ?, 'hermes-3-8b', 1, 0, ?, 0)`);
+    db.transaction(() => { for (let t = T0 - 7 * DAY; t < NOW; t += MIN) ins.run(sqlTime(t), NODE, t >= BUSY_FROM && t < BUSY_TO ? 2 : 0); })();
+    refreshEnergyAttribution(db, { now: NOW, budgetMs: Infinity, chunkDays: 3 });
+    const row = nodeRow(BUSY_FROM) as Record<string, number | string>;
+    expect(row.idle_source).toBe('measured');
+    expect(row.idle_watts).toBeCloseTo(100, 6);
+  });
+
   it('reads back priced at each node’s own rate, by node, model, project and harness', () => {
     seedMessages(db);
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(nodeEconKey(NODE), JSON.stringify({ electricityCostKwh: 0.5 }));
@@ -401,7 +446,7 @@ describe('refreshEnergyAttribution', () => {
   it('a tick that knows the day’s idle reads only the quarter hour it rebuilds', () => {
     const cache: IdleCache = new Map();
     buildEnergyChunk(db, BUSY_FROM, BUSY_FROM + ENERGY_BUCKET_MS, { now: NOW, idleCache: cache });
-    expect(cache.get(`${NODE}\0${T0}`)).toBe(100);
+    expect(cache.get(`${NODE}\0${T0}`)).toEqual({ watts: 100, source: 'p10' });
     // Delete the week before: with the idle cached the bucket still prices the same.
     db.prepare('DELETE FROM mesh_snapshots WHERE timestamp < ?').run(sqlTime(T0));
     buildEnergyChunk(db, BUSY_FROM, BUSY_FROM + ENERGY_BUCKET_MS, { now: NOW, idleCache: cache });

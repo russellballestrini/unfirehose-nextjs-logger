@@ -1088,6 +1088,7 @@ export function migrate(db: Database.Database) {
       measured_wh   REAL,              -- grade B: joules from RAPL + NVML counters (4013)
       measured_gpu_wh REAL,
       grade         TEXT,              -- 'B' counters covered the bucket, 'C' integrated watts
+      idle_source   TEXT,              -- 'measured' from the engine's quiet reports, or 'p10'
       PRIMARY KEY (hostname, bucket)
     );
     CREATE INDEX IF NOT EXISTS idx_node_energy_15m_bucket ON node_energy_15m(bucket);
@@ -1113,6 +1114,7 @@ export function migrate(db: Database.Database) {
   addColumn('node_energy_15m', 'measured_wh', 'REAL');
   addColumn('node_energy_15m', 'measured_gpu_wh', 'REAL');
   addColumn('node_energy_15m', 'grade', 'TEXT');
+  addColumn('node_energy_15m', 'idle_source', 'TEXT');
 
   // Alert delivery (ticket 4011 item 7). A rule says which alerts go where;
   // its secrets (Slack/Discord webhook URLs, ntfy tokens, HMAC keys) are NOT

@@ -183,6 +183,7 @@ export interface NodeBucket {
   totalWh: number;
   gpuWh: number;
   idleWatts: number | null;
+  idleSource: IdleSource | null;
   idleWh: number;
   activeWh: number;
   /** Counter-measured joules in the bucket, and how much of the sampled time they cover. */
@@ -195,6 +196,7 @@ export interface NodeBucket {
 /** Integrate a node's intervals starting in [from, to) into 15-minute buckets, idle subtracted. */
 export function integrateBuckets(
   intervals: Interval[], from: number, to: number, idleFor: (ts: number) => number | null,
+  idleSourceFor: (ts: number) => IdleSource | null = () => null,
 ): Map<number, NodeBucket> {
   const out = new Map<number, NodeBucket>();
   for (const x of intervals) {
@@ -202,7 +204,7 @@ export function integrateBuckets(
     const b = bucketOf(x.ts);
     const idle = idleFor(x.ts);
     const nb = out.get(b) ?? {
-      bucket: b, sampledHours: 0, totalWh: 0, gpuWh: 0, idleWatts: idle, idleWh: 0, activeWh: 0,
+      bucket: b, sampledHours: 0, totalWh: 0, gpuWh: 0, idleWatts: idle, idleSource: idle == null ? null : idleSourceFor(x.ts), idleWh: 0, activeWh: 0,
       measuredWh: 0, measuredGpuWh: 0, measuredHours: 0, grade: 'C' as EnergyGrade,
     };
     nb.sampledHours += x.hours;
@@ -344,7 +346,45 @@ interface Group {
  * that rebuilds the current quarter hour reads that quarter hour, not a
  * week of samples.
  */
-export type IdleCache = Map<string, number | null>;
+export type IdleSource = 'measured' | 'p10';
+export type IdleCache = Map<string, { watts: number | null; source: IdleSource }>;
+
+/** A moment an engine reported its queue: quiet when nothing ran or waited. */
+export interface QuietSample { ts: number; quiet: boolean }
+/** How recent a queue report must be to say what a 15 s interval was doing. */
+export const QUIET_MATCH_MS = 60_000;
+
+/**
+ * Idle measured, not estimated (ticket 4013): the time-weighted mean draw
+ * over intervals the engine itself called quiet, nothing running and
+ * nothing waiting, across the same trailing week idleWindow uses. Null with
+ * under IDLE_MIN_SAMPLED_HOURS of quiet time, and the caller falls back to
+ * the p10, which inflates under saturation; this does not, because a busy
+ * week has fewer quiet intervals, not higher ones.
+ */
+export function measuredIdleWindow(
+  intervals: Interval[], quiet: QuietSample[], dayStart: number, limit = Infinity,
+): { watts: number | null; widened: boolean } {
+  const q = [...quiet].sort((a, b) => a.ts - b.ts);
+  const quietAt = (ts: number): boolean => {
+    // Latest report at or before ts, within QUIET_MATCH_MS.
+    let lo = 0, hi = q.length - 1, best = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (q[mid].ts <= ts) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+    // Strictly inside the window: a report exactly one interval old belongs to that interval, not this one.
+    return best >= 0 && ts - q[best].ts < QUIET_MATCH_MS && q[best].quiet;
+  };
+  const pick = (from: number, to: number) =>
+    intervals.filter((x) => x.ts >= from && x.ts < to && x.watts > 0 && quietAt(x.ts));
+  const mean = (xs: Interval[]): number | null => {
+    const h = xs.reduce((a, x) => a + x.hours, 0);
+    if (h < IDLE_MIN_SAMPLED_HOURS) return null;
+    return xs.reduce((a, x) => a + x.watts * x.hours, 0) / h;
+  };
+  const from = dayStart - IDLE_WINDOW_DAYS * DAY_MS;
+  const before = mean(pick(from, dayStart));
+  if (before != null) return { watts: before, widened: false };
+  return { watts: mean(pick(from, Math.min(dayStart + DAY_MS, limit))), widened: true };
+}
 
 /** Rebuild every bucket in [from, to). One transaction; returns node buckets written. */
 export function buildEnergyChunk(
@@ -390,25 +430,47 @@ export function buildEnergyChunk(
   const missing = !cache || [...byHost.keys()].some((h) => days.some((d) => !cache.has(`${h}\0${d}`)));
   if (missing) load(dayOf(from) - IDLE_WINDOW_DAYS * DAY_MS, from);
 
+  // What each node's engine said about its queue (4013): a quiet interval
+  // is one a recent report called empty, and the measured idle is the mean
+  // draw over those. Only loaded when a day's idle is not already cached.
+  const quietByHost = new Map<string, QuietSample[]>();
+  if (missing) {
+    const qs = db.prepare(`
+      SELECT hostname, timestamp, running, waiting FROM vllm_cache_samples
+       WHERE timestamp >= ? AND timestamp < ? AND running IS NOT NULL AND waiting IS NOT NULL
+    `).all(sqlTime(dayOf(from) - IDLE_WINDOW_DAYS * DAY_MS), sqlTime(windowTo)) as { hostname: string; timestamp: string; running: number; waiting: number }[];
+    for (const r of qs) {
+      const host = [...byHost.keys()].find((h) => sameBox(h, r.hostname)) ?? r.hostname;
+      let list = quietByHost.get(host); if (!list) { list = []; quietByHost.set(host, list); }
+      list.push({ ts: parseSqlTime(r.timestamp), quiet: r.running === 0 && r.waiting === 0 });
+    }
+  }
+
   const nodeBuckets = new Map<string, Map<number, NodeBucket>>();
   for (const [host, s] of byHost) {
     const intervals = hostIntervals(s.hot, s.cold);
-    const idleByDay = new Map<number, number | null>();
-    const idleFor = (ts: number) => {
+    const idleByDay = new Map<number, { watts: number | null; source: IdleSource }>();
+    const idleEntry = (ts: number) => {
       const d = dayOf(ts);
       if (idleByDay.has(d)) return idleByDay.get(d)!;
       const key = `${host}\0${d}`;
-      let watts: number | null;
-      if (cache?.has(key)) watts = cache.get(key)!;
+      let entry: { watts: number | null; source: IdleSource };
+      if (cache?.has(key)) entry = cache.get(key)!;
       else {
-        const w = idleWindow(intervals, d, now);
-        watts = w.watts;
-        if (cache && !w.widened) cache.set(key, watts);
+        // Measured first, from the engine's own quiet reports; the p10 only
+        // where no engine reported or too little of the week was quiet.
+        const quiet = quietByHost.get(host);
+        const m = quiet?.length ? measuredIdleWindow(intervals, quiet, d, now) : { watts: null, widened: false };
+        const w = m.watts != null ? m : idleWindow(intervals, d, now);
+        entry = { watts: w.watts, source: m.watts != null ? 'measured' : 'p10' };
+        if (cache && !w.widened) cache.set(key, entry);
       }
-      idleByDay.set(d, watts);
-      return watts;
+      idleByDay.set(d, entry);
+      return entry;
     };
-    const buckets = integrateBuckets(intervals, from, to, idleFor);
+    const idleFor = (ts: number) => idleEntry(ts).watts;
+    const idleSourceFor = (ts: number) => idleEntry(ts).source;
+    const buckets = integrateBuckets(intervals, from, to, idleFor, idleSourceFor);
     if (buckets.size) nodeBuckets.set(host, buckets);
   }
 
@@ -472,8 +534,8 @@ export function buildEnergyChunk(
   const delGroups = db.prepare('DELETE FROM energy_attribution_15m WHERE bucket >= ? AND bucket < ?');
   const insNode = db.prepare(`
     INSERT INTO node_energy_15m (bucket, hostname, sampled_hours, total_wh, gpu_wh, idle_watts, idle_wh, active_wh, attributed_wh,
-                                 measured_wh, measured_gpu_wh, grade)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 measured_wh, measured_gpu_wh, grade, idle_source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insGroup = db.prepare(`
     INSERT INTO energy_attribution_15m (bucket, hostname, model, project_id, harness, messages,
@@ -497,7 +559,7 @@ export function buildEnergyChunk(
         insNode.run(
           sqlTime(nb.bucket), host, nb.sampledHours, nb.totalWh, nb.gpuWh, nb.idleWatts,
           nb.idleWh, nb.activeWh, shares.reduce((a, x) => a + x, 0),
-          nb.measuredHours > 0 ? nb.measuredWh : null, nb.measuredHours > 0 ? nb.measuredGpuWh : null, nb.grade,
+          nb.measuredHours > 0 ? nb.measuredWh : null, nb.measuredHours > 0 ? nb.measuredGpuWh : null, nb.grade, nb.idleSource,
         );
         written++;
       }
@@ -590,6 +652,16 @@ export interface EnergyHost {
   rateKwh: number;
   /** The baseline subtracted in the newest bucket of the window. */
   idleWatts: number | null;
+  /** Where that baseline came from: the engine's quiet reports, or the p10 of the draw. */
+  idleSource: IdleSource | null;
+  /**
+   * Fidelity of the window's energy (ticket 4013). B: the counters covered
+   * at least 95 % of the sampled time, and measuredKwh is exact joules for
+   * CPU package plus GPU. C: integrated watts estimates.
+   */
+  grade: EnergyGrade;
+  measuredCoverage: number;
+  measuredKwh: number | null;
   /** idleWatts held for a month at rateKwh: what the node costs switched on. */
   standingMonthlyUSD: number | null;
   sampledHours: number;
@@ -661,15 +733,16 @@ export function readEnergyAttribution(
 
   const nodes = db.prepare(`
     SELECT hostname, SUM(sampled_hours) AS hours, SUM(total_wh) AS total, SUM(gpu_wh) AS gpu,
-           SUM(idle_wh) AS idle, SUM(active_wh) AS active, SUM(attributed_wh) AS attributed
+           SUM(idle_wh) AS idle, SUM(active_wh) AS active, SUM(attributed_wh) AS attributed,
+           SUM(measured_wh) AS measured, SUM(CASE WHEN grade = 'B' THEN sampled_hours ELSE 0 END) AS measured_hours
       FROM node_energy_15m WHERE bucket >= ? AND bucket < ?${hostClause}
      GROUP BY hostname ORDER BY hostname
-  `).all(...args) as { hostname: string; hours: number; total: number; gpu: number; idle: number; active: number; attributed: number }[];
+  `).all(...args) as { hostname: string; hours: number; total: number; gpu: number; idle: number; active: number; attributed: number; measured: number | null; measured_hours: number }[];
   // SQLite hands back the row MAX picked for a bare column: the newest idle.
   const newest = new Map((db.prepare(`
-    SELECT hostname, idle_watts, MAX(bucket) AS b FROM node_energy_15m
+    SELECT hostname, idle_watts, idle_source, MAX(bucket) AS b FROM node_energy_15m
      WHERE bucket >= ? AND bucket < ?${hostClause} GROUP BY hostname
-  `).all(...args) as { hostname: string; idle_watts: number | null }[]).map((r) => [r.hostname, r.idle_watts]));
+  `).all(...args) as { hostname: string; idle_watts: number | null; idle_source: IdleSource | null }[]).map((r) => [r.hostname, r]));
 
   const rateOf = new Map<string, number>();
   const rate = (h: string) => {
@@ -680,13 +753,19 @@ export function readEnergyAttribution(
 
   const hosts: EnergyHost[] = nodes.map((n) => {
     const r = rate(n.hostname);
-    const idleW = newest.get(n.hostname) ?? null;
+    const latest = newest.get(n.hostname);
+    const idleW = latest?.idle_watts ?? null;
     const kwh = (wh: number) => (wh ?? 0) / 1000;
     const unattributed = Math.max(0, (n.active ?? 0) - (n.attributed ?? 0));
+    const coverage = (n.hours ?? 0) > 0 ? (n.measured_hours ?? 0) / n.hours : 0;
     return {
       hostname: n.hostname,
       rateKwh: r,
       idleWatts: idleW,
+      idleSource: latest?.idle_source ?? null,
+      grade: gradeFor(n.measured_hours ?? 0, n.hours ?? 0),
+      measuredCoverage: coverage,
+      measuredKwh: n.measured == null ? null : n.measured / 1000,
       standingMonthlyUSD: idleW != null ? (idleW / 1000) * HOURS_PER_MONTH * r : null,
       sampledHours: n.hours ?? 0,
       totalKwh: kwh(n.total),

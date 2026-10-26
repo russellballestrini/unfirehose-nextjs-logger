@@ -164,6 +164,7 @@ Our Harnesses tab on node detail pages shows:
 - `calcNonCpuWatts()` adds RAM DIMMs, spinning disks, SSDs, baseline, PSU inefficiency
 - **nvidia-smi** `--query-gpu=power.draw` for real-time GPU wattage
 - **TDP** fallback from CPU model name lookup
+- **Energy counters (ticket 4013).** Every snapshot keeps RAPL `energy_uj` per package with its wrap range and NVML millijoules; `energy-counters.ts` differences them. A 15-minute energy bucket is **grade B** when counters covered 95 % of its sampled time (exact joules for CPU package + GPU), **grade C** when integrated from watts samples. Idle is measured from vLLM's empty-queue reports where it has them, else the p10. Node prerequisites: salt state `energy-counters` or `make node-energy-prep HOST=`.
 
 ### Performance
 

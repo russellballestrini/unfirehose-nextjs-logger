@@ -124,6 +124,9 @@ function main() {
   discover('startup');
   const rediscover = setInterval(() => discover('ssh config changed'), NODE_DISCOVERY_MS);
 
+  // Two cadences (ticket 4013): engines we already know answer every 15 s,
+  // the mesh tick, so token deltas and energy deltas share bucket edges;
+  // discovery of a new engine, eight ports per host, stays at five minutes.
   const vllm = setInterval(() => {
     sampleVllmCache(getDb(), hosts())
       .then((nodes) => {
@@ -132,6 +135,10 @@ function main() {
       })
       .catch((err) => console.error('[sampler] vllm cache sample failed:', err));
   }, VLLM_CACHE_SAMPLE_MS);
+  const vllmFast = setInterval(() => {
+    sampleVllmCache(getDb(), hosts(), { knownOnly: true })
+      .catch((err) => console.error('[sampler] vllm fast sample failed:', err));
+  }, MESH_POLL_INTERVAL_MS);
 
   // Measured energy, attributed (ticket 4004): here, beside the samples it
   // reads, so no page or payload build joins snapshots to messages. The
@@ -154,6 +161,7 @@ function main() {
     active.clear();
     clearInterval(rediscover);
     clearInterval(vllm);
+    clearInterval(vllmFast);
     clearTimeout(energyKickoff);
     clearInterval(energy);
     console.log(`[sampler] ${why}, stopping`);

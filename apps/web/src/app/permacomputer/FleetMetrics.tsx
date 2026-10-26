@@ -269,8 +269,20 @@ export function FleetEnergyTable({ energy }: { energy?: { hosts?: any[]; byProje
           <tbody>
             {hosts.map((h) => (
               <tr key={h.hostname} className="border-t border-[var(--color-border)]">
-                <td className="py-1">{h.hostname}</td>
-                <td className="py-1 text-right">{h.idleWatts != null ? `${Math.round(h.idleWatts)} W` : '—'}</td>
+                <td className="py-1">
+                  {h.hostname}
+                  {/* Fidelity of this row's energy (ticket 4013): B is exact joules from the
+                      RAPL and NVML counters; C is integrated watts estimates. */}
+                  <span
+                    className={`ml-2 text-[10px] font-mono px-1 rounded border ${h.grade === 'B' ? 'border-[var(--color-accent)] text-[var(--color-accent)]' : 'border-[var(--color-border)] text-[var(--color-muted)]'}`}
+                    title={h.grade === 'B'
+                      ? `grade B: ${Math.round((h.measuredCoverage ?? 0) * 100)}% of sampled time measured by energy counters${h.measuredKwh != null ? `, ${h.measuredKwh.toFixed(2)} kWh measured` : ''}`
+                      : `grade C: integrated from 15 s watts samples; counters covered ${Math.round((h.measuredCoverage ?? 0) * 100)}% of sampled time`}
+                  >{h.grade ?? 'C'}</span>
+                </td>
+                <td className="py-1 text-right" title={h.idleSource === 'measured' ? 'idle measured: mean draw while the engine reported an empty queue' : 'idle estimated: p10 of the draw over the trailing week'}>
+                  {h.idleWatts != null ? `${Math.round(h.idleWatts)} W` : '—'}{h.idleSource === 'measured' ? '' : h.idleWatts != null ? ' ~' : ''}
+                </td>
                 <td className="py-1 text-right">{h.standingMonthlyUSD != null ? usd(h.standingMonthlyUSD) : '—'}</td>
                 <td className="py-1 text-right">{usd(h.standingUSD)}</td>
                 <td className="py-1 text-right">{usd(h.attributedUSD)}</td>

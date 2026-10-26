@@ -78,8 +78,17 @@ export async function fetchVllmMetrics(db: Database.Database, host: string): Pro
 
 export interface VllmSampleResult { host: string; port?: number; sampled: number }
 
-/** Sample every host and record what is live. */
-export async function sampleVllmCache(db: Database.Database, hosts: string[]): Promise<VllmSampleResult[]> {
+/**
+ * Sample every host and record what is live. `knownOnly` restricts the pass
+ * to hosts whose metrics port was found before: that pass is cheap enough
+ * for the 15 s tick, so token deltas share bucket edges with energy
+ * (ticket 4013); discovery of a new engine stays on the slow tick, since it
+ * tries eight ports per host.
+ */
+export async function sampleVllmCache(
+  db: Database.Database, hosts: string[], opts: { knownOnly?: boolean } = {},
+): Promise<VllmSampleResult[]> {
+  if (opts.knownOnly) hosts = hosts.filter((h) => rememberedPort(db, h) !== null);
   const insert = db.prepare(`
     INSERT INTO vllm_cache_samples (hostname, model, queries, hits, kv_usage, kv_size_tokens, prefix_caching,
                                     prompt_tokens, generation_tokens, requests, running, waiting)
