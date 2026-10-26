@@ -36,6 +36,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import type { Database } from 'better-sqlite3';
+import { measuredIntervalWh, parseCpuEnergyJson, gradeFor } from '@unturf/unfirehose/energy-counters';
 
 const HOT_RETENTION_DAYS = 28;
 const BUCKET_SECONDS = 15 * 60;          // 15 min
@@ -237,9 +238,14 @@ function rollupOneBucket(db: Database): boolean {
       power_source, claude_processes,
       agent_processes, harness_counts,
       sample_count,
-      load_avg_1_max, power_watts_max, gpu_util_max, mem_used_gb_max
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      load_avg_1_max, power_watts_max, gpu_util_max, mem_used_gb_max,
+      measured_wh, measured_gpu_wh, energy_grade
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  // Counter-measured energy over the bucket (ticket 4013): consecutive samples
+  // both carrying counters, no gap over five minutes. Summed, not smoothed —
+  // joules are additive and a weighted neighbour would invent energy.
+  const measured = measuredEnergy(samples);
   const deleteHot = db.prepare(`
     DELETE FROM mesh_snapshots
     WHERE hostname = ? AND timestamp >= ? AND timestamp < ?
@@ -256,6 +262,7 @@ function rollupOneBucket(db: Database): boolean {
       agentPeak, harnessCountsJson,
       samples.length,
       maxVals.load_avg_1_max, maxVals.power_watts_max, maxVals.gpu_util_max, maxVals.mem_used_gb_max,
+      measured.wh, measured.gpuWh, measured.grade,
     );
     deleteHot.run(host, bs, be);
   });
@@ -269,6 +276,29 @@ function rollupOneBucket(db: Database): boolean {
  * (catching up on backlog) and as the body of the per-minute scheduler tick.
  * Caps to `maxPerCall` so a huge backlog doesn't lock the DB for minutes.
  */
+/**
+ * Measured energy across a bucket's 15 s samples, from the counters each
+ * carries (ticket 4013). Coverage is the share of the sampled span whose
+ * intervals were measured end to end; grade B at 95 %.
+ */
+export function measuredEnergy(samples: Array<Pick<MeshRow, 'timestamp' | 'gpu_power_watts'> & { cpu_energy_json?: string | null; gpu_energy_mj?: number | null }>): { wh: number | null; gpuWh: number | null; grade: 'B' | 'C' } {
+  const MAX_GAP_MS = 5 * 60_000;
+  let wh = 0, gpuWh = 0, measuredMs = 0, spanMs = 0, any = false;
+  for (let i = 0; i + 1 < samples.length; i++) {
+    const a = samples[i], b = samples[i + 1];
+    const dt = Date.parse(b.timestamp.replace(' ', 'T') + 'Z') - Date.parse(a.timestamp.replace(' ', 'T') + 'Z');
+    if (!(dt > 0) || dt > MAX_GAP_MS) continue;
+    spanMs += dt;
+    const m = measuredIntervalWh(
+      { cpu: parseCpuEnergyJson(a.cpu_energy_json), gpuMj: a.gpu_energy_mj ?? null, gpuWatts: a.gpu_power_watts ?? 0 },
+      { cpu: parseCpuEnergyJson(b.cpu_energy_json), gpuMj: b.gpu_energy_mj ?? null, gpuWatts: b.gpu_power_watts ?? 0 },
+    );
+    if (m) { wh += m.wh; gpuWh += m.gpuWh; measuredMs += dt; any = true; }
+  }
+  const grade = gradeFor(measuredMs / 3_600_000, spanMs / 3_600_000);
+  return { wh: any ? wh : null, gpuWh: any ? gpuWh : null, grade };
+}
+
 export function rollupDrain(db: Database, maxPerCall = 16): number {
   let n = 0;
   while (n < maxPerCall) {

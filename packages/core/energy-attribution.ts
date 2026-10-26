@@ -45,6 +45,7 @@ import type Database from 'better-sqlite3';
 import { hostname as osHostname } from 'os';
 import { CLOUD_PROVIDERS, ENDPOINT_TO_NODE, MODEL_HARDWARE_HINT, isSelfHosted, selfHostWeight } from './pricing';
 import { findSameBox, sameBox } from './hostname-match';
+import { measuredIntervalWh, parseCpuEnergyJson, gradeFor, type EnergyGrade } from './energy-counters';
 import { kwhRateForHost } from './mesh-econ';
 
 export const ENERGY_BUCKET_MS = 15 * 60_000;
@@ -89,10 +90,25 @@ export interface Interval {
   /** Whole node: CPU + every GPU. */
   watts: number;
   gpuWatts: number;
+  /**
+   * Grade B: joules from the counters at both ends (CPU package plus GPU),
+   * beside the estimate above. Undefined when either end lacked a counter.
+   * Excludes what no counter covers: RAM, disks, fans, PSU loss.
+   */
+  measuredWh?: number;
+  measuredGpuWh?: number;
 }
 
-export interface HotSample { ts: number; watts: number; gpuWatts: number }
-export interface ColdSample extends HotSample { sampleCount: number }
+export interface HotSample {
+  ts: number; watts: number; gpuWatts: number;
+  cpuEnergy?: Array<{ uj: number; max: number }> | null;
+  gpuEnergyMj?: number | null;
+}
+export interface ColdSample extends HotSample {
+  sampleCount: number;
+  measuredWh?: number | null;
+  measuredGpuWh?: number | null;
+}
 
 /**
  * One node's samples as measured intervals. A 15 s row holds its draw until
@@ -105,11 +121,22 @@ export function hostIntervals(hot: HotSample[], cold: ColdSample[] = []): Interv
   const h = [...hot].sort((a, b) => a.ts - b.ts);
   for (let i = 0; i + 1 < h.length; i++) {
     const dt = h[i + 1].ts - h[i].ts;
-    if (integrable(dt)) out.push({ ts: h[i].ts, hours: dt / 3_600_000, watts: h[i].watts, gpuWatts: h[i].gpuWatts });
+    if (!integrable(dt)) continue;
+    const iv: Interval = { ts: h[i].ts, hours: dt / 3_600_000, watts: h[i].watts, gpuWatts: h[i].gpuWatts };
+    const m = measuredIntervalWh(
+      { cpu: h[i].cpuEnergy, gpuMj: h[i].gpuEnergyMj, gpuWatts: h[i].gpuWatts },
+      { cpu: h[i + 1].cpuEnergy, gpuMj: h[i + 1].gpuEnergyMj, gpuWatts: h[i + 1].gpuWatts },
+    );
+    if (m) { iv.measuredWh = m.wh; iv.measuredGpuWh = m.gpuWh; }
+    out.push(iv);
   }
   for (const c of cold) {
     const hours = 0.25 * Math.min(1, Math.max(0, c.sampleCount) / 60);
-    if (hours > 0) out.push({ ts: c.ts, hours, watts: c.watts, gpuWatts: c.gpuWatts });
+    if (hours > 0) {
+      const iv: Interval = { ts: c.ts, hours, watts: c.watts, gpuWatts: c.gpuWatts };
+      if (c.measuredWh != null) { iv.measuredWh = c.measuredWh; iv.measuredGpuWh = c.measuredGpuWh ?? 0; }
+      out.push(iv);
+    }
   }
   return out.sort((a, b) => a.ts - b.ts);
 }
@@ -158,6 +185,11 @@ export interface NodeBucket {
   idleWatts: number | null;
   idleWh: number;
   activeWh: number;
+  /** Counter-measured joules in the bucket, and how much of the sampled time they cover. */
+  measuredWh: number;
+  measuredGpuWh: number;
+  measuredHours: number;
+  grade: EnergyGrade;
 }
 
 /** Integrate a node's intervals starting in [from, to) into 15-minute buckets, idle subtracted. */
@@ -169,10 +201,18 @@ export function integrateBuckets(
     if (x.ts < from || x.ts >= to) continue;
     const b = bucketOf(x.ts);
     const idle = idleFor(x.ts);
-    const nb = out.get(b) ?? { bucket: b, sampledHours: 0, totalWh: 0, gpuWh: 0, idleWatts: idle, idleWh: 0, activeWh: 0 };
+    const nb = out.get(b) ?? {
+      bucket: b, sampledHours: 0, totalWh: 0, gpuWh: 0, idleWatts: idle, idleWh: 0, activeWh: 0,
+      measuredWh: 0, measuredGpuWh: 0, measuredHours: 0, grade: 'C' as EnergyGrade,
+    };
     nb.sampledHours += x.hours;
     nb.totalWh += x.watts * x.hours;
     nb.gpuWh += x.gpuWatts * x.hours;
+    if (x.measuredWh != null) {
+      nb.measuredWh += x.measuredWh;
+      nb.measuredGpuWh += x.measuredGpuWh ?? 0;
+      nb.measuredHours += x.hours;
+    }
     if (idle == null) {
       // Nothing to subtract: all of it is standing, none is attributable.
       nb.idleWh += x.watts * x.hours;
@@ -182,6 +222,7 @@ export function integrateBuckets(
     }
     out.set(b, nb);
   }
+  for (const nb of out.values()) nb.grade = gradeFor(nb.measuredHours, nb.sampledHours);
   return out;
 }
 
@@ -314,21 +355,29 @@ export function buildEnergyChunk(
   const cache = opts.idleCache;
 
   const hotSql = db.prepare(`
-    SELECT hostname, timestamp, COALESCE(power_watts, 0) AS cpu, COALESCE(gpu_power_watts, 0) AS gpu
+    SELECT hostname, timestamp, COALESCE(power_watts, 0) AS cpu, COALESCE(gpu_power_watts, 0) AS gpu,
+           cpu_energy_json, gpu_energy_mj
       FROM mesh_snapshots WHERE timestamp >= ? AND timestamp < ?
   `);
   const coldSql = db.prepare(`
-    SELECT hostname, timestamp, COALESCE(power_watts, 0) AS cpu, COALESCE(gpu_power_watts, 0) AS gpu, sample_count
+    SELECT hostname, timestamp, COALESCE(power_watts, 0) AS cpu, COALESCE(gpu_power_watts, 0) AS gpu, sample_count,
+           measured_wh, measured_gpu_wh
       FROM mesh_snapshots_15m WHERE timestamp >= ? AND timestamp < ?
   `);
   const byHost = new Map<string, { hot: HotSample[]; cold: ColdSample[] }>();
   const slot = (h: string) => { let s = byHost.get(h); if (!s) { s = { hot: [], cold: [] }; byHost.set(h, s); } return s; };
   const load = (a: number, b: number) => {
-    for (const r of hotSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number }[]) {
-      slot(r.hostname).hot.push({ ts: parseSqlTime(r.timestamp), watts: r.cpu + r.gpu, gpuWatts: r.gpu });
+    for (const r of hotSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number; cpu_energy_json: string | null; gpu_energy_mj: number | null }[]) {
+      slot(r.hostname).hot.push({
+        ts: parseSqlTime(r.timestamp), watts: r.cpu + r.gpu, gpuWatts: r.gpu,
+        cpuEnergy: parseCpuEnergyJson(r.cpu_energy_json), gpuEnergyMj: r.gpu_energy_mj,
+      });
     }
-    for (const r of coldSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number; sample_count: number }[]) {
-      slot(r.hostname).cold.push({ ts: parseSqlTime(r.timestamp), watts: r.cpu + r.gpu, gpuWatts: r.gpu, sampleCount: r.sample_count ?? 0 });
+    for (const r of coldSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number; sample_count: number; measured_wh: number | null; measured_gpu_wh: number | null }[]) {
+      slot(r.hostname).cold.push({
+        ts: parseSqlTime(r.timestamp), watts: r.cpu + r.gpu, gpuWatts: r.gpu, sampleCount: r.sample_count ?? 0,
+        measuredWh: r.measured_wh, measuredGpuWh: r.measured_gpu_wh,
+      });
     }
   };
   // The chunk itself, one gap past its end so its last sample has a
@@ -422,8 +471,9 @@ export function buildEnergyChunk(
   const delNodes = db.prepare('DELETE FROM node_energy_15m WHERE bucket >= ? AND bucket < ?');
   const delGroups = db.prepare('DELETE FROM energy_attribution_15m WHERE bucket >= ? AND bucket < ?');
   const insNode = db.prepare(`
-    INSERT INTO node_energy_15m (bucket, hostname, sampled_hours, total_wh, gpu_wh, idle_watts, idle_wh, active_wh, attributed_wh)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO node_energy_15m (bucket, hostname, sampled_hours, total_wh, gpu_wh, idle_watts, idle_wh, active_wh, attributed_wh,
+                                 measured_wh, measured_gpu_wh, grade)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insGroup = db.prepare(`
     INSERT INTO energy_attribution_15m (bucket, hostname, model, project_id, harness, messages,
@@ -447,6 +497,7 @@ export function buildEnergyChunk(
         insNode.run(
           sqlTime(nb.bucket), host, nb.sampledHours, nb.totalWh, nb.gpuWh, nb.idleWatts,
           nb.idleWh, nb.activeWh, shares.reduce((a, x) => a + x, 0),
+          nb.measuredHours > 0 ? nb.measuredWh : null, nb.measuredHours > 0 ? nb.measuredGpuWh : null, nb.grade,
         );
         written++;
       }

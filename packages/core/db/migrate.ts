@@ -327,7 +327,10 @@ export function migrate(db: Database.Database) {
       load_avg_1_max REAL,                 -- per-bucket range stats for optional banding
       power_watts_max REAL,
       gpu_util_max REAL,
-      mem_used_gb_max REAL
+      mem_used_gb_max REAL,
+      measured_wh     REAL,            -- grade B energy over the bucket from counters (4013)
+      measured_gpu_wh REAL,
+      energy_grade    TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_15m_host_ts ON mesh_snapshots_15m(hostname, timestamp);
     CREATE INDEX IF NOT EXISTS idx_mesh_snapshots_15m_ts ON mesh_snapshots_15m(timestamp);
@@ -491,6 +494,9 @@ export function migrate(db: Database.Database) {
   // summed over GPUs. Differenced across samples for exact energy.
   addColumn('mesh_snapshots', 'cpu_energy_json', 'TEXT');
   addColumn('mesh_snapshots', 'gpu_energy_mj', 'REAL');
+  addColumn('mesh_snapshots_15m', 'measured_wh', 'REAL');
+  addColumn('mesh_snapshots_15m', 'measured_gpu_wh', 'REAL');
+  addColumn('mesh_snapshots_15m', 'energy_grade', 'TEXT');
   // Agent processes beyond claude. claude_processes stays as it was so older
   // rows and readers keep their meaning; these carry every harness, because a
   // node running five uncloseai-cli agents used to graph as a flat zero.
@@ -1079,6 +1085,9 @@ export function migrate(db: Database.Database) {
       idle_wh       REAL NOT NULL,     -- standing cost: min(draw, idle) over time
       active_wh     REAL NOT NULL,     -- draw above idle
       attributed_wh REAL NOT NULL,     -- share of active_wh our messages explain
+      measured_wh   REAL,              -- grade B: joules from RAPL + NVML counters (4013)
+      measured_gpu_wh REAL,
+      grade         TEXT,              -- 'B' counters covered the bucket, 'C' integrated watts
       PRIMARY KEY (hostname, bucket)
     );
     CREATE INDEX IF NOT EXISTS idx_node_energy_15m_bucket ON node_energy_15m(bucket);
@@ -1100,6 +1109,10 @@ export function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_energy_attribution_15m_bucket ON energy_attribution_15m(bucket);
   `);
+  // Grade B columns on a database that already had the energy table (4013).
+  addColumn('node_energy_15m', 'measured_wh', 'REAL');
+  addColumn('node_energy_15m', 'measured_gpu_wh', 'REAL');
+  addColumn('node_energy_15m', 'grade', 'TEXT');
 
   // Alert delivery (ticket 4011 item 7). A rule says which alerts go where;
   // its secrets (Slack/Discord webhook URLs, ntfy tokens, HMAC keys) are NOT

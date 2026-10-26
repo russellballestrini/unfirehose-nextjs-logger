@@ -108,6 +108,51 @@ describe('integration', () => {
   });
 });
 
+describe('grade B: energy from counters beside the estimate (4013)', () => {
+  const RANGE = 262_143_328_850;
+  // 15 s apart; RAPL +1.2e9 µJ (80 W), NVML +4.5e6 mJ (300 W); watts estimate says 90 + 280.
+  const hot = (n: number) => Array.from({ length: n }, (_, i) => ({
+    ts: T0 + i * 15_000, watts: 370, gpuWatts: 280,
+    cpuEnergy: [{ uj: 1e9 + i * 1.2e9, max: RANGE }], gpuEnergyMj: 1e9 + i * 4.5e6,
+  }));
+
+  it('an interval between two counted samples carries exact measured watt-hours', () => {
+    const [iv] = hostIntervals(hot(2));
+    expect(iv.watts).toBe(370);                       // the estimate stays
+    expect(iv.measuredWh).toBeCloseTo((1200 + 4500) / 3600, 9);
+    expect(iv.measuredGpuWh).toBeCloseTo(4500 / 3600, 9);
+  });
+
+  it('a RAPL wrap mid-interval is one range, not a negative', () => {
+    const a = { ts: T0, watts: 370, gpuWatts: 0, cpuEnergy: [{ uj: RANGE - 600e6, max: RANGE }] };
+    const b = { ts: T0 + 15_000, watts: 370, gpuWatts: 0, cpuEnergy: [{ uj: 600e6, max: RANGE }] };
+    expect(hostIntervals([a, b])[0].measuredWh).toBeCloseTo(1200e6 / 3.6e9, 9);
+  });
+
+  it('a GPU box with no NVML counter is not measured, however good its RAPL', () => {
+    const a = { ts: T0, watts: 370, gpuWatts: 280, cpuEnergy: [{ uj: 0, max: RANGE }] };
+    const b = { ts: T0 + 15_000, watts: 370, gpuWatts: 280, cpuEnergy: [{ uj: 1.2e9, max: RANGE }] };
+    expect(hostIntervals([a, b])[0].measuredWh).toBeUndefined();
+  });
+
+  it('a bucket is grade B when counters covered it, C when a stretch was uncounted', () => {
+    const all = integrateBuckets(hostIntervals(hot(61)), T0, T0 + ENERGY_BUCKET_MS, () => 100);
+    const b = all.get(T0)!;
+    expect(b.grade).toBe('B');
+    expect(b.measuredHours).toBeCloseTo(b.sampledHours, 9);
+    expect(b.measuredWh).toBeCloseTo(60 * (1200 + 4500) / 3600, 6);
+    // Drop the counters from the last third: coverage falls to 2/3.
+    const partial = hot(61).map((s, i) => (i >= 40 ? { ...s, cpuEnergy: null, gpuEnergyMj: null } : s));
+    expect(integrateBuckets(hostIntervals(partial), T0, T0 + ENERGY_BUCKET_MS, () => 100).get(T0)!.grade).toBe('C');
+  });
+
+  it('a cold row carries its measured energy and counts toward coverage', () => {
+    const [iv] = hostIntervals([], [{ ts: T0, watts: 100, gpuWatts: 0, sampleCount: 60, measuredWh: 20, measuredGpuWh: 0 }]);
+    expect(iv.measuredWh).toBe(20);
+    expect(integrateBuckets([iv], T0, T0 + ENERGY_BUCKET_MS, () => null).get(T0)!.grade).toBe('B');
+  });
+});
+
 describe('splitActive', () => {
   it('splits by estimated GPU-seconds, so decode outweighs a cache-heavy prompt', () => {
     const decode = selfHostWeight('hermes-3', 0, 1000, 0, 0);
@@ -275,6 +320,25 @@ describe('refreshEnergyAttribution', () => {
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(ENERGY_KEYS.rules, '1');
     refreshEnergyAttribution(db, { now: NOW, budgetMs: Infinity, chunkDays: 3 });
     expect(nodeRow(BUSY_FROM).attributed_wh).toBeCloseTo(65, 6);
+  });
+
+  it('writes grade B rows with measured watt-hours when the samples carry counters', () => {
+    const RANGE = 262_143_328_850;
+    const ins = db.prepare(`INSERT INTO mesh_snapshots (timestamp, hostname, power_watts, gpu_power_watts, cpu_energy_json, gpu_energy_mj) VALUES (?, 'counted', 90, 280, ?, ?)`);
+    db.transaction(() => {
+      let i = 0;
+      for (let t = T0 - 7 * DAY; t < NOW; t += MIN, i++) {
+        ins.run(sqlTime(t), JSON.stringify([{ uj: (1e9 + i * 4.8e9) % RANGE, max: RANGE }]), 1e9 + i * 18e6);
+      }
+    })();
+    refreshEnergyAttribution(db, { now: NOW, budgetMs: Infinity, chunkDays: 3 });
+    const row = db.prepare('SELECT * FROM node_energy_15m WHERE hostname = ? AND bucket = ?').get('counted', sqlTime(T0 + 3 * HOUR)) as Record<string, number | string>;
+    expect(row.grade).toBe('B');
+    // 80 W CPU + 300 W GPU for a quarter hour, from counters: 95 Wh.
+    expect(row.measured_wh as number).toBeCloseTo(95, 6);
+    expect(row.measured_gpu_wh as number).toBeCloseTo(75, 6);
+    // The estimate column is what it always was: 370 W for a quarter hour.
+    expect(row.total_wh as number).toBeCloseTo(92.5, 6);
   });
 
   it('reads back priced at each node’s own rate, by node, model, project and harness', () => {
