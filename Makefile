@@ -3,7 +3,7 @@
         cov-core cov-ui cov-web cov-scripts \
         dev demo fix-watches persist-watches rescue-tool-results pricing pricing-report \
         build docker docker-run compose-up compose-down compose-logs typecheck publish publish-dry-run \
-        service-install service-start service-stop service-restart service-status service-logs service-uninstall \
+        service-install service-start service-stop service-restart service-status service-logs service-uninstall node-energy-prep \
         doctor vacuum
 
 # Everything a change should pass before it is pushed.
@@ -335,6 +335,23 @@ service-status:
 
 service-logs:
 	journalctl --user -u unfirehose-worker -u unfirehose-web -n 100 -f
+
+# ---------------------------------------------------------------------------
+# Energy counters on a node (unfirehose ticket 4013, "grade B").
+#
+# Our probe differences cumulative energy counters across samples: exact
+# joules, where a watts reading is a 100 ms estimate. A node needs two
+# things for that. On fox's fleet both come from the salt state
+# `energy-counters` (foxhop-states); this target is for a box without salt.
+#
+#   make node-energy-prep HOST=gpu-box.example      # ssh; no sudo in here
+#
+# It installs the NVML python bindings for the probe's user and prints the
+# one root step (RAPL's energy_uj is 0400 since PLATYPUS) for you to run.
+# ---------------------------------------------------------------------------
+node-energy-prep:
+	@test -n "$(HOST)" || { echo "usage: make node-energy-prep HOST=<ssh host>"; exit 1; }
+	@ssh -o BatchMode=yes $(HOST) 'sh -s' < scripts/node-energy-prep.sh
 
 service-uninstall:
 	-systemctl --user disable --now $(SERVICES) 2>/dev/null

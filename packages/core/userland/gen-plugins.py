@@ -72,6 +72,11 @@ RAPL = r'''
     if sleep 0.1 2>/dev/null; then dt=0.1; else sleep 1; dt=1; fi
     r2=`cat "$e0" 2>/dev/null`; r2b=`cat "$e1" 2>/dev/null`
     echo "RAPL $r1 ${r1b:-0} $r2 ${r2b:-0} $dt"
+    # Each counter wraps at its max_energy_range_uj (~262 kJ, an hour at
+    # 80 W); a reader differencing r2 across samples needs the range.
+    m0=`cat /sys/class/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj 2>/dev/null`
+    m1=`cat /sys/class/powercap/intel-rapl/intel-rapl:1/max_energy_range_uj 2>/dev/null`
+    echo "RAPLMAX ${m0:-0} ${m1:-0}"
   fi
 '''
 

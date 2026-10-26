@@ -36,6 +36,13 @@ describe('insertMeshSnapshots', () => {
     expect(rows()[0]).toMatchObject({ load_avg_1: 1.5, load_avg_5: 1.2, load_avg_15: 0.9, power_source: 'rapl', cpu_cores: 8 });
   });
 
+  it('stores the energy counters beside the watts, as JSON and a number', () => {
+    insertMeshSnapshots(db, [node({ cpuEnergy: [{ uj: 1100, max: 262143328850 }], gpuEnergyMj: 131346 })]);
+    expect(rows()[0]).toMatchObject({ cpu_energy_json: '[{"uj":1100,"max":262143328850}]', gpu_energy_mj: 131346 });
+    insertMeshSnapshots(db, [node({ hostname: 'nocounters' })]);
+    expect(rows()[1]).toMatchObject({ cpu_energy_json: null, gpu_energy_mj: null });
+  });
+
   it('counts agents across every harness, not only claude', () => {
     // A node with five uncloseai-cli agents and no claude used to persist
     // zero agents.

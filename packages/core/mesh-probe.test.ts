@@ -36,6 +36,38 @@ const probe = ({ rapl = '', gpu = '' } = {}) => [
   'END',
 ].join('\n');
 
+describe('energy counters on the wire (ticket 4013)', () => {
+  const withCounters = (rapl: string, extra: string) =>
+    probe({ rapl, gpu: '350.2, NVIDIA GeForce RTX 4090, 24564, 20100, 87' }).replace('END', `${extra}\nEND`);
+
+  it('keeps the second RAPL read with its wrap range, and the NVML total', () => {
+    // 8 J over the 100 ms window: 80 W, a real package.
+    const node = parseRemoteProbe('gpu-box', withCounters('1000000 0 9000000 0 0.1', 'RAPLMAX 262143328850 0\nNVML 123456 7890'));
+    expect(node.cpuEnergy).toEqual([{ uj: 9000000, max: 262143328850 }]);
+    expect(node.gpuEnergyMj).toBe(131346);
+    // The watts estimate is unchanged by keeping the counter.
+    expect(node.powerSource).toBe('rapl');
+  });
+
+  it('keeps a second socket only when it read above zero', () => {
+    const two = parseRemoteProbe('big', withCounters('1000 5000 1100 5200 0.1', 'RAPLMAX 262143328850 262143328850'));
+    expect(two.cpuEnergy).toEqual([{ uj: 1100, max: 262143328850 }, { uj: 5200, max: 262143328850 }]);
+    const one = parseRemoteProbe('small', withCounters('1000 0 1100 0 0.1', 'RAPLMAX 262143328850 0'));
+    expect(one.cpuEnergy).toHaveLength(1);
+  });
+
+  it('falls back to the counter width when the range line is missing, as an older probe would send', () => {
+    const node = parseRemoteProbe('old', probe({ rapl: '1000 0 1100 0 0.1' }));
+    expect(node.cpuEnergy).toEqual([{ uj: 1100, max: 2 ** 32 }]);
+    expect(node.gpuEnergyMj).toBeUndefined();
+  });
+
+  it('ignores an NVML line that is not all finite non-negative numbers', () => {
+    const node = parseRemoteProbe('odd', withCounters('1000 0 1100 0 0.1', 'NVML 5 nan'));
+    expect(node.gpuEnergyMj).toBeUndefined();
+  });
+});
+
 describe('parseRemoteProbe', () => {
   it('reads a machine out of its own output', () => {
     const node = parseRemoteProbe('neoblanka', probe());

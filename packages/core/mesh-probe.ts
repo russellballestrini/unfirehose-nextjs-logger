@@ -45,6 +45,13 @@ export interface MeshNode {
   gpuUtil?: number;
   arch?: string;
   powerSource?: 'rapl' | 'nvidia' | 'tdp';
+  /**
+   * Cumulative energy counters at probe time (4013, grade B): RAPL energy_uj
+   * per package with its wrap point; NVML millijoules summed over GPUs.
+   * Difference two samples for exact energy; the watts fields are estimates.
+   */
+  cpuEnergy?: Array<{ uj: number; max: number }>;
+  gpuEnergyMj?: number;
   /** `uname -s` — Linux, FreeBSD, SunOS, Darwin, Windows_NT … */
   os?: string;
   osRelease?: string;

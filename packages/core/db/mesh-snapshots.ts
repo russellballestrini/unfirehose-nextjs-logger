@@ -52,8 +52,8 @@ export function insertMeshSnapshots(db: Database.Database, nodes: MeshNode[], al
   const insert = db.prepare(`
     INSERT INTO mesh_snapshots (hostname, cpu_cores, load_avg_1, load_avg_5, load_avg_15,
       mem_total_gb, mem_used_gb, power_watts, gpu_power_watts, gpu_util, gpu_mem_used_mb, gpu_mem_total_mb, power_source, claude_processes,
-      agent_processes, harness_counts)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      agent_processes, harness_counts, cpu_energy_json, gpu_energy_mj)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const upsertFacts = db.prepare(`
     INSERT INTO mesh_node_facts (hostname, facts, uptime_seconds, ssh_alias, observed_at)
@@ -87,6 +87,8 @@ export function insertMeshSnapshots(db: Database.Database, nodes: MeshNode[], al
         n.claudeProcesses ?? 0,
         agents || (n.claudeProcesses ?? 0),
         counts ? JSON.stringify(counts) : null,
+        n.cpuEnergy?.length ? JSON.stringify(n.cpuEnergy) : null,
+        n.gpuEnergyMj ?? null,
       );
       // A probe that learned nothing static (a bare userland, a node mid
       // boot) keeps what an earlier one learned.

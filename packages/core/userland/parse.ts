@@ -22,11 +22,15 @@ export interface WireProbe {
   disks: { name: string; rota: 0 | 1 | null }[];
   hprocs: string[];
   rapl: number[] | null;
+  /** RAPLMAX: max_energy_range_uj per package, the wrap point of each counter on the RAPL line. */
+  raplMax: number[] | null;
+  /** NVML: cumulative GPU energy in millijoules, one per GPU. */
+  nvml: number[] | null;
   gpu: string[];
 }
 
 export function readWire(stdout: string): WireProbe {
-  const w: WireProbe = { shellRan: false, complete: false, kv: {}, disks: [], hprocs: [], rapl: null, gpu: [] };
+  const w: WireProbe = { shellRan: false, complete: false, kv: {}, disks: [], hprocs: [], rapl: null, raplMax: null, nvml: null, gpu: [] };
   for (const raw of stdout.split('\n')) {
     const line = raw.replace(/\r$/, '');
     if (line === 'uf=1') { w.shellRan = true; continue; }
@@ -37,7 +41,9 @@ export function readWire(stdout: string): WireProbe {
       continue;
     }
     if (line.startsWith('HPROC ')) { w.hprocs.push(line.slice(6)); continue; }
+    if (line.startsWith('RAPLMAX ')) { w.raplMax = line.slice(8).trim().split(/\s+/).map(Number); continue; }
     if (line.startsWith('RAPL ')) { w.rapl = line.slice(5).trim().split(/\s+/).map(Number); continue; }
+    if (line.startsWith('NVML ')) { w.nvml = line.slice(5).trim().split(/\s+/).map(Number); continue; }
     if (line.startsWith('GPU ')) { w.gpu.push(line.slice(4)); continue; }
     const eq = line.indexOf('=');
     if (eq > 0 && /^[a-z_][a-z0-9_]*$/.test(line.slice(0, eq))) {
@@ -256,9 +262,14 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
   let powerWatts: number | undefined;
   let gpuPowerWatts: number | undefined;
   let powerSource: MeshNode['powerSource'] | undefined;
+  // The counters themselves, kept for differencing across samples (4013).
+  // The watts below are a 100 ms estimate; a delta of these is exact energy.
+  let cpuEnergy: MeshNode['cpuEnergy'];
+  let gpuEnergyMj: number | undefined;
 
   if (w.rapl && w.rapl.length >= 3 && !isNaN(w.rapl[0]!) && !isNaN(w.rapl[2]!)) {
     const [r1, r1b, r2, r2b, dtRaw] = w.rapl;
+    cpuEnergy = raplCounters([r2!, r2b ?? 0], w.raplMax ?? []);
     const dt = dtRaw && dtRaw > 0 ? dtRaw : 0.1;
     let delta0 = r2! - r1!;
     if (delta0 < 0) delta0 += 2 ** 32;
@@ -283,6 +294,9 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
     gpuMemUsedMB = g.memUsedMB;
     gpuUtil = g.util;
     if (g.watts != null) gpuPowerWatts = round(g.watts);
+  }
+  if (w.nvml && w.nvml.length && w.nvml.every((v) => Number.isFinite(v) && v >= 0)) {
+    gpuEnergyMj = w.nvml.reduce((a, v) => a + v, 0);
   }
 
   if (!powerWatts && networkWatts !== null) {
@@ -309,11 +323,28 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
     powerWatts, gpuPowerWatts: gpuPowerWatts ?? undefined,
     gpuModel, gpuMemTotalMB: gpuMemTotalMB ? Math.round(gpuMemTotalMB) : undefined,
     gpuMemUsedMB: gpuMemUsedMB ? Math.round(gpuMemUsedMB) : undefined,
-    gpuUtil, arch, powerSource,
+    gpuUtil, arch, powerSource, cpuEnergy, gpuEnergyMj,
     os: kv.os || undefined, osRelease: kv.osrel || undefined, userland: kv.userland || undefined,
     kind, vms: kv.vms ? parseInt(kv.vms) || 0 : undefined, model: kv.model || undefined,
     containers: kv.containers !== undefined ? parseInt(kv.containers) || 0 : undefined,
     containersRunning: kv.containers_running !== undefined ? parseInt(kv.containers_running) || 0 : undefined,
     truncated: !w.complete || undefined,
   };
+}
+
+/**
+ * The RAPL counters as a probe read them, paired with each package's wrap
+ * point. The first package is always kept; a second is kept when it read
+ * above zero (the script prints 0 for a socket that is not there). A package
+ * whose max is unknown gets 2^32 µJ, the counter width the watts estimate
+ * above assumes too. Undefined when nothing was read.
+ */
+export function raplCounters(ujs: number[], maxes: number[]): Array<{ uj: number; max: number }> | undefined {
+  const out: Array<{ uj: number; max: number }> = [];
+  ujs.forEach((uj, i) => {
+    if (!Number.isFinite(uj) || (i > 0 && uj <= 0)) return;
+    const max = Number.isFinite(maxes[i]) && maxes[i]! > 0 ? maxes[i]! : 2 ** 32;
+    out.push({ uj, max });
+  });
+  return out.length ? out : undefined;
 }

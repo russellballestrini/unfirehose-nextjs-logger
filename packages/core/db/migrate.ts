@@ -486,6 +486,11 @@ export function migrate(db: Database.Database) {
   addColumn('mesh_snapshots', 'gpu_util', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_used_mb', 'REAL');
   addColumn('mesh_snapshots', 'gpu_mem_total_mb', 'REAL');
+  // Cumulative energy counters at probe time (ticket 4013, grade B): RAPL
+  // energy_uj per package with its wrap point, as JSON; NVML millijoules
+  // summed over GPUs. Differenced across samples for exact energy.
+  addColumn('mesh_snapshots', 'cpu_energy_json', 'TEXT');
+  addColumn('mesh_snapshots', 'gpu_energy_mj', 'REAL');
   // Agent processes beyond claude. claude_processes stays as it was so older
   // rows and readers keep their meaning; these carry every harness, because a
   // node running five uncloseai-cli agents used to graph as a flat zero.

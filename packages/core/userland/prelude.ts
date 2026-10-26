@@ -47,5 +47,12 @@ nvidia() {
   if have nvidia-smi; then
     nvidia-smi --query-gpu=power.draw,name,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | sed 's/^/GPU /'
   fi
+  # NVML's cumulative energy counter, millijoules since driver load, one
+  # value per GPU. nvidia-smi has no field for it; the python bindings do.
+  # Silent where they are not installed (salt: energy-counters).
+  if have python3; then
+    nv=\`python3 -c 'import pynvml as n;n.nvmlInit();print(" ".join(str(n.nvmlDeviceGetTotalEnergyConsumption(n.nvmlDeviceGetHandleByIndex(i))) for i in range(n.nvmlDeviceGetCount())))' 2>/dev/null\`
+    if [ -n "$nv" ]; then echo "NVML $nv"; fi
+  fi
 }
 `;

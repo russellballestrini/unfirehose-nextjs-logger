@@ -48,14 +48,6 @@ export const LinuxGnu: Userland = {
 
   ps aux 2>/dev/null | hprocs
 
-  # Containers, counted from one ps: the card shows running/total and links
-  # to the node's Containers tab. A dead daemon makes the CLI wait; bound it.
-  if have docker; then
-    c=\`{ have timeout && timeout 5 docker ps -a --format '{{.State}}' || docker ps -a --format '{{.State}}'; } 2>/dev/null | awk '{t++} $1=="running"{r++} END{print t+0, r+0}'\`
-    kv containers "\`echo "$c" | cut -d' ' -f1\`"
-    kv containers_running "\`echo "$c" | cut -d' ' -f2\`"
-  fi
-
   # Intel RAPL: two energy readings a known interval apart. Old sleep
   # cannot do fractions; report which interval we actually got.
   e0=/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj
@@ -65,6 +57,11 @@ export const LinuxGnu: Userland = {
     if sleep 0.1 2>/dev/null; then dt=0.1; else sleep 1; dt=1; fi
     r2=\`cat "$e0" 2>/dev/null\`; r2b=\`cat "$e1" 2>/dev/null\`
     echo "RAPL $r1 \${r1b:-0} $r2 \${r2b:-0} $dt"
+    # Each counter wraps at its max_energy_range_uj (~262 kJ, an hour at
+    # 80 W); a reader differencing r2 across samples needs the range.
+    m0=\`cat /sys/class/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj 2>/dev/null\`
+    m1=\`cat /sys/class/powercap/intel-rapl/intel-rapl:1/max_energy_range_uj 2>/dev/null\`
+    echo "RAPLMAX \${m0:-0} \${m1:-0}"
   fi
 
   nvidia

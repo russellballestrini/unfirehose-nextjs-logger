@@ -25,6 +25,7 @@ import { execFile } from 'child_process';
 import { readFile, readdir } from 'fs/promises';
 import { cpus, type as osType, release as osRelease } from 'os';
 import { setTimeout as sleep } from 'timers/promises';
+import { raplCounters } from './userland/parse';
 import { harnessPsAwk, parseHarnessProcesses, countByHarness } from './harness-procs';
 import {
   type MeshNode, lookupCpuTdp, lookupCpuYear, parseCpuModel, countSpinningDisks,
@@ -48,15 +49,32 @@ const readText = (p: string) => readFile(p, 'utf-8').catch(() => null);
  * Package energy over a 100 ms window. The wait is a timer, not a child
  * process sleeping while the event loop cannot turn.
  */
-async function readRaplWatts(): Promise<number | null> {
+async function readRapl(): Promise<{ watts: number | null; counters?: MeshNode['cpuEnergy'] }> {
   const basePath = '/sys/class/powercap/intel-rapl';
   const packages = (await readdir(basePath).catch(() => [] as string[])).filter((d) => /^intel-rapl:\d+$/.test(d));
-  if (packages.length === 0) return null;
+  if (packages.length === 0) return { watts: null };
   const readAll = () => Promise.all(packages.map((pkg) => readText(`${basePath}/${pkg}/energy_uj`)));
   const read1 = await readAll();
   await sleep(100);
-  const read2 = await readAll();
-  return raplWatts(read1, read2, 0.1);
+  const [read2, maxes] = await Promise.all([
+    readAll(),
+    Promise.all(packages.map((pkg) => readText(`${basePath}/${pkg}/max_energy_range_uj`))),
+  ]);
+  // The second read is the counter we keep (4013): differenced against the
+  // next sample's it is exact energy, where the watts are a 100 ms estimate.
+  const counters = raplCounters(read2.map((v) => (v === null ? NaN : parseInt(v))), maxes.map((v) => (v === null ? NaN : parseInt(v))));
+  return { watts: raplWatts(read1, read2, 0.1), counters };
+}
+
+/** NVML's cumulative GPU energy, millijoules summed over GPUs; null where the bindings are not installed. */
+async function readNvmlEnergyMj(): Promise<number | null> {
+  const out = await run('python3', ['-c',
+    'import pynvml as n;n.nvmlInit();print(" ".join(str(n.nvmlDeviceGetTotalEnergyConsumption(n.nvmlDeviceGetHandleByIndex(i))) for i in range(n.nvmlDeviceGetCount())))'],
+    { timeoutMs: 3000 });
+  if (!out) return null;
+  const vals = out.trim().split(/\s+/).map(Number);
+  if (!vals.length || !vals.every((v) => Number.isFinite(v) && v >= 0)) return null;
+  return vals.reduce((a, v) => a + v, 0);
 }
 
 /**
@@ -136,7 +154,7 @@ export function forgetLocalStaticFacts(): void { staticFacts = null; }
 
 export async function getLocalStats(): Promise<MeshNode> {
   try {
-    const [facts, meminfo, loadavg, uptimeRaw, ps, raplWatts, nv] = await Promise.all([
+    const [facts, meminfo, loadavg, uptimeRaw, ps, rapl, nv, gpuEnergyMj] = await Promise.all([
       localStaticFacts(),
       readText('/proc/meminfo'),
       readText('/proc/loadavg'),
@@ -145,8 +163,9 @@ export async function getLocalStats(): Promise<MeshNode> {
       // uncloseai-cli runs as `python3 .../unclose`, so a basename match on
       // column 11 reported zero while five agents were running.
       run('/bin/sh', ['-c', `ps aux 2>/dev/null | awk '${harnessPsAwk()}' | sed 's/^/HPROC /'`]),
-      readRaplWatts(),
+      readRapl(),
       readNvidia(),
+      readNvmlEnergyMj(),
     ]);
     const { hostname, cpuCores, cpuModel, spinningDisks, ssdCount, arch } = facts;
 
@@ -178,9 +197,9 @@ export async function getLocalStats(): Promise<MeshNode> {
     // Power monitoring: RAPL first, then TDP-based system calc.
     let powerWatts: number | undefined;
     let powerSource: MeshNode['powerSource'];
-    if (raplWatts !== null) {
+    if (rapl.watts !== null) {
       // RAPL = CPU package only — add RAM, disks, baseline, PSU loss
-      powerWatts = raplWatts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
+      powerWatts = rapl.watts + calcNonCpuWatts({ memTotalGB: memTotal, spinningDisks, ssdCount, isServer, isLaptop });
       powerSource = 'rapl';
     } else if (cpuTdpWatts !== null) {
       powerWatts = calcSystemWatts({
@@ -211,6 +230,8 @@ export async function getLocalStats(): Promise<MeshNode> {
       swapTotalGB: round(swapTotal),
       swapUsedGB: round(swapTotal - swapFree),
       powerWatts,
+      cpuEnergy: rapl.counters,
+      gpuEnergyMj: gpuEnergyMj ?? undefined,
       gpuPowerWatts: nv.watts ?? undefined,
       gpuModel: nv.model,
       gpuMemTotalMB: nv.memTotalMB ? Math.round(nv.memTotalMB) : undefined,
