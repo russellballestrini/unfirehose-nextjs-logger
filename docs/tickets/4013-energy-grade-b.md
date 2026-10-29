@@ -180,7 +180,7 @@ pulled by hand after each push; no gitfs).
 | guile (no GPU, by hand 10-26) | yes | n/a | 2026-10-26 12:00 | 325 / 1 |
 | 3090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
 | 4090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
-| cammy (P40) | yes | yes, 21:09 today | first bucket pending (21:15 quarter) | 0 / 326 |
+| cammy (P40) | yes | yes, 21:09 today | **B** from the 21:15 bucket (first partial read: ~83 W measured against ~160 W estimated, 1.35 Wh of that idle) | 1 / 326 |
 | blanka (Fedora 44, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
 | neoblanka (this workstation, Ubuntu 24.04, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
 | ryu (ai-3060) | — | — | minion offline, no route from here | no data |
