@@ -154,3 +154,58 @@ not compare one host's B to another's C. vLLM counters now land every 15
 seconds on both GPU boxes; zero `SQLITE_BUSY` since the restart. Salt:
 `energy-counters` fleet-wide under os:Ubuntu, `energy-counters.nvml` on
 the GPU hosts (foxhop-states 6818327), not yet applied.
+
+## Live, 2026-10-29 21:10 UTC, salt applied from akuma
+
+fox: "ok do that from akuma, sudo is passwordless from fox" and "if you think
+NVML is needed add it to salt states for our machines". Done from the master
+(`sudo -n salt`, file_roots is fox's checkout at `/home/fox/foxhop-states`,
+pulled by hand after each push; no gitfs).
+
+- `energy-counters` (RAPL tmpfiles rule) was already converged on every
+  Ubuntu minion: the dry run found the file in place fleet-wide, so the
+  scheduled highstate had applied foxhop-states 6818327 before we came by
+  hand. `python3-pynvml` was already on 4090-ai and 3090-ai the same way.
+  That is why 3090 and 4090 have read grade B since 2026-10-27 23:30 UTC.
+- cammy was grade C with RAPL readable: its Tesla P40 makes it a GPU host,
+  and a GPU host without NVML stays C by design. Attached
+  `energy-counters.nvml` to cammy (foxhop-states 4fc071c), applied; the
+  NVML line landed in the next snapshot (21:08:59). **The P40 (Pascal,
+  driver 580.178.04) does return `nvmlDeviceGetTotalEnergyConsumption`**,
+  although NVML documents it for Volta and newer. Test before assuming.
+- Step 1 of fox's three steps (pip install per box) is superseded by salt.
+
+| host | RAPL | NVML | grade B since | buckets B / C since 10-26 |
+|---|---|---|---|---|
+| guile (no GPU, by hand 10-26) | yes | n/a | 2026-10-26 12:00 | 325 / 1 |
+| 3090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
+| 4090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
+| cammy (P40) | yes | yes, 21:09 today | first bucket pending (21:15 quarter) | 0 / 326 |
+| blanka (Fedora 44, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
+| neoblanka (this workstation, Ubuntu 24.04, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
+| ryu (ai-3060) | — | — | minion offline, no route from here | no data |
+
+Newest grade B bucket per host, measured beside the estimate for the same
+quarter hour (measured excludes DIMMs, disks, fans, PSU loss by design):
+
+| host | bucket | measured | estimate | idle |
+|---|---|---|---|---|
+| 3090-ai | 2026-10-29 21:00 | 11.9 Wh (9.81 Wh GPU) | 23.33 Wh | measured |
+| 4090-ai | 2026-10-29 21:00 | 10.98 Wh (7.84 Wh GPU) | 19.41 Wh | measured |
+| guile | 2026-10-29 21:00 | 8.91 Wh | 32.69 Wh | p10 |
+
+guile's gap is the largest because its estimate carries 251 GB of DIMMs and
+spinning disks; the two GPU boxes come in at roughly half their estimate.
+The estimate's non-CPU, non-GPU model (`calcNonCpuWatts`) is now the one
+number a wall meter would settle (grade A).
+
+Outstanding for blanka and neoblanka, as root on each (what
+`make node-energy-prep HOST=` prints):
+
+```
+printf 'z /sys/class/powercap/intel-rapl:0/energy_uj 0444 - - -\nz /sys/class/powercap/intel-rapl:1/energy_uj 0444 - - -\n' > /etc/tmpfiles.d/unfirehose-rapl.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/unfirehose-rapl.conf
+```
+
+Either fox runs it by hand, or enrols both as minions so `os:Ubuntu` picks
+up neoblanka (blanka is Fedora and would need its own target). fox decides.
