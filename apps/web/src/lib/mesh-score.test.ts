@@ -178,9 +178,16 @@ describe('egress grouping', () => {
     expect(getEffectiveIspCost('gamma', 110, groups)).toBe(110);
   });
 
-  it('keeps a node with no geoip reading in its own group', () => {
-    const groups = computeEgressGroups([{ hostname: 'lonely' }], []);
-    expect(groups.get('lonely')).toEqual(['lonely']);
+  it('bills no connection for a node whose egress was never read', () => {
+    // An unreachable box behind the shared pipe answered geoip with an empty
+    // ip and was billed a whole connection of its own: $110 became $220.
+    const groups = computeEgressGroups(
+      [{ hostname: 'alpha' }, { hostname: 'beta' }, { hostname: 'dark' }],
+      [...geoip, { hostname: 'dark', ip: '' }],
+    );
+    expect([...groups.values()].flat()).not.toContain('dark');
+    expect(getEffectiveIspCost('dark', 110, groups)).toBe(0);
+    expect(computeEgressGroups([{ hostname: 'lonely' }], []).size).toBe(0);
   });
 });
 

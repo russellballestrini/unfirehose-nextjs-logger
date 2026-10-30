@@ -142,6 +142,7 @@ function NodeCardCost({ cost }: { cost: NodeCost }) {
           ${Math.round(cost.ispMonthly)}/mo isp <span className="opacity-60">(split)</span>
         </span>
       )}
+      {cost.ispUnknown && <span className="opacity-60" title="Egress never read, so this node adds no ISP bill">isp unknown</span>}
       {cost.watts > 0 && <span className="opacity-60">${cost.perWatt.toFixed(2)}/W·mo</span>}
       <span className="ml-auto font-bold text-[var(--color-foreground)]">
         ${Math.round(cost.monthly)}/mo

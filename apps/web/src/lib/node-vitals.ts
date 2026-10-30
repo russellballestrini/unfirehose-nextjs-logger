@@ -118,6 +118,8 @@ export interface NodeCost {
   monthly: number;
   /** True when the line is shared, so the card can say so. */
   ispShared: boolean;
+  /** True when this node's connection was never read, so it bills nothing. */
+  ispUnknown: boolean;
   /** Dollars per watt per month — what this node costs to keep running. */
   perWatt: number;
   /** Where the wattage came from: measured, estimated, or nowhere. */
@@ -150,7 +152,8 @@ export function nodeMonthlyCost(
     elecMonthly,
     ispMonthly,
     monthly,
-    ispShared: ispMonthly < econ.ispCostMonthly,
+    ispShared: ispMonthly > 0 && ispMonthly < econ.ispCostMonthly,
+    ispUnknown: ispMonthly === 0 && econ.ispCostMonthly > 0,
     perWatt: watts > 0 ? monthly / watts : 0,
     source: node?.powerSource === 'rapl' ? 'rapl' : node?.powerSource === 'tdp' ? 'tdp' : 'n/a',
   };

@@ -85,6 +85,14 @@ describe('nodeMonthlyCost', () => {
     expect(cost.ispShared).toBe(false);
   });
 
+  it('bills nothing for a node whose connection was never read', () => {
+    const groups = new Map([['203.0.113.7', ['cammy', 'guile']]]);
+    const cost = nodeMonthlyCost({ powerWatts: 0 }, econ, 'dark', groups);
+    expect(cost.ispMonthly).toBe(0);
+    expect(cost.ispUnknown).toBe(true);
+    expect(cost.ispShared).toBe(false);
+  });
+
   it('says where the wattage came from, including nowhere', () => {
     expect(nodeMonthlyCost({ powerSource: 'rapl' }, econ, 'n').source).toBe('rapl');
     expect(nodeMonthlyCost({ powerSource: 'tdp' }, econ, 'n').source).toBe('tdp');

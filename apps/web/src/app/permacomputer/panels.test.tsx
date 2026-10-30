@@ -162,7 +162,8 @@ describe('mesh panels', () => {
     const nodes = [{ key: 'cammy', hostname: 'cammy', econ, meshNode: node }];
     const { container } = render(
       <MeshEconomicsPanel allNodes={nodes} meshNodes={[node]}
-                          getNodeEcon={() => econ} geoipNodes={[]} />,
+                          getNodeEcon={() => econ}
+                          geoipNodes={[{ hostname: 'cammy', ip: '203.0.113.7' }]} />,
     );
     expect(container.textContent).toContain('$34 elec + $110 isp');
     const row = container.querySelector('[title="$34 elec + $110 isp"]')!;

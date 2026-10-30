@@ -144,7 +144,10 @@ export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: numb
 
 // Group nodes by egress IP to identify shared pipes
 // Matching is fuzzy: mesh hostname "cammy" matches geoip "cammy.foxhop.net",
-// and "localhost" matches the first mesh node.
+// and "localhost" matches the first mesh node. A node whose egress we never
+// read (unreachable, geoip still loading) joins no group: giving it a group of
+// its own billed it a whole connection, so one dark box behind the shared
+// pipe doubled the mesh's ISP cost.
 export function computeEgressGroups(
   nodes: { hostname: string; sshHostname?: string }[],
   geoipNodes: any[],
@@ -158,7 +161,8 @@ export function computeEgressGroups(
       (n.sshHostname && g.hostname?.startsWith(n.hostname + '.')) ||
       (g.hostname === 'localhost' && n.hostname === firstMeshHostname)
     );
-    const egressIp = geo?.ip ?? n.hostname; // fallback to hostname if no geoip
+    const egressIp = geo?.ip;
+    if (!egressIp) continue;
     const group = groups.get(egressIp) ?? [];
     group.push(n.hostname);
     groups.set(egressIp, group);
@@ -166,14 +170,13 @@ export function computeEgressGroups(
   return groups;
 }
 
-// Get the effective ISP cost for a node, splitting among nodes that share the same egress IP
+// Get the effective ISP cost for a node, splitting among nodes that share the
+// same egress IP. A node in no group has no known connection and adds nothing.
 export function getEffectiveIspCost(hostname: string, ispCost: number, egressGroups: Map<string, string[]>): number {
   for (const [, group] of egressGroups) {
-    if (group.includes(hostname) && group.length > 1) {
-      return ispCost / group.length;
-    }
+    if (group.includes(hostname)) return ispCost / group.length;
   }
-  return ispCost;
+  return 0;
 }
 
 export const HOURS_PER_MONTH = 24 * 30;
