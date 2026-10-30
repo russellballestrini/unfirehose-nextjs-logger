@@ -181,7 +181,7 @@ pulled by hand after each push; no gitfs).
 | 3090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
 | 4090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
 | cammy (P40) | yes | yes, 21:09 today | **B** from the 21:15 bucket (first partial read: ~83 W measured against ~160 W estimated, 1.35 Wh of that idle) | 1 / 326 |
-| blanka (Fedora 44, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
+| blanka (Fedora 44, not a minion) | yes, fox by hand 2026-10-30 20:38 | n/a | **B** from the 20:45 bucket on 10-30 (first partial read: ~17 W measured against ~33 W estimated) | 1 / 326 |
 | neoblanka (this workstation, Ubuntu 24.04, not a minion) | yes, fox by hand 2026-10-30 13:16 | n/a | **B** from the 13:30 bucket on 10-30 (first partial read: ~18 W measured against ~47 W estimated) | 1 / 326 |
 | ryu (ai-3060) | — | — | minion offline, no route from here | no data |
 
@@ -209,3 +209,9 @@ systemd-tmpfiles --create /etc/tmpfiles.d/unfirehose-rapl.conf
 
 Either fox runs it by hand, or enrols both as minions so `os:Ubuntu` picks
 up neoblanka (blanka is Fedora and would need its own target). fox decides.
+
+Every live host reads grade B as of 2026-10-30 20:45 UTC: guile, 3090-ai,
+4090-ai and cammy through salt (NVML included), neoblanka and blanka through
+fox's by-hand tmpfiles step. Each box flipped on the very next 15 s sample,
+with no restart on our side. ryu stays unmeasured until it is back on the
+network. Buckets before each box's flip stay C forever, by design.
