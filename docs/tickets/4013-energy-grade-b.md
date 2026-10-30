@@ -182,7 +182,7 @@ pulled by hand after each push; no gitfs).
 | 4090-ai | yes | yes | 2026-10-27 23:30 | 183 / 143 |
 | cammy (P40) | yes | yes, 21:09 today | **B** from the 21:15 bucket (first partial read: ~83 W measured against ~160 W estimated, 1.35 Wh of that idle) | 1 / 326 |
 | blanka (Fedora 44, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
-| neoblanka (this workstation, Ubuntu 24.04, not a minion) | 0400 | n/a | needs fox's root step | 0 / 326 |
+| neoblanka (this workstation, Ubuntu 24.04, not a minion) | yes, fox by hand 2026-10-30 13:16 | n/a | **B** from the 13:30 bucket on 10-30 (first partial read: ~18 W measured against ~47 W estimated) | 1 / 326 |
 | ryu (ai-3060) | — | — | minion offline, no route from here | no data |
 
 Newest grade B bucket per host, measured beside the estimate for the same
