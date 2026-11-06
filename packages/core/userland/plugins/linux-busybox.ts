@@ -56,12 +56,13 @@ export const LinuxBusybox: Userland = {
   fi
 
   # Intel RAPL: two energy readings a known interval apart. Old sleep
-  # cannot do fractions; report which interval we actually got.
+  # cannot do fractions; report which interval we actually got. A box with
+  # no sleep at all reports dt=0: no watts, but the counters still count.
   e0=/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj
   e1=/sys/class/powercap/intel-rapl/intel-rapl:1/energy_uj
   if [ -r "$e0" ]; then
     r1=\`cat "$e0" 2>/dev/null\`; r1b=\`cat "$e1" 2>/dev/null\`
-    if sleep 0.1 2>/dev/null; then dt=0.1; else sleep 1; dt=1; fi
+    if sleep 0.1 2>/dev/null; then dt=0.1; elif sleep 1 2>/dev/null; then dt=1; else dt=0; fi
     r2=\`cat "$e0" 2>/dev/null\`; r2b=\`cat "$e1" 2>/dev/null\`
     echo "RAPL $r1 \${r1b:-0} $r2 \${r2b:-0} $dt"
     # Each counter wraps at its max_energy_range_uj (~262 kJ, an hour at

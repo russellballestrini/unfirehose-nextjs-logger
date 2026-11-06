@@ -56,6 +56,14 @@ describe('energy counters on the wire (ticket 4013)', () => {
     expect(one.cpuEnergy).toHaveLength(1);
   });
 
+  it('a box with no sleep sends dt 0: the counters count, the watts do not', () => {
+    // Two reads back to back are not a power measurement; the plugin says so
+    // with dt=0 rather than failing on the missing command.
+    const node = parseRemoteProbe('bare', withCounters('9000000 0 9000040 0 0', 'RAPLMAX 262143328850 0'));
+    expect(node.cpuEnergy).toEqual([{ uj: 9000040, max: 262143328850 }]);
+    expect(node.powerSource).not.toBe('rapl');
+  });
+
   it('falls back to the counter width when the range line is missing, as an older probe would send', () => {
     const node = parseRemoteProbe('old', probe({ rapl: '1000 0 1100 0 0.1' }));
     expect(node.cpuEnergy).toEqual([{ uj: 1100, max: 2 ** 32 }]);

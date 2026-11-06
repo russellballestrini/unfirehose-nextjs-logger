@@ -270,12 +270,15 @@ export function parseWireProbe(host: string, stdout: string): MeshNode {
   if (w.rapl && w.rapl.length >= 3 && !isNaN(w.rapl[0]!) && !isNaN(w.rapl[2]!)) {
     const [r1, r1b, r2, r2b, dtRaw] = w.rapl;
     cpuEnergy = raplCounters([r2!, r2b ?? 0], w.raplMax ?? []);
-    const dt = dtRaw && dtRaw > 0 ? dtRaw : 0.1;
+    // dt 0 is a box with no sleep: the two reads are back to back, so there
+    // are no watts to take, only the counters. An older plugin sends no dt
+    // at all and slept 100 ms.
+    const dt = dtRaw === 0 ? 0 : dtRaw && dtRaw > 0 ? dtRaw : 0.1;
     let delta0 = r2! - r1!;
     if (delta0 < 0) delta0 += 2 ** 32;
     let delta1 = 0;
     if (!isNaN(r1b!) && !isNaN(r2b!)) { delta1 = r2b! - r1b!; if (delta1 < 0) delta1 += 2 ** 32; }
-    const cpuWatts = round((delta0 + delta1) / (dt * 1e6));
+    const cpuWatts = dt > 0 ? round((delta0 + delta1) / (dt * 1e6)) : 0;
     if (cpuWatts > 0 && cpuWatts < 10000) {
       powerWatts = round(cpuWatts + calcNonCpuWatts({ memTotalGB: mem.totalGB, spinningDisks, ssdCount, isServer, isLaptop }));
       powerSource = 'rapl';
