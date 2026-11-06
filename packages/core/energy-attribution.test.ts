@@ -135,6 +135,15 @@ describe('grade B: energy from counters beside the estimate (4013)', () => {
     expect(hostIntervals([a, b])[0].measuredWh).toBeUndefined();
   });
 
+  it('a reboot inside an interval is a reset, not a wrap: the interval goes unmeasured (item 7)', () => {
+    // neoblanka 2026-10-31 17:37, which had added 118 Wh to one bucket.
+    const a = { ts: T0, watts: 36, gpuWatts: 0, cpuEnergy: [{ uj: 16.086e9, max: RANGE }], uptimeS: 500_000 };
+    const b = { ts: T0 + 129_000, watts: 39, gpuWatts: 0, cpuEnergy: [{ uj: 0.48e9, max: RANGE }], uptimeS: 40 };
+    const [iv] = hostIntervals([a, b]);
+    expect(iv.measuredWh).toBeUndefined();
+    expect(iv.hours).toBeCloseTo(129 / 3600, 9);  // still sampled, so the bucket grades C
+  });
+
   it('a bucket is grade B when counters covered it, C when a stretch was uncounted', () => {
     const all = integrateBuckets(hostIntervals(hot(61)), T0, T0 + ENERGY_BUCKET_MS, () => 100);
     const b = all.get(T0)!;

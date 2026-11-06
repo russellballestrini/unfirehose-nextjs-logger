@@ -36,6 +36,38 @@ describe('counterDeltaWh', () => {
   });
 });
 
+describe('a counter reset is not a wrap (4013 item 7)', () => {
+  const pkg = (uj: number) => ({ uj, max: RANGE });
+  // neoblanka, 2026-10-31 17:37: 16.1 kJ -> 0.48 kJ across a 129 s reboot on a
+  // 36 W box, which the wrap rule had read as 246 kJ, 1.9 kW, 68 Wh.
+  it('a reboot inside the interval, told by uptime, is unmeasured', () => {
+    expect(counterDeltaWh({ cpu: [pkg(16.086e9)], uptimeS: 500_000 }, { cpu: [pkg(0.48e9)], uptimeS: 40 }, 129).cpuWh).toBeNull();
+    expect(counterDeltaWh({ cpu: [pkg(16.086e9)] }, { cpu: [pkg(0.48e9)], uptimeS: 40 }, 129).cpuWh).toBeNull();
+  });
+  it('every package stepping back at once is a reset; one of two wrapping is not', () => {
+    expect(counterDeltaWh({ cpu: [pkg(16.086e9), pkg(83.8e9)] }, { cpu: [pkg(0.48e9), pkg(1.428e9)] }, 129).cpuWh).toBeNull();
+    const one = counterDeltaWh({ cpu: [pkg(RANGE - 500e6), pkg(10e9)] }, { cpu: [pkg(700e6), pkg(11e9)] }, 15);
+    expect(one.cpuWh).toBeCloseTo((1200e6 + 1e9) / 3.6e9, 9);
+  });
+  it('a wrapped delta far above the sampled draw is a reset; a plausible one is a wrap', () => {
+    expect(counterDeltaWh({ cpu: [pkg(16.086e9)], watts: 36 }, { cpu: [pkg(0.48e9)], watts: 39 }, 129).cpuWh).toBeNull();
+    expect(counterDeltaWh({ cpu: [pkg(RANGE - 500e6)], watts: 90 }, { cpu: [pkg(700e6)], watts: 90 }, 15).cpuWh).toBeCloseTo(1200e6 / 3.6e9, 9);
+  });
+  it('with no sampled draw, a kilowatt per package is the line', () => {
+    expect(counterDeltaWh({ cpu: [pkg(16.086e9)] }, { cpu: [pkg(0.48e9)] }, 129).cpuWh).toBeNull();
+    expect(counterDeltaWh({ cpu: [pkg(RANGE - 500e6)] }, { cpu: [pkg(700e6)] }, 15).cpuWh).toBeCloseTo(1200e6 / 3.6e9, 9);
+  });
+  it('an uptime of zero means unknown, not a reboot', () => {
+    expect(counterDeltaWh({ cpu: [pkg(RANGE - 500e6)], uptimeS: 0 }, { cpu: [pkg(700e6)], uptimeS: 0 }, 15).cpuWh).toBeCloseTo(1200e6 / 3.6e9, 9);
+  });
+  it('without an interval length the wrap rule stands as before', () => {
+    expect(counterDeltaWh({ cpu: [pkg(RANGE - 500e6)] }, { cpu: [pkg(700e6)] }).cpuWh).toBeCloseTo(1200e6 / 3.6e9, 9);
+  });
+  it('measuredIntervalWh carries the interval through', () => {
+    expect(measuredIntervalWh({ cpu: [pkg(16.086e9)], gpuWatts: 0, watts: 36 }, { cpu: [pkg(0.48e9)], gpuWatts: 0, watts: 39 }, 129)).toBeNull();
+  });
+});
+
 describe('measuredIntervalWh', () => {
   const cpu = (uj: number) => [{ uj, max: RANGE }];
   it('needs both counters on a box that reports GPU power', () => {

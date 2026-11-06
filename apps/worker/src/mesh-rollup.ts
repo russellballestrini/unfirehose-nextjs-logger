@@ -69,6 +69,7 @@ interface MeshRow {
   mem_used_gb: number | null;
   power_watts: number | null;
   gpu_power_watts: number | null;
+  uptime_s?: number | null;
   gpu_util: number | null;
   gpu_mem_used_mb: number | null;
   gpu_mem_total_mb: number | null;
@@ -281,7 +282,7 @@ function rollupOneBucket(db: Database): boolean {
  * carries (ticket 4013). Coverage is the share of the sampled span whose
  * intervals were measured end to end; grade B at 95 %.
  */
-export function measuredEnergy(samples: Array<Pick<MeshRow, 'timestamp' | 'gpu_power_watts'> & { cpu_energy_json?: string | null; gpu_energy_mj?: number | null }>): { wh: number | null; gpuWh: number | null; grade: 'B' | 'C' } {
+export function measuredEnergy(samples: Array<Pick<MeshRow, 'timestamp' | 'gpu_power_watts'> & { power_watts?: number | null; cpu_energy_json?: string | null; gpu_energy_mj?: number | null; uptime_s?: number | null }>): { wh: number | null; gpuWh: number | null; grade: 'B' | 'C' } {
   const MAX_GAP_MS = 5 * 60_000;
   let wh = 0, gpuWh = 0, measuredMs = 0, spanMs = 0, any = false;
   for (let i = 0; i + 1 < samples.length; i++) {
@@ -289,9 +290,13 @@ export function measuredEnergy(samples: Array<Pick<MeshRow, 'timestamp' | 'gpu_p
     const dt = Date.parse(b.timestamp.replace(' ', 'T') + 'Z') - Date.parse(a.timestamp.replace(' ', 'T') + 'Z');
     if (!(dt > 0) || dt > MAX_GAP_MS) continue;
     spanMs += dt;
+    // Watts and uptime beside the counters let a reset be told from a wrap (4013 item 7).
     const m = measuredIntervalWh(
-      { cpu: parseCpuEnergyJson(a.cpu_energy_json), gpuMj: a.gpu_energy_mj ?? null, gpuWatts: a.gpu_power_watts ?? 0 },
-      { cpu: parseCpuEnergyJson(b.cpu_energy_json), gpuMj: b.gpu_energy_mj ?? null, gpuWatts: b.gpu_power_watts ?? 0 },
+      { cpu: parseCpuEnergyJson(a.cpu_energy_json), gpuMj: a.gpu_energy_mj ?? null, gpuWatts: a.gpu_power_watts ?? 0,
+        watts: (a.power_watts ?? 0) + (a.gpu_power_watts ?? 0), uptimeS: a.uptime_s ?? null },
+      { cpu: parseCpuEnergyJson(b.cpu_energy_json), gpuMj: b.gpu_energy_mj ?? null, gpuWatts: b.gpu_power_watts ?? 0,
+        watts: (b.power_watts ?? 0) + (b.gpu_power_watts ?? 0), uptimeS: b.uptime_s ?? null },
+      dt / 1000,
     );
     if (m) { wh += m.wh; gpuWh += m.gpuWh; measuredMs += dt; any = true; }
   }

@@ -103,6 +103,8 @@ export interface HotSample {
   ts: number; watts: number; gpuWatts: number;
   cpuEnergy?: Array<{ uj: number; max: number }> | null;
   gpuEnergyMj?: number | null;
+  /** Seconds since boot at the sample, 0 or absent when the probe did not say (4013 item 7). */
+  uptimeS?: number | null;
 }
 export interface ColdSample extends HotSample {
   sampleCount: number;
@@ -124,8 +126,9 @@ export function hostIntervals(hot: HotSample[], cold: ColdSample[] = []): Interv
     if (!integrable(dt)) continue;
     const iv: Interval = { ts: h[i].ts, hours: dt / 3_600_000, watts: h[i].watts, gpuWatts: h[i].gpuWatts };
     const m = measuredIntervalWh(
-      { cpu: h[i].cpuEnergy, gpuMj: h[i].gpuEnergyMj, gpuWatts: h[i].gpuWatts },
-      { cpu: h[i + 1].cpuEnergy, gpuMj: h[i + 1].gpuEnergyMj, gpuWatts: h[i + 1].gpuWatts },
+      { cpu: h[i].cpuEnergy, gpuMj: h[i].gpuEnergyMj, gpuWatts: h[i].gpuWatts, watts: h[i].watts, uptimeS: h[i].uptimeS },
+      { cpu: h[i + 1].cpuEnergy, gpuMj: h[i + 1].gpuEnergyMj, gpuWatts: h[i + 1].gpuWatts, watts: h[i + 1].watts, uptimeS: h[i + 1].uptimeS },
+      dt / 1000,
     );
     if (m) { iv.measuredWh = m.wh; iv.measuredGpuWh = m.gpuWh; }
     out.push(iv);
@@ -253,8 +256,11 @@ export function splitActive(activeWh: number, groups: { weight: number; messages
  *   2  endpoint, then provider map, then model hardware hint (2026-10-25:
  *      fox's box had no endpoint on any of 167k messages, so nothing was
  *      ever attributed)
+ *   3  a backward RAPL step is a reset, not a wrap, when uptime, every
+ *      package at once, or the implied watts say so (2026-11-06: neoblanka's
+ *      reboot had read as 118 Wh in one bucket; 4013 item 7)
  */
-export const ENERGY_RULES_VERSION = 2;
+export const ENERGY_RULES_VERSION = 3;
 
 export interface UsageIdentity {
   endpoint: string | null | undefined;
@@ -396,7 +402,7 @@ export function buildEnergyChunk(
 
   const hotSql = db.prepare(`
     SELECT hostname, timestamp, COALESCE(power_watts, 0) AS cpu, COALESCE(gpu_power_watts, 0) AS gpu,
-           cpu_energy_json, gpu_energy_mj
+           cpu_energy_json, gpu_energy_mj, uptime_s
       FROM mesh_snapshots WHERE timestamp >= ? AND timestamp < ?
   `);
   const coldSql = db.prepare(`
@@ -407,10 +413,10 @@ export function buildEnergyChunk(
   const byHost = new Map<string, { hot: HotSample[]; cold: ColdSample[] }>();
   const slot = (h: string) => { let s = byHost.get(h); if (!s) { s = { hot: [], cold: [] }; byHost.set(h, s); } return s; };
   const load = (a: number, b: number) => {
-    for (const r of hotSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number; cpu_energy_json: string | null; gpu_energy_mj: number | null }[]) {
+    for (const r of hotSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number; cpu_energy_json: string | null; gpu_energy_mj: number | null; uptime_s: number | null }[]) {
       slot(r.hostname).hot.push({
         ts: parseSqlTime(r.timestamp), watts: r.cpu + r.gpu, gpuWatts: r.gpu,
-        cpuEnergy: parseCpuEnergyJson(r.cpu_energy_json), gpuEnergyMj: r.gpu_energy_mj,
+        cpuEnergy: parseCpuEnergyJson(r.cpu_energy_json), gpuEnergyMj: r.gpu_energy_mj, uptimeS: r.uptime_s,
       });
     }
     for (const r of coldSql.all(sqlTime(a), sqlTime(b)) as { hostname: string; timestamp: string; cpu: number; gpu: number; sample_count: number; measured_wh: number | null; measured_gpu_wh: number | null }[]) {

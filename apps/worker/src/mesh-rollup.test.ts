@@ -38,6 +38,16 @@ describe('measuredEnergy', () => {
     const rows = [0, 1].map((i) => ({ timestamp: sqlTime(Date.UTC(2026, 8, 1, 0, 0, 15 * i)), gpu_power_watts: 280, cpu_energy_json: null, gpu_energy_mj: null }));
     expect(measuredEnergy(rows as never)).toEqual({ wh: null, gpuWh: null, grade: 'C' });
   });
+  it('a reboot mid-bucket drops its interval instead of adding a wrap (4013 item 7)', () => {
+    const t = (s: number) => sqlTime(Date.UTC(2026, 8, 1, 0, 0, s));
+    const row = (s: number, uj: number, uptime: number, w: number) => ({
+      timestamp: t(s), gpu_power_watts: 0, power_watts: w, uptime_s: uptime,
+      cpu_energy_json: JSON.stringify([{ uj, max: RANGE }]), gpu_energy_mj: null,
+    });
+    const m = measuredEnergy([row(0, 16.086e9, 500_000, 36), row(15, 16.626e9, 500_015, 36), row(144, 0.48e9, 40, 39)] as never);
+    expect(m.wh).toBeCloseTo(540e6 / 3.6e9, 9);  // the first 15 s only
+    expect(m.grade).toBe('C');                    // 15 of 144 s measured
+  });
 });
 
 describe('rollup keeps measured energy', () => {

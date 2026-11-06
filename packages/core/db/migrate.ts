@@ -494,6 +494,9 @@ export function migrate(db: Database.Database) {
   // summed over GPUs. Differenced across samples for exact energy.
   addColumn('mesh_snapshots', 'cpu_energy_json', 'TEXT');
   addColumn('mesh_snapshots', 'gpu_energy_mj', 'REAL');
+  // Seconds since boot at the sample: a reboot inside an interval resets RAPL,
+  // which the counters alone cannot tell from a wrap (4013 item 7).
+  addColumn('mesh_snapshots', 'uptime_s', 'INTEGER');
   addColumn('mesh_snapshots_15m', 'measured_wh', 'REAL');
   addColumn('mesh_snapshots_15m', 'measured_gpu_wh', 'REAL');
   addColumn('mesh_snapshots_15m', 'energy_grade', 'TEXT');
