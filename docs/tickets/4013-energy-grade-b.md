@@ -215,3 +215,60 @@ Every live host reads grade B as of 2026-10-30 20:45 UTC: guile, 3090-ai,
 fox's by-hand tmpfiles step. Each box flipped on the very next 15 s sample,
 with no restart on our side. ryu stays unmeasured until it is back on the
 network. Buckets before each box's flip stay C forever, by design.
+
+## Live, 2026-11-06 14:50 UTC, fox: "check now?"
+
+Six days on. 3090-ai, 4090-ai, cammy, guile and neoblanka: every bucket B
+in the last 24 h except seven on the GPU boxes (below). blanka: **C since
+its 2026-11-04 12:46 EST reboot.** The tmpfiles rule is still on disk, but
+`systemd-tmpfiles-setup` finished in the same second the kernel logged
+"Found RAPL domain package", so the `z` line ran before `energy_uj`
+existed and did nothing; Fedora loads `intel_rapl_msr` late. The three
+Ubuntu boxes that rebooted today kept 0444, but only because their module
+loads earlier; the race is the same. Fix proposed: a udev rule that fires
+on the powercap device's add event, which by definition is after the
+attribute exists, plus the tmpfiles line for the immediate apply:
+
+```
+/etc/udev/rules.d/90-unfirehose-rapl.rules
+SUBSYSTEM=="powercap", ACTION=="add", TEST=="energy_uj", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"
+```
+
+guile reads its counters as root over ssh and carries no rule at all.
+
+The seven C buckets on the GPU boxes: four are reboots (NVML reset, the
+interval dropped by design, 11-01 21:45 and 23:00, 11-05 21:15, 11-06
+13:45 and 14:00) and two are NVML outages where `python3 -c 'import pynvml'`
+answered nothing for 29 and 54 of a bucket's samples (3090 11-02 19:15,
+4090 11-03 14:45). C is the honest answer in both cases.
+
+### 7. A counter reset is not a wrap (defect, found on this check)
+
+`counterDeltaWh` treats every backward step of a RAPL counter as a wrap
+and adds the package's range. A **reboot or a suspend/resume resets the
+counter to zero**, which looks the same from the counter alone. On a GPU
+box the NVML counter resets too and `measuredIntervalWh` drops the whole
+interval, which is why the GPU boxes' reboot buckets are C and not wrong.
+On a box without a GPU nothing catches it:
+
+| neoblanka event | dt | both packages | ledger effect |
+|---|---|---|---|
+| 2026-10-31 17:37:29 reboot | 129 s | 16.1 kJ → 0.48 kJ, 83.8 kJ → 1.43 kJ | +118 Wh phantom: bucket 17:30 reads **121.7 Wh measured** against 12.6 Wh estimated, grade B |
+| 2026-11-01 12:11:11 resume | 104 min | reset | dropped by the five-minute gap rule |
+| 2026-11-01 12:47:13 resume | 8.8 min | reset | dropped by the gap rule |
+
+The 48-hour figure given to fox on 10-31 (neoblanka 0.43 kWh measured)
+carried that phantom; the true number was about 0.31 kWh.
+
+Proposed rule, exact where it can be and bounded where it cannot: a
+backward CPU counter is a wrap only when (a) the box did not boot inside
+the interval (store `uptime_s` per snapshot; a reboot is exact), (b) not
+every package stepped back at once (independent counters wrap at
+different phases; a simultaneous step is a reset), and (c) the implied
+watts of the wrapped delta stay within 3x the interval's sampled watts
+from the same RAPL (a wrap's delta is the real draw; a reset's is a random
+share of the range). Otherwise the interval is unmeasured, and the bucket
+grades C if that costs it coverage. Same rule in `mesh-rollup.ts`. Bump
+`ENERGY_RULES_VERSION` to recompute the ledger and re-roll the affected
+cold rows; the hot samples back to 10-26 are still here. About an hour
+with tests. **fox decides.**
