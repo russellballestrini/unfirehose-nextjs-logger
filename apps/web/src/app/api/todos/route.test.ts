@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createTestDb } from '@unturf/unfirehose/test/db-helper';
 
@@ -7,6 +7,9 @@ const db = createTestDb();
 
 vi.mock('@unturf/unfirehose/db/schema', () => ({ getDb: () => db }));
 vi.mock('@unturf/unfirehose/uuidv7', () => ({ uuidv7: () => 'test-uuid-001' }));
+// tmux is reached only when a deployment is culled; record the calls, run nothing.
+const { execAsyncMock } = vi.hoisted(() => ({ execAsyncMock: vi.fn(async () => ({ stdout: '', stderr: '' })) }));
+vi.mock('@unturf/unfirehose/git-exec', () => ({ execAsync: execAsyncMock }));
 
 const { GET, POST, PATCH, DELETE: DELETE_handler } = await import('./route');
 
@@ -238,5 +241,50 @@ describe('GET /api/todos', () => {
     expect(data.byProject.length).toBe(2);
     const groupA = data.byProject.find((g: any) => g.project === 'group-a');
     expect(groupA.todos.length).toBe(2);
+  });
+});
+
+// === completing a todo culls the agent deployments it finished ===
+
+describe('PATCH /api/todos culls finished deployments', () => {
+  const deploy = (projectId: number, todoIds: number[], session = 'agents', window: string | null = 'w1') =>
+    db.prepare("INSERT INTO agent_deployments (tmux_session, tmux_window, project_id, todo_ids, status) VALUES (?, ?, ?, ?, 'running')")
+      .run(session, window, projectId, JSON.stringify(todoIds)).lastInsertRowid as number;
+  const deployment = (id: number) => db.prepare('SELECT status, stopped_at FROM agent_deployments WHERE id = ?').get(id) as { status: string; stopped_at: string | null };
+  const complete = (id: number) => PATCH(req('/api/todos', { method: 'PATCH', body: { id, status: 'completed' } }));
+
+  // Deployments reference projects, which the file-level beforeEach deletes:
+  // clear them after each test so that delete keeps working.
+  beforeEach(() => { execAsyncMock.mockClear(); });
+  afterEach(() => { db.exec('DELETE FROM agent_deployments'); });
+
+  it('a deployment ends when the last todo it tracks is done, and claude is told to exit', async () => {
+    const pid = seedProject('cull-tracked');
+    const t1 = seedTodo(pid, 'first'), t2 = seedTodo(pid, 'second');
+    const other = seedTodo(pid, 'unrelated, keeps the project open');
+    const d = deploy(pid, [t1, t2]);
+
+    expect((await complete(t1)).status).toBe(200);
+    expect(deployment(d).status).toBe('running');
+    expect(execAsyncMock).not.toHaveBeenCalled();
+
+    expect((await complete(t2)).status).toBe(200);
+    expect(deployment(d).status).toBe('completed');
+    expect(deployment(d).stopped_at).not.toBeNull();
+    expect(execAsyncMock).toHaveBeenCalledWith('tmux', ['send-keys', '-t', 'agents:w1', '/exit', 'Enter'], expect.objectContaining({ timeout: 3000 }));
+    expect((db.prepare('SELECT status FROM todos WHERE id = ?').get(other) as { status: string }).status).toBe('pending');
+  });
+
+  it('a project with no open todo left ends every deployment of that project and no other', async () => {
+    const a = seedProject('cull-project-a'), b = seedProject('cull-project-b');
+    const ta = seedTodo(a, 'the last one'); seedTodo(b, 'still open');
+    const da = deploy(a, [], 'agents', null), db2 = deploy(b, [], 'agents', 'w2');
+
+    expect((await complete(ta)).status).toBe(200);
+    expect(deployment(da).status).toBe('completed');
+    expect(deployment(db2).status).toBe('running');
+    // A deployment without a window is addressed by its session alone.
+    expect(execAsyncMock).toHaveBeenCalledWith('tmux', ['send-keys', '-t', 'agents', '/exit', 'Enter'], expect.anything());
+    expect(execAsyncMock).toHaveBeenCalledTimes(1);
   });
 });

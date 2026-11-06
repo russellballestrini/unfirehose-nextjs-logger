@@ -4,7 +4,7 @@ import { createTestDb } from './test/db-helper';
 import {
   weightedPercentile, idleWattsForDay, idleWindow, hostIntervals, integrateBuckets, splitActive,
   resolveMeshHost, resolveUsageHost, refreshEnergyAttribution, readEnergyAttribution, buildEnergyChunk, measuredIdleWindow,
-  ENERGY_BUCKET_MS, ENERGY_KEYS, ENERGY_RULES_VERSION, QUIET_MATCH_MS, sqlTime, type Interval, type IdleCache,
+  ENERGY_BUCKET_MS, ENERGY_KEYS, ENERGY_RULES_VERSION, QUIET_MATCH_MS, sqlTime, readProviderNodes, type Interval, type IdleCache,
 } from './energy-attribution';
 import { selfHostWeight } from './pricing';
 import { nodeEconKey } from './mesh-econ';
@@ -468,5 +468,28 @@ describe('refreshEnergyAttribution', () => {
     const r = refreshEnergyAttribution(empty, { now: NOW });
     expect(r).toEqual({ chunks: 0, buckets: 0, through: null });
     expect(readEnergyAttribution(empty, { from: T0, to: NOW }).hosts).toEqual([]);
+  });
+});
+
+describe('readProviderNodes: the provider to node map from Settings', () => {
+  const put = (db: Database.Database, v: string) =>
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ENERGY_KEYS.providerNodes, v);
+
+  it('is empty when nothing is set', () => {
+    expect(readProviderNodes(createTestDb())).toEqual({});
+  });
+
+  it('keeps string hosts, trimmed, and drops anything else', () => {
+    const db = createTestDb();
+    put(db, JSON.stringify({ uncloseai: ' 4090-ai.foxhop.net ', nous: 42, blank: '   ', nested: { a: 1 } }));
+    expect(readProviderNodes(db)).toEqual({ uncloseai: '4090-ai.foxhop.net' });
+  });
+
+  it('reads a list, a scalar, null or garbage as no map rather than throwing', () => {
+    const db = createTestDb();
+    for (const raw of ['["4090-ai"]', '"4090-ai"', 'null', '{not json']) {
+      put(db, raw);
+      expect(readProviderNodes(db), raw).toEqual({});
+    }
   });
 });

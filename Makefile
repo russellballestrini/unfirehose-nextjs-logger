@@ -15,6 +15,11 @@ COVERED := packages/core packages/ui apps/web scripts
 
 # Vitest writes coverage-final.json per workspace; every report below reads
 # those rather than re-running anything, so looking twice costs nothing.
+# Extra vitest flags for every test and coverage target. On a shared
+# workstation: make coverage VITEST_ARGS=--maxWorkers=2 (vitest forks one
+# node process per test file, as many at once as it is allowed; each shows
+# in top as MainThread).
+VITEST_ARGS ?=
 COVERAGE_REPORTERS := --coverage.reporter=text-summary --coverage.reporter=json --coverage.reporter=html
 
 # Measuring and gating are different jobs. `make coverage` measures, so it
@@ -49,25 +54,25 @@ userland-plugins:
 	python3 packages/core/userland/gen-plugins.py
 
 test-core:
-	@echo "==> packages/core"; cd packages/core && npx vitest run
+	@echo "==> packages/core"; cd packages/core && npx vitest run $(VITEST_ARGS)
 test-ui:
-	@echo "==> packages/ui"; cd packages/ui && npx vitest run
+	@echo "==> packages/ui"; cd packages/ui && npx vitest run $(VITEST_ARGS)
 test-web:
-	@echo "==> apps/web"; cd apps/web && npx vitest run
+	@echo "==> apps/web"; cd apps/web && npx vitest run $(VITEST_ARGS)
 test-scripts:
-	@echo "==> scripts"; cd scripts && npx vitest run
+	@echo "==> scripts"; cd scripts && npx vitest run $(VITEST_ARGS)
 # unfirehose/1.0 conformance: schemas compile strict, fixtures & doc examples validate.
 test-schema:
-	@echo "==> packages/schema"; cd packages/schema && npx vitest run
+	@echo "==> packages/schema"; cd packages/schema && npx vitest run $(VITEST_ARGS)
 
 cov-core:
-	@echo "==> packages/core"; cd packages/core && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+	@echo "==> packages/core"; cd packages/core && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS) $(VITEST_ARGS)
 cov-ui:
-	@echo "==> packages/ui"; cd packages/ui && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+	@echo "==> packages/ui"; cd packages/ui && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS) $(VITEST_ARGS)
 cov-web:
-	@echo "==> apps/web"; cd apps/web && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+	@echo "==> apps/web"; cd apps/web && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS) $(VITEST_ARGS)
 cov-scripts:
-	@echo "==> scripts"; cd scripts && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS)
+	@echo "==> scripts"; cd scripts && npx vitest run --coverage $(COVERAGE_REPORTERS) $(NO_THRESHOLDS) $(VITEST_ARGS)
 
 # Run every suite under coverage, then print what they reached. HTML lands
 # in <workspace>/coverage/index.html for line-by-line reading.
@@ -99,7 +104,12 @@ coverage:
 # once Aider, energy attribution and credential alerts landed with them.
 # CI's runner is the reading that counts: 22115 there, 18 above a local run
 # of the same commit (coverage of a few timing-dependent paths differs).
-CRAP_BUDGET  ?= 22115
+# 2026-11-06: the energy counters (4013) added ~200 of covered complexity and
+# CI had been red for eleven days; paid down with tests on six uncovered
+# functions (alert sender, provider-node reader, cold block rewrite,
+# deployment cull, project fold merge, export facets) to 22017 locally.
+# 22060 leaves the runner its drift; lower it again when the number drops.
+CRAP_BUDGET  ?= 22060
 # Duplication: 3680 redundant tokens before batch three folded 23 clones
 # into shared code, 2002 with the new readers in.
 DUPE_BUDGET  ?= 2002

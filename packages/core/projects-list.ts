@@ -95,6 +95,27 @@ type TokenTotals = { input: number; output: number; cacheRead: number; cacheWrit
 
 const zeroTokens = (): TokenTotals => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 
+/**
+ * Fold one project row into another: the one merge both folds use (by path
+ * and by repository), so every field a project carries is summed in one
+ * place. Two copies of this once had to agree; the day they stopped, one
+ * fold silently lost tokens the other kept.
+ */
+export function mergeProjectInfo(repo: ProjectInfo, child: ProjectInfo): void {
+  repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
+  repo.sessionCount += child.sessionCount;
+  repo.totalMessages += child.totalMessages;
+  if (child.tokens) {
+    repo.tokens = repo.tokens ?? zeroTokens();
+    repo.tokens.input += child.tokens.input;
+    repo.tokens.output += child.tokens.output;
+    repo.tokens.cacheRead += child.tokens.cacheRead;
+    repo.tokens.cacheWrite += child.tokens.cacheWrite;
+  }
+  repo.foldedCount = (repo.foldedCount ?? 0) + 1 + (child.foldedCount ?? 0);
+  repo.harnesses = Array.from(new Set([...(repo.harnesses ?? []), ...(child.harnesses ?? [])]));
+}
+
 const tokensOf = (r: DbRow): TokenTotals => ({
   input: r.input_tokens ?? 0,
   output: r.output_tokens ?? 0,
@@ -308,20 +329,7 @@ export async function buildProjectList(): Promise<ProjectInfo[]> {
     // One merge, used by both folds. Two copies of this had to agree about
     // every field a project carries; the day they stopped agreeing, one fold
     // would silently lose tokens the other kept.
-    const mergeInto = (repo: ProjectInfo, child: ProjectInfo) => {
-      repo.latestActivity = newerOf(repo.latestActivity, child.latestActivity);
-      repo.sessionCount += child.sessionCount;
-      repo.totalMessages += child.totalMessages;
-      if (child.tokens) {
-        repo.tokens = repo.tokens ?? zeroTokens();
-        repo.tokens.input += child.tokens.input;
-        repo.tokens.output += child.tokens.output;
-        repo.tokens.cacheRead += child.tokens.cacheRead;
-        repo.tokens.cacheWrite += child.tokens.cacheWrite;
-      }
-      repo.foldedCount = (repo.foldedCount ?? 0) + 1 + (child.foldedCount ?? 0);
-      repo.harnesses = Array.from(new Set([...(repo.harnesses ?? []), ...(child.harnesses ?? [])]));
-    };
+    const mergeInto = mergeProjectInfo;
 
     let pathFolded = 0;
     const afterPathFold: ProjectInfo[] = [];

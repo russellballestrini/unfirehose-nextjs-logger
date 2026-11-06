@@ -4,7 +4,7 @@ import { createTestDb, seedProject, seedSession, seedMessage } from '../test/db-
 import {
   compressText, decompressText, blockTextSql, blockToolInputSql,
   getRetentionDays, setRetentionDays, parseRetentionDays, MIN_RETENTION_DAYS,
-  estimateColdMove, freezeBatch, thawBatch, coldStats, recountColdStats,
+  estimateColdMove, freezeBatch, thawBatch, coldStats, recountColdStats, rewriteBlockText,
 } from './block-cold';
 
 const DAY = 86_400_000;
@@ -210,5 +210,41 @@ describe('estimate', () => {
 
   it('is zero on an empty window', () => {
     expect(estimateColdMove(db, 90, { now: NOW })).toMatchObject({ blocks: 0, rawBytes: 0, estimatedSavedBytes: 0, ratio: 1 });
+  });
+});
+
+describe('rewriteBlockText', () => {
+  it('rewrites a hot block in place, to text or to nothing', () => {
+    const m = seedMessage(db, sessionId, { timestamp: ago(1) });
+    const id = addBlock(m, 0, 'text', 'password=hunter2');
+    rewriteBlockText(db, id, 'password=[redacted]');
+    expect(db.prepare('SELECT text_content FROM content_blocks WHERE id = ?').get(id)).toEqual({ text_content: 'password=[redacted]' });
+    rewriteBlockText(db, id, null);
+    expect(db.prepare('SELECT text_content FROM content_blocks WHERE id = ?').get(id)).toEqual({ text_content: null });
+  });
+
+  it('repacks a cold block, keeps its tool input and corrects the raw size', () => {
+    const m = seedMessage(db, sessionId, { timestamp: ago(200) });
+    const id = addBlock(m, 0, 'tool_use', 'old text', '{"command":"ls"}');
+    let r; do { r = freezeBatch(db, { days: 90, now: NOW, maxMessages: 50, minBytes: 1 }); } while (!r.caughtUp);
+    expect((db.prepare('SELECT cold FROM content_blocks WHERE id = ?').get(id) as { cold: number }).cold).toBe(1);
+
+    const text = 'new text, longer than the old one';
+    rewriteBlockText(db, id, text);
+    const c = db.prepare('SELECT text_z, tool_input_z, raw_bytes FROM content_blocks_cold WHERE block_id = ?')
+      .get(id) as { text_z: Buffer; tool_input_z: Buffer; raw_bytes: number };
+    expect(decompressText(c.text_z)).toBe(text);
+    expect(decompressText(c.tool_input_z)).toBe('{"command":"ls"}');
+    expect(c.raw_bytes).toBe(Buffer.byteLength(text) + Buffer.byteLength('{"command":"ls"}'));
+    expect(db.prepare(`SELECT ${blockTextSql('cb')} AS t FROM content_blocks cb WHERE id = ?`).get(id)).toEqual({ t: text });
+  });
+
+  it('does nothing for an unknown block, or a cold flag whose cold row is gone', () => {
+    expect(() => rewriteBlockText(db, 999_999, 'x')).not.toThrow();
+    const m = seedMessage(db, sessionId, { timestamp: ago(1) });
+    const id = addBlock(m, 0, 'text', 'orphaned');
+    db.prepare('UPDATE content_blocks SET cold = 1 WHERE id = ?').run(id);
+    expect(() => rewriteBlockText(db, id, 'y')).not.toThrow();
+    expect(db.prepare('SELECT text_content FROM content_blocks WHERE id = ?').get(id)).toEqual({ text_content: 'orphaned' });
   });
 });

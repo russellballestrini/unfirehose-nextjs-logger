@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync, chmodSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -6,7 +6,7 @@ import type Database from 'better-sqlite3';
 import { createTestDb, seedAlert } from '../test/db-helper';
 import {
   createRule, updateRule, deleteRule, listRules, listDeliveries, deliverDue, sendTestAlert,
-  memorySecretStore, fileSecretStore, scrubError, hasEnabledRules,
+  memorySecretStore, fileSecretStore, scrubError, hasEnabledRules, httpSend,
   type Sender, type SecretStore,
 } from './alert-delivery';
 import type { OutboundRequest } from '../alert-delivery';
@@ -284,5 +284,46 @@ describe('fileSecretStore', () => {
     } finally {
       if (prev !== undefined) process.env.UNFIREHOSE_ALERT_SECRETS_PATH = prev;
     }
+  });
+});
+
+describe('httpSend: fetch with a deadline, no redirects followed, a short error body', () => {
+  const req: OutboundRequest = {
+    url: 'https://hooks.example.test/services/T0/B0/secret', method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: '{"text":"hi"}',
+  };
+  const stub = (impl: (...a: unknown[]) => unknown) => { const f = vi.fn(impl); vi.stubGlobal('fetch', f); return f; };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('a 2xx is success and its body is dropped unread', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const f = stub(async () => ({ status: 204, headers: new Headers(), body: { cancel } }));
+    await expect(httpSend(req)).resolves.toEqual({ status: 204 });
+    expect(cancel).toHaveBeenCalled();
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(req.url);
+    expect(init).toMatchObject({ method: 'POST', redirect: 'manual', body: req.body, headers: req.headers });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('any other status is reported with a short body and the Retry-After it carried', async () => {
+    stub(async () => ({ status: 503, headers: new Headers({ 'retry-after': '30' }), text: async () => 'x'.repeat(500) }));
+    const r = await httpSend(req);
+    expect(r.status).toBe(503);
+    expect(r.retryAfterMs).toBe(30_000);
+    expect(r.error).toMatch(/^HTTP 503: x+$/);
+    expect(r.error!.length).toBe('HTTP 503: '.length + 200);
+    // A redirect is a status like any other: it is reported, never followed.
+    stub(async () => ({ status: 302, headers: new Headers({ 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT', location: 'https://elsewhere.test/' }), text: async () => { throw new Error('no body'); } }));
+    expect(await httpSend(req)).toEqual({ status: 302, error: 'HTTP 302', retryAfterMs: null });
+  });
+
+  it('a timeout, a socket error and a bare failure each say why, with the destination scrubbed', async () => {
+    stub(async () => { const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; });
+    expect(await httpSend(req)).toEqual({ status: null, error: 'timed out after 10s' });
+    stub(async () => { const e = new Error(`fetch failed ${req.url}`) as Error & { cause?: unknown }; e.cause = { code: 'ECONNREFUSED' }; throw e; });
+    expect(await httpSend(req)).toEqual({ status: null, error: 'fetch failed [destination] (ECONNREFUSED)' });
+    stub(async () => { throw new Error(''); });
+    expect(await httpSend(req)).toEqual({ status: null, error: 'send failed' });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { canonicalNamesByRootCommit } from './projects-list';
+import { canonicalNamesByRootCommit, mergeProjectInfo } from './projects-list';
+import type { ProjectInfo } from './types';
 
 /**
  * One name per repository, out of the several our projects table holds.
@@ -79,5 +80,41 @@ describe('canonicalNamesByRootCommit', () => {
 
   it('has nothing to fold for an empty list', () => {
     expect(canonicalNamesByRootCommit([], new Set()).size).toBe(0);
+  });
+});
+
+describe('mergeProjectInfo', () => {
+  const info = (over: Partial<ProjectInfo>): ProjectInfo => ({
+    name: 'repo', displayName: 'repo', path: '/r', sessionCount: 2, totalMessages: 20,
+    latestActivity: '2026-10-01T00:00:00Z', hasMemory: false, ...over,
+  });
+
+  it('sums counts and tokens, keeps the newer activity, unions harnesses, counts the fold', () => {
+    const repo = info({ tokens: { input: 10, output: 1, cacheRead: 100, cacheWrite: 5 }, harnesses: ['claude-code'] });
+    const child = info({
+      name: 'repo-scratch', sessionCount: 3, totalMessages: 7, latestActivity: '2026-10-20T00:00:00Z',
+      tokens: { input: 5, output: 2, cacheRead: 50, cacheWrite: 1 }, harnesses: ['uncloseai', 'claude-code'], foldedCount: 2,
+    });
+    mergeProjectInfo(repo, child);
+    expect(repo).toMatchObject({
+      sessionCount: 5, totalMessages: 27, latestActivity: '2026-10-20T00:00:00Z',
+      tokens: { input: 15, output: 3, cacheRead: 150, cacheWrite: 6 },
+      harnesses: ['claude-code', 'uncloseai'], foldedCount: 3,
+    });
+  });
+
+  it('a child without tokens leaves the parent without tokens; an older child does not move the date', () => {
+    const repo = info({ latestActivity: '2026-10-20T00:00:00Z' });
+    mergeProjectInfo(repo, info({ latestActivity: '2026-09-01T00:00:00Z' }));
+    expect(repo.tokens).toBeUndefined();
+    expect(repo.latestActivity).toBe('2026-10-20T00:00:00Z');
+    expect(repo.foldedCount).toBe(1);
+    expect(repo.harnesses).toEqual([]);
+  });
+
+  it('a child with tokens gives a parent that had none a fresh total', () => {
+    const repo = info({});
+    mergeProjectInfo(repo, info({ tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } }));
+    expect(repo.tokens).toEqual({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4 });
   });
 });

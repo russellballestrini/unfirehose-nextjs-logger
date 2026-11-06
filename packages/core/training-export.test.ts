@@ -8,7 +8,7 @@ const { seedDemo, DEMO_PROJECTS, DEMO_MODELS, DEMO_HARNESSES } = await import('.
 const { getOrCreateSession, insertMessage } = await import('./db/ingest-rows');
 const {
   exportTrainingSet, trainingExportLines, dryRunTrainingExport, emptyTrainingExportStats,
-  parseTrainingExportQuery, resolveProjectId, SFT_EXAMPLE_JSON_SCHEMA,
+  parseTrainingExportQuery, resolveProjectId, trainingExportFacets, SFT_EXAMPLE_JSON_SCHEMA,
 } = await import('./training-export');
 type Filters = import('./training-export').TrainingExportFilters;
 
@@ -61,6 +61,22 @@ describe('training export from our demo database', () => {
       expect(ex.messages[0].role).toBe('user');
       expect(ex.messages[ex.messages.length - 1].role).toBe('assistant');
     }
+  });
+
+  it('offers a filter form the harnesses and models actually seen, for all projects or one', () => {
+    const everything = trainingExportFacets(db);
+    const seenModels = (db.prepare("SELECT DISTINCT model AS v FROM messages WHERE type = 'assistant' AND model IS NOT NULL ORDER BY v").all() as { v: string }[]).map((r) => r.v);
+    expect(everything.models).toEqual(seenModels);
+    expect(everything.models.length).toBeGreaterThan(0);
+    for (const h of DEMO_HARNESSES) expect(everything.harnesses).toContain(h);
+    expect(everything.harnesses).toEqual([...everything.harnesses].sort());
+
+    const one = trainingExportFacets(db, DEMO_PROJECTS[0].name);
+    expect(one.models.length).toBeGreaterThan(0);
+    expect(one.models.every((m) => everything.models.includes(m))).toBe(true);
+    expect(one.harnesses.length).toBeGreaterThan(0);
+
+    expect(trainingExportFacets(db, 'no-such-project')).toEqual({ harnesses: [], models: [] });
   });
 
   it('pairs every tool call with its result, in OpenAI function-calling form', () => {
