@@ -285,8 +285,15 @@ with tests. fox: "ok" (2026-11-06).
 `uptimeS` and `watts` on each sample, `counterReset` as above, snapshots
 store `uptime_s` (all six live hosts carry it from the first sample after
 the restart), `ENERGY_RULES_VERSION = 3`. The worker is recomputing from
-the first cold row (2026-04-06) at about two days a minute; neoblanka's
-10-31 17:30 bucket is checked below once the cursor passes it.
+the first cold row (2026-04-06); it reached today at 15:48 UTC, 23 minutes.
+
+Outcome: neoblanka's 10-31 17:30 bucket reads **3.3 Wh measured, grade C**
+(129 s of its 15 min unmeasured, the reboot) against 12.6 Wh estimated,
+down from 121.7 Wh grade B. No bucket in the ledger has measured energy
+above twice its estimate any more. Every other host's measured total moved
+only by the window sliding. Rows built before the grade column existed now
+carry C instead of null, so C counts in older queries look larger; nothing
+else changed.
 
 Also shipped the same hour, fox: "ok": the udev rule in salt
 (foxhop-states f5ab94e), applied from akuma to all eleven online Ubuntu
