@@ -147,9 +147,17 @@ export function checkBudget(
 ): void {
   const budget = flags.num('budget', Infinity);
   if (!Number.isFinite(budget)) return;
+  // Under GitHub Actions the reading also goes out as an annotation, which
+  // the public API serves (check-runs/{job}/annotations) when the job log
+  // needs admin rights. The runner's number is the one the budget tracks.
+  const annotate = (kind: 'notice' | 'error', text: string) => {
+    if (process.env.GITHUB_ACTIONS) console.log(`::${kind} title=${label}::${text}`);
+  };
   if (actual > budget) {
+    annotate('error', `${actual} is over the budget of ${budget}`);
     console.error(`\n  ${label} ${actual} is over the budget of ${budget}`);
     process.exit(1);
   }
+  annotate('notice', `${actual} of ${budget}`);
   console.log(`  ${dim(`within budget: ${actual} of ${budget}`)}`);
 }

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { table, bar, grade, args, paint, writeJson } from './render.ts';
+import { table, bar, grade, args, paint, writeJson, checkBudget } from './render.ts';
 import { ROOT } from './workspaces.ts';
 
 // Colour is off under NO_COLOR / non-TTY, which is how tests and CI run, so
@@ -126,3 +126,36 @@ describe('writeJson', () => {
   });
 });
 
+
+
+describe('checkBudget', () => {
+  const flags = (budget?: number) => ({ num: (_: string, fallback: number) => budget ?? fallback });
+  const lines: string[] = [];
+  let log: ReturnType<typeof vi.spyOn>, err: ReturnType<typeof vi.spyOn>, exit: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    lines.length = 0;
+    log = vi.spyOn(console, 'log').mockImplementation((s: string) => { lines.push(String(s)); });
+    err = vi.spyOn(console, 'error').mockImplementation((s: string) => { lines.push(String(s)); });
+    exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
+    delete process.env.GITHUB_ACTIONS;
+  });
+  afterEach(() => { log.mockRestore(); err.mockRestore(); exit.mockRestore(); delete process.env.GITHUB_ACTIONS; });
+
+  it('says nothing without a budget, passes under it, exits over it', () => {
+    checkBudget('total crap', 5, flags());
+    expect(lines).toEqual([]);
+    checkBudget('total crap', 5, flags(10));
+    expect(lines.join('\n')).toContain('within budget: 5 of 10');
+    expect(() => checkBudget('total crap', 11, flags(10))).toThrow('exit');
+    expect(lines.join('\n')).toContain('total crap 11 is over the budget of 10');
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it('under GitHub Actions the reading goes out as an annotation too', () => {
+    process.env.GITHUB_ACTIONS = 'true';
+    checkBudget('total crap', 5, flags(10));
+    expect(lines[0]).toBe('::notice title=total crap::5 of 10');
+    expect(() => checkBudget('redundant tokens', 11, flags(10))).toThrow('exit');
+    expect(lines).toContain('::error title=redundant tokens::11 is over the budget of 10');
+  });
+});
