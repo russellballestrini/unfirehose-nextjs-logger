@@ -239,7 +239,10 @@ guile reads its counters as root over ssh and carries no rule at all.
 fox laid the udev rule on neoblanka first (2026-11-06 15:05 UTC); `udevadm
 verify` passes and `udevadm test --action=add` binds our chmod to
 intel-rapl:0, so it will fire at boot coldplug. `scripts/node-energy-prep.sh`
-now reports the rule and prints it when missing. blanka still needs it.
+now reports the rule and prints it when missing. blanka got it at 15:12 UTC:
+the trigger alone took `energy_uj` from 0400 to 0444 under SELinux
+enforcing, so the rule runs for real, not only in simulation. Counters back
+in blanka's next snapshot (15:12:49).
 
 The seven C buckets on the GPU boxes: four are reboots (NVML reset, the
 interval dropped by design, 11-01 21:45 and 23:00, 11-05 21:15, 11-06
