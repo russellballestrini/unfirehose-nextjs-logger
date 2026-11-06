@@ -236,6 +236,11 @@ SUBSYSTEM=="powercap", ACTION=="add", TEST=="energy_uj", RUN+="/usr/bin/chmod 04
 
 guile reads its counters as root over ssh and carries no rule at all.
 
+fox laid the udev rule on neoblanka first (2026-11-06 15:05 UTC); `udevadm
+verify` passes and `udevadm test --action=add` binds our chmod to
+intel-rapl:0, so it will fire at boot coldplug. `scripts/node-energy-prep.sh`
+now reports the rule and prints it when missing. blanka still needs it.
+
 The seven C buckets on the GPU boxes: four are reboots (NVML reset, the
 interval dropped by design, 11-01 21:45 and 23:00, 11-05 21:15, 11-06
 13:45 and 14:00) and two are NVML outages where `python3 -c 'import pynvml'`
