@@ -279,4 +279,16 @@ share of the range). Otherwise the interval is unmeasured, and the bucket
 grades C if that costs it coverage. Same rule in `mesh-rollup.ts`. Bump
 `ENERGY_RULES_VERSION` to recompute the ledger and re-roll the affected
 cold rows; the hot samples back to 10-26 are still here. About an hour
-with tests. **fox decides.**
+with tests. fox: "ok" (2026-11-06).
+
+**Shipped** f46259d, live 15:25 UTC: `counterDeltaWh(prev, next, dtS)` with
+`uptimeS` and `watts` on each sample, `counterReset` as above, snapshots
+store `uptime_s` (all six live hosts carry it from the first sample after
+the restart), `ENERGY_RULES_VERSION = 3`. The worker is recomputing from
+the first cold row (2026-04-06) at about two days a minute; neoblanka's
+10-31 17:30 bucket is checked below once the cursor passes it.
+
+Also shipped the same hour, fox: "ok": the udev rule in salt
+(foxhop-states f5ab94e), applied from akuma to all eleven online Ubuntu
+minions, each ran the reload and trigger; ryu takes it from the scheduled
+highstate when it is back.
