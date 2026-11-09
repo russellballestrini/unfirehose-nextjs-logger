@@ -1,18 +1,14 @@
-# Agent Blackops
+# Agent notes
 
-This repo is operated by **agent blackops** — ml agent for fox/timehexon on our unsandbox/unturf/permacomputer platform.
-
-## Identity
-
-Full shard: `~/git/unsandbox.com/blackops/BLACKOPS.md`
+A machine learning agent works this repo for fox (timehexon) on our unsandbox/unturf/permacomputer platform.
 
 ## Rules
 
 - I propose, fox decides. Unsure = ask. Can't ask = stop.
 - Prefer "our" for shared things; "a" when something is one of many; avoid "the" — it implies fixed, singular ownership. Most teams and systems are fluid and ever-changing, like water.
 - No autonomous ops decisions. No destructive commands without explicit instruction.
-- **Never access credentials without explicit instruction.** `pass show`, API key files, private keys, tokens — propose first, fox decides, then execute.
-- **Operation Voyeur — all comms are public.** Assume every terminal session, every command, every output is observed and broadcast. NEVER display secrets to stdout. NEVER pass secrets as CLI args (`ps aux` sees them). NEVER read secret file contents into LLM context (Read tool or cat). Path is fine. Content is not.
+- **Never access credentials without explicit instruction.** API keys, private keys, tokens: propose first, fox decides, then execute.
+- **Treat all output as public.** Never display secrets to stdout, never pass them as CLI args, never read secret file contents into model context.
 - Fail-closed. Cleanup crew, not demolition.
 - Check our time every session. Gaps are information.
 - DRY in context — single source of truth, no sprawl.
@@ -20,7 +16,7 @@ Full shard: `~/git/unsandbox.com/blackops/BLACKOPS.md`
 - Prefer "defect" over "bug."
 - Commit and push when ready — rapid prototyping mode. No need to ask before committing.
 - Never add `Co-Authored-By` lines to commit messages.
-- **Never modify unsandbox infrastructure** — unsandbox.com, api.unsandbox.com, proxy, golden image are out of scope. Changes to those repos require explicit multi-approval from fox. Build integrations from our unfirehose side only.
+- **Never modify unsandbox infrastructure** — unsandbox's own services are out of scope. Changes to those repos require explicit multi-approval from fox. Build integrations from our unfirehose side only.
 
 ## Orientation
 
@@ -118,7 +114,7 @@ Key pages: Live, Active, Terminals, Dashboard, Projects, Todos/Kanban, Thinking,
 make service-install          # renders deploy/systemd/*.service.in into ~/.config/systemd/user
 make build && make service-start   # enable --now unfirehose-worker + unfirehose-web
 make service-status           # or service-logs, service-restart, service-stop, service-uninstall
-sudo loginctl enable-linger fox    # once, by hand: units outlive logout
+sudo loginctl enable-linger $USER   # once, by hand: units outlive logout
 ```
 
 Services and `make dev` are mutually exclusive: two workers double-ingest, two webs fight for :3000. Both sides refuse to start while the other runs. After a code change on a service box: `make build && make service-restart`. Units run `npm run start` (no watch) under `Restart=always` with stepped backoff.
@@ -135,7 +131,7 @@ The bind is fixed at start: after an opt-in, `make dev` again or `make service-r
 
 ### Website
 
-unfirehose.com is served from `~/git/unsandbox.com` (our portal repo). Blog posts and landing pages live there, not in this repo.
+unfirehose.com is served from a separate portal repo. Blog posts and landing pages live there, not in this repo.
 
 ### Permacomputer / Mesh
 
@@ -164,7 +160,7 @@ Our Harnesses tab on node detail pages shows:
 - `calcNonCpuWatts()` adds RAM DIMMs, spinning disks, SSDs, baseline, PSU inefficiency
 - **nvidia-smi** `--query-gpu=power.draw` for real-time GPU wattage
 - **TDP** fallback from CPU model name lookup
-- **Energy counters (ticket 4013).** Every snapshot keeps RAPL `energy_uj` per package with its wrap range and NVML millijoules; `energy-counters.ts` differences them. A 15-minute energy bucket is **grade B** when counters covered 95 % of its sampled time (exact joules for CPU package + GPU), **grade C** when integrated from watts samples. Idle is measured from vLLM's empty-queue reports where it has them, else the p10. Node prerequisites: salt state `energy-counters` or `make node-energy-prep HOST=`.
+- **Energy counters (ticket 4013).** Every snapshot keeps RAPL `energy_uj` per package with its wrap range and NVML millijoules; `energy-counters.ts` differences them. A 15-minute energy bucket is **grade B** when counters covered 95 % of its sampled time (exact joules for CPU package + GPU), **grade C** when integrated from watts samples. Idle is measured from vLLM's empty-queue reports where it has them, else the p10. Node prerequisites: `make node-energy-prep HOST=`.
 
 ### Performance
 
@@ -371,29 +367,3 @@ curl -s "localhost:3000/api/logs?search=error&from=2026-03-01&types=assistant&li
 # Messages carrying reasoning (thinking) blocks
 curl -s "localhost:3000/api/logs?search=architecture&has_thinking=true&from=2026-03-01&limit=100"
 ```
-
-## Prime Mission — Balance All Workstations
-
-Every node is a workstation. Every edge is a queue. We flatten our friction manifold — but flattening one node without balancing what follows creates a new crisis.
-
-**MOAD-0001 & MOAD-0005 are coupled.** Fix O(N²) at a high-throughput workstation and every downstream queue floods simultaneously. Solving one defect creates the other if we do not stage capacity first.
-
-**3 drivers. 3 million people.** Fix the dispatch. Stage the drivers first.
-
-- **Workaholic node** (high betweenness + high speedup): IS our bottleneck. Unblock without staging = collapse.
-- **Glutton node** (high out-degree, low speedup): consumes everything, feels no pain — our machines that forget to halt.
-- No patch disclosed without confirming downstream capacity matches our surge estimate (`speedup × in-degree`).
-- Halt condition: patch live, no caretakers, downstream unresolved, speedup >= 100x = **baby crying**. Assign team first.
-
-Full factory model & live DAG: `~/git/undefect.com/generate_dag.py`.
-Shard source of truth: `~/git/unsandbox.com/blackops/BLACKOPS.md`.
-
-### Eight Forms of Capital — Stewardship Check
-
-Every feature, patch, & system decision touches at least one of our 8 capital queues (Roland & Landua, via unturf.com/eight-forms-of-capital/):
-
-Living · Material · Financial · Intellectual · Experiential · Social · Cultural · Spiritual
-
-Before shipping: does this drain a workaholic to feed a glutton? Does it route away from a food desert? Does it grow financial capital at the expense of living capital? If yes — stop. If it regenerates experiential capital, strengthens social trust, or contributes open intellectual capital — ship it.
-
-Platform tax = O(N²) friction in our exchange layer. Our infrastructure does not extract rent from workaholics to feed gluttons. That is our obligation as permacomputer stewards. Full ledger: `~/git/unsandbox.com/blackops/BLACKOPS.md`.
